@@ -1,0 +1,130 @@
+/**
+ * POST /api/inventory/manual-add
+ * Manually add inventory for a SKU without a Purchase Order.
+ *
+ * Body: {
+ *   sku:        string          // must match an existing Product
+ *   locationId: string          // target warehouse location
+ *   qty:        number          // must be >= 1
+ *   reason:     string          // 'New Stock' | 'Return' | 'Order Edit'
+ *   serials?:   string[]        // required (and length must equal qty) when product.isSerializable
+ * }
+ */
+import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+import { prisma } from '@/lib/prisma'
+import { getAuthUser } from '@/lib/get-auth-user'
+
+export const dynamic = 'force-dynamic'
+
+const bodySchema = z.object({
+  sku:        z.string().min(1),
+  locationId: z.string().min(1),
+  qty:        z.number().int().min(1),
+  reason:     z.enum(['New Stock', 'Return', 'Order Edit']),
+  gradeId:    z.string().optional().nullable(),
+  serials:    z.array(z.string().min(1)).optional(),
+})
+
+export async function POST(req: NextRequest) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  let body: unknown
+  try { body = await req.json() } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const parsed = bodySchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 })
+  }
+
+  const { sku, locationId, qty, reason, gradeId, serials } = parsed.data
+
+  // ── Resolve product ────────────────────────────────────────────────────────
+  const product = await prisma.product.findUnique({ where: { sku } })
+  if (!product) {
+    return NextResponse.json({ error: `No product found with SKU "${sku}"` }, { status: 404 })
+  }
+
+  // ── Resolve location ───────────────────────────────────────────────────────
+  const location = await prisma.location.findUnique({
+    where: { id: locationId },
+    include: { warehouse: true },
+  })
+  if (!location) {
+    return NextResponse.json({ error: 'Location not found' }, { status: 404 })
+  }
+
+  // ── Serializable validation ────────────────────────────────────────────────
+  if (product.isSerializable) {
+    if (!serials || serials.length === 0) {
+      return NextResponse.json(
+        { error: 'Serial numbers are required for serializable products' },
+        { status: 400 },
+      )
+    }
+    if (serials.length !== qty) {
+      return NextResponse.json(
+        { error: `Expected ${qty} serial number(s), got ${serials.length}` },
+        { status: 400 },
+      )
+    }
+    // Check for duplicates within submission
+    const unique = new Set(serials.map(s => s.trim().toUpperCase()))
+    if (unique.size !== serials.length) {
+      return NextResponse.json({ error: 'Duplicate serial numbers in submission' }, { status: 400 })
+    }
+    // Check for duplicates against existing DB records
+    const existing = await prisma.inventorySerial.findMany({
+      where: {
+        productId:    product.id,
+        serialNumber: { in: serials.map(s => s.trim()) },
+      },
+      select: { serialNumber: true },
+    })
+    if (existing.length > 0) {
+      const dupes = existing.map(s => s.serialNumber).join(', ')
+      return NextResponse.json(
+        { error: `Serial(s) already exist for this SKU: ${dupes}` },
+        { status: 409 },
+      )
+    }
+  }
+
+  // ── Apply in a transaction ─────────────────────────────────────────────────
+  await prisma.$transaction(async tx => {
+    if (product.isSerializable && serials) {
+      for (const sn of serials) {
+        const serial = await tx.inventorySerial.create({
+          data: {
+            serialNumber: sn.trim(),
+            productId:    product.id,
+            locationId:   location.id,
+            gradeId:      gradeId ?? null,
+            status:       'IN_STOCK',
+          },
+        })
+        await tx.serialHistory.create({
+          data: {
+            inventorySerialId: serial.id,
+            eventType:         'MANUAL_ADD',
+            locationId:        location.id,
+            notes:             `Manual add — Reason: ${reason}`,
+          },
+        })
+      }
+    }
+
+    // Upsert inventory item quantity (grade-aware)
+    const resolvedGradeId = gradeId ?? null
+    await tx.inventoryItem.upsert({
+      where:  { productId_locationId_gradeId: { productId: product.id, locationId: location.id, gradeId: resolvedGradeId } },
+      create: { productId: product.id, locationId: location.id, gradeId: resolvedGradeId, qty },
+      update: { qty: { increment: qty } },
+    })
+  })
+
+  return NextResponse.json({ success: true, added: qty })
+}

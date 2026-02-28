@@ -1,0 +1,1426 @@
+// ─── Prisma Schema ────────────────────────────────────────────────────────────
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users & Auth ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  firebaseUid  String?  @unique // set after first Firebase login
+  passwordHash String? // unused with Firebase auth; kept for legacy seed
+  name         String
+  role         UserRole @default(REVIEWER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  reviews     Review[]
+  auditEvents AuditEvent[]
+
+  casesCreated  Case[]        @relation("CaseCreatedBy")
+  casesAssigned Case[]        @relation("CaseAssignedTo")
+  caseMessages  CaseMessage[]
+
+  @@map("users")
+}
+
+// ─── Amazon Accounts ──────────────────────────────────────────────────────────
+
+model AmazonAccount {
+  id              String   @id @default(cuid())
+  sellerId        String // Amazon Seller ID (e.g. A1B2C3D4E5F6)
+  marketplaceId   String // e.g. ATVPDKIKX0DER for US
+  marketplaceName String // e.g. "Amazon.com"
+  region          String   @default("NA") // NA | EU | FE
+  // Encrypted LWA tokens (AES-256-GCM, stored as "iv:authTag:ciphertext")
+  accessTokenEnc  String
+  refreshTokenEnc String
+  tokenExpiresAt  DateTime
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  refunds           Refund[]
+  importJobs        ImportJob[]
+  sellerListings    SellerListing[]
+  listingSyncJobs   ListingSyncJob[]
+  templateBatchJobs TemplateBatchJob[]
+  competitiveOffers CompetitiveOffer[]
+  orders            Order[]
+  orderSyncJobs     OrderSyncJob[]
+  mfnReturns        MFNReturn[]
+  mfnReturnSyncJobs MFNReturnSyncJob[]
+
+  @@unique([sellerId, marketplaceId])
+  @@map("amazon_accounts")
+}
+
+// ─── Import Jobs ──────────────────────────────────────────────────────────────
+
+model ImportJob {
+  id            String          @id @default(cuid())
+  accountId     String
+  account       AmazonAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  startDate     DateTime
+  endDate       DateTime
+  status        ImportJobStatus @default(PENDING)
+  totalFound    Int             @default(0)
+  totalUpserted Int             @default(0)
+  errorMessage  String?
+  startedAt     DateTime        @default(now())
+  completedAt   DateTime?
+
+  @@map("import_jobs")
+}
+
+// ─── Refunds ──────────────────────────────────────────────────────────────────
+
+model Refund {
+  id        String        @id @default(cuid())
+  accountId String
+  account   AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Natural key from SP-API
+  orderId      String // Amazon order ID
+  adjustmentId String // ShipmentItemAdjustment.AdjustmentId (unique per refund line)
+
+  // Core fields
+  postedDate      DateTime
+  amount          Decimal         @db.Decimal(12, 2)
+  currency        String          @default("USD")
+  fulfillmentType FulfillmentType @default(UNKNOWN)
+  marketplaceId   String
+  sku             String?
+  asin            String?
+  productTitle    String? // Fetched from Catalog Items API
+  reasonCode      String? // Refund reason from SP-API if available
+
+  // Full raw payload for the audit trail
+  rawPayload Json
+
+  importedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  review      Review?
+  auditEvents AuditEvent[]
+
+  // Prevent duplicate imports for the same refund line item
+  @@unique([accountId, orderId, adjustmentId])
+  @@index([postedDate])
+  @@index([fulfillmentType])
+  @@index([accountId])
+  @@map("refunds")
+}
+
+// ─── Reviews ──────────────────────────────────────────────────────────────────
+
+model Review {
+  id       String @id @default(cuid())
+  refundId String @unique
+  refund   Refund @relation(fields: [refundId], references: [id], onDelete: Cascade)
+
+  status        ReviewStatus   @default(UNREVIEWED)
+  invalidReason InvalidReason?
+  customReason  String? // Required when invalidReason = OTHER
+  notes         String?
+
+  reviewedById String?
+  reviewedBy   User?     @relation(fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("reviews")
+}
+
+// ─── Audit Events ─────────────────────────────────────────────────────────────
+
+model AuditEvent {
+  id         String @id @default(cuid())
+  entityType String // "Review" | "Import" | "Account"
+  entityId   String
+  action     String // "REVIEW_UPDATED" | "BULK_REVIEW" | "IMPORT_STARTED" | etc.
+  before     Json?
+  after      Json?
+
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  actorLabel String // display: email or "system"
+  timestamp  DateTime @default(now())
+
+  // Optional FK for quick refund-scoped queries
+  refundId String?
+  refund   Refund? @relation(fields: [refundId], references: [id])
+
+  @@index([timestamp])
+  @@index([entityType, entityId])
+  @@index([refundId])
+  @@map("audit_events")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  REVIEWER
+}
+
+enum FulfillmentType {
+  FBA // Fulfilled by Amazon (AFN)
+  MFN // Merchant Fulfilled
+  UNKNOWN
+}
+
+enum ReviewStatus {
+  UNREVIEWED
+  VALID
+  INVALID
+}
+
+enum InvalidReason {
+  DIFFERENT_ITEM_RETURNED
+  RETURN_NEVER_RECEIVED
+  OUTSIDE_POLICY_WINDOW
+  WRONG_SKU_ASIN
+  DUPLICATE_REFUND
+  SHIPPING_NOT_RETURNED
+  CHARGEBACK_RELATED
+  OTHER
+}
+
+enum ImportJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// ─── Seller Listings ──────────────────────────────────────────────────────────
+
+model SellerListing {
+  id               String        @id @default(cuid())
+  accountId        String
+  account          AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  sku              String
+  asin             String?
+  productTitle     String?
+  shippingTemplate String?
+  listingStatus    String?
+  quantity         Int           @default(0)
+  price            Decimal?      @db.Decimal(12, 2)
+  lastSyncedAt     DateTime      @default(now())
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  condition          String? // e.g. "New", "Used - Like New", etc.
+  groupName          String? // local organizational group, not synced to Amazon
+  fulfillmentChannel String   @default("MFN") // MFN = merchant fulfilled, FBA = fulfilled by Amazon
+  minPrice           Decimal? @db.Decimal(12, 2)
+  maxPrice           Decimal? @db.Decimal(12, 2)
+
+  @@unique([accountId, sku])
+  @@index([accountId])
+  @@index([shippingTemplate])
+  @@index([accountId, groupName])
+  @@index([accountId, fulfillmentChannel])
+  @@map("seller_listings")
+}
+
+model ListingSyncJob {
+  id            String               @id @default(cuid())
+  accountId     String
+  account       AmazonAccount        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  status        ListingSyncJobStatus @default(PENDING)
+  totalFound    Int                  @default(0)
+  totalUpserted Int                  @default(0)
+  errorMessage  String?
+  startedAt     DateTime             @default(now())
+  completedAt   DateTime?
+
+  @@map("listing_sync_jobs")
+}
+
+enum ListingSyncJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// ─── Template Batch Jobs ──────────────────────────────────────────────────────
+// Tracks background bulk shipping-template updates so the UI stays responsive.
+
+model TemplateBatchJob {
+  id           String                 @id @default(cuid())
+  accountId    String
+  account      AmazonAccount          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  templateName String
+  totalSkus    Int
+  processed    Int                    @default(0)
+  updated      Int                    @default(0)
+  failedSkus   Json // Array<{ sku: string; error: string }>
+  status       TemplateBatchJobStatus @default(RUNNING)
+  errorMessage String?
+  startedAt    DateTime               @default(now())
+  completedAt  DateTime?
+
+  @@map("template_batch_jobs")
+}
+
+enum TemplateBatchJobStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// ─── Seller Name Cache ────────────────────────────────────────────────────────
+// Seller names are not returned by Amazon's SP-API; they are resolved once by
+// fetching the public Amazon seller profile page and cached permanently.
+// name=null means a fetch was attempted but the name could not be parsed.
+
+model SellerProfile {
+  sellerId  String   @id
+  name      String?
+  fetchedAt DateTime @default(now())
+
+  @@map("seller_profiles")
+}
+
+// ─── Competitive Offers ───────────────────────────────────────────────────────
+// One row per competing offer observed for an ASIN.  Refreshed after every
+// catalog sync via the SP-API Product Pricing batch endpoint.
+// Note: Amazon's API does not expose competitor seller names — sellerId is the
+// best available identifier for third-party sellers.
+
+model CompetitiveOffer {
+  id              String        @id @default(cuid())
+  accountId       String
+  account         AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  asin            String
+  sellerId        String
+  isMyOffer       Boolean       @default(false) // true when offer belongs to this account
+  fulfillmentType String // "FBA" | "MFN"
+  listingPrice    Decimal       @db.Decimal(12, 2)
+  shippingPrice   Decimal       @default(0) @db.Decimal(12, 2)
+  landedPrice     Decimal       @db.Decimal(12, 2)
+  isPrime         Boolean       @default(false)
+  isBuyBoxWinner  Boolean       @default(false)
+  condition       String        @default("new")
+  feedbackRating  Decimal?      @db.Decimal(5, 2) // seller positive feedback %
+  feedbackCount   Int? // number of feedback ratings
+  lastFetchedAt   DateTime      @default(now())
+
+  @@unique([accountId, asin, sellerId, fulfillmentType])
+  @@index([accountId, asin])
+  @@map("competitive_offers")
+}
+
+// ─── Orders ───────────────────────────────────────────────────────────────────
+
+enum OrderWorkflowStatus {
+  PENDING // Downloaded from Amazon, not yet processed
+  PROCESSING // Inventory reserved, ready to ship
+  AWAITING_VERIFICATION // Label purchased; awaiting serialization and verification
+  SHIPPED // Verified and shipped
+  CANCELLED // Manually cancelled; any reservations have been released
+}
+
+model Order {
+  id                     String                      @id @default(cuid())
+  olmNumber              Int?                        @unique
+  accountId              String
+  account                AmazonAccount               @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  amazonOrderId          String
+  orderStatus            String
+  workflowStatus         OrderWorkflowStatus         @default(PENDING)
+  processedAt            DateTime?
+  purchaseDate           DateTime
+  lastUpdateDate         DateTime
+  orderTotal             Decimal?                    @db.Decimal(12, 2)
+  currency               String?                     @default("USD")
+  fulfillmentChannel     String?
+  shipmentServiceLevel   String?
+  numberOfItemsUnshipped Int                         @default(0)
+  shipToName             String?
+  shipToAddress1         String?
+  shipToAddress2         String?
+  shipToCity             String?
+  shipToState            String?
+  shipToPostal           String?
+  shipToCountry          String?
+  shipToPhone            String?
+  isPrime                Boolean                     @default(false)
+  lastSyncedAt           DateTime                    @default(now())
+  isBuyerRequestedCancel Boolean                     @default(false)
+  buyerCancelReason      String?
+  latestShipDate         DateTime?
+  presetRateAmount       Decimal?                    @db.Decimal(12, 2)
+  presetRateCarrier      String?
+  presetRateService      String?
+  presetRateId           String?
+  presetRateError        String?
+  presetRateCheckedAt    DateTime?
+  appliedPresetId        String?
+  appliedPreset          ShippingPreset?             @relation(fields: [appliedPresetId], references: [id], onDelete: SetNull)
+  items                  OrderItem[]
+  reservations           OrderInventoryReservation[]
+  label                  OrderLabel?
+  serialAssignments      OrderSerialAssignment[]
+  labelBatchItems        LabelBatchItem[]
+
+  @@unique([accountId, amazonOrderId])
+  @@index([accountId, orderStatus])
+  @@index([accountId, workflowStatus])
+  @@map("orders")
+}
+
+model OrderItem {
+  id              String   @id @default(cuid())
+  orderId         String
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItemId     String
+  asin            String?
+  sellerSku       String?
+  title           String?
+  quantityOrdered Int      @default(1)
+  quantityShipped Int      @default(0)
+  itemPrice       Decimal? @db.Decimal(12, 2)
+  shippingPrice   Decimal? @db.Decimal(12, 2)
+
+  reservations      OrderInventoryReservation[]
+  serialAssignments OrderSerialAssignment[]
+
+  @@unique([orderId, orderItemId])
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model OrderInventoryReservation {
+  id          String        @id @default(cuid())
+  orderId     String
+  order       Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItemId String
+  orderItem   OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  locationId  String
+  location    Location      @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  gradeId     String?
+  grade       ProductGrade? @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  qtyReserved Int
+  reservedAt  DateTime      @default(now())
+
+  @@index([orderId])
+  @@map("order_inventory_reservations")
+}
+
+// ─── Order Labels ─────────────────────────────────────────────────────────────
+// Stores the shipping label purchased for an order so it can be reprinted later.
+
+model OrderLabel {
+  id             String   @id @default(cuid())
+  orderId        String   @unique
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  trackingNumber String
+  labelData      String   @db.Text // base64-encoded PDF/PNG
+  labelFormat    String   @default("pdf")
+  shipmentCost   Decimal? @db.Decimal(12, 2)
+  carrier        String?
+  serviceCode    String?
+  isTest         Boolean  @default(false)
+  ssShipmentId   Int?     // ShipStation shipmentId — required to void the label
+  createdAt      DateTime @default(now())
+
+  @@map("order_labels")
+}
+
+// ─── Order Serial Assignments ─────────────────────────────────────────────────
+// Tracks which specific serial numbers were assigned (sold) for each order item.
+
+model OrderSerialAssignment {
+  id                String          @id @default(cuid())
+  orderId           String
+  order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItemId       String
+  orderItem         OrderItem       @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  inventorySerialId String          @unique // one active assignment per serial
+  inventorySerial   InventorySerial @relation(fields: [inventorySerialId], references: [id], onDelete: Restrict)
+  assignedAt        DateTime        @default(now())
+
+  @@index([orderId])
+  @@map("order_serial_assignments")
+}
+
+model OrderSyncJob {
+  id           String             @id @default(cuid())
+  accountId    String
+  account      AmazonAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  status       OrderSyncJobStatus @default(PENDING)
+  totalFound   Int                @default(0)
+  totalSynced  Int                @default(0)
+  errorMessage String?
+  startedAt    DateTime           @default(now())
+  completedAt  DateTime?
+
+  @@map("order_sync_jobs")
+}
+
+enum OrderSyncJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// ─── ShipStation ──────────────────────────────────────────────────────────────
+
+model ShipStationAccount {
+  id           String   @id @default(cuid())
+  name         String   @default("ShipStation")
+  apiKeyEnc    String
+  apiSecretEnc String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // V2 / ShipEngine API fields
+  v2ApiKeyEnc     String? // ShipEngine API key (separate from V1 key)
+  amazonCarrierId String? // e.g. se-5013604
+
+  // Internal V3 API fields — kept for reference but no longer used
+  internalJwtEnc    String?
+  internalJwtExp    DateTime?
+  partition         Int?
+  internalSellerId  String?
+  internalUserId    String?
+  defaultShipFromId String?
+
+  @@map("shipstation_accounts")
+}
+
+// ─── UPS Credentials ──────────────────────────────────────────────────────────
+
+model UpsCredential {
+  id               String   @id @default(cuid())
+  clientIdEnc      String
+  clientSecretEnc  String
+  accountNumberEnc String?  // UPS account number (shipper number) used for billing labels
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("ups_credentials")
+}
+
+model BackMarketCredential {
+  id         String   @id @default(cuid())
+  apiKeyEnc  String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("backmarket_credentials")
+}
+
+// ─── Shipping Presets ─────────────────────────────────────────────────────────
+// Named package configs (carrier, weight, dimensions) that can be bulk-applied
+// to orders to fetch a ShipStation rate and pre-fill the shipping column.
+
+model ShippingPreset {
+  id           String   @id @default(cuid())
+  name         String
+  carrierCode  String
+  serviceCode  String?
+  packageCode  String?
+  weightValue  Float
+  weightUnit   String   @default("ounces")
+  dimLength    Float?
+  dimWidth     Float?
+  dimHeight    Float?
+  dimUnit      String   @default("inches")
+  confirmation String?
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders Order[]
+
+  @@map("shipping_presets")
+}
+
+// ─── Package Presets ──────────────────────────────────────────────────────────
+// Like ShippingPresets but without a carrier — used for bulk rate-shopping
+// across all available carriers (cheapest wins).
+
+model PackagePreset {
+  id           String   @id @default(cuid())
+  name         String
+  packageCode  String?
+  weightValue  Float
+  weightUnit   String   @default("ounces")
+  dimLength    Float?
+  dimWidth     Float?
+  dimHeight    Float?
+  dimUnit      String   @default("inches")
+  confirmation String?
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("package_presets")
+}
+
+// ─── Label Batches ────────────────────────────────────────────────────────────
+// Tracks background bulk label-purchase jobs so progress can be polled after
+// the browser is closed.
+
+enum LabelBatchStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model LabelBatch {
+  id          String           @id @default(cuid())
+  status      LabelBatchStatus @default(PENDING)
+  isTest      Boolean          @default(false)
+  totalOrders Int
+  completed   Int              @default(0)
+  failed      Int              @default(0)
+  createdAt   DateTime         @default(now())
+  completedAt DateTime?
+  items       LabelBatchItem[]
+
+  @@map("label_batches")
+}
+
+model LabelBatchItem {
+  id        String           @id @default(cuid())
+  batchId   String
+  batch     LabelBatch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  orderId   String
+  order     Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    LabelBatchStatus @default(PENDING)
+  error     String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@map("label_batch_items")
+}
+
+// ─── Buyer-Seller Messaging ───────────────────────────────────────────────────
+// Stores messages sent to buyers via the Amazon Messaging API so we have a local
+// record of outbound correspondence (inbound messages are not available via SP-API).
+
+model OrderMessage {
+  id             String   @id @default(cuid())
+  amazonOrderId  String
+  messageType    String   // SP-API action name for outbound; "buyerReply" for logged inbound; "sellerMessage" for auto-captured outbound
+  body           String
+  isInbound      Boolean  @default(false)  // true = message received FROM buyer
+  sentAt         DateTime @default(now())
+  sentBy         String?  // user email (outbound) or null (inbound)
+  spApiMessageId String?  // SP-API message ID used for deduplication when auto-captured via SQS
+
+  @@index([amazonOrderId])
+  @@index([spApiMessageId])
+  @@map("order_messages")
+}
+
+// ─── SP-API Notification Subscriptions ───────────────────────────────────────
+// Tracks active SP-API notification subscriptions so we know which accounts
+// have automatic buyer message capture configured.
+
+model NotificationSubscription {
+  id               String   @id @default(cuid())
+  accountId        String
+  notificationType String   // e.g. "BUYER_SELLER_MESSAGING_MESSAGE"
+  destinationId    String?  // SP-API destinationId (SQS destination)
+  subscriptionId   String?  // SP-API subscriptionId
+  sqsArn           String?  // The SQS ARN registered as the destination
+  status           String   @default("INACTIVE") // ACTIVE | INACTIVE | FAILED
+  errorMessage     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([accountId, notificationType])
+  @@map("notification_subscriptions")
+}
+
+// ─── Vendors ──────────────────────────────────────────────────────────────────
+
+model Vendor {
+  id        String   @id @default(cuid())
+  name      String
+  contact   String?
+  phone     String?
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+  vendorRMAs     VendorRMA[]
+
+  @@map("vendors")
+}
+
+// ─── Products ─────────────────────────────────────────────────────────────────
+
+model Product {
+  id             String   @id @default(cuid())
+  description    String
+  sku            String   @unique
+  isSerializable Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  poLines                PurchaseOrderLine[]
+  receiptLines           POReceiptLine[]
+  inventoryItems         InventoryItem[]
+  inventorySerials       InventorySerial[]
+  fromSerialHistory      SerialHistory[]                  @relation("SHFromProduct")
+  toSerialHistory        SerialHistory[]                  @relation("SHToProduct")
+  salesOrderItems        SalesOrderItem[]
+  vendorRMAItems         VendorRMAItem[]
+  customerRMAItems       CustomerRMAItem[]
+  orderReservations      OrderInventoryReservation[]
+  salesOrderReservations SalesOrderInventoryReservation[]
+  grades                 ProductGrade[]
+
+  @@map("products")
+}
+
+// ─── Product Grades ────────────────────────────────────────────────────────────
+
+model ProductGrade {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  grade       String // e.g. "A", "B", "Refurb"
+  description String? // optional display label
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  marketplaceSkus        ProductGradeMarketplaceSku[]
+  inventorySerials       InventorySerial[]
+  inventoryItems         InventoryItem[]
+  orderReservations      OrderInventoryReservation[]
+  salesOrderReservations SalesOrderInventoryReservation[]
+
+  @@unique([productId, grade])
+  @@index([productId])
+  @@map("product_grades")
+}
+
+model ProductGradeMarketplaceSku {
+  id          String       @id @default(cuid())
+  gradeId     String
+  grade       ProductGrade @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  marketplace String // "amazon" | "backmarket" | "wholesale"
+  accountId   String? // null = applies to all accounts for that marketplace
+  sellerSku   String
+  createdAt   DateTime     @default(now())
+
+  @@unique([gradeId, marketplace, accountId])
+  @@index([sellerSku])
+  @@map("product_grade_marketplace_skus")
+}
+
+// ─── Purchase Orders ──────────────────────────────────────────────────────────
+
+enum POStatus {
+  OPEN
+  RECEIVED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id        String   @id @default(cuid())
+  poNumber  Int      @unique
+  vendorId  String
+  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  date      DateTime
+  notes     String?
+  status    POStatus @default(OPEN)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines         PurchaseOrderLine[]
+  receipts      POReceipt[]
+  serialHistory SerialHistory[]
+
+  @@index([vendorId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  qty             Int           @default(1)
+  unitCost        Decimal       @db.Decimal(12, 2)
+  createdAt       DateTime      @default(now())
+
+  receiptLines POReceiptLine[]
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+  @@map("purchase_order_lines")
+}
+
+// ─── MFN Returns ─────────────────────────────────────────────────────────────
+
+model MFNReturn {
+  id                String        @id @default(cuid())
+  accountId         String
+  account           AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  orderId           String
+  orderDate         DateTime? // Date the original order was placed (from flat-file report)
+  rmaId             String? // Amazon RMA number
+  trackingNumber    String? // Return shipping label tracking number
+  returnValue       Decimal?      @db.Decimal(12, 2)
+  currency          String        @default("USD")
+  returnDate        DateTime? // Date the return was requested / initiated
+  asin              String?
+  sku               String?
+  title             String?
+  quantity          Int?
+  returnReason      String?
+  returnStatus      String?
+  // Live carrier tracking status (fetched on demand)
+  carrierStatus     String?
+  deliveredAt       DateTime? // Actual delivery date from carrier (set when status = Delivered)
+  estimatedDelivery DateTime? // Estimated delivery date from carrier (set when in transit)
+  trackingUpdatedAt DateTime?
+  importedAt        DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([accountId])
+  @@index([accountId, orderId])
+  @@index([returnDate])
+  @@map("mfn_returns")
+}
+
+model MFNReturnSyncJob {
+  id            String              @id @default(cuid())
+  accountId     String
+  account       AmazonAccount       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  status        MFNReturnSyncStatus @default(IN_PROGRESS)
+  startDate     DateTime
+  endDate       DateTime
+  totalFound    Int                 @default(0)
+  totalUpserted Int                 @default(0)
+  errorMessage  String?
+  startedAt     DateTime            @default(now())
+  completedAt   DateTime?
+
+  @@map("mfn_return_sync_jobs")
+}
+
+enum MFNReturnSyncStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+// ─── Warehouses & Locations ───────────────────────────────────────────────────
+
+model Warehouse {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  locations Location[]
+
+  @@map("warehouses")
+}
+
+model Location {
+  id              String    @id @default(cuid())
+  name            String
+  warehouseId     String
+  warehouse       Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  isFinishedGoods Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  receiptLines           POReceiptLine[]
+  inventoryItems         InventoryItem[]
+  inventorySerials       InventorySerial[]
+  serialHistory          SerialHistory[]                  @relation("SHToLocation")
+  fromSerialHistory      SerialHistory[]                  @relation("SHFromLocation")
+  orderReservations      OrderInventoryReservation[]
+  salesOrderReservations SalesOrderInventoryReservation[]
+
+  @@unique([warehouseId, name])
+  @@index([warehouseId])
+  @@map("locations")
+}
+
+// ─── PO Receipts ──────────────────────────────────────────────────────────────
+
+model POReceipt {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  receivedAt      DateTime      @default(now())
+  notes           String?
+
+  lines         POReceiptLine[]
+  serialHistory SerialHistory[]
+
+  @@index([purchaseOrderId])
+  @@map("po_receipts")
+}
+
+model POReceiptLine {
+  id                  String            @id @default(cuid())
+  receiptId           String
+  receipt             POReceipt         @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  purchaseOrderLineId String
+  purchaseOrderLine   PurchaseOrderLine @relation(fields: [purchaseOrderLineId], references: [id], onDelete: Restrict)
+  productId           String
+  product             Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  qtyReceived         Int
+  locationId          String
+  location            Location          @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  serials InventorySerial[]
+
+  @@index([receiptId])
+  @@index([purchaseOrderLineId])
+  @@index([productId])
+  @@map("po_receipt_lines")
+}
+
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
+model InventoryItem {
+  id         String        @id @default(cuid())
+  productId  String
+  product    Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  locationId String
+  location   Location      @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  gradeId    String?
+  grade      ProductGrade? @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  qty        Int           @default(0)
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([productId, locationId, gradeId])
+  @@index([productId])
+  @@index([locationId])
+  @@map("inventory_items")
+}
+
+model InventorySerial {
+  id            String         @id @default(cuid())
+  serialNumber  String
+  productId     String
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  locationId    String
+  location      Location       @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  gradeId       String?
+  grade         ProductGrade?  @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  receiptLineId String?
+  receiptLine   POReceiptLine? @relation(fields: [receiptLineId], references: [id])
+  status        SerialStatus   @default(IN_STOCK)
+  note          String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  history              SerialHistory[]
+  orderAssignment      OrderSerialAssignment?
+  salesOrderAssignment SalesOrderSerialAssignment?
+
+  @@unique([productId, serialNumber])
+  @@index([productId, locationId])
+  @@index([locationId])
+  @@map("inventory_serials")
+}
+
+enum SerialStatus {
+  IN_STOCK
+  SOLD
+  RETURNED
+  DAMAGED
+}
+
+// ─── Serial Number History ────────────────────────────────────────────────────
+
+model SerialHistory {
+  id                String          @id @default(cuid())
+  inventorySerialId String
+  inventorySerial   InventorySerial @relation(fields: [inventorySerialId], references: [id], onDelete: Cascade)
+  eventType         SerialEventType
+  // PO Receipt context (populated for PO_RECEIPT events)
+  receiptId         String?
+  receipt           POReceipt?      @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+  purchaseOrderId   String?
+  purchaseOrder     PurchaseOrder?  @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  locationId        String?
+  location          Location?       @relation("SHToLocation", fields: [locationId], references: [id], onDelete: SetNull)
+  fromLocationId    String?
+  fromLocation      Location?       @relation("SHFromLocation", fields: [fromLocationId], references: [id], onDelete: SetNull)
+  fromProductId     String?
+  fromProduct       Product?        @relation("SHFromProduct", fields: [fromProductId], references: [id], onDelete: SetNull)
+  toProductId       String?
+  toProduct         Product?        @relation("SHToProduct", fields: [toProductId], references: [id], onDelete: SetNull)
+  notes             String?
+  createdAt         DateTime        @default(now())
+
+  @@index([inventorySerialId])
+  @@index([receiptId])
+  @@map("serial_history")
+}
+
+enum SerialEventType {
+  PO_RECEIPT
+  LOCATION_MOVE
+  SKU_CONVERSION
+  SALE
+  MANUAL_ADD
+  MANUAL_REMOVE
+}
+
+// ─── RMA (Return Merchandise Authorization) ───────────────────────────────────
+// Internal return requests created by staff when a customer returns an order.
+// Separate from Amazon's MFN return tracking — this is our own RMA workflow.
+
+model RMA {
+  id            String    @id @default(cuid())
+  rmaNumber     String    @unique
+  amazonOrderId String
+  reason        String
+  status        RMAStatus @default(REQUESTED)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  items RMAItem[]
+
+  @@index([amazonOrderId])
+  @@map("rmas")
+}
+
+model RMAItem {
+  id                  String    @id @default(cuid())
+  rmaId               String
+  rma                 RMA       @relation(fields: [rmaId], references: [id], onDelete: Cascade)
+  orderItemId         String
+  sellerSku           String?
+  asin                String?
+  title               String?
+  quantityReturned    Int       @default(1)
+  condition           String    @default("Used - Good")
+  restockToInventory  Boolean   @default(false)
+  restockedLocationId String?
+  restockedQty        Int?
+  restockedAt         DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@index([rmaId])
+  @@map("rma_items")
+}
+
+enum RMAStatus {
+  REQUESTED
+  SHIPPED_BACK
+  RECEIVED
+  RESTOCKED
+  CLOSED
+}
+
+// ─── Wholesale ────────────────────────────────────────────────────────────────
+
+enum AddressType {
+  SHIPPING
+  BILLING
+}
+
+enum SalesOrderStatus {
+  DRAFT
+  CONFIRMED
+  INVOICED
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+enum PaymentMethod {
+  CHECK
+  ACH
+  WIRE
+  CREDIT_CARD
+  CASH
+  OTHER
+}
+
+enum WholesalePaymentTerms {
+  NET_15
+  NET_30
+  NET_60
+  NET_90
+  DUE_ON_RECEIPT
+}
+
+enum SalesFulfillmentStatus {
+  PENDING // Created, awaiting processing
+  PROCESSING // Inventory pulled, ready to ship
+  SHIPPED // Shipped — carrier + tracking recorded
+  CANCELLED
+}
+
+model WholesaleCustomer {
+  id              String                @id @default(cuid())
+  companyName     String
+  contactName     String?
+  phone           String?
+  email           String?
+  website         String?
+  taxExempt       Boolean               @default(false)
+  taxId           String?
+  taxRate         Decimal               @default(0) @db.Decimal(6, 4)
+  creditLimit     Decimal?              @db.Decimal(12, 2)
+  paymentTerms    WholesalePaymentTerms @default(NET_30)
+  defaultDiscount Decimal               @default(0) @db.Decimal(5, 2)
+  notes           String?
+  active          Boolean               @default(true)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  addresses    CustomerAddress[]
+  salesOrders  SalesOrder[]
+  payments     WholesalePayment[]
+  customerRmas CustomerRMA[]
+
+  @@index([companyName])
+  @@map("wholesale_customers")
+}
+
+model CustomerAddress {
+  id           String            @id @default(cuid())
+  customerId   String
+  customer     WholesaleCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type         AddressType
+  label        String            @default("Main")
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String
+  postalCode   String
+  country      String            @default("US")
+  isDefault    Boolean           @default(false)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([customerId])
+  @@map("customer_addresses")
+}
+
+model SalesOrder {
+  id                String                 @id @default(cuid())
+  orderNumber       String                 @unique
+  customerId        String
+  customer          WholesaleCustomer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  status            SalesOrderStatus       @default(DRAFT)
+  orderDate         DateTime               @default(now())
+  dueDate           DateTime?
+  shippingAddress   Json?
+  billingAddress    Json?
+  subtotal          Decimal                @default(0) @db.Decimal(12, 2)
+  discountPct       Decimal                @default(0) @db.Decimal(5, 2)
+  discountAmt       Decimal                @default(0) @db.Decimal(12, 2)
+  taxRate           Decimal                @default(0) @db.Decimal(6, 4)
+  taxAmt            Decimal                @default(0) @db.Decimal(12, 2)
+  shippingCost      Decimal                @default(0) @db.Decimal(12, 2)
+  total             Decimal                @default(0) @db.Decimal(12, 2)
+  paidAmount        Decimal                @default(0) @db.Decimal(12, 2)
+  balance           Decimal                @default(0) @db.Decimal(12, 2)
+  notes             String?
+  internalNotes     String?
+  // Fulfillment workflow (parallel to accounting status)
+  fulfillmentStatus SalesFulfillmentStatus @default(PENDING)
+  processedAt       DateTime?
+  shipCarrier       String?
+  shipTracking      String?
+  shippedAt         DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  items                 SalesOrderItem[]
+  allocations           PaymentAllocation[]
+  serialAssignments     SalesOrderSerialAssignment[]
+  inventoryReservations SalesOrderInventoryReservation[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([fulfillmentStatus])
+  @@map("sales_orders")
+}
+
+model SalesOrderItem {
+  id          String     @id @default(cuid())
+  orderId     String
+  order       SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sku         String?
+  title       String
+  description String?
+  quantity    Decimal    @db.Decimal(12, 4)
+  unitPrice   Decimal    @db.Decimal(12, 2)
+  discount    Decimal    @default(0) @db.Decimal(5, 2)
+  total       Decimal    @db.Decimal(12, 2)
+  taxable     Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+
+  reservations SalesOrderInventoryReservation[]
+
+  @@index([orderId])
+  @@map("sales_order_items")
+}
+
+// Tracks inventory reserved for each wholesale (SalesOrder) item
+model SalesOrderInventoryReservation {
+  id               String         @id @default(cuid())
+  salesOrderId     String
+  salesOrder       SalesOrder     @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  salesOrderItemId String
+  salesOrderItem   SalesOrderItem @relation(fields: [salesOrderItemId], references: [id], onDelete: Cascade)
+  productId        String
+  product          Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  locationId       String
+  location         Location       @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  gradeId          String?
+  grade            ProductGrade?  @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  qtyReserved      Int
+  reservedAt       DateTime       @default(now())
+
+  @@index([salesOrderId])
+  @@map("sales_order_inventory_reservations")
+}
+
+// Tracks which serial numbers were picked for a wholesale (SalesOrder) shipment
+model SalesOrderSerialAssignment {
+  id               String          @id @default(cuid())
+  salesOrderId     String
+  salesOrder       SalesOrder      @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  salesOrderItemId String? // which line item this serial belongs to (optional)
+  serialId         String          @unique // one active assignment per serial
+  inventorySerial  InventorySerial @relation(fields: [serialId], references: [id], onDelete: Restrict)
+  assignedAt       DateTime        @default(now())
+
+  @@index([salesOrderId])
+  @@map("sales_order_serial_assignments")
+}
+
+model WholesalePayment {
+  id          String            @id @default(cuid())
+  customerId  String
+  customer    WholesaleCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  paymentDate DateTime
+  amount      Decimal           @db.Decimal(12, 2)
+  method      PaymentMethod
+  reference   String?
+  memo        String?
+  unallocated Decimal           @default(0) @db.Decimal(12, 2)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  allocations PaymentAllocation[]
+
+  @@index([customerId])
+  @@map("wholesale_payments")
+}
+
+model PaymentAllocation {
+  id        String           @id @default(cuid())
+  paymentId String
+  payment   WholesalePayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  orderId   String
+  order     SalesOrder       @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  amount    Decimal          @db.Decimal(12, 2)
+  createdAt DateTime         @default(now())
+
+  @@index([paymentId])
+  @@index([orderId])
+  @@map("payment_allocations")
+}
+
+// ─── Vendor RMA ───────────────────────────────────────────────────────────────
+
+enum VendorRMAStatus {
+  AWAITING_VENDOR_APPROVAL
+  APPROVED_TO_RETURN
+  SHIPPED_AWAITING_CREDIT
+  CREDIT_RECEIVED
+}
+
+enum CustomerRMAStatus {
+  PENDING
+  RECEIVED
+  INSPECTED
+  REFUNDED
+  REJECTED
+}
+
+model CustomerRMA {
+  id           String            @id @default(cuid())
+  rmaNumber    String            @unique
+  customerId   String
+  customer     WholesaleCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  status       CustomerRMAStatus @default(PENDING)
+  reason       String
+  notes        String?
+  creditAmount Decimal?          @db.Decimal(12, 2)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  items CustomerRMAItem[]
+
+  @@index([customerId])
+  @@index([status])
+  @@map("customer_rmas")
+}
+
+model CustomerRMAItem {
+  id        String      @id @default(cuid())
+  rmaId     String
+  rma       CustomerRMA @relation(fields: [rmaId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Int         @default(1)
+  unitPrice Decimal?    @db.Decimal(12, 2)
+  condition String?
+  notes     String?
+  createdAt DateTime    @default(now())
+
+  @@index([rmaId])
+  @@map("customer_rma_items")
+}
+
+model VendorRMA {
+  id                   String          @id @default(cuid())
+  rmaNumber            String          @unique // "VRMA-0001"
+  vendorId             String
+  vendor               Vendor          @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  status               VendorRMAStatus @default(AWAITING_VENDOR_APPROVAL)
+  vendorApprovalNumber String?
+  carrier              String?
+  trackingNumber       String?
+  notes                String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  items VendorRMAItem[]
+
+  @@index([vendorId])
+  @@index([status])
+  @@map("vendor_rmas")
+}
+
+model VendorRMAItem {
+  id        String    @id @default(cuid())
+  rmaId     String
+  rma       VendorRMA @relation(fields: [rmaId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Int       @default(1)
+  unitCost  Decimal?  @db.Decimal(12, 2)
+  notes     String?
+  createdAt DateTime  @default(now())
+
+  serials VendorRMASerial[]
+
+  @@index([rmaId])
+  @@map("vendor_rma_items")
+}
+
+model VendorRMASerial {
+  id           String        @id @default(cuid())
+  rmaItemId    String
+  rmaItem      VendorRMAItem @relation(fields: [rmaItemId], references: [id], onDelete: Cascade)
+  serialNumber String
+  createdAt    DateTime      @default(now())
+
+  @@unique([rmaItemId, serialNumber])
+  @@index([rmaItemId])
+  @@map("vendor_rma_serials")
+}
+
+model ReturnLabel {
+  id               String    @id @default(cuid())
+  amazonOrderId    String?
+  shipFromName     String
+  shipFromAddress1 String
+  shipFromCity     String
+  shipFromState    String
+  shipFromPostal   String
+  shipFromCountry  String    @default("US")
+  serviceCode      String
+  serviceLabel     String?
+  weightValue      Decimal   @db.Decimal(8, 2)
+  weightUnit       String    @default("LBS")
+  trackingNumber   String
+  shipmentId       String
+  labelData        String    @db.Text
+  shipmentCost     Decimal?  @db.Decimal(12, 2)
+  currency         String?   @default("USD")
+  voided           Boolean   @default(false)
+  voidedAt         DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@map("return_labels")
+}
+
+// ─── Case Manager ─────────────────────────────────────────────────────────────
+
+enum CaseStatus {
+  UNRESOLVED
+  RESOLVED
+}
+
+model Case {
+  id                  String     @id @default(cuid())
+  caseNumber          Int        @unique @default(autoincrement())
+  title               String
+  description         String?    @db.Text
+  status              CaseStatus @default(UNRESOLVED)
+  marketplaceCaseIds  String[]   @default([])
+  createdById         String
+  createdBy           User       @relation("CaseCreatedBy", fields: [createdById], references: [id])
+  assignedToId        String?
+  assignedTo          User?      @relation("CaseAssignedTo", fields: [assignedToId], references: [id])
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  messages            CaseMessage[]
+
+  @@index([status])
+  @@map("cases")
+}
+
+model CaseMessage {
+  id        String   @id @default(cuid())
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([caseId])
+  @@map("case_messages")
+}

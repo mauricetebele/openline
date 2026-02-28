@@ -1,0 +1,369 @@
+/**
+ * POST /api/orders/apply-preset
+ * Body: { presetId: string, orderIds: string[], accountId: string }
+ *
+ * Streams SSE events as each order is rated, so the client can display rates
+ * in real time rather than waiting for the full batch to complete.
+ *
+ * Event shapes:
+ *   { type: 'rate',  orderId, amazonOrderId, olmNumber, rateAmount, rateCarrier, rateService, rateId, error }
+ *   { type: 'done',  applied, total, errors: [...] }
+ *   { type: 'error', error }   — fatal setup error (before any orders are rated)
+ */
+import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+import { prisma } from '@/lib/prisma'
+import { getAuthUser } from '@/lib/get-auth-user'
+import { requireAdmin } from '@/lib/auth-helpers'
+import { decrypt } from '@/lib/crypto'
+import {
+  ShipStationClient,
+  SSRatesPayload,
+  V2RatesRequest,
+} from '@/lib/shipstation/client'
+
+export const dynamic = 'force-dynamic'
+
+const bodySchema = z.object({
+  presetId:  z.string().min(1),
+  orderIds:  z.array(z.string().min(1)).min(1),
+  accountId: z.string().min(1),
+})
+
+function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+
+const UNIT_SINGULAR: Record<string, string> = {
+  ounces: 'ounce', pounds: 'pound', grams: 'gram', kilograms: 'kilogram',
+  inches: 'inch', centimeters: 'centimeter',
+}
+function singularUnit(s: string): string {
+  return UNIT_SINGULAR[s] ?? s.replace(/s$/, '')
+}
+
+export async function POST(req: NextRequest) {
+  // ── Auth & validation — return normal JSON errors before starting the stream ──
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const adminErr = requireAdmin(user)
+  if (adminErr) return adminErr
+
+  let body: unknown
+  try { body = await req.json() } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const parsed = bodySchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request', issues: parsed.error.issues }, { status: 400 })
+  }
+
+  const { presetId, orderIds, accountId } = parsed.data
+
+  const preset = await prisma.shippingPreset.findUnique({ where: { id: presetId } })
+  if (!preset) return NextResponse.json({ error: 'Preset not found' }, { status: 404 })
+
+  const orders = await prisma.order.findMany({
+    where: { id: { in: orderIds }, accountId },
+    include: { items: true },
+  })
+  if (orders.length === 0) return NextResponse.json({ error: 'No matching orders found' }, { status: 404 })
+
+  const ssAccount = await prisma.shipStationAccount.findFirst({
+    where: { isActive: true },
+    orderBy: { createdAt: 'asc' },
+    select: { apiKeyEnc: true, apiSecretEnc: true, v2ApiKeyEnc: true, amazonCarrierId: true },
+  })
+  if (!ssAccount) return NextResponse.json({ error: 'No ShipStation account connected' }, { status: 404 })
+
+  const v2ApiKey = ssAccount.v2ApiKeyEnc ? decrypt(ssAccount.v2ApiKeyEnc) : null
+  const client = new ShipStationClient(
+    decrypt(ssAccount.apiKeyEnc),
+    decrypt(ssAccount.apiSecretEnc),
+    v2ApiKey,
+  )
+
+  let warehouses
+  try {
+    warehouses = await client.getWarehouses()
+  } catch (err) {
+    return NextResponse.json({
+      error: `Failed to load ShipStation warehouses: ${err instanceof Error ? err.message : String(err)}`,
+    }, { status: 502 })
+  }
+
+  const warehouse = warehouses.find(w => w.isDefault) ?? warehouses[0]
+  if (!warehouse) return NextResponse.json({ error: 'No warehouses configured in ShipStation' }, { status: 400 })
+
+  const from            = warehouse.originAddress
+  const fromPostalCode  = from.postalCode.split('-')[0].trim()
+  const isAmazonCarrier = preset.carrierCode.toLowerCase().includes('amazon')
+
+  console.log('[apply-preset] warehouse=%s fromPostal=%s carrier=%s service=%s orders=%d isAmazon=%s',
+    warehouse.warehouseName, fromPostalCode, preset.carrierCode, preset.serviceCode ?? '(cheapest)', orders.length, isAmazonCarrier)
+
+  // ── All setup done — switch to streaming ────────────────────────────────────
+  const encoder = new TextEncoder()
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      function send(data: object) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+      }
+
+      let applied = 0
+      const errors: { orderId: string; amazonOrderId: string; error: string }[] = []
+
+      try {
+        for (let i = 0; i < orders.length; i++) {
+          const order = orders[i]
+
+          try {
+            // Reject orders Amazon has already marked as shipped
+            if (order.orderStatus === 'Shipped') {
+              throw new Error('Order is already marked as Shipped on Amazon')
+            }
+
+            let rateAmount: number | null  = null
+            let rateCarrier: string | null = null
+            let rateService: string | null = null
+            let rateId: string | null      = null
+
+            // ── Resolve ship-to address ──────────────────────────────────────
+            // Amazon masks addresses on unshipped orders, so our DB fields may
+            // be null until the user manually syncs from ShipStation.  If the
+            // address is missing we do an on-the-fly ShipStation lookup (same
+            // as sync-buyer-info) and persist the result so future calls work
+            // without an extra round-trip.
+            let toName     = order.shipToName     ?? undefined
+            let toAddress1 = order.shipToAddress1 ?? ''
+            let toAddress2 = order.shipToAddress2 ?? undefined
+            let toCity     = order.shipToCity     ?? ''
+            let toState    = order.shipToState    ?? ''
+            let toCountry  = order.shipToCountry  ?? 'US'
+            let toPhone    = order.shipToPhone    ?? undefined
+            let toPostalCode = (order.shipToPostal ?? '').split('-')[0].trim()
+
+            if (!toPostalCode || !toCity) {
+              try {
+                const ssOrder = await client.findOrderByNumber(order.amazonOrderId)
+                if (ssOrder?.shipTo) {
+                  const st = ssOrder.shipTo
+                  toPostalCode = st.postalCode.split('-')[0].trim()
+                  toCity       = st.city
+                  toState      = st.state
+                  toCountry    = st.country || 'US'
+                  toName       = st.name    || undefined
+                  toAddress1   = st.street1
+                  toAddress2   = st.street2 ?? undefined
+                  toPhone      = st.phone   ?? undefined
+                  // Persist so subsequent operations (and the grid) have the real address
+                  await prisma.order.update({
+                    where: { id: order.id },
+                    data: {
+                      shipToName:     toName     || null,
+                      shipToAddress1: toAddress1 || null,
+                      shipToAddress2: toAddress2 || null,
+                      shipToCity:     toCity     || null,
+                      shipToState:    toState    || null,
+                      shipToPostal:   st.postalCode || null,
+                      shipToCountry:  toCountry  || null,
+                      shipToPhone:    toPhone    || null,
+                    },
+                  })
+                  console.log('[apply-preset] order=%s address resolved from ShipStation postal=%s', order.amazonOrderId, toPostalCode)
+                }
+              } catch (addrErr) {
+                console.warn('[apply-preset] order=%s address lookup failed: %s', order.amazonOrderId, addrErr instanceof Error ? addrErr.message : String(addrErr))
+              }
+            }
+
+            if (isAmazonCarrier) {
+              if (!ssAccount.amazonCarrierId) {
+                throw new Error('Amazon carrier ID not configured in ShipStation Settings')
+              }
+
+              const wtUnit  = singularUnit(preset.weightUnit) as 'ounce' | 'pound' | 'gram' | 'kilogram'
+              const dimUnit = singularUnit(preset.dimUnit) as 'inch' | 'centimeter'
+
+              const v2Payload: V2RatesRequest = {
+                rate_options: { carrier_ids: [ssAccount.amazonCarrierId] },
+                shipment: {
+                  ship_from: {
+                    name:           from.name,
+                    phone:          from.phone || '555-555-5555',
+                    address_line1:  from.street1,
+                    city_locality:  from.city,
+                    state_province: from.state,
+                    postal_code:    fromPostalCode,
+                    country_code:   from.country || 'US',
+                  },
+                  ship_to: {
+                    name:                          toName,
+                    phone:                         toPhone || '555-555-5555',
+                    address_line1:                 toAddress1,
+                    address_line2:                 toAddress2,
+                    city_locality:                 toCity,
+                    state_province:                toState,
+                    postal_code:                   toPostalCode,
+                    country_code:                  toCountry,
+                    address_residential_indicator: 'unknown',
+                  },
+                  packages: [{
+                    weight: { unit: wtUnit, value: preset.weightValue },
+                    ...(preset.dimLength && preset.dimWidth && preset.dimHeight
+                      ? { dimensions: { unit: dimUnit, length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight } }
+                      : {}),
+                  }],
+                  order_source_code: 'amazon',
+                  items: order.items.map(item => ({
+                    name:                   item.title ?? undefined,
+                    quantity:               item.quantityOrdered,
+                    external_order_id:      order.amazonOrderId,
+                    external_order_item_id: item.orderItemId,
+                  })),
+                },
+              }
+
+              const v2Result = await client.getRatesV2(v2Payload)
+              // Only exclude rates explicitly marked invalid — Amazon Buy Shipping rates often
+              // carry address warning messages even though the rate is purchasable.
+              const allRates = v2Result.rate_response?.rates ?? []
+              const v2Rates  = allRates.filter(r => r.validation_status !== 'invalid')
+
+              console.log('[apply-preset] order=%s v2 rates total=%d valid=%d', order.amazonOrderId, allRates.length, v2Rates.length)
+
+              const match = preset.serviceCode
+                ? v2Rates.find(r => r.service_code === preset.serviceCode)
+                : v2Rates.sort((a, b) =>
+                    (a.shipping_amount.amount + a.other_amount.amount) -
+                    (b.shipping_amount.amount + b.other_amount.amount)
+                  )[0]
+
+              if (!match) {
+                const statuses = allRates.map(r => `${r.service_code}:${r.validation_status}`).join(', ')
+                throw new Error(`No valid Amazon rates returned (${allRates.length} total: ${statuses || 'none'})`)
+              }
+
+              rateAmount  = match.shipping_amount.amount + match.other_amount.amount
+              rateCarrier = match.carrier_code
+              rateService = match.service_type || match.service_code
+              rateId      = match.rate_id
+
+            } else {
+              const v1Payload: SSRatesPayload = {
+                carrierCode:   preset.carrierCode,
+                serviceCode:   preset.serviceCode ?? undefined,
+                packageCode:   preset.packageCode ?? undefined,
+                fromPostalCode,
+                fromCity:      from.city,
+                fromState:     from.state,
+                toPostalCode,
+                toCity:        toCity,
+                toState:       toState,
+                toCountry:     toCountry,
+                weight:        { value: preset.weightValue, units: preset.weightUnit as 'ounces' | 'pounds' | 'grams' | 'kilograms' },
+                ...(preset.dimLength && preset.dimWidth && preset.dimHeight
+                  ? { dimensions: { units: preset.dimUnit as 'inches' | 'centimeters', length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight } }
+                  : {}),
+                ...(preset.confirmation
+                  ? { confirmation: preset.confirmation as 'none' | 'delivery' | 'signature' | 'adult_signature' }
+                  : {}),
+              }
+
+              const v1Rates = await client.getRates(v1Payload)
+              console.log('[apply-preset] order=%s v1 rates=%d serviceCodes=%s',
+                order.amazonOrderId, v1Rates?.length ?? 0,
+                (v1Rates ?? []).map(r => r.serviceCode).join(', ') || 'none')
+
+              if (!v1Rates || v1Rates.length === 0) {
+                throw new Error(
+                  `No rates returned from ShipStation for carrier "${preset.carrierCode}"` +
+                  (preset.serviceCode ? ` / service "${preset.serviceCode}"` : '') +
+                  (preset.packageCode ? ` / package "${preset.packageCode}"` : '') +
+                  `. Check that the package type is compatible with One Rate (FedEx One Rate requires a One Rate package code, not "package").`
+                )
+              }
+
+              const match = preset.serviceCode
+                ? v1Rates.find(r => r.serviceCode === preset.serviceCode)
+                : v1Rates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))[0]
+
+              if (!match) {
+                const available = v1Rates.map(r => r.serviceCode).join(', ')
+                throw new Error(`Service "${preset.serviceCode}" not found in rates. Available: ${available}`)
+              }
+
+              rateAmount  = match.shipmentCost + match.otherCost
+              rateCarrier = match.carrierCode
+              rateService = match.serviceName
+              rateId      = match.rate_id ?? null
+            }
+
+            await prisma.order.update({
+              where: { id: order.id },
+              data: {
+                presetRateAmount:    rateAmount,
+                presetRateCarrier:   rateCarrier,
+                presetRateService:   rateService,
+                presetRateId:        rateId,
+                presetRateError:     null,
+                presetRateCheckedAt: new Date(),
+                appliedPresetId:     presetId,
+              },
+            })
+            applied++
+
+            send({
+              type:        'rate',
+              orderId:     order.id,
+              amazonOrderId: order.amazonOrderId,
+              olmNumber:   order.olmNumber,
+              rateAmount,
+              rateCarrier,
+              rateService,
+              rateId,
+              error:       null,
+            })
+
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err)
+            console.error('[apply-preset] order=%s carrier=%s error=%s', order.amazonOrderId, preset.carrierCode, msg)
+            await prisma.order.update({
+              where: { id: order.id },
+              data: { presetRateError: msg, presetRateCheckedAt: new Date() },
+            })
+            errors.push({ orderId: order.id, amazonOrderId: order.amazonOrderId, error: msg })
+
+            send({
+              type:          'rate',
+              orderId:       order.id,
+              amazonOrderId: order.amazonOrderId,
+              olmNumber:     order.olmNumber,
+              rateAmount:    null,
+              rateCarrier:   null,
+              rateService:   null,
+              rateId:        null,
+              error:         msg,
+            })
+          }
+
+          if (i < orders.length - 1) await sleep(400)
+        }
+
+        send({ type: 'done', applied, total: orders.length, errors })
+
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type':  'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection':    'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  })
+}
