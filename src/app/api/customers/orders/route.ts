@@ -69,7 +69,6 @@ export async function GET(req: NextRequest) {
         subtotal:    o.subtotal,
         total:       o.total,
         balance:     o.balance,
-        paymentTerms: o.paymentTerms,
         items:       o.items,
       })),
     })
@@ -94,7 +93,7 @@ export async function GET(req: NextRequest) {
       items: {
         select: {
           id: true,
-          amazonOrderItemId: true,
+          orderItemId: true,
           sellerSku: true,
           title: true,
           quantityOrdered: true,
