@@ -57,7 +57,7 @@ async function runEnrichment(): Promise<void> {
 
     const ssClient = new ShipStationClient(
       decrypt(ssAccount.apiKeyEnc),
-      decrypt(ssAccount.apiSecretEnc),
+      ssAccount.apiSecretEnc ? decrypt(ssAccount.apiSecretEnc) : '',
     )
 
     let enriched = 0

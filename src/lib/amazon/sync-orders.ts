@@ -293,7 +293,7 @@ export async function syncUnshippedOrders(
       if (ssAccount) {
         const ssClient = new ShipStationClient(
           decrypt(ssAccount.apiKeyEnc),
-          decrypt(ssAccount.apiSecretEnc),
+          ssAccount.apiSecretEnc ? decrypt(ssAccount.apiSecretEnc) : '',
         )
         const needsAddress = await prisma.order.findMany({
           where: { accountId, OR: [{ shipToPostal: null }, { shipToCity: null }] },

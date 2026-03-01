@@ -32,12 +32,14 @@ export async function runLabelBatch(batchId: string): Promise<void> {
   const v2ApiKey = ssAccount.v2ApiKeyEnc ? decrypt(ssAccount.v2ApiKeyEnc) : null
   const ssClient = new ShipStationClient(
     decrypt(ssAccount.apiKeyEnc),
-    decrypt(ssAccount.apiSecretEnc),
+    ssAccount.apiSecretEnc ? decrypt(ssAccount.apiSecretEnc) : '',
     v2ApiKey,
   )
 
   // ── 3. Fetch default warehouse ────────────────────────────────────────────
-  const warehouses = await ssClient.getWarehouses()
+  const warehouses = ssClient.hasV1Auth
+    ? await ssClient.getWarehouses()
+    : await ssClient.getV2Warehouses()
   const warehouse  = warehouses.find(w => w.isDefault) ?? warehouses[0]
   if (!warehouse) {
     await prisma.labelBatch.update({

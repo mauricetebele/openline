@@ -36,7 +36,7 @@ export async function POST() {
 
   const client = new ShipStationClient(
     decrypt(ssAccount.apiKeyEnc),
-    decrypt(ssAccount.apiSecretEnc),
+    ssAccount.apiSecretEnc ? decrypt(ssAccount.apiSecretEnc) : '',
   )
 
   let enriched = 0

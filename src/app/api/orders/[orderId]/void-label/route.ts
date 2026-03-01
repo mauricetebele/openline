@@ -48,7 +48,7 @@ export async function POST(
     const v2ApiKey = ssAccount.v2ApiKeyEnc ? decrypt(ssAccount.v2ApiKeyEnc) : null
     const client = new ShipStationClient(
       decrypt(ssAccount.apiKeyEnc),
-      decrypt(ssAccount.apiSecretEnc),
+      ssAccount.apiSecretEnc ? decrypt(ssAccount.apiSecretEnc) : '',
       v2ApiKey,
     )
 

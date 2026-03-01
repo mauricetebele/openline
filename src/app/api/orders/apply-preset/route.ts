@@ -78,13 +78,15 @@ export async function POST(req: NextRequest) {
   const v2ApiKey = ssAccount.v2ApiKeyEnc ? decrypt(ssAccount.v2ApiKeyEnc) : null
   const client = new ShipStationClient(
     decrypt(ssAccount.apiKeyEnc),
-    decrypt(ssAccount.apiSecretEnc),
+    ssAccount.apiSecretEnc ? decrypt(ssAccount.apiSecretEnc) : '',
     v2ApiKey,
   )
 
   let warehouses
   try {
-    warehouses = await client.getWarehouses()
+    warehouses = client.hasV1Auth
+      ? await client.getWarehouses()
+      : await client.getV2Warehouses()
   } catch (err) {
     return NextResponse.json({
       error: `Failed to load ShipStation warehouses: ${err instanceof Error ? err.message : String(err)}`,

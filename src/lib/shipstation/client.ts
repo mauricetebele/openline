@@ -291,6 +291,44 @@ export class ShipStationClient {
     return this.request<SSWarehouse[]>('GET', '/warehouses')
   }
 
+  /** V2 warehouse listing — used when only V2 credentials are available */
+  async getV2Warehouses(): Promise<SSWarehouse[]> {
+    const res = await fetch('https://api.shipstation.com/v2/warehouses', {
+      headers: { 'API-Key': this.v2ApiKey, Accept: 'application/json' },
+    })
+    const json = await res.json()
+    if (!res.ok) {
+      throw new Error(`V2 warehouses: ${json.message ?? json.title ?? `HTTP ${res.status}`}`)
+    }
+    // Map V2 warehouse shape to V1 SSWarehouse shape
+    const warehouses = (json.warehouses ?? []) as {
+      warehouse_id: string; name: string; is_default?: boolean
+      origin_address?: Record<string, string>; return_address?: Record<string, string>
+    }[]
+    return warehouses.map(w => {
+      const oa = w.origin_address ?? {}
+      const ra = w.return_address ?? {}
+      const mapAddr = (a: Record<string, string>): SSAddress => ({
+        name: a.name || '', street1: a.address_line1 || '', street2: a.address_line2 || null,
+        city: a.city_locality || '', state: a.state_province || '',
+        postalCode: a.postal_code || '', country: a.country_code || 'US',
+        phone: a.phone || null,
+      })
+      return {
+        warehouseId: parseInt(w.warehouse_id, 10) || 0,
+        warehouseName: w.name,
+        isDefault: w.is_default ?? false,
+        originAddress: mapAddr(oa),
+        returnAddress: mapAddr(ra),
+      }
+    })
+  }
+
+  /** Returns true if this client has valid V1 Basic auth credentials */
+  get hasV1Auth(): boolean {
+    return this.auth !== 'Basic ' + Buffer.from(`${this.apiKey}:`).toString('base64')
+  }
+
   getCarrierServices(carrierCode: string): Promise<SSCarrierService[]> {
     return this.request<SSCarrierService[]>('GET', `/carriers/listservices?carrierCode=${encodeURIComponent(carrierCode)}`)
   }

@@ -13,12 +13,20 @@ export async function GET() {
   const account = await prisma.shipStationAccount.findFirst({
     where: { isActive: true },
     orderBy: { createdAt: 'asc' },
+    select: { apiKeyEnc: true, apiSecretEnc: true, v2ApiKeyEnc: true },
   })
   if (!account) return NextResponse.json({ error: 'No ShipStation account connected' }, { status: 404 })
 
-  const client = new ShipStationClient(decrypt(account.apiKeyEnc), decrypt(account.apiSecretEnc))
+  const v2ApiKey = account.v2ApiKeyEnc ? decrypt(account.v2ApiKeyEnc) : null
+  const client = new ShipStationClient(
+    decrypt(account.apiKeyEnc),
+    account.apiSecretEnc ? decrypt(account.apiSecretEnc) : '',
+    v2ApiKey,
+  )
   try {
-    const warehouses = await client.getWarehouses()
+    const warehouses = client.hasV1Auth
+      ? await client.getWarehouses()
+      : await client.getV2Warehouses()
     return NextResponse.json(warehouses)
   } catch (err) {
     return NextResponse.json(
