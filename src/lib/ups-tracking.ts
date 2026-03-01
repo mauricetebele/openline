@@ -255,6 +255,19 @@ export interface ReturnLabelResult {
  * ShipFrom = buyer's address.
  * ShipTo = our warehouse.
  */
+// Sanitise an address line for the UPS Shipping API:
+// - Trim whitespace
+// - Collapse repeated spaces
+// - Strip characters UPS rejects (anything outside printable ASCII/Latin-1)
+// - Truncate to 35 chars (UPS max for AddressLine)
+function sanitizeAddressLine(raw: string): string {
+  return raw
+    .trim()
+    .replace(/[^\x20-\x7E\u00C0-\u024F]/g, '')   // keep printable ASCII + Latin accents
+    .replace(/\s{2,}/g, ' ')
+    .slice(0, 35)
+}
+
 export async function generateReturnLabel(req: ReturnLabelRequest): Promise<ReturnLabelResult> {
   const { accountNumber } = await getUPSCredentials()
   if (!accountNumber) {
@@ -263,8 +276,13 @@ export async function generateReturnLabel(req: ReturnLabelRequest): Promise<Retu
 
   const token = await getUPSToken()
 
-  const addressLines = [req.shipFromAddress1]
-  if (req.shipFromAddress2?.trim()) addressLines.push(req.shipFromAddress2.trim())
+  const line1 = sanitizeAddressLine(req.shipFromAddress1)
+  if (!line1) {
+    throw new Error('Ship-from address line 1 is empty after cleanup. Please enter a valid street address.')
+  }
+  const addressLines = [line1]
+  const line2 = req.shipFromAddress2?.trim() ? sanitizeAddressLine(req.shipFromAddress2) : ''
+  if (line2) addressLines.push(line2)
 
   const dimUnitDesc   = (req.dimUnit ?? 'IN') === 'CM' ? 'Centimeters' : 'Inches'
   const weightUnitDesc = req.weightUnit === 'OZS' ? 'Ounces' : 'Pounds'
@@ -299,13 +317,13 @@ export async function generateReturnLabel(req: ReturnLabelRequest): Promise<Retu
           },
         },
         ShipFrom: {
-          Name: req.shipFromName || 'Customer',
+          Name: sanitizeAddressLine(req.shipFromName) || 'Customer',
           Address: {
             AddressLine:       addressLines,
-            City:              req.shipFromCity,
-            StateProvinceCode: req.shipFromState,
-            PostalCode:        req.shipFromPostal,
-            CountryCode:       req.shipFromCountry || 'US',
+            City:              sanitizeAddressLine(req.shipFromCity),
+            StateProvinceCode: req.shipFromState?.trim().slice(0, 2),
+            PostalCode:        req.shipFromPostal?.trim().replace(/[^0-9-]/g, '').slice(0, 10),
+            CountryCode:       req.shipFromCountry?.trim() || 'US',
           },
         },
         Service: {
@@ -461,8 +479,10 @@ export async function getRateQuote(req: ReturnLabelRequest): Promise<RateQuoteRe
 
   const token = await getUPSToken()
 
-  const addressLines = [req.shipFromAddress1]
-  if (req.shipFromAddress2?.trim()) addressLines.push(req.shipFromAddress2.trim())
+  const rateLine1 = sanitizeAddressLine(req.shipFromAddress1)
+  const addressLines = [rateLine1]
+  const rateLine2 = req.shipFromAddress2?.trim() ? sanitizeAddressLine(req.shipFromAddress2) : ''
+  if (rateLine2) addressLines.push(rateLine2)
 
   const body = {
     RateRequest: {
@@ -493,13 +513,13 @@ export async function getRateQuote(req: ReturnLabelRequest): Promise<RateQuoteRe
           },
         },
         ShipFrom: {
-          Name: req.shipFromName || 'Customer',
+          Name: sanitizeAddressLine(req.shipFromName) || 'Customer',
           Address: {
             AddressLine:       addressLines,
-            City:              req.shipFromCity,
-            StateProvinceCode: req.shipFromState,
-            PostalCode:        req.shipFromPostal,
-            CountryCode:       req.shipFromCountry || 'US',
+            City:              sanitizeAddressLine(req.shipFromCity),
+            StateProvinceCode: req.shipFromState?.trim().slice(0, 2),
+            PostalCode:        req.shipFromPostal?.trim().replace(/[^0-9-]/g, '').slice(0, 10),
+            CountryCode:       req.shipFromCountry?.trim() || 'US',
           },
         },
         Service: { Code: req.serviceCode },
