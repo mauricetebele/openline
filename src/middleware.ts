@@ -19,7 +19,12 @@ export function middleware(req: NextRequest) {
   if (
     PUBLIC_PATHS.some((p) => pathname.startsWith(p)) ||
     pathname.startsWith('/_next') ||
-    pathname.startsWith('/favicon')
+    pathname.startsWith('/favicon') ||
+    pathname === '/manifest.json' ||
+    pathname === '/sw.js' ||
+    pathname.startsWith('/workbox-') ||
+    pathname.startsWith('/icons/') ||
+    pathname === '/apple-touch-icon.png'
   ) {
     return NextResponse.next()
   }
