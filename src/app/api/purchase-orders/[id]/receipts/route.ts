@@ -141,99 +141,110 @@ export async function POST(
     }
   }
 
+  // Normalise gradeId: convert empty strings to null so Prisma doesn't reject them
+  for (const line of lines) {
+    if (!line.gradeId) line.gradeId = null
+  }
+
   // All validation passed — execute in a single transaction
-  const receipt = await prisma.$transaction(async (tx) => {
-    // 1. Create the receipt + lines (without nested serials — we create them separately below)
-    const newReceipt = await tx.pOReceipt.create({
-      data: {
-        purchaseOrderId: params.id,
-        notes: notes?.trim() || null,
-        lines: {
-          create: lines.map(line => ({
-            purchaseOrderLineId: line.purchaseOrderLineId,
-            productId:           line.productId,
-            qtyReceived:         line.qtyReceived,
-            locationId:          line.locationId,
-          })),
-        },
-      },
-      include: {
-        lines: true,  // need the created line IDs
-      },
-    })
-
-    // 2. For each line that has serials, create InventorySerial + SerialHistory records
-    for (const line of lines) {
-      if (!line.serials?.length) continue
-
-      const cleaned     = line.serials.map((s: string) => s.trim()).filter(Boolean)
-      const receiptLine = newReceipt.lines.find(rl => rl.purchaseOrderLineId === line.purchaseOrderLineId)
-      if (!receiptLine) continue
-
-      for (const sn of cleaned) {
-        // Create the serial record
-        const serial = await tx.inventorySerial.create({
-          data: {
-            serialNumber:  sn,
-            productId:     line.productId,
-            locationId:    line.locationId,
-            gradeId:       line.gradeId ?? null,
-            receiptLineId: receiptLine.id,
-            status:        'IN_STOCK',
-          },
-        })
-
-        // Create the history entry
-        await tx.serialHistory.create({
-          data: {
-            inventorySerialId: serial.id,
-            eventType:         'PO_RECEIPT',
-            receiptId:         newReceipt.id,
-            purchaseOrderId:   params.id,
-            locationId:        line.locationId,
-          },
-        })
-      }
-    }
-
-    // 3. Upsert inventory quantities per product+location+grade
-    for (const line of lines) {
-      const gradeId = line.gradeId ?? null
-      await tx.inventoryItem.upsert({
-        where:  { productId_locationId_gradeId: { productId: line.productId, locationId: line.locationId, gradeId } },
-        create: { productId: line.productId, locationId: line.locationId, gradeId, qty: line.qtyReceived },
-        update: { qty: { increment: line.qtyReceived } },
-      })
-    }
-
-    // 4. Check if PO is now fully received → update status
-    const freshPO = await tx.purchaseOrder.findUnique({
-      where:   { id: params.id },
-      include: { lines: { include: { receiptLines: { select: { qtyReceived: true } } } } },
-    })
-    if (freshPO) {
-      const fullyReceived = freshPO.lines.every(l => {
-        const total = l.receiptLines.reduce((s, r) => s + r.qtyReceived, 0)
-        return total >= l.qty
-      })
-      if (fullyReceived) {
-        await tx.purchaseOrder.update({ where: { id: params.id }, data: { status: 'RECEIVED' } })
-      }
-    }
-
-    // 5. Return the receipt with full details for the response
-    return tx.pOReceipt.findUniqueOrThrow({
-      where: { id: newReceipt.id },
-      include: {
-        lines: {
-          include: {
-            product:  { select: { id: true, description: true, sku: true } },
-            location: { include: { warehouse: { select: { id: true, name: true } } } },
+  try {
+    const receipt = await prisma.$transaction(async (tx) => {
+      // 1. Create the receipt + lines (without nested serials — we create them separately below)
+      const newReceipt = await tx.pOReceipt.create({
+        data: {
+          purchaseOrderId: params.id,
+          notes: notes?.trim() || null,
+          lines: {
+            create: lines.map(line => ({
+              purchaseOrderLineId: line.purchaseOrderLineId,
+              productId:           line.productId,
+              qtyReceived:         line.qtyReceived,
+              locationId:          line.locationId,
+            })),
           },
         },
-      },
-    })
-  })
+        include: {
+          lines: true,  // need the created line IDs
+        },
+      })
 
-  return NextResponse.json(receipt, { status: 201 })
+      // 2. For each line that has serials, create InventorySerial + SerialHistory records
+      for (const line of lines) {
+        if (!line.serials?.length) continue
+
+        const cleaned     = line.serials.map((s: string) => s.trim()).filter(Boolean)
+        const receiptLine = newReceipt.lines.find(rl => rl.purchaseOrderLineId === line.purchaseOrderLineId)
+        if (!receiptLine) continue
+
+        for (const sn of cleaned) {
+          // Create the serial record
+          const serial = await tx.inventorySerial.create({
+            data: {
+              serialNumber:  sn,
+              productId:     line.productId,
+              locationId:    line.locationId,
+              gradeId:       line.gradeId || null,
+              receiptLineId: receiptLine.id,
+              status:        'IN_STOCK',
+            },
+          })
+
+          // Create the history entry
+          await tx.serialHistory.create({
+            data: {
+              inventorySerialId: serial.id,
+              eventType:         'PO_RECEIPT',
+              receiptId:         newReceipt.id,
+              purchaseOrderId:   params.id,
+              locationId:        line.locationId,
+            },
+          })
+        }
+      }
+
+      // 3. Upsert inventory quantities per product+location+grade
+      for (const line of lines) {
+        const gradeId = line.gradeId || null
+        await tx.inventoryItem.upsert({
+          where:  { productId_locationId_gradeId: { productId: line.productId, locationId: line.locationId, gradeId } },
+          create: { productId: line.productId, locationId: line.locationId, gradeId, qty: line.qtyReceived },
+          update: { qty: { increment: line.qtyReceived } },
+        })
+      }
+
+      // 4. Check if PO is now fully received → update status
+      const freshPO = await tx.purchaseOrder.findUnique({
+        where:   { id: params.id },
+        include: { lines: { include: { receiptLines: { select: { qtyReceived: true } } } } },
+      })
+      if (freshPO) {
+        const fullyReceived = freshPO.lines.every(l => {
+          const total = l.receiptLines.reduce((s, r) => s + r.qtyReceived, 0)
+          return total >= l.qty
+        })
+        if (fullyReceived) {
+          await tx.purchaseOrder.update({ where: { id: params.id }, data: { status: 'RECEIVED' } })
+        }
+      }
+
+      // 5. Return the receipt with full details for the response
+      return tx.pOReceipt.findUniqueOrThrow({
+        where: { id: newReceipt.id },
+        include: {
+          lines: {
+            include: {
+              product:  { select: { id: true, description: true, sku: true } },
+              location: { include: { warehouse: { select: { id: true, name: true } } } },
+            },
+          },
+        },
+      })
+    })
+
+    return NextResponse.json(receipt, { status: 201 })
+  } catch (err) {
+    console.error('[PO Receipt] Transaction error:', err)
+    const message = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }
