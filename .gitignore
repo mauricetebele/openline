@@ -6,3 +6,8 @@ node_modules/
 .DS_Store
 prisma/migrations/dev.db
 .vercel
+
+# PWA auto-generated service worker
+public/sw.js
+public/workbox-*.js
+public/swe-worker-*.js

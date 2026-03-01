@@ -8,12 +8,22 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Refund Auditor — Amazon Seller Central',
   description: 'Review and audit Amazon Seller Central refunds',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Open Line',
+  },
+  icons: {
+    apple: '/apple-touch-icon.png',
+  },
 }
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  themeColor: '#131921',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
