@@ -203,13 +203,31 @@ export async function POST(
       }
 
       // 3. Upsert inventory quantities per product+location+grade
+      //    Prisma's composite-unique upsert rejects null in the where clause,
+      //    so when gradeId is null we fall back to manual find + update/create.
       for (const line of lines) {
         const gradeId = line.gradeId || null
-        await tx.inventoryItem.upsert({
-          where:  { productId_locationId_gradeId: { productId: line.productId, locationId: line.locationId, gradeId } },
-          create: { productId: line.productId, locationId: line.locationId, gradeId, qty: line.qtyReceived },
-          update: { qty: { increment: line.qtyReceived } },
-        })
+        if (gradeId) {
+          await tx.inventoryItem.upsert({
+            where:  { productId_locationId_gradeId: { productId: line.productId, locationId: line.locationId, gradeId } },
+            create: { productId: line.productId, locationId: line.locationId, gradeId, qty: line.qtyReceived },
+            update: { qty: { increment: line.qtyReceived } },
+          })
+        } else {
+          const existing = await tx.inventoryItem.findFirst({
+            where: { productId: line.productId, locationId: line.locationId, gradeId: null },
+          })
+          if (existing) {
+            await tx.inventoryItem.update({
+              where: { id: existing.id },
+              data:  { qty: { increment: line.qtyReceived } },
+            })
+          } else {
+            await tx.inventoryItem.create({
+              data: { productId: line.productId, locationId: line.locationId, gradeId: null, qty: line.qtyReceived },
+            })
+          }
+        }
       }
 
       // 4. Check if PO is now fully received → update status
