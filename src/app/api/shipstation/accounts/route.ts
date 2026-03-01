@@ -30,13 +30,21 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { name, apiKey, apiSecret } = await req.json()
-  if (!apiKey?.trim() || !apiSecret?.trim()) {
-    return NextResponse.json({ error: 'API Key and API Secret are required' }, { status: 400 })
+  if (!apiKey?.trim()) {
+    return NextResponse.json({ error: 'API Key is required' }, { status: 400 })
   }
 
-  // Test connection before saving
+  const key = apiKey.trim()
+  const secret = apiSecret?.trim() || null
+
+  // Test connection before saving — use V2 if no secret provided
   try {
-    await new ShipStationClient(apiKey.trim(), apiSecret.trim()).testConnection()
+    const client = new ShipStationClient(key, secret ?? '', secret ? null : key)
+    if (secret) {
+      await client.testConnection()        // V1 Basic auth test
+    } else {
+      await client.getV2Carriers()         // V2 API-Key test
+    }
   } catch (err) {
     return NextResponse.json(
       { error: `Invalid credentials — ${err instanceof Error ? err.message : 'connection failed'}` },
@@ -47,8 +55,9 @@ export async function POST(req: NextRequest) {
   const account = await prisma.shipStationAccount.create({
     data: {
       name: name?.trim() || 'ShipStation',
-      apiKeyEnc: encrypt(apiKey.trim()),
-      apiSecretEnc: encrypt(apiSecret.trim()),
+      apiKeyEnc: encrypt(key),
+      apiSecretEnc: secret ? encrypt(secret) : null,
+      v2ApiKeyEnc: secret ? null : encrypt(key),  // store as V2 key if no secret
     },
     select: { id: true, name: true, isActive: true, createdAt: true },
   })

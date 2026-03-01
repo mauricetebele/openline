@@ -1876,7 +1876,7 @@ function ConnectSSModal({ onConnected, onClose }: { onConnected: (acct: SSAccoun
   const [err, setErr] = useState<string | null>(null)
 
   async function handleConnect() {
-    if (!key.trim() || !secret.trim()) { setErr('API Key and Secret are required'); return }
+    if (!key.trim()) { setErr('API Key is required'); return }
     setSaving(true); setErr(null)
     try {
       const acct = await apiPost<SSAccount>('/api/shipstation/accounts', { name, apiKey: key.trim(), apiSecret: secret.trim() })
@@ -1907,13 +1907,13 @@ function ConnectSSModal({ onConnected, onClose }: { onConnected: (acct: SSAccoun
             <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue" placeholder="e.g. a1b2c3d4e5f6…" value={key} onChange={e => setKey(e.target.value)} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">API Secret <span className="text-red-500">*</span></label>
-            <input type="password" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue" placeholder="••••••••" value={secret} onChange={e => setSecret(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleConnect() }} />
+            <label className="block text-xs font-medium text-gray-700 mb-1">API Secret <span className="text-gray-400 font-normal">(optional — only for V1 keys)</span></label>
+            <input type="password" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue" placeholder="Leave blank if using V2 API Key" value={secret} onChange={e => setSecret(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleConnect() }} />
           </div>
         </div>
         <div className="flex gap-2 justify-end">
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-          <button onClick={handleConnect} disabled={saving || !key.trim() || !secret.trim()} className="px-4 py-1.5 text-sm bg-amazon-blue text-white rounded-lg hover:opacity-90 disabled:opacity-50">{saving ? 'Connecting…' : 'Connect'}</button>
+          <button onClick={handleConnect} disabled={saving || !key.trim()} className="px-4 py-1.5 text-sm bg-amazon-blue text-white rounded-lg hover:opacity-90 disabled:opacity-50">{saving ? 'Connecting…' : 'Connect'}</button>
         </div>
       </div>
     </div>
