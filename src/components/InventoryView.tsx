@@ -25,10 +25,12 @@ interface Serial { id: string; serialNumber: string; createdAt: string }
 
 interface HistoryEvent {
   id:            string
-  eventType:     'PO_RECEIPT' | 'LOCATION_MOVE' | 'SKU_CONVERSION' | 'MANUAL_ADD' | 'MANUAL_REMOVE'
+  eventType:     'PO_RECEIPT' | 'LOCATION_MOVE' | 'SKU_CONVERSION' | 'SALE' | 'MANUAL_ADD' | 'MANUAL_REMOVE'
   createdAt:     string
+  notes:         string | null
   receipt:       { id: string; receivedAt: string } | null
   purchaseOrder: { id: string; poNumber: number; vendor: { name: string } } | null
+  order:         { id: string; amazonOrderId: string; shipToName: string | null; shipToCity: string | null; shipToState: string | null; orderTotal: string | null; currency: string | null; label: { trackingNumber: string; carrier: string | null; serviceCode: string | null; shipmentCost: string | null } | null } | null
   location:      { name: string; warehouse: { name: string } } | null
   fromLocation:  { name: string; warehouse: { name: string } } | null
   fromProduct:   { id: string; description: string; sku: string } | null
@@ -80,6 +82,7 @@ const EVENT_LABEL: Record<string, string> = {
   PO_RECEIPT:     'PO Receipt',
   LOCATION_MOVE:  'Location Move',
   SKU_CONVERSION: 'SKU Conversion',
+  SALE:           'Sale',
   MANUAL_ADD:     'Manual Inventory Add',
   MANUAL_REMOVE:  'Manual Inventory Remove',
 }
@@ -379,9 +382,13 @@ function SNLookupModal({ onClose }: { onClose: () => void }) {
                                 <Tag size={10} />
                                 SKU Conversion
                               </span>
+                            ) : event.eventType === 'SALE' ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 text-xs font-medium">
+                                <ShoppingCart size={10} />
+                                Sale
+                              </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 text-xs font-medium">
-                                <ShoppingCart size={10} />
                                 {EVENT_LABEL[event.eventType] ?? event.eventType}
                               </span>
                             )}
@@ -429,6 +436,58 @@ function SNLookupModal({ onClose }: { onClose: () => void }) {
                                   </p>
                                 )}
                               </>
+                            ) : event.eventType === 'SALE' ? (
+                              <>
+                                {event.order && (
+                                  <>
+                                    <p>
+                                      <span className="text-gray-400">Order:</span>{' '}
+                                      <span className="font-semibold font-mono text-gray-800">{event.order.amazonOrderId}</span>
+                                    </p>
+                                    {event.order.shipToName && (
+                                      <p>
+                                        <span className="text-gray-400">Buyer:</span>{' '}
+                                        <span className="font-medium text-gray-800">
+                                          {event.order.shipToName}
+                                          {event.order.shipToCity && event.order.shipToState
+                                            ? ` · ${event.order.shipToCity}, ${event.order.shipToState}`
+                                            : ''}
+                                        </span>
+                                      </p>
+                                    )}
+                                    {event.order.label && (
+                                      <>
+                                        <p>
+                                          <span className="text-gray-400">Tracking:</span>{' '}
+                                          <span className="font-mono font-medium text-gray-800">{event.order.label.trackingNumber}</span>
+                                        </p>
+                                        {(event.order.label.carrier || event.order.label.serviceCode) && (
+                                          <p>
+                                            <span className="text-gray-400">Carrier:</span>{' '}
+                                            <span className="font-medium text-gray-800">
+                                              {[event.order.label.carrier, event.order.label.serviceCode].filter(Boolean).join(' · ')}
+                                            </span>
+                                          </p>
+                                        )}
+                                        {event.order.label.shipmentCost && (
+                                          <p>
+                                            <span className="text-gray-400">Shipping Cost:</span>{' '}
+                                            <span className="font-medium text-gray-800">${Number(event.order.label.shipmentCost).toFixed(2)}</span>
+                                          </p>
+                                        )}
+                                      </>
+                                    )}
+                                  </>
+                                )}
+                                {event.location && (
+                                  <p>
+                                    <span className="text-gray-400">Shipped from:</span>{' '}
+                                    <span className="font-medium text-gray-800">
+                                      {event.location.warehouse.name} / {event.location.name}
+                                    </span>
+                                  </p>
+                                )}
+                              </>
                             ) : (
                               <>
                                 {event.purchaseOrder && (
@@ -456,6 +515,9 @@ function SNLookupModal({ onClose }: { onClose: () => void }) {
                                       {event.location.warehouse.name} / {event.location.name}
                                     </span>
                                   </p>
+                                )}
+                                {event.notes && !event.purchaseOrder && (
+                                  <p className="text-gray-500 italic">{event.notes}</p>
                                 )}
                               </>
                             )}

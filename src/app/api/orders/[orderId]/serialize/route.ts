@@ -29,7 +29,7 @@ export async function POST(
 
   const order = await prisma.order.findUnique({
     where:   { id: params.orderId },
-    include: { items: true },
+    include: { items: true, label: { select: { trackingNumber: true, carrier: true, serviceCode: true, shipmentCost: true } } },
   })
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (order.workflowStatus !== 'AWAITING_VERIFICATION') {
@@ -100,9 +100,25 @@ export async function POST(
     }
   }
 
+  // ── Build sale notes with all available context ──────────────────────────
+  const label = order.label
+  const noteParts = [`Amazon Order ${order.amazonOrderId}`]
+  if (order.shipToName) noteParts.push(`Buyer: ${order.shipToName}`)
+  if (label?.carrier) noteParts.push(`Carrier: ${label.carrier}`)
+  if (label?.serviceCode) noteParts.push(`Service: ${label.serviceCode}`)
+  if (label?.trackingNumber) noteParts.push(`Tracking: ${label.trackingNumber}`)
+  if (label?.shipmentCost) noteParts.push(`Cost: $${Number(label.shipmentCost).toFixed(2)}`)
+  const saleNotes = noteParts.join(' · ')
+
   // ── Apply all changes in a transaction ────────────────────────────────────
   await prisma.$transaction(async tx => {
     for (const r of resolvedSerials) {
+      // Look up the serial's current location for the history record
+      const serial = await tx.inventorySerial.findUnique({
+        where: { id: r.serialId },
+        select: { locationId: true },
+      })
+
       // Mark serial as SOLD
       await tx.inventorySerial.update({
         where: { id: r.serialId },
@@ -118,12 +134,14 @@ export async function POST(
         },
       })
 
-      // Add serial history event
+      // Add serial history event with full sale context
       await tx.serialHistory.create({
         data: {
           inventorySerialId: r.serialId,
           eventType:         'SALE',
-          notes:             `Sold via order ${order.amazonOrderId}`,
+          orderId:           params.orderId,
+          locationId:        serial?.locationId ?? null,
+          notes:             saleNotes,
         },
       })
     }

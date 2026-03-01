@@ -374,6 +374,7 @@ model Order {
   label                  OrderLabel?
   serialAssignments      OrderSerialAssignment[]
   labelBatchItems        LabelBatchItem[]
+  serialHistory          SerialHistory[]
 
   @@unique([accountId, amazonOrderId])
   @@index([accountId, orderStatus])
@@ -930,6 +931,9 @@ model SerialHistory {
   receipt           POReceipt?      @relation(fields: [receiptId], references: [id], onDelete: SetNull)
   purchaseOrderId   String?
   purchaseOrder     PurchaseOrder?  @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  // Sale context (populated for SALE events)
+  orderId           String?
+  order             Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
   locationId        String?
   location          Location?       @relation("SHToLocation", fields: [locationId], references: [id], onDelete: SetNull)
   fromLocationId    String?
@@ -943,6 +947,7 @@ model SerialHistory {
 
   @@index([inventorySerialId])
   @@index([receiptId])
+  @@index([orderId])
   @@map("serial_history")
 }
 

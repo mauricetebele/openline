@@ -22,6 +22,25 @@ export async function GET(
           vendor:   { select: { name: true } },
         },
       },
+      order: {
+        select: {
+          id:             true,
+          amazonOrderId:  true,
+          shipToName:     true,
+          shipToCity:     true,
+          shipToState:    true,
+          orderTotal:     true,
+          currency:       true,
+          label: {
+            select: {
+              trackingNumber: true,
+              carrier:        true,
+              serviceCode:    true,
+              shipmentCost:   true,
+            },
+          },
+        },
+      },
       location: {
         select: { name: true, warehouse: { select: { name: true } } },
       },
