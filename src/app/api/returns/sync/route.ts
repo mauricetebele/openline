@@ -5,6 +5,9 @@ import { syncMFNReturns } from '@/lib/amazon/mfn-returns'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
 
+// Allow up to 5 minutes for Amazon report generation + parsing
+export const maxDuration = 300
+
 const schema = z.object({
   accountId: z.string().min(1),
   startDate: z.string().datetime(),
@@ -50,21 +53,21 @@ export async function POST(req: NextRequest) {
       data: { accountId, startDate: start, endDate: end, status: 'IN_PROGRESS' },
     })
 
-    // Run in background — return immediately
-    ;(async () => {
-      try {
-        await syncMFNReturns(accountId, job.id, start, end)
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err)
-        console.error('[MFNReturnSync] Job failed:', message)
-        await prisma.mFNReturnSyncJob.update({
-          where: { id: job.id },
-          data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
-        })
-      }
-    })()
+    // Run within the request so Vercel keeps the function alive
+    try {
+      await syncMFNReturns(accountId, job.id, start, end)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[MFNReturnSync] Job failed:', message)
+      await prisma.mFNReturnSyncJob.update({
+        where: { id: job.id },
+        data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
+      })
+      return NextResponse.json({ jobId: job.id, status: 'FAILED', error: message }, { status: 200 })
+    }
 
-    return NextResponse.json({ jobId: job.id }, { status: 202 })
+    const completed = await prisma.mFNReturnSyncJob.findUnique({ where: { id: job.id } })
+    return NextResponse.json({ jobId: job.id, status: 'COMPLETED', ...completed })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ error: message }, { status: 500 })

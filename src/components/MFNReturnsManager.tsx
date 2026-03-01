@@ -101,39 +101,33 @@ function SyncPanel({
     setErr('')
     if (!accountId) { setErr('Select an Amazon account'); return }
 
-    const res = await fetch('/api/returns/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        accountId,
-        startDate: new Date(startDate).toISOString(),
-        endDate:   new Date(endDate).toISOString(),
-      }),
-    })
-    const data = await res.json()
-    if (!res.ok) { setErr(data.error ?? 'Failed to start sync'); return }
-
     setPolling(true)
-    pollJob(data.jobId)
-  }
+    setJob({ status: 'IN_PROGRESS', totalFound: 0, totalUpserted: 0 } as SyncJob)
 
-  function pollJob(jobId: string) {
-    const interval = setInterval(async () => {
-      const res = await fetch(`/api/returns/sync?jobId=${jobId}`)
-      const data: SyncJob = await res.json()
-      setJob(data)
+    try {
+      const res = await fetch('/api/returns/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId,
+          startDate: new Date(startDate).toISOString(),
+          endDate:   new Date(endDate).toISOString(),
+        }),
+      })
+      const data = await res.json()
 
-      if (data.status === 'COMPLETED') {
-        clearInterval(interval)
-        setPolling(false)
+      if (data.status === 'FAILED' || data.error) {
+        setErr(data.error ?? data.errorMessage ?? 'Sync failed')
+        setJob(data.jobId ? data : null)
+      } else {
+        setJob(data)
         onSynced()
       }
-      if (data.status === 'FAILED') {
-        clearInterval(interval)
-        setPolling(false)
-        setErr(data.errorMessage ?? 'Sync failed')
-      }
-    }, 5_000)
+    } catch (fetchErr) {
+      setErr('Network error — the import may still be running. Try refreshing the page.')
+    } finally {
+      setPolling(false)
+    }
   }
 
   return (
