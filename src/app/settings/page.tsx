@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import {
   CheckCircle, AlertTriangle, Clock, RefreshCw, FlaskConical,
   ExternalLink, Warehouse, Truck, Settings,
-  ChevronRight,
+  ChevronRight, Trash2,
 } from 'lucide-react'
 import AppShell from '@/components/AppShell'
 import WarehouseManager from '@/components/WarehouseManager'
@@ -77,6 +77,7 @@ type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'backmarket'
 function AmazonAccountsSection() {
   const [accounts, setAccounts] = useState<AmazonAccount[]>([])
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [sellerId, setSellerId] = useState('')
   const [refreshToken, setRefreshToken] = useState('')
 
@@ -85,6 +86,21 @@ function AmazonAccountsSection() {
   async function fetchAccounts() {
     const res = await fetch('/api/accounts')
     if (res.ok) setAccounts(await res.json())
+  }
+
+  async function handleDelete(id: string, sellerName: string) {
+    if (!confirm(`Remove ${sellerName}? This will disconnect the account.`)) return
+    setDeleting(id)
+    try {
+      const res = await fetch(`/api/accounts/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Account removed')
+      fetchAccounts()
+    } catch (err) {
+      toast.error(`Failed to remove: ${(err as Error).message}`)
+    } finally {
+      setDeleting(null)
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -124,6 +140,14 @@ function AmazonAccountsSection() {
                   <p className="text-xs text-gray-400">Seller ID: {a.sellerId} · {a.region}</p>
                 </div>
                 <span className="ml-auto badge-green text-xs">Active</span>
+                <button
+                  onClick={() => handleDelete(a.id, a.marketplaceName)}
+                  disabled={deleting === a.id}
+                  className="ml-2 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                  title="Remove account"
+                >
+                  <Trash2 size={14} className={deleting === a.id ? 'animate-pulse' : ''} />
+                </button>
               </div>
             ))}
           </div>
