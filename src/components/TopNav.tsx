@@ -8,7 +8,7 @@ import {
   Truck, Tag, Package, Boxes, Building2, RotateCcw, ShoppingCart,
   LayoutGrid, RefreshCcw, PackageMinus, Barcode,
   Store, Users, FileText, BarChart2, Cpu, Printer,
-  Plus, Search, ArrowRightLeft, Menu, X, Settings, History, MessageSquare,
+  Plus, Search, ArrowRightLeft, Menu, X, Settings, History,
   Moon, Sun, FolderOpen,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -58,7 +58,6 @@ const NAV: NavItem[] = [
       { href: '/returns',            label: 'MFN Returns',        icon: RotateCcw },
       { href: '/return-label',       label: 'Return Label',       icon: Printer },
       { href: '/pricing-rules',      label: 'Pricing Rules',      icon: Tag },
-      { href: '/messaging',          label: 'Messaging',          icon: MessageSquare },
       { href: '/audit',              label: 'Audit Log',          icon: ClipboardList },
     ],
   },

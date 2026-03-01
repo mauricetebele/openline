@@ -616,45 +616,6 @@ model LabelBatchItem {
   @@map("label_batch_items")
 }
 
-// ─── Buyer-Seller Messaging ───────────────────────────────────────────────────
-// Stores messages sent to buyers via the Amazon Messaging API so we have a local
-// record of outbound correspondence (inbound messages are not available via SP-API).
-
-model OrderMessage {
-  id             String   @id @default(cuid())
-  amazonOrderId  String
-  messageType    String   // SP-API action name for outbound; "buyerReply" for logged inbound; "sellerMessage" for auto-captured outbound
-  body           String
-  isInbound      Boolean  @default(false)  // true = message received FROM buyer
-  sentAt         DateTime @default(now())
-  sentBy         String?  // user email (outbound) or null (inbound)
-  spApiMessageId String?  // SP-API message ID used for deduplication when auto-captured via SQS
-
-  @@index([amazonOrderId])
-  @@index([spApiMessageId])
-  @@map("order_messages")
-}
-
-// ─── SP-API Notification Subscriptions ───────────────────────────────────────
-// Tracks active SP-API notification subscriptions so we know which accounts
-// have automatic buyer message capture configured.
-
-model NotificationSubscription {
-  id               String   @id @default(cuid())
-  accountId        String
-  notificationType String   // e.g. "BUYER_SELLER_MESSAGING_MESSAGE"
-  destinationId    String?  // SP-API destinationId (SQS destination)
-  subscriptionId   String?  // SP-API subscriptionId
-  sqsArn           String?  // The SQS ARN registered as the destination
-  status           String   @default("INACTIVE") // ACTIVE | INACTIVE | FAILED
-  errorMessage     String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  @@unique([accountId, notificationType])
-  @@map("notification_subscriptions")
-}
-
 // ─── Vendors ──────────────────────────────────────────────────────────────────
 
 model Vendor {
