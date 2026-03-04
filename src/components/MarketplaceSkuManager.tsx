@@ -166,6 +166,15 @@ function ProductSearchInput({
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 })
+
+  function updateDropPos() {
+    if (inputRef.current) {
+      const r = inputRef.current.getBoundingClientRect()
+      setDropPos({ top: r.bottom + 4, left: r.left, width: r.width })
+    }
+  }
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); return }
@@ -175,6 +184,7 @@ function ProductSearchInput({
         const data = await apiFetch(`/api/products?search=${encodeURIComponent(query.trim())}`)
         setResults(data.data ?? [])
         setOpen(true)
+        updateDropPos()
       } catch {
         setResults([])
       } finally {
@@ -204,15 +214,47 @@ function ProductSearchInput({
     )
   }
 
+  const dropdown = open && results.length > 0 && createPortal(
+    <div
+      style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex: 9999 }}
+      className="bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto"
+      onMouseDown={e => e.preventDefault()}
+    >
+      {results.map(p => (
+        <button
+          key={p.id}
+          type="button"
+          onClick={() => { onSelect(p); setQuery(''); setOpen(false) }}
+          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-gray-50"
+        >
+          <span className="font-mono text-gray-700 shrink-0">{p.sku}</span>
+          <span className="text-gray-500 truncate">{p.description}</span>
+        </button>
+      ))}
+    </div>,
+    document.body,
+  )
+
+  const emptyMsg = open && query.trim() && results.length === 0 && !loading && createPortal(
+    <div
+      style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex: 9999 }}
+      className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs text-gray-400"
+    >
+      No products found
+    </div>,
+    document.body,
+  )
+
   return (
     <div ref={wrapperRef} className="relative">
       <div className="relative">
         <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
         <input
+          ref={inputRef}
           type="text"
           value={query}
           onChange={e => setQuery(e.target.value)}
-          onFocus={() => results.length > 0 && setOpen(true)}
+          onFocus={() => { if (results.length > 0) { updateDropPos(); setOpen(true) } }}
           placeholder="Search products…"
           className="w-full h-8 rounded border border-gray-300 pl-7 pr-2 text-xs focus:outline-none focus:ring-1 focus:ring-amazon-blue"
         />
@@ -220,26 +262,8 @@ function ProductSearchInput({
           <span className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 border border-gray-300 border-t-amazon-blue rounded-full animate-spin" />
         )}
       </div>
-      {open && results.length > 0 && (
-        <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-          {results.map(p => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => { onSelect(p); setQuery(''); setOpen(false) }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-gray-50"
-            >
-              <span className="font-mono text-gray-700 shrink-0">{p.sku}</span>
-              <span className="text-gray-500 truncate">{p.description}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      {open && query.trim() && results.length === 0 && !loading && (
-        <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs text-gray-400">
-          No products found
-        </div>
-      )}
+      {dropdown}
+      {emptyMsg}
     </div>
   )
 }
