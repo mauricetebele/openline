@@ -476,6 +476,7 @@ export default function MarketplaceSkuManager() {
   const [filterText, setFilterText] = useState('')
   const [syncing, setSyncing] = useState<string | null>(null)
   const [pushing, setPushing] = useState(false)
+  const [lastPushAt, setLastPushAt] = useState<Date | null>(null)
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
   const [syncPage, setSyncPage] = useState(1)
   const SYNC_PAGE_SIZE = 100
@@ -676,6 +677,7 @@ export default function MarketplaceSkuManager() {
         `Pushed quantities for ${pushCount} SKU${pushCount !== 1 ? 's' : ''}` +
         (errCount > 0 ? ` (${errCount} error${errCount !== 1 ? 's' : ''})` : ''),
       )
+      setLastPushAt(new Date())
       loadQtyBreakdown()
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Push failed')
@@ -803,6 +805,13 @@ export default function MarketplaceSkuManager() {
           Add Marketplace SKU
         </button>
       </div>
+
+      {lastPushAt && (
+        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+          <Upload size={12} className="text-green-500" />
+          <span>Last Qty Push: <span className="font-medium text-gray-700">{lastPushAt.toLocaleString()}</span></span>
+        </div>
+      )}
 
       {err && <ErrorBanner msg={err} onClose={() => setErr('')} />}
       {toast && <SuccessToast msg={toast} onClose={() => setToast('')} />}
