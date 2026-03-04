@@ -87,6 +87,7 @@ const EVENT_LABEL: Record<string, string> = {
   ASSIGNED:       'Assigned',
   UNASSIGNED:     'Unassigned',
   BIN_ASSIGNED:   'Bin Location Assigned',
+  NOTE_ADDED:     'Serial Note Populated',
   MANUAL_ADD:     'Manual Inventory Add',
   MANUAL_REMOVE:  'Manual Inventory Remove',
 }
