@@ -82,7 +82,6 @@ function buildPrintHtml(opts: {
     }</td>` : ''
     return `<tr>
       <td class="sku">${esc(item.sellerSku ?? '—')}</td>
-      <td class="desc">${esc(item.title ?? '—')}</td>
       <td class="qty">${item.totalQty}</td>
       ${locationCell}
       <td class="chk"><span class="checkbox"></span></td>
@@ -161,16 +160,10 @@ function buildPrintHtml(opts: {
   }
   td.sku {
     font-family: 'Courier New', monospace;
-    font-size: ${is4x6 ? '7pt' : '9pt'};
-    font-weight: 700;
+    font-size: ${is4x6 ? '9pt' : '12pt'};
+    font-weight: 900;
     white-space: nowrap;
-    color: #1a1a1a;
-  }
-  td.desc {
-    color: #444;
-    max-width: ${is4x6 ? '90pt' : '220pt'};
-    word-break: break-word;
-    font-size: ${is4x6 ? '6.5pt' : '9pt'};
+    color: #000;
   }
   td.qty {
     font-weight: 800;
@@ -191,9 +184,10 @@ function buildPrintHtml(opts: {
   .loc-qty { font-weight: 400; color: #9ca3af; }
   .bin-val {
     display: block;
-    font-size: ${is4x6 ? '5.5pt' : '7.5pt'};
-    color: #6b7280;
-    margin-top: 1pt;
+    font-size: ${is4x6 ? '8pt' : '11pt'};
+    font-weight: 700;
+    color: #1a1a1a;
+    margin-top: 2pt;
   }
   .checkbox {
     display: inline-block;
@@ -227,7 +221,6 @@ function buildPrintHtml(opts: {
   <thead>
     <tr>
       <th>SKU</th>
-      <th>Description</th>
       <th class="center">Qty</th>
       ${locationTh}
       <th class="center">✓</th>
@@ -403,7 +396,6 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">SKU</th>
-                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Description</th>
                       <th className="px-4 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-12">Qty</th>
                       {showLocations && (
                         <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Location</th>
@@ -414,11 +406,8 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
                   <tbody>
                     {aggregated.map((item, i) => (
                       <tr key={i} className="border-b border-gray-100 last:border-0">
-                        <td className="px-4 py-3 font-mono text-[12px] font-semibold text-gray-800 whitespace-nowrap align-top">
+                        <td className="px-4 py-3 font-mono text-sm font-black text-gray-900 whitespace-nowrap align-top">
                           {item.sellerSku ?? '—'}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-600 align-top max-w-[200px]">
-                          {item.title ?? '—'}
                         </td>
                         <td className="px-4 py-3 text-center font-bold text-gray-900 align-top text-sm">
                           {item.totalQty}
@@ -436,7 +425,7 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
                                   </span>
                                 ))}
                                 {item.binLocations.length > 0 && (
-                                  <span className="text-gray-500 text-[10px]">
+                                  <span className="font-bold text-gray-900 text-sm">
                                     Bin: {item.binLocations.map(bc => bc.qty > 1 ? `${bc.bin} (×${bc.qty})` : bc.bin).join(', ')}
                                   </span>
                                 )}
