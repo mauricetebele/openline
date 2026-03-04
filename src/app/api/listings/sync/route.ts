@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { syncListings } from '@/lib/amazon/listings'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
+import { waitUntil } from '@vercel/functions'
 
 export const maxDuration = 60
 
@@ -52,20 +53,20 @@ export async function POST(req: NextRequest) {
       data: { accountId, status: 'RUNNING' },
     })
 
-    try {
-      await syncListings(accountId, job.id)
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      console.error('[ListingSync] Job failed:', message)
-      await prisma.listingSyncJob.update({
-        where: { id: job.id },
-        data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
+    // Use waitUntil so the sync runs after the response is sent
+    // (Vercel keeps the function alive for waitUntil promises)
+    waitUntil(
+      syncListings(accountId, job.id).catch(async (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        console.error('[ListingSync] Job failed:', message)
+        await prisma.listingSyncJob.update({
+          where: { id: job.id },
+          data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
+        })
       })
-      return NextResponse.json({ error: message }, { status: 500 })
-    }
+    )
 
-    const completed = await prisma.listingSyncJob.findUnique({ where: { id: job.id } })
-    return NextResponse.json({ jobId: job.id, ...completed }, { status: 200 })
+    return NextResponse.json({ jobId: job.id }, { status: 202 })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[POST /api/listings/sync]', message)

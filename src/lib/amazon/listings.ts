@@ -65,10 +65,10 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
     marketplaceIds: [account.marketplaceId],
   })
 
-  // 2. Poll until DONE (max 15 attempts × 3 s = ~45 s, fits within Vercel 60s limit)
+  // 2. Poll until DONE (max 20 attempts × 5 s = ~100 s)
   let reportDocumentId: string | undefined
-  for (let attempt = 0; attempt < 15; attempt++) {
-    await sleep(3_000)
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await sleep(5_000)
     const report = await client.get<GetReportResponse>(`/reports/2021-06-30/reports/${reportId}`)
     if (report.processingStatus === 'DONE') {
       reportDocumentId = report.reportDocumentId
