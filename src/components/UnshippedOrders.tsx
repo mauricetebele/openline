@@ -1397,102 +1397,24 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
 
 // ─── Manual Ship Modal (2-step: serialize → carrier/tracking) ─────────────────
 
-type ManualSerialState = { value: string; valid: boolean | null; message: string; checking: boolean; serialId?: string }
-
 function ManualShipModal({ order, onClose, onShipped }: {
   order: Order; onClose: () => void; onShipped: () => void
 }) {
-  const [step, setStep] = useState<'serialize' | 'ship'>('serialize')
   const [carrier, setCarrier]   = useState('')
   const [tracking, setTracking] = useState('')
-  const [serialInputs, setSerialInputs] = useState<Record<string, ManualSerialState>>({})
-  const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const [submitting, setSubmitting] = useState(false)
   const [submitErr, setSubmitErr]   = useState<string | null>(null)
 
-  const serializableItems = order.items.filter(i => i.isSerializable)
-  const needsSerials = serializableItems.length > 0
-
-  useEffect(() => {
-    const initial: Record<string, ManualSerialState> = {}
-    for (const item of serializableItems) {
-      for (let i = 0; i < item.quantityOrdered; i++) {
-        const key = `${item.orderItemId}-${i}`
-        initial[key] = { value: '', valid: null, message: '', checking: false }
-      }
-    }
-    setSerialInputs(initial)
-    // If no serializable items, skip straight to ship step
-    if (!serializableItems.length) setStep('ship')
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order.id])
-
-  const validateSerial = useCallback((key: string, sn: string, sku: string) => {
-    if (!sn.trim()) {
-      setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, valid: null, message: '', checking: false, serialId: undefined } }))
-      return
-    }
-    setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, checking: true, valid: null, message: '', serialId: undefined } }))
-    if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key])
-    debounceRefs.current[key] = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/serials/validate?sn=${encodeURIComponent(sn.trim())}&sku=${encodeURIComponent(sku)}`)
-        const data: { valid: boolean; reason?: string; detail?: string; location?: string; serialId?: string } = await res.json()
-        setSerialInputs(prev => ({
-          ...prev,
-          [key]: {
-            value: sn,
-            valid: data.valid,
-            message: data.valid ? (data.location ?? '✓ Valid') : (data.detail ?? 'Invalid'),
-            checking: false,
-            serialId: data.valid ? data.serialId : undefined,
-          },
-        }))
-      } catch {
-        setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], checking: false, valid: false, message: 'Validation error', serialId: undefined } }))
-      }
-    }, 350)
-  }, [])
-
-  const allSerialsValid = (() => {
-    if (!needsSerials) return true
-    for (const item of serializableItems) {
-      for (let i = 0; i < item.quantityOrdered; i++) {
-        const key = `${item.orderItemId}-${i}`
-        const state = serialInputs[key]
-        if (!state || !state.valid || state.checking) return false
-      }
-    }
-    return true
-  })()
-
-  const canProceedToShip = !needsSerials || allSerialsValid
-  const canSubmit = carrier.trim() && tracking.trim() && canProceedToShip
+  const canSubmit = carrier.trim() && tracking.trim()
 
   async function handleSubmit() {
     if (!canSubmit) return
     setSubmitting(true); setSubmitErr(null)
     try {
-      // Build serial assignments
-      const assignments: { orderItemId: string; serialNumbers: string[] }[] = []
-      for (const item of serializableItems) {
-        const sns: string[] = []
-        for (let i = 0; i < item.quantityOrdered; i++) {
-          const key = `${item.orderItemId}-${i}`
-          const state = serialInputs[key]
-          if (state?.valid && state.value.trim()) sns.push(state.value.trim())
-        }
-        if (sns.length > 0) {
-          // Need the item.id (DB id), not orderItemId — find matching item
-          const dbItem = order.items.find(oi => oi.orderItemId === item.orderItemId)
-          if (dbItem) assignments.push({ orderItemId: dbItem.id, serialNumbers: sns })
-        }
-      }
-
       const res = await fetch(`/api/orders/${order.id}/manual-ship`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ carrier: carrier.trim(), tracking: tracking.trim(), assignments }),
+        body: JSON.stringify({ carrier: carrier.trim(), tracking: tracking.trim() }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `${res.status}`)
@@ -1518,94 +1440,10 @@ function ManualShipModal({ order, onClose, onShipped }: {
             </p>
             {order.shipToName && <p className="text-xs text-gray-400 mt-0.5">{order.shipToName}</p>}
           </div>
-          <div className="flex items-center gap-3">
-            {/* Step indicators */}
-            {needsSerials && (
-              <div className="flex items-center gap-1.5 text-[10px] font-medium">
-                <span className={clsx('px-2 py-0.5 rounded-full', step === 'serialize' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700')}>
-                  1. Serialize
-                </span>
-                <ChevronRight size={10} className="text-gray-300" />
-                <span className={clsx('px-2 py-0.5 rounded-full', step === 'ship' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400')}>
-                  2. Ship
-                </span>
-              </div>
-            )}
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
-          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Step 1: Serialize */}
-          {step === 'serialize' && needsSerials && (
-            <>
-              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-orange-50 border border-orange-200 text-orange-800 text-xs">
-                <AlertCircle size={13} className="shrink-0" />
-                <span>Assign serial numbers to all serializable items before marking as shipped.</span>
-              </div>
-              <div className="space-y-3">
-                {order.items.map(item => (
-                  <div key={item.id} className={clsx('rounded-lg border p-3 space-y-2', item.isSerializable ? 'border-gray-200' : 'border-gray-100 bg-gray-50/60')}>
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <span className="font-mono text-xs font-semibold text-gray-800">{item.sellerSku ?? '—'}</span>
-                        <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
-                        {item.title && <p className="text-xs text-gray-500 truncate mt-0.5">{item.title}</p>}
-                      </div>
-                      {!item.isSerializable && <span className="text-[9px] text-gray-400 italic shrink-0">Not serializable</span>}
-                    </div>
-                    {item.isSerializable && (
-                      <div className="space-y-1.5">
-                        {Array.from({ length: item.quantityOrdered }, (_, i) => {
-                          const key = `${item.orderItemId}-${i}`
-                          const state = serialInputs[key]
-                          return (
-                            <div key={key} className="flex items-center gap-2">
-                              <span className="text-[10px] text-gray-400 w-3 text-right shrink-0">{i + 1}</span>
-                              <div className="relative flex-1">
-                                <input
-                                  type="text"
-                                  value={state?.value ?? ''}
-                                  onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '')}
-                                  placeholder="Enter serial number…"
-                                  className={clsx(
-                                    'w-full h-7 rounded border px-2 text-xs font-mono pr-7 focus:outline-none focus:ring-1',
-                                    state?.valid === true ? 'border-green-300 focus:ring-green-400 bg-green-50/50' :
-                                    state?.valid === false ? 'border-red-300 focus:ring-red-400 bg-red-50/50' :
-                                    'border-gray-300 focus:ring-orange-400'
-                                  )}
-                                />
-                                <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                                  {state?.checking && <RefreshCcw size={10} className="animate-spin text-gray-400" />}
-                                  {state?.valid === true && <CheckCircle2 size={11} className="text-green-500" />}
-                                  {state?.valid === false && <XCircle size={11} className="text-red-500" />}
-                                </div>
-                              </div>
-                              {state?.message && (
-                                <span className={clsx('text-[10px] shrink-0 max-w-[120px] truncate',
-                                  state.valid ? 'text-green-600' : 'text-red-500'
-                                )}>{state.message}</span>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Step 2: Carrier + Tracking */}
-          {step === 'ship' && (
-            <>
-              {needsSerials && allSerialsValid && (
-                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-green-50 border border-green-200 text-green-800 text-xs">
-                  <CheckCircle2 size={13} className="shrink-0" />
-                  <span>All serials validated. Enter shipping details below.</span>
-                </div>
-              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-medium text-gray-600 mb-1">Carrier <span className="text-red-500">*</span></label>
@@ -1652,8 +1490,6 @@ function ManualShipModal({ order, onClose, onShipped }: {
                   ))}
                 </div>
               </div>
-            </>
-          )}
         </div>
 
         {/* Footer */}
@@ -1663,28 +1499,12 @@ function ManualShipModal({ order, onClose, onShipped }: {
               <AlertCircle size={12} className="shrink-0 mt-0.5" />{submitErr}
             </div>
           )}
-          <div className="flex gap-2 justify-between">
-            <div>
-              {step === 'ship' && needsSerials && (
-                <button onClick={() => setStep('serialize')} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1">
-                  <ChevronLeft size={12} /> Back to Serials
-                </button>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-              {step === 'serialize' && needsSerials ? (
-                <button onClick={() => setStep('ship')} disabled={!allSerialsValid}
-                  className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-1.5">
-                  Next: Shipping <ChevronRight size={12} />
-                </button>
-              ) : (
-                <button onClick={handleSubmit} disabled={submitting || !canSubmit}
-                  className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-1.5">
-                  {submitting ? <><RefreshCcw size={12} className="animate-spin" /> Marking Shipped…</> : <><Truck size={12} /> Mark as Shipped</>}
-                </button>
-              )}
-            </div>
+          <div className="flex gap-2 justify-end">
+            <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+            <button onClick={handleSubmit} disabled={submitting || !canSubmit}
+              className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-1.5">
+              {submitting ? <><RefreshCcw size={12} className="animate-spin" /> Marking Shipped…</> : <><Truck size={12} /> Mark as Shipped</>}
+            </button>
           </div>
         </div>
       </div>
@@ -5726,11 +5546,22 @@ export default function UnshippedOrders() {
                               ssAccount ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}>
                             <Truck size={10} /> Ship
                           </button>
-                          <button onClick={() => setManualShipOrder(order)}
-                            title="Manual Ship — mark as shipped without marketplace push"
-                            className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
-                            <Truck size={10} /> Manual
-                          </button>
+                          {(() => {
+                            const totalSerializable = order.items.filter(i => i.isSerializable).reduce((s, i) => s + i.quantityOrdered, 0)
+                            const isSerialized = totalSerializable === 0 || (order.serialAssignments?.length ?? 0) >= totalSerializable
+                            return isSerialized ? (
+                              <button onClick={() => setManualShipOrder(order)}
+                                title="Manual Ship — mark as shipped without marketplace push"
+                                className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+                                <Truck size={10} /> Manual
+                              </button>
+                            ) : (
+                              <span title="Assign serials to all items before manual shipping"
+                                className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-gray-100 text-gray-400 cursor-not-allowed">
+                                <Truck size={10} /> Manual
+                              </span>
+                            )
+                          })()}
                           <button onClick={() => handleUnprocess(order)} disabled={isUnprocessing} title="Unprocess — release inventory reservation"
                             className="inline-flex items-center justify-center h-6 w-6 rounded text-[10px] text-gray-400 hover:text-amber-600 hover:bg-amber-50 disabled:opacity-40 transition-colors">
                             {isUnprocessing ? <RefreshCcw size={10} className="animate-spin" /> : <RotateCcw size={10} />}
@@ -5760,11 +5591,17 @@ export default function UnshippedOrders() {
                           className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-purple-600 text-white hover:bg-purple-700">
                           <Hash size={10} /> Verify
                         </button>
-                        <button onClick={() => setManualShipOrder(order)}
-                          title="Manual Ship — mark as shipped without marketplace push"
-                          className="inline-flex items-center gap-1 h-6 px-1.5 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
-                          <Truck size={10} />
-                        </button>
+                        {(() => {
+                          const totalSerializable = order.items.filter(i => i.isSerializable).reduce((s, i) => s + i.quantityOrdered, 0)
+                          const isSerialized = totalSerializable === 0 || (order.serialAssignments?.length ?? 0) >= totalSerializable
+                          return isSerialized ? (
+                            <button onClick={() => setManualShipOrder(order)}
+                              title="Manual Ship — mark as shipped without marketplace push"
+                              className="inline-flex items-center gap-1 h-6 px-1.5 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+                              <Truck size={10} />
+                            </button>
+                          ) : null
+                        })()}
                         {order.label && (
                           <button onClick={() => handleVoidLabel(order)} disabled={voidingId === order.id}
                             title="Void shipping label — moves order back to Unshipped"
