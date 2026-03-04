@@ -376,6 +376,9 @@ model Order {
   appliedPresetId        String?
   appliedPreset          ShippingPreset?             @relation(fields: [appliedPresetId], references: [id], onDelete: SetNull)
   ssOrderId              Int?
+  shipCarrier            String?
+  shipTracking           String?
+  shippedAt              DateTime?
   items                  OrderItem[]
   reservations           OrderInventoryReservation[]
   label                  OrderLabel?
@@ -475,6 +478,7 @@ model OrderSyncJob {
   id           String             @id @default(cuid())
   accountId    String
   account      AmazonAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  source       String             @default("amazon") // "amazon" | "backmarket"
   status       OrderSyncJobStatus @default(PENDING)
   totalFound   Int                @default(0)
   totalSynced  Int                @default(0)
@@ -940,6 +944,7 @@ model InventorySerial {
   receiptLine   POReceiptLine? @relation(fields: [receiptLineId], references: [id])
   status        SerialStatus   @default(IN_STOCK)
   note          String?
+  binLocation   String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 

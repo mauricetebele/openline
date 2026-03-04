@@ -21,7 +21,7 @@ interface InventoryItem {
   grade: InventoryGrade | null
 }
 
-interface Serial { id: string; serialNumber: string; createdAt: string }
+interface Serial { id: string; serialNumber: string; binLocation: string | null; createdAt: string }
 
 interface HistoryEvent {
   id:            string
@@ -41,6 +41,7 @@ interface BulkSerial {
   id:           string
   serialNumber: string
   status:       string
+  binLocation:  string | null
   product:      { id: string; description: string; sku: string }
   location:     { id: string; name: string; warehouse: { id: string; name: string } }
   grade:        { id: string; grade: string } | null
@@ -91,6 +92,7 @@ interface LookupSerial {
   id:           string
   serialNumber: string
   status:       string
+  binLocation:  string | null
   product:      { description: string; sku: string }
   grade:        { id: string; grade: string } | null
   location:     { name: string; warehouse: { name: string } }
@@ -469,6 +471,9 @@ ${stdProps}
                     {result.location.warehouse.name} / {result.location.name}
                   </span>
                 </div>
+                <p className="text-xs text-gray-500 pl-0.5">
+                  Bin: <span className="font-mono font-medium text-gray-700">{result.binLocation ?? '—'}</span>
+                </p>
               </div>
 
               {/* History timeline */}
@@ -688,18 +693,37 @@ ${stdProps}
               <span className="whitespace-pre-wrap">{printErr}</span>
             </div>
           )}
-          <div className="flex items-center justify-between">
-            {result ? (
-              <button
-                type="button"
-                onClick={printLabel}
-                disabled={printing || dymoStatus !== 'ready'}
-                className="flex items-center gap-1.5 h-8 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50 transition-colors"
-              >
-                <Printer size={13} />
-                {printing ? 'Sending to printer…' : 'Print Label'}
-              </button>
-            ) : <span />}
+          {/* Label preview */}
+          {result && (
+            <div className="flex items-start gap-4">
+              <div className="border border-gray-300 rounded-md bg-white p-3 shadow-sm" style={{ width: 220, minHeight: 90 }}>
+                <p className="text-[10px] font-bold text-gray-800 leading-tight truncate" title={result.product.sku + (result.grade ? ` [${result.grade.grade}]` : '')}>
+                  {result.product.sku}{result.grade ? `  [${result.grade.grade}]` : ''}
+                </p>
+                {/* Barcode visual — CSS stripes to represent Code128 */}
+                <div className="mt-1.5 h-10 w-full rounded-sm overflow-hidden bg-white flex items-center justify-center"
+                  style={{
+                    backgroundImage: `repeating-linear-gradient(90deg, #000 0px, #000 1px, transparent 1px, transparent 3px, #000 3px, #000 5px, transparent 5px, transparent 6px, #000 6px, #000 7px, transparent 7px, transparent 10px)`,
+                    backgroundSize: '10px 100%',
+                  }}
+                />
+                <p className="text-[9px] font-mono text-gray-700 text-center mt-1 tracking-wider">{result.serialNumber}</p>
+              </div>
+              <div className="flex flex-col gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={printLabel}
+                  disabled={printing || dymoStatus !== 'ready'}
+                  className="flex items-center gap-1.5 h-8 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50 transition-colors"
+                >
+                  <Printer size={13} />
+                  {printing ? 'Sending…' : 'Print Label'}
+                </button>
+                <span className="text-[9px] text-gray-400 text-center">DYMO 30334 · 2.25×1.25&quot;</span>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center justify-end">
             <button type="button" onClick={onClose}
               className="h-8 px-4 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">
               Close
@@ -886,6 +910,82 @@ function SerialRow({ serial, index }: { serial: Serial; index: number }) {
                       )}
                     </div>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Serial Row with Checkbox (for SerialsModal) ─────────────────────────────
+
+function SerialRowWithCheckbox({ serial, index, checked, onToggle }: {
+  serial: Serial; index: number; checked: boolean; onToggle: () => void
+}) {
+  const [expanded, setExpanded]   = useState(false)
+  const [history,  setHistory]    = useState<HistoryEvent[]>([])
+  const [loading,  setLoading]    = useState(false)
+  const [loaded,   setLoaded]     = useState(false)
+
+  async function toggle() {
+    if (!expanded && !loaded) {
+      setLoading(true)
+      try {
+        const res  = await fetch(`/api/serials/${serial.id}/history`)
+        const data = await res.json()
+        if (res.ok) { setHistory(data.data); setLoaded(true) }
+      } finally {
+        setLoading(false)
+      }
+    }
+    setExpanded(e => !e)
+  }
+
+  return (
+    <div className="border-b border-gray-100 last:border-0">
+      <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors">
+        <span className="w-6 shrink-0 text-center" onClick={e => e.stopPropagation()}>
+          <input type="checkbox" checked={checked}
+            onChange={onToggle} className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue" />
+        </span>
+        <span className="text-xs text-gray-400 w-6 text-right shrink-0">{index + 1}.</span>
+        <button type="button" onClick={toggle} className="font-mono text-sm text-gray-800 flex-1 text-left hover:text-amazon-blue flex items-center gap-1.5">
+          {expanded ? <ChevronDown size={12} className="text-gray-400 shrink-0" /> : <ChevronRight size={12} className="text-gray-400 shrink-0" />}
+          {serial.serialNumber}
+        </button>
+        <span className="w-20 text-center font-mono text-xs text-gray-500">{serial.binLocation ?? '—'}</span>
+        <span className="text-xs text-gray-400 w-24 shrink-0 text-right">
+          {new Date(serial.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+        </span>
+        <button type="button" onClick={toggle} className="flex items-center gap-1 text-xs text-gray-400 shrink-0 hover:text-gray-600">
+          <Clock size={11} /> History
+        </button>
+      </div>
+      {expanded && (
+        <div className="bg-gray-50 border-t border-gray-100 px-3 pb-3 pt-2">
+          {loading ? (
+            <p className="text-xs text-gray-400 py-2 pl-10">Loading history…</p>
+          ) : history.length === 0 ? (
+            <p className="text-xs text-gray-400 py-2 pl-10 italic">No history recorded</p>
+          ) : (
+            <div className="pl-10 space-y-1.5">
+              {history.map(event => (
+                <div key={event.id} className="bg-white rounded-md border border-gray-200 px-3 py-2 text-xs text-gray-600">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-gray-700">{event.eventType.replace(/_/g, ' ')}</span>
+                    <span className="text-gray-400">
+                      {new Date(event.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  {event.location && (
+                    <p className="mt-0.5"><span className="text-gray-400">Location:</span> {event.location.warehouse.name} / {event.location.name}</p>
+                  )}
+                  {event.fromLocation && (
+                    <p className="mt-0.5"><span className="text-gray-400">From:</span> {event.fromLocation.warehouse.name} / {event.fromLocation.name}</p>
+                  )}
                 </div>
               ))}
             </div>
@@ -2081,26 +2181,65 @@ function SerialsModal({
   const [serials, setSerials] = useState<Serial[]>([])
   const [loading, setLoading] = useState(true)
   const [err,     setErr]     = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [binEdit,  setBinEdit]  = useState(false)
+  const [binValue, setBinValue] = useState('')
+  const [binSaving, setBinSaving] = useState(false)
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res  = await fetch(`/api/inventory/serials?productId=${product.id}&locationId=${location.id}`)
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error ?? 'Failed to load')
-        setSerials(data.data)
-      } catch (e: unknown) {
-        setErr(e instanceof Error ? e.message : 'Failed to load')
-      } finally {
-        setLoading(false)
-      }
+  async function load() {
+    setLoading(true)
+    setErr('')
+    try {
+      const res  = await fetch(`/api/inventory/serials?productId=${product.id}&locationId=${location.id}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to load')
+      setSerials(data.data)
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to load')
+    } finally {
+      setLoading(false)
     }
-    load()
-  }, [product.id, location.id])
+  }
+
+  useEffect(() => { load() }, [product.id, location.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function toggleOne(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    if (selected.size === serials.length) setSelected(new Set())
+    else setSelected(new Set(serials.map(s => s.id)))
+  }
+
+  async function applyBin() {
+    setBinSaving(true)
+    try {
+      const res = await fetch('/api/serials/bin-location', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serialIds: Array.from(selected), binLocation: binValue }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to update')
+      setBinEdit(false)
+      setBinValue('')
+      setSelected(new Set())
+      await load()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to update')
+    } finally {
+      setBinSaving(false)
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-2xl w-[520px] max-h-[82vh] flex flex-col">
+      <div className="bg-white rounded-xl shadow-2xl w-[620px] max-h-[82vh] flex flex-col">
         {/* Header */}
         <div className="flex items-start justify-between px-5 py-4 border-b shrink-0">
           <div>
@@ -2129,17 +2268,59 @@ function SerialsModal({
             </div>
           ) : (
             <div>
-              <div className="px-5 pt-3 pb-2 flex items-center justify-between">
+              {/* Toolbar */}
+              <div className="px-5 pt-3 pb-2 flex items-center justify-between gap-2">
                 <p className="text-xs text-gray-500">
                   {serials.length} unit{serials.length !== 1 ? 's' : ''} in stock
+                  {selected.size > 0 && <span className="ml-1 text-amazon-blue font-medium">· {selected.size} selected</span>}
                 </p>
-                <p className="text-xs text-gray-400 flex items-center gap-1">
-                  <ChevronRight size={11} /> Click a row to view history
-                </p>
+                <div className="flex items-center gap-2">
+                  {selected.size > 0 && !binEdit && (
+                    <button type="button" onClick={() => setBinEdit(true)}
+                      className="h-7 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium hover:bg-amazon-blue/90 flex items-center gap-1">
+                      <MapPin size={11} /> Set Bin Location
+                    </button>
+                  )}
+                  {binEdit && (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={binValue}
+                        onChange={e => setBinValue(e.target.value)}
+                        placeholder="e.g. A1"
+                        className="h-7 w-24 rounded border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+                        autoFocus
+                        onKeyDown={e => { if (e.key === 'Enter') applyBin() }}
+                      />
+                      <button type="button" onClick={applyBin} disabled={binSaving}
+                        className="h-7 px-3 rounded-md bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50">
+                        {binSaving ? '…' : 'Apply'}
+                      </button>
+                      <button type="button" onClick={() => { setBinEdit(false); setBinValue('') }}
+                        className="h-7 px-2 rounded-md border border-gray-300 text-xs text-gray-600 hover:bg-gray-50">
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
+
+              {/* Table header */}
               <div className="border-t border-gray-100">
+                <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                  <span className="w-6 shrink-0 text-center">
+                    <input type="checkbox" checked={selected.size === serials.length && serials.length > 0}
+                      onChange={toggleAll} className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue" />
+                  </span>
+                  <span className="w-6 shrink-0 text-right">#</span>
+                  <span className="flex-1">Serial Number</span>
+                  <span className="w-20 text-center">Bin</span>
+                  <span className="w-24 shrink-0 text-right">Date</span>
+                  <span className="w-14 shrink-0" />
+                </div>
                 {serials.map((s, i) => (
-                  <SerialRow key={s.id} serial={s} index={i} />
+                  <SerialRowWithCheckbox key={s.id} serial={s} index={i}
+                    checked={selected.has(s.id)} onToggle={() => toggleOne(s.id)} />
                 ))}
               </div>
             </div>

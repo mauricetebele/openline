@@ -68,7 +68,7 @@ interface Order {
 interface Pagination { page: number; pageSize: number; total: number; totalPages: number }
 
 interface SyncJob {
-  id: string; status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+  id: string; source: string; status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
   totalFound: number; totalSynced: number; errorMessage: string | null
   startedAt: string
 }
@@ -105,6 +105,78 @@ interface VerificationStatus {
 }
 
 // ─── Small logo badges ────────────────────────────────────────────────────────
+
+// ─── Sync Progress Bar ───────────────────────────────────────────────────────
+
+const STRIPE_BG = 'repeating-linear-gradient(45deg,transparent,transparent 6px,rgba(255,255,255,0.2) 6px,rgba(255,255,255,0.2) 12px)'
+
+const BAR_COLORS: Record<string, { running: string; done: string; error: string }> = {
+  blue:   { running: 'bg-blue-500',  done: 'bg-green-500', error: 'bg-red-500' },
+  teal:   { running: 'bg-teal-500',  done: 'bg-green-500', error: 'bg-red-500' },
+  purple: { running: 'bg-purple-500', done: 'bg-green-500', error: 'bg-red-500' },
+}
+
+function SyncProgressRow({ label, job, color, indeterminateText, completedText }: {
+  label: string
+  job: SyncJob | null
+  color: 'blue' | 'teal' | 'purple'
+  indeterminateText?: string
+  completedText?: string
+}) {
+  const colors = BAR_COLORS[color]
+  const isRunning   = job?.status === 'RUNNING' || job?.status === 'PENDING'
+  const isCompleted = job?.status === 'COMPLETED' || (!job && completedText)
+  const isError     = job?.status === 'FAILED'
+  const indeterminate = !job || (job.status === 'PENDING') || (job.status === 'RUNNING' && job.totalFound === 0)
+
+  const pct = !indeterminate && job && job.totalFound > 0
+    ? Math.min(100, Math.round((job.totalSynced / job.totalFound) * 100))
+    : 0
+  const widthPct = indeterminate ? 100 : pct
+
+  const barColor = isError ? colors.error : isCompleted ? colors.done : colors.running
+
+  let rightText = ''
+  if (completedText) {
+    rightText = completedText
+  } else if (indeterminateText) {
+    rightText = indeterminateText
+  } else if (isError) {
+    rightText = job?.errorMessage ?? 'Failed'
+  } else if (job?.status === 'PENDING') {
+    rightText = 'Starting sync…'
+  } else if (indeterminate) {
+    rightText = 'Fetching orders…'
+  } else if (isCompleted && job) {
+    rightText = `${job.totalSynced} synced`
+  } else if (job) {
+    rightText = `${job.totalSynced} / ${job.totalFound} (${pct}%)`
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider w-12 shrink-0 text-right">{label}</span>
+      <div className="flex-1 h-5 bg-gray-200 rounded-full overflow-hidden relative">
+        <div
+          className={clsx('h-full rounded-full transition-all duration-700', barColor)}
+          style={{
+            width: `${widthPct}%`,
+            ...(isRunning || indeterminateText ? {
+              backgroundImage: STRIPE_BG,
+              backgroundSize: '1rem 1rem',
+              animation: 'sync-stripe 0.6s linear infinite',
+            } : {}),
+          }}
+        />
+      </div>
+      <span className={clsx('text-[10px] font-medium shrink-0 min-w-[100px] text-right',
+        isError ? 'text-red-600' : isCompleted ? 'text-green-600' : 'text-gray-500'
+      )}>
+        {rightText}
+      </span>
+    </div>
+  )
+}
 
 function AmazonSmileIcon() {
   // Amazon wordmark + smile arrow badge
@@ -1316,6 +1388,303 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
               className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5">
               {submitting ? <><RefreshCcw size={12} className="animate-spin" /> Shipping…</> : <><Truck size={12} /> Mark as Shipped</>}
             </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Manual Ship Modal (2-step: serialize → carrier/tracking) ─────────────────
+
+type ManualSerialState = { value: string; valid: boolean | null; message: string; checking: boolean; serialId?: string }
+
+function ManualShipModal({ order, onClose, onShipped }: {
+  order: Order; onClose: () => void; onShipped: () => void
+}) {
+  const [step, setStep] = useState<'serialize' | 'ship'>('serialize')
+  const [carrier, setCarrier]   = useState('')
+  const [tracking, setTracking] = useState('')
+  const [serialInputs, setSerialInputs] = useState<Record<string, ManualSerialState>>({})
+  const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const [submitErr, setSubmitErr]   = useState<string | null>(null)
+
+  const serializableItems = order.items.filter(i => i.isSerializable)
+  const needsSerials = serializableItems.length > 0
+
+  useEffect(() => {
+    const initial: Record<string, ManualSerialState> = {}
+    for (const item of serializableItems) {
+      for (let i = 0; i < item.quantityOrdered; i++) {
+        const key = `${item.orderItemId}-${i}`
+        initial[key] = { value: '', valid: null, message: '', checking: false }
+      }
+    }
+    setSerialInputs(initial)
+    // If no serializable items, skip straight to ship step
+    if (!serializableItems.length) setStep('ship')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id])
+
+  const validateSerial = useCallback((key: string, sn: string, sku: string) => {
+    if (!sn.trim()) {
+      setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, valid: null, message: '', checking: false, serialId: undefined } }))
+      return
+    }
+    setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, checking: true, valid: null, message: '', serialId: undefined } }))
+    if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key])
+    debounceRefs.current[key] = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/serials/validate?sn=${encodeURIComponent(sn.trim())}&sku=${encodeURIComponent(sku)}`)
+        const data: { valid: boolean; reason?: string; detail?: string; location?: string; serialId?: string } = await res.json()
+        setSerialInputs(prev => ({
+          ...prev,
+          [key]: {
+            value: sn,
+            valid: data.valid,
+            message: data.valid ? (data.location ?? '✓ Valid') : (data.detail ?? 'Invalid'),
+            checking: false,
+            serialId: data.valid ? data.serialId : undefined,
+          },
+        }))
+      } catch {
+        setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], checking: false, valid: false, message: 'Validation error', serialId: undefined } }))
+      }
+    }, 350)
+  }, [])
+
+  const allSerialsValid = (() => {
+    if (!needsSerials) return true
+    for (const item of serializableItems) {
+      for (let i = 0; i < item.quantityOrdered; i++) {
+        const key = `${item.orderItemId}-${i}`
+        const state = serialInputs[key]
+        if (!state || !state.valid || state.checking) return false
+      }
+    }
+    return true
+  })()
+
+  const canProceedToShip = !needsSerials || allSerialsValid
+  const canSubmit = carrier.trim() && tracking.trim() && canProceedToShip
+
+  async function handleSubmit() {
+    if (!canSubmit) return
+    setSubmitting(true); setSubmitErr(null)
+    try {
+      // Build serial assignments
+      const assignments: { orderItemId: string; serialNumbers: string[] }[] = []
+      for (const item of serializableItems) {
+        const sns: string[] = []
+        for (let i = 0; i < item.quantityOrdered; i++) {
+          const key = `${item.orderItemId}-${i}`
+          const state = serialInputs[key]
+          if (state?.valid && state.value.trim()) sns.push(state.value.trim())
+        }
+        if (sns.length > 0) {
+          // Need the item.id (DB id), not orderItemId — find matching item
+          const dbItem = order.items.find(oi => oi.orderItemId === item.orderItemId)
+          if (dbItem) assignments.push({ orderItemId: dbItem.id, serialNumbers: sns })
+        }
+      }
+
+      const res = await fetch(`/api/orders/${order.id}/manual-ship`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ carrier: carrier.trim(), tracking: tracking.trim(), assignments }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `${res.status}`)
+      onShipped()
+    } catch (e) {
+      setSubmitErr(e instanceof Error ? e.message : 'Failed to mark as shipped')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
+          <div>
+            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+              <Truck size={15} className="text-orange-600" /> Manual Ship
+            </h3>
+            <p className="text-xs text-gray-500 font-mono mt-0.5">
+              {order.olmNumber ? `OLM-${order.olmNumber}` : order.amazonOrderId}
+            </p>
+            {order.shipToName && <p className="text-xs text-gray-400 mt-0.5">{order.shipToName}</p>}
+          </div>
+          <div className="flex items-center gap-3">
+            {/* Step indicators */}
+            {needsSerials && (
+              <div className="flex items-center gap-1.5 text-[10px] font-medium">
+                <span className={clsx('px-2 py-0.5 rounded-full', step === 'serialize' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700')}>
+                  1. Serialize
+                </span>
+                <ChevronRight size={10} className="text-gray-300" />
+                <span className={clsx('px-2 py-0.5 rounded-full', step === 'ship' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400')}>
+                  2. Ship
+                </span>
+              </div>
+            )}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Step 1: Serialize */}
+          {step === 'serialize' && needsSerials && (
+            <>
+              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-orange-50 border border-orange-200 text-orange-800 text-xs">
+                <AlertCircle size={13} className="shrink-0" />
+                <span>Assign serial numbers to all serializable items before marking as shipped.</span>
+              </div>
+              <div className="space-y-3">
+                {order.items.map(item => (
+                  <div key={item.id} className={clsx('rounded-lg border p-3 space-y-2', item.isSerializable ? 'border-gray-200' : 'border-gray-100 bg-gray-50/60')}>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="font-mono text-xs font-semibold text-gray-800">{item.sellerSku ?? '—'}</span>
+                        <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
+                        {item.title && <p className="text-xs text-gray-500 truncate mt-0.5">{item.title}</p>}
+                      </div>
+                      {!item.isSerializable && <span className="text-[9px] text-gray-400 italic shrink-0">Not serializable</span>}
+                    </div>
+                    {item.isSerializable && (
+                      <div className="space-y-1.5">
+                        {Array.from({ length: item.quantityOrdered }, (_, i) => {
+                          const key = `${item.orderItemId}-${i}`
+                          const state = serialInputs[key]
+                          return (
+                            <div key={key} className="flex items-center gap-2">
+                              <span className="text-[10px] text-gray-400 w-3 text-right shrink-0">{i + 1}</span>
+                              <div className="relative flex-1">
+                                <input
+                                  type="text"
+                                  value={state?.value ?? ''}
+                                  onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '')}
+                                  placeholder="Enter serial number…"
+                                  className={clsx(
+                                    'w-full h-7 rounded border px-2 text-xs font-mono pr-7 focus:outline-none focus:ring-1',
+                                    state?.valid === true ? 'border-green-300 focus:ring-green-400 bg-green-50/50' :
+                                    state?.valid === false ? 'border-red-300 focus:ring-red-400 bg-red-50/50' :
+                                    'border-gray-300 focus:ring-orange-400'
+                                  )}
+                                />
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                                  {state?.checking && <RefreshCcw size={10} className="animate-spin text-gray-400" />}
+                                  {state?.valid === true && <CheckCircle2 size={11} className="text-green-500" />}
+                                  {state?.valid === false && <XCircle size={11} className="text-red-500" />}
+                                </div>
+                              </div>
+                              {state?.message && (
+                                <span className={clsx('text-[10px] shrink-0 max-w-[120px] truncate',
+                                  state.valid ? 'text-green-600' : 'text-red-500'
+                                )}>{state.message}</span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Step 2: Carrier + Tracking */}
+          {step === 'ship' && (
+            <>
+              {needsSerials && allSerialsValid && (
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-green-50 border border-green-200 text-green-800 text-xs">
+                  <CheckCircle2 size={13} className="shrink-0" />
+                  <span>All serials validated. Enter shipping details below.</span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-600 mb-1">Carrier <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={carrier}
+                    onChange={e => setCarrier(e.target.value)}
+                    placeholder="e.g. UPS, FedEx, USPS…"
+                    className="w-full h-8 rounded border border-gray-300 px-2 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-600 mb-1">Tracking Number <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={tracking}
+                    onChange={e => setTracking(e.target.value)}
+                    placeholder="Tracking number…"
+                    className="w-full h-8 rounded border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">
+                <AlertTriangle size={13} className="shrink-0" />
+                <span>This will only update the local system. No shipment details will be pushed to the marketplace.</span>
+              </div>
+
+              {/* Summary of items */}
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Order Items</p>
+                <div className="space-y-1">
+                  {order.items.map(item => (
+                    <div key={item.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-gray-50 border border-gray-100">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono font-semibold text-gray-800">{item.sellerSku ?? '—'}</span>
+                        <span className="text-gray-400">×{item.quantityOrdered}</span>
+                      </div>
+                      {item.isSerializable && (
+                        <span className="text-[9px] text-green-600 flex items-center gap-0.5 shrink-0">
+                          <CheckCircle2 size={9} /> Serialized
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t shrink-0 space-y-2">
+          {submitErr && (
+            <div className="flex items-start gap-2 p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs">
+              <AlertCircle size={12} className="shrink-0 mt-0.5" />{submitErr}
+            </div>
+          )}
+          <div className="flex gap-2 justify-between">
+            <div>
+              {step === 'ship' && needsSerials && (
+                <button onClick={() => setStep('serialize')} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1">
+                  <ChevronLeft size={12} /> Back to Serials
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+              {step === 'serialize' && needsSerials ? (
+                <button onClick={() => setStep('ship')} disabled={!allSerialsValid}
+                  className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-1.5">
+                  Next: Shipping <ChevronRight size={12} />
+                </button>
+              ) : (
+                <button onClick={handleSubmit} disabled={submitting || !canSubmit}
+                  className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-1.5">
+                  {submitting ? <><RefreshCcw size={12} className="animate-spin" /> Marking Shipped…</> : <><Truck size={12} /> Mark as Shipped</>}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -3482,8 +3851,10 @@ export default function UnshippedOrders() {
   const [syncError, setSyncError]         = useState<string | null>(null)
   const [ssEnriching, setSsEnriching]     = useState(false)
   const [ssEnrichResult, setSsEnrichResult] = useState<{ enriched: number; addresses: number } | null>(null)
+  const [showSyncBar, setShowSyncBar]     = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const bmPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const syncBarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Buyer cancellation check state
   type CancelFlaggedOrder = { id: string; amazonOrderId: string; olmNumber: number | null; buyerCancelReason: string | null; workflowStatus: string }
@@ -3511,6 +3882,7 @@ export default function UnshippedOrders() {
   // Wholesale state
   const [wholesaleOrders, setWholesaleOrders]             = useState<Order[]>([])
   const [wholesaleShipOrder, setWholesaleShipOrder]       = useState<Order | null>(null)
+  const [manualShipOrder, setManualShipOrder]             = useState<Order | null>(null)
   const [wholesaleProcessOrder, setWholesaleProcessOrder] = useState<Order | null>(null)
 
   // Order detail modal
@@ -3676,18 +4048,47 @@ export default function UnshippedOrders() {
     return () => { cancelled = true }
   }, [activeTab, search, fetchKey])
 
+  function dismissSyncBarLater() {
+    if (syncBarTimerRef.current) clearTimeout(syncBarTimerRef.current)
+    syncBarTimerRef.current = setTimeout(() => setShowSyncBar(false), 5_000)
+  }
+
+  function startPollForJob(
+    jobId: string,
+    ref: typeof pollRef,
+    setSt: typeof setSyncStatus,
+    onDone: () => void,
+    errorPrefix: string,
+  ) {
+    ref.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/orders/sync?jobId=${jobId}`)
+        if (!res.ok) return
+        const job: SyncJob = await res.json()
+        setSt(job)
+        if (job.status === 'COMPLETED' || job.status === 'FAILED') {
+          clearInterval(ref.current!); ref.current = null
+          if (job.status === 'FAILED') setSyncError(prev => prev ? `${prev}; ${errorPrefix}` : (job.errorMessage ?? errorPrefix))
+          onDone()
+        }
+      } catch { /* transient */ }
+    }, 5_000)
+  }
+
   async function startSync() {
     if (!selectedAccountId) return
     // Cancel any existing poll (including stale reconnects) before starting fresh
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
     if (bmPollRef.current) { clearInterval(bmPollRef.current); bmPollRef.current = null }
+    if (syncBarTimerRef.current) { clearTimeout(syncBarTimerRef.current); syncBarTimerRef.current = null }
     setSyncing(true); setSyncStatus(null); setBmSyncStatus(null); setSyncError(null)
+    setShowSyncBar(true); setSsEnrichResult(null)
     try {
       const { jobId, bmJobId } = await apiPost<{ jobId?: string; bmJobId?: string }>('/api/orders/sync', { accountId: selectedAccountId, source: syncSource })
 
       // Track completion of both jobs
-      let amazonDone = !jobId   // if no Amazon job, consider it done
-      let bmDone = !bmJobId     // if no BM job, consider it done
+      let amazonDone = !jobId
+      let bmDone = !bmJobId
 
       const checkAllDone = () => {
         if (amazonDone && bmDone) {
@@ -3710,64 +4111,35 @@ export default function UnshippedOrders() {
                 }
               })
               .catch(() => {})
-              .finally(() => setSsEnriching(false))
+              .finally(() => { setSsEnriching(false); dismissSyncBarLater() })
+          } else {
+            dismissSyncBarLater()
           }
         }
       }
 
-      // Poll Amazon sync job if started
-      if (jobId) {
-        pollRef.current = setInterval(async () => {
-          try {
-            const res = await fetch(`/api/orders/sync?jobId=${jobId}`)
-            if (!res.ok) return
-            const job: SyncJob = await res.json()
-            setSyncStatus(job)
-            if (job.status === 'COMPLETED' || job.status === 'FAILED') {
-              clearInterval(pollRef.current!); pollRef.current = null
-              if (job.status === 'FAILED') setSyncError(job.errorMessage ?? 'Amazon sync failed')
-              amazonDone = true
-              checkAllDone()
-            }
-          } catch { /* transient */ }
-        }, 5_000)
-      }
+      if (jobId) startPollForJob(jobId, pollRef, setSyncStatus, () => { amazonDone = true; checkAllDone() }, 'Amazon sync failed')
+      if (bmJobId) startPollForJob(bmJobId, bmPollRef, setBmSyncStatus, () => { bmDone = true; checkAllDone() }, 'BM sync failed')
 
-      // Poll BackMarket sync job if started
-      if (bmJobId) {
-        bmPollRef.current = setInterval(async () => {
-          try {
-            const res = await fetch(`/api/orders/sync?jobId=${bmJobId}`)
-            if (!res.ok) return
-            const job: SyncJob = await res.json()
-            setBmSyncStatus(job)
-            if (job.status === 'COMPLETED' || job.status === 'FAILED') {
-              clearInterval(bmPollRef.current!); bmPollRef.current = null
-              if (job.status === 'FAILED') setSyncError(prev => prev ? `${prev}; BM sync failed` : (job.errorMessage ?? 'BM sync failed'))
-              bmDone = true
-              checkAllDone()
-            }
-          } catch { /* transient */ }
-        }, 5_000)
-      }
-
-      // If neither job was started (e.g. backmarket-only but no BM credential)
       if (!jobId && !bmJobId) {
         setSyncing(false)
         setSyncError('No sync sources available')
+        dismissSyncBarLater()
       }
-    } catch (err) { setSyncError(err instanceof Error ? err.message : String(err)); setSyncing(false) }
+    } catch (err) { setSyncError(err instanceof Error ? err.message : String(err)); setSyncing(false); dismissSyncBarLater() }
   }
 
   useEffect(() => () => {
     if (pollRef.current) clearInterval(pollRef.current)
     if (bmPollRef.current) clearInterval(bmPollRef.current)
+    if (syncBarTimerRef.current) clearTimeout(syncBarTimerRef.current)
   }, [])
 
   async function resetSync() {
     if (!selectedAccountId) return
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
     if (bmPollRef.current) { clearInterval(bmPollRef.current); bmPollRef.current = null }
+    if (syncBarTimerRef.current) { clearTimeout(syncBarTimerRef.current); syncBarTimerRef.current = null }
     try {
       await fetch(`/api/orders/sync?accountId=${encodeURIComponent(selectedAccountId)}`, { method: 'DELETE' })
     } catch { /* ignore */ }
@@ -3777,6 +4149,7 @@ export default function UnshippedOrders() {
     setSyncError(null)
     setSsEnriching(false)
     setSsEnrichResult(null)
+    setShowSyncBar(false)
   }
 
   async function deleteAllOrders() {
@@ -3930,38 +4303,49 @@ export default function UnshippedOrders() {
   }
 
   // On mount or account change: reconnect to any in-progress sync so the
-  // spinner and progress text reappear even if the user navigated away mid-sync.
-  // Only reconnects to jobs started within the last 10 minutes to avoid
-  // locking the UI against truly stale/crashed jobs.
+  // progress bar reappears even if the user navigated away mid-sync.
   useEffect(() => {
     if (!selectedAccountId) return
-    if (pollRef.current) return  // already polling
+    if (pollRef.current || bmPollRef.current) return  // already polling
 
     const TEN_MIN = 10 * 60 * 1000
     let cancelled = false
     fetch(`/api/orders/sync?accountId=${encodeURIComponent(selectedAccountId)}`)
       .then(r => r.ok ? r.json() : null)
-      .then((job: SyncJob | null) => {
-        if (cancelled || !job) return
-        if (job.status !== 'PENDING' && job.status !== 'RUNNING') return
-        // Ignore stale jobs — they were likely killed by a server restart
-        if (Date.now() - new Date(job.startedAt).getTime() > TEN_MIN) return
-        // Resume the polling loop against the existing job
+      .then((data: { amazon: SyncJob | null; backmarket: SyncJob | null } | null) => {
+        if (cancelled || !data) return
+        const { amazon, backmarket } = data
+        const isActive = (j: SyncJob | null) =>
+          j && (j.status === 'PENDING' || j.status === 'RUNNING') && Date.now() - new Date(j.startedAt).getTime() < TEN_MIN
+
+        const hasAmazon = isActive(amazon)
+        const hasBM = isActive(backmarket)
+        if (!hasAmazon && !hasBM) return
+
+        // Resume polling
         setSyncing(true)
-        setSyncStatus(job)
-        pollRef.current = setInterval(async () => {
-          try {
-            const res = await fetch(`/api/orders/sync?jobId=${job.id}`)
-            if (!res.ok) return
-            const updated: SyncJob = await res.json()
-            setSyncStatus(updated)
-            if (updated.status === 'COMPLETED' || updated.status === 'FAILED') {
-              clearInterval(pollRef.current!); pollRef.current = null; setSyncing(false)
-              if (updated.status === 'FAILED') setSyncError(updated.errorMessage ?? 'Sync failed')
-              else setFetchKey(k => k + 1)
-            }
-          } catch { /* ignore transient network errors */ }
-        }, 5_000)
+        setShowSyncBar(true)
+        if (syncBarTimerRef.current) { clearTimeout(syncBarTimerRef.current); syncBarTimerRef.current = null }
+
+        let amazonDone = !hasAmazon
+        let bmDone = !hasBM
+
+        const checkAllDone = () => {
+          if (amazonDone && bmDone) {
+            setSyncing(false)
+            setFetchKey(k => k + 1)
+            dismissSyncBarLater()
+          }
+        }
+
+        if (hasAmazon && amazon) {
+          setSyncStatus(amazon)
+          startPollForJob(amazon.id, pollRef, setSyncStatus, () => { amazonDone = true; checkAllDone() }, 'Amazon sync failed')
+        }
+        if (hasBM && backmarket) {
+          setBmSyncStatus(backmarket)
+          startPollForJob(backmarket.id, bmPollRef, setBmSyncStatus, () => { bmDone = true; checkAllDone() }, 'BM sync failed')
+        }
       })
       .catch(() => { /* ignore errors during reconnect probe */ })
 
@@ -4303,23 +4687,6 @@ export default function UnshippedOrders() {
     }
   }
 
-  function syncStatusText() {
-    const parts: string[] = []
-    if (syncStatus) {
-      if (syncStatus.status === 'RUNNING') parts.push(`Amazon: ${syncStatus.totalSynced} imported`)
-      else if (syncStatus.status === 'COMPLETED') parts.push(`Amazon: ${syncStatus.totalSynced}`)
-    }
-    if (bmSyncStatus) {
-      if (bmSyncStatus.status === 'RUNNING') parts.push(`BM: ${bmSyncStatus.totalSynced} imported`)
-      else if (bmSyncStatus.status === 'COMPLETED') parts.push(`BM: ${bmSyncStatus.totalSynced}`)
-    }
-    if (ssEnriching) parts.push('SS enrichment…')
-    else if (ssEnrichResult) parts.push(`SS: ${ssEnrichResult.enriched} linked`)
-    if (parts.length === 0) return 'Syncing orders…'
-    const allDone = (!syncStatus || syncStatus.status === 'COMPLETED') && (!bmSyncStatus || bmSyncStatus.status === 'COMPLETED') && !ssEnriching
-    return allDone ? `Synced ${parts.join(' | ')}` : `Syncing… (${parts.join(' | ')})`
-  }
-
   function orderTotal(order: Order) {
     if (order.orderTotal) return fmt(order.orderTotal, order.currency)
     let sum = 0
@@ -4413,6 +4780,7 @@ export default function UnshippedOrders() {
       )}
       {wholesaleProcessOrder && <WholesaleProcessModal order={wholesaleProcessOrder} onClose={() => setWholesaleProcessOrder(null)} onProcessed={() => { setWholesaleProcessOrder(null); setFetchKey(k => k + 1) }} />}
       {wholesaleShipOrder && <WholesaleShipModal order={wholesaleShipOrder} onClose={() => setWholesaleShipOrder(null)} onShipped={() => { setWholesaleShipOrder(null); setFetchKey(k => k + 1) }} />}
+      {manualShipOrder && <ManualShipModal order={manualShipOrder} onClose={() => setManualShipOrder(null)} onShipped={() => { setManualShipOrder(null); setFetchKey(k => k + 1) }} />}
       {bmSerializeOrder && (
         <BmSerializeModal
           order={bmSerializeOrder}
@@ -4656,9 +5024,8 @@ export default function UnshippedOrders() {
 
         <div className="flex-1" />
 
-        {/* Sync status text */}
-        {(syncing || ssEnriching) && <span className="text-xs text-gray-500 flex items-center gap-1"><RefreshCcw size={12} className="animate-spin" />{syncStatusText()}</span>}
-        {!syncing && !ssEnriching && syncStatus?.status === 'COMPLETED' && <span className="text-xs text-green-600">{syncStatusText()}</span>}
+        {/* Sync status — tiny indicator in toolbar */}
+        {syncing && <span className="text-[10px] text-gray-400 flex items-center gap-1"><RefreshCcw size={10} className="animate-spin" />Syncing…</span>}
 
         {/* Sync & data controls */}
         <div className="flex items-center gap-1.5">
@@ -4919,6 +5286,27 @@ export default function UnshippedOrders() {
         </div>
       )}
 
+      {/* Sync progress bar */}
+      {showSyncBar && (
+        <div className="px-4 py-2 border-b border-gray-200 bg-gray-50 space-y-1.5">
+          {/* Amazon bar */}
+          {syncStatus && <SyncProgressRow label="Amazon" job={syncStatus} color="blue" />}
+          {/* BackMarket bar */}
+          {bmSyncStatus && <SyncProgressRow label="BM" job={bmSyncStatus} color="teal" />}
+          {/* SS enrichment bar */}
+          {ssEnriching && (
+            <SyncProgressRow label="SS" job={null} color="purple" indeterminateText="Linking ShipStation orders…" />
+          )}
+          {!syncing && !ssEnriching && ssEnrichResult && (
+            <SyncProgressRow label="SS" job={null} color="purple" completedText={`${ssEnrichResult.enriched} linked, ${ssEnrichResult.addresses} addresses`} />
+          )}
+          {/* Indeterminate state when nothing reported yet */}
+          {syncing && !syncStatus && !bmSyncStatus && (
+            <SyncProgressRow label="Sync" job={null} color="blue" indeterminateText="Starting sync…" />
+          )}
+        </div>
+      )}
+
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs">
@@ -5108,7 +5496,37 @@ export default function UnshippedOrders() {
                                 <ShieldCheck size={8} /> T
                               </span>
                             )}
-                            {/* SS sync indicated by row tint — yellow = not synced */}
+                            {/* SS Pull button for orders not synced with ShipStation */}
+                            {(order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null && (
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation()
+                                  const btn = e.currentTarget
+                                  btn.disabled = true
+                                  btn.textContent = '…'
+                                  try {
+                                    const res = await fetch(`/api/orders/${order.id}/ss-pull`, { method: 'POST' })
+                                    const data = await res.json()
+                                    if (data.found) {
+                                      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ssOrderId: data.ssOrderId } : o))
+                                      btn.textContent = '✓'
+                                      btn.className = btn.className.replace('bg-yellow-100 text-yellow-800 border-yellow-300', 'bg-green-100 text-green-800 border-green-300')
+                                    } else {
+                                      btn.textContent = '✗'
+                                      btn.title = data.error ?? 'Not found in ShipStation'
+                                      setTimeout(() => { btn.textContent = 'SS Pull'; btn.disabled = false }, 2000)
+                                    }
+                                  } catch {
+                                    btn.textContent = '✗'
+                                    setTimeout(() => { btn.textContent = 'SS Pull'; btn.disabled = false }, 2000)
+                                  }
+                                }}
+                                title="Pull this order from ShipStation"
+                                className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-yellow-100 text-yellow-800 border border-yellow-300 px-1 py-px rounded hover:bg-yellow-200 transition-colors cursor-pointer"
+                              >
+                                <Link2 size={8} /> SS Pull
+                              </button>
+                            )}
                             {order.isBuyerRequestedCancel && (
                               <span
                                 title={order.buyerCancelReason ? `Buyer cancel reason: ${order.buyerCancelReason}` : 'Buyer requested cancellation'}
@@ -5246,12 +5664,14 @@ export default function UnshippedOrders() {
                   {/* Action column */}
                   {showProcessCol && (
                     <td className="px-3 py-1.5 text-center whitespace-nowrap">
-                      {order.orderSource !== 'wholesale' && (
-                        <button onClick={() => handleCancel(order)} disabled={cancellingId === order.id}
-                          title="Cancel order" className="inline-flex items-center justify-center h-6 w-6 rounded text-[10px] text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors">
-                          {cancellingId === order.id ? <RefreshCcw size={10} className="animate-spin" /> : <XCircle size={11} />}
-                        </button>
-                      )}
+                      <div className="flex items-center justify-center gap-1">
+                        {order.orderSource !== 'wholesale' && (
+                          <button onClick={() => handleCancel(order)} disabled={cancellingId === order.id}
+                            title="Cancel order" className="inline-flex items-center justify-center h-6 w-6 rounded text-[10px] text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors">
+                            {cancellingId === order.id ? <RefreshCcw size={10} className="animate-spin" /> : <XCircle size={11} />}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   )}
                   {showShipCol && (
@@ -5306,6 +5726,11 @@ export default function UnshippedOrders() {
                               ssAccount ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}>
                             <Truck size={10} /> Ship
                           </button>
+                          <button onClick={() => setManualShipOrder(order)}
+                            title="Manual Ship — mark as shipped without marketplace push"
+                            className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+                            <Truck size={10} /> Manual
+                          </button>
                           <button onClick={() => handleUnprocess(order)} disabled={isUnprocessing} title="Unprocess — release inventory reservation"
                             className="inline-flex items-center justify-center h-6 w-6 rounded text-[10px] text-gray-400 hover:text-amber-600 hover:bg-amber-50 disabled:opacity-40 transition-colors">
                             {isUnprocessing ? <RefreshCcw size={10} className="animate-spin" /> : <RotateCcw size={10} />}
@@ -5334,6 +5759,11 @@ export default function UnshippedOrders() {
                         <button onClick={() => setVerifyOrder(order)}
                           className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-purple-600 text-white hover:bg-purple-700">
                           <Hash size={10} /> Verify
+                        </button>
+                        <button onClick={() => setManualShipOrder(order)}
+                          title="Manual Ship — mark as shipped without marketplace push"
+                          className="inline-flex items-center gap-1 h-6 px-1.5 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+                          <Truck size={10} />
                         </button>
                         {order.label && (
                           <button onClick={() => handleVoidLabel(order)} disabled={voidingId === order.id}

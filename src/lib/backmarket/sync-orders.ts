@@ -116,19 +116,13 @@ export async function syncBackMarketOrders(
     const existingMap = new Map(existingRows.map(r => [r.amazonOrderId, r]))
     console.log(`[SyncBMOrders] ${existingMap.size} BM orders already in DB`)
 
-    // Pre-allocate OLM numbers for new orders
-    const newOrderIds = allOrders
-      .map(o => String(o.order_id ?? ''))
-      .filter(id => id && !existingMap.has(id))
-    const olmMap = new Map<string, number>()
-    if (newOrderIds.length > 0) {
-      const agg = await prisma.order.aggregate({ _max: { olmNumber: true } })
-      let nextOlm = (agg._max.olmNumber ?? 999) + 1
-      for (const id of newOrderIds) olmMap.set(id, nextOlm++)
-      console.log(`[SyncBMOrders] ${newOrderIds.length} new orders — OLM numbers pre-allocated`)
-    }
-
     let synced = 0
+
+    /** Atomically allocate next OLM number. */
+    const nextOlmNumber = async (): Promise<number> => {
+      const agg = await prisma.order.aggregate({ _max: { olmNumber: true } })
+      return (agg._max.olmNumber ?? 999) + 1
+    }
 
     for (let i = 0; i < allOrders.length; i++) {
       const o = allOrders[i]
@@ -141,57 +135,70 @@ export async function syncBackMarketOrders(
 
       const shipToName = [addr?.first_name, addr?.last_name].filter(Boolean).join(' ') || null
 
-      const orderRecord = await prisma.order.upsert({
-        where: {
-          accountId_amazonOrderId_orderSource: {
-            accountId,
-            amazonOrderId: orderId,
-            orderSource: 'backmarket',
-          },
-        },
-        create: {
-          accountId,
-          amazonOrderId: orderId,
-          olmNumber: olmMap.get(orderId),
-          orderSource: 'backmarket',
-          orderStatus: mapBMState(o.state),
-          workflowStatus: 'PENDING',
-          purchaseDate: new Date(o.date_creation ?? Date.now()),
-          lastUpdateDate: new Date(o.date_modification ?? Date.now()),
-          orderTotal: o.price != null ? parseFloat(String(o.price)) : null,
-          currency: o.currency ?? 'EUR',
-          fulfillmentChannel: 'BACKMARKET',
-          shipmentServiceLevel: null,
-          numberOfItemsUnshipped: o.orderlines?.reduce((sum, l) => sum + (l.quantity ?? 1), 0) ?? 0,
-          shipToName,
-          shipToAddress1: addr?.street ?? null,
-          shipToAddress2: addr?.street2 ?? null,
-          shipToCity: addr?.city ?? null,
-          shipToState: addr?.state ?? null,
-          shipToPostal: addr?.zipcode ?? null,
-          shipToCountry: addr?.country ?? null,
-          shipToPhone: addr?.phone ?? null,
-          isPrime: false,
-          lastSyncedAt: new Date(),
-        },
-        update: {
-          orderStatus: mapBMState(o.state),
-          lastUpdateDate: new Date(o.date_modification ?? Date.now()),
-          numberOfItemsUnshipped: o.orderlines?.reduce((sum, l) => sum + (l.quantity ?? 1), 0) ?? 0,
-          lastSyncedAt: new Date(),
-          // Update address on every sync since BM provides full addresses
-          ...(addr ? {
-            shipToName,
-            shipToAddress1: addr.street ?? null,
-            shipToAddress2: addr.street2 ?? null,
-            shipToCity: addr.city ?? null,
-            shipToState: addr.state ?? null,
-            shipToPostal: addr.zipcode ?? null,
-            shipToCountry: addr.country ?? null,
-            shipToPhone: addr.phone ?? null,
-          } : {}),
-        },
-      })
+      const orderRecord = await (async () => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            return await prisma.order.upsert({
+              where: {
+                accountId_amazonOrderId_orderSource: {
+                  accountId,
+                  amazonOrderId: orderId,
+                  orderSource: 'backmarket',
+                },
+              },
+              create: {
+                accountId,
+                amazonOrderId: orderId,
+                olmNumber: isNew ? await nextOlmNumber() : undefined,
+                orderSource: 'backmarket',
+                orderStatus: mapBMState(o.state),
+                workflowStatus: 'PENDING',
+                purchaseDate: new Date(o.date_creation ?? Date.now()),
+                lastUpdateDate: new Date(o.date_modification ?? Date.now()),
+                orderTotal: o.price != null ? parseFloat(String(o.price)) : null,
+                currency: o.currency ?? 'EUR',
+                fulfillmentChannel: 'BACKMARKET',
+                shipmentServiceLevel: null,
+                numberOfItemsUnshipped: o.orderlines?.reduce((sum, l) => sum + (l.quantity ?? 1), 0) ?? 0,
+                shipToName,
+                shipToAddress1: addr?.street ?? null,
+                shipToAddress2: addr?.street2 ?? null,
+                shipToCity: addr?.city ?? null,
+                shipToState: addr?.state ?? null,
+                shipToPostal: addr?.zipcode ?? null,
+                shipToCountry: addr?.country ?? null,
+                shipToPhone: addr?.phone ?? null,
+                isPrime: false,
+                lastSyncedAt: new Date(),
+              },
+              update: {
+                orderStatus: mapBMState(o.state),
+                lastUpdateDate: new Date(o.date_modification ?? Date.now()),
+                numberOfItemsUnshipped: o.orderlines?.reduce((sum, l) => sum + (l.quantity ?? 1), 0) ?? 0,
+                lastSyncedAt: new Date(),
+                ...(addr ? {
+                  shipToName,
+                  shipToAddress1: addr.street ?? null,
+                  shipToAddress2: addr.street2 ?? null,
+                  shipToCity: addr.city ?? null,
+                  shipToState: addr.state ?? null,
+                  shipToPostal: addr.zipcode ?? null,
+                  shipToCountry: addr.country ?? null,
+                  shipToPhone: addr.phone ?? null,
+                } : {}),
+              },
+            })
+          } catch (err) {
+            const isOlmConflict = err instanceof Error && err.message.includes('olmNumber')
+            if (isOlmConflict && attempt < 2) {
+              console.warn(`[SyncBMOrders] OLM conflict for ${orderId}, retrying (attempt ${attempt + 1})`)
+              continue
+            }
+            throw err
+          }
+        }
+        throw new Error('Unreachable')
+      })()
 
       // Upsert order items from orderlines
       if (o.orderlines?.length) {

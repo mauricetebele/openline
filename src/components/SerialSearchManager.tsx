@@ -15,6 +15,7 @@ interface SerialResult {
   lastEventType: string | null
   lastEventDate: string | null
   location: string | null
+  binLocation: string | null
   poNumber: string | null
   cost: number | null
   note: string | null
@@ -48,7 +49,7 @@ function parseSNs(raw: string) {
 }
 
 function exportCSV(found: SerialResult[], notFound: string[]) {
-  const headers = ['Serial #', 'Status', 'SKU', 'Description', 'Vendor', 'Last Event Type', 'Date of Last Event', 'Current Location', 'PO #', 'Cost', 'Note']
+  const headers = ['Serial #', 'Status', 'SKU', 'Description', 'Vendor', 'Last Event Type', 'Date of Last Event', 'Current Location', 'Bin', 'PO #', 'Cost', 'Note']
   const rows = found.map(r => [
     r.serialNumber,
     r.status.replace('_', ' '),
@@ -58,11 +59,12 @@ function exportCSV(found: SerialResult[], notFound: string[]) {
     fmtEventType(r.lastEventType),
     fmtDate(r.lastEventDate),
     r.location ?? '',
+    r.binLocation ?? '',
     r.poNumber ?? '',
     r.cost != null ? r.cost.toFixed(2) : '',
     r.note ?? '',
   ])
-  notFound.forEach(sn => rows.push([sn, 'NOT FOUND', '', '', '', '', '', '', '', '', '']))
+  notFound.forEach(sn => rows.push([sn, 'NOT FOUND', '', '', '', '', '', '', '', '', '', '']))
 
   const csv = [headers, ...rows]
     .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -229,6 +231,7 @@ export default function SerialSearchManager() {
     if (sortCol === 'lastEventType')  { av = a.lastEventType;  bv = b.lastEventType }
     if (sortCol === 'lastEventDate')  { av = a.lastEventDate;  bv = b.lastEventDate }
     if (sortCol === 'location')       { av = a.location;       bv = b.location }
+    if (sortCol === 'binLocation')    { av = a.binLocation;    bv = b.binLocation }
     if (sortCol === 'poNumber')       { av = a.poNumber;       bv = b.poNumber }
     if (sortCol === 'cost')           { av = a.cost ?? -Infinity; bv = b.cost ?? -Infinity }
     if (sortCol === 'note')           { av = a.note;           bv = b.note }
@@ -402,6 +405,7 @@ export default function SerialSearchManager() {
                       ['lastEventType', 'Last Event Type'],
                       ['lastEventDate', 'Date of Last Event'],
                       ['location',      'Current Location'],
+                      ['binLocation',   'Bin'],
                       ['poNumber',      'PO #'],
                       ['cost',          'Cost'],
                       ['note',          'Note'],
@@ -449,6 +453,7 @@ export default function SerialSearchManager() {
                       <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap">{fmtEventType(r.lastEventType)}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">{fmtDate(r.lastEventDate)}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-700">{r.location ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs font-mono text-gray-500 whitespace-nowrap">{r.binLocation ?? '—'}</td>
                       <td className="px-3 py-2.5 text-xs font-mono text-gray-700 whitespace-nowrap">{r.poNumber ?? '—'}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap">
                         {r.cost != null ? `$${r.cost.toFixed(2)}` : '—'}

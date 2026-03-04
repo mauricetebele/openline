@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Sync progress bar stripe animation ─────────────────────────────────── */
+@keyframes sync-stripe {
+  0%   { background-position: 1rem 0; }
+  100% { background-position: 0 0; }
+}
+
 /* ─── Scrollbar utilities ────────────────────────────────────────────────── */
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar { display: none; }

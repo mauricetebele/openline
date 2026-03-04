@@ -15,6 +15,7 @@ interface PickItem {
   sellerSku: string | null
   title: string | null
   quantityOrdered: number
+  binLocations: string[]
   reservations: PickReservation[]
 }
 
@@ -33,6 +34,7 @@ interface AggregatedItem {
   sellerSku: string | null
   title: string | null
   totalQty: number
+  binLocations: string[]
   reservations: PickReservation[]
 }
 
@@ -61,14 +63,17 @@ function buildPrintHtml(opts: {
   const is4x6 = pageSize === '4x6'
 
   const rowsHtml = aggregated.map(item => {
+    const binHtml = item.binLocations.length > 0
+      ? `<br/><span class="bin-val">Bin: ${item.binLocations.map(b => esc(b)).join(', ')}</span>`
+      : ''
     const locationCell = showLocations ? `<td class="loc">${
       item.reservations.length > 0
         ? item.reservations.map(r =>
             `<span class="loc-val">${esc(r.warehouseName)} / ${esc(r.locationName)}${
               item.reservations.length > 1 ? ` <span class="loc-qty">(×${r.qtyReserved})</span>` : ''
             }</span>`
-          ).join('<br/>')
-        : '—'
+          ).join('<br/>') + binHtml
+        : binHtml ? `<span class="loc-val">—</span>${binHtml}` : '—'
     }</td>` : ''
     return `<tr>
       <td class="sku">${esc(item.sellerSku ?? '—')}</td>
@@ -179,6 +184,12 @@ function buildPrintHtml(opts: {
     white-space: nowrap;
   }
   .loc-qty { font-weight: 400; color: #9ca3af; }
+  .bin-val {
+    display: block;
+    font-size: ${is4x6 ? '5.5pt' : '7.5pt'};
+    color: #6b7280;
+    margin-top: 1pt;
+  }
   .checkbox {
     display: inline-block;
     width: ${is4x6 ? '9pt' : '12pt'};
@@ -283,11 +294,15 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
         if (existing) {
           existing.totalQty += item.quantityOrdered
           existing.reservations.push(...item.reservations)
+          for (const b of item.binLocations) {
+            if (!existing.binLocations.includes(b)) existing.binLocations.push(b)
+          }
         } else {
           map.set(key, {
             sellerSku:    item.sellerSku,
             title:        item.title,
             totalQty:     item.quantityOrdered,
+            binLocations: [...item.binLocations],
             reservations: [...item.reservations],
           })
         }
@@ -413,6 +428,9 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
                                     )}
                                   </span>
                                 ))}
+                                {item.binLocations.length > 0 && (
+                                  <span className="text-gray-500 text-[10px]">Bin: {item.binLocations.join(', ')}</span>
+                                )}
                               </div>
                             ) : (
                               <span className="text-gray-300">—</span>

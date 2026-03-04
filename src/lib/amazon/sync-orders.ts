@@ -35,6 +35,12 @@ const ITEMS_DELAY_MS     = 2_100   // after burst: 0.5 req/s
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
+/** Atomically allocate the next OLM number. Retries on conflict (race with concurrent sync). */
+async function nextOlmNumber(): Promise<number> {
+  const agg = await prisma.order.aggregate({ _max: { olmNumber: true } })
+  return (agg._max.olmNumber ?? 999) + 1
+}
+
 // ─── SP-API types ─────────────────────────────────────────────────────────────
 
 interface OrderAddress {
@@ -170,16 +176,11 @@ export async function syncUnshippedOrders(
     const existingMap = new Map(existingRows.map(r => [r.amazonOrderId, r]))
     console.log(`[SyncOrders] ${existingMap.size} orders already in DB (detail/items calls will be skipped for these)`)
 
-    // Pre-allocate OLM numbers for new orders in a single aggregate query
     const newAmazonIds = allOrders
       .map(o => o.AmazonOrderId!)
       .filter(id => id && !existingMap.has(id))
-    const olmMap = new Map<string, number>()
     if (newAmazonIds.length > 0) {
-      const agg = await prisma.order.aggregate({ _max: { olmNumber: true } })
-      let nextOlm = (agg._max.olmNumber ?? 999) + 1
-      for (const id of newAmazonIds) olmMap.set(id, nextOlm++)
-      console.log(`[SyncOrders] ${newAmazonIds.length} new orders — OLM numbers pre-allocated`)
+      console.log(`[SyncOrders] ${newAmazonIds.length} new orders detected`)
     }
 
     let synced = 0
@@ -216,59 +217,71 @@ export async function syncUnshippedOrders(
 
       const addr = fullOrder.ShippingAddress
 
-      const orderRecord = await prisma.order.upsert({
-        where: { accountId_amazonOrderId_orderSource: { accountId, amazonOrderId: o.AmazonOrderId, orderSource: 'amazon' } },
-        create: {
-          accountId,
-          amazonOrderId: o.AmazonOrderId,
-          olmNumber: olmMap.get(o.AmazonOrderId),
-          orderStatus:             fullOrder.OrderStatus ?? 'Unknown',
-          workflowStatus:          'PENDING',
-          purchaseDate:            new Date(fullOrder.PurchaseDate ?? Date.now()),
-          lastUpdateDate:          new Date(fullOrder.LastUpdateDate ?? Date.now()),
-          orderTotal:              fullOrder.OrderTotal?.Amount ? parseFloat(fullOrder.OrderTotal.Amount) : null,
-          currency:                fullOrder.OrderTotal?.CurrencyCode ?? 'USD',
-          fulfillmentChannel:      fullOrder.FulfillmentChannel ?? null,
-          shipmentServiceLevel:    fullOrder.ShipmentServiceLevelCategory ?? null,
-          numberOfItemsUnshipped:  fullOrder.NumberOfItemsUnshipped ?? 0,
-          shipToName:              addr?.Name            ?? null,
-          shipToAddress1:          addr?.AddressLine1    ?? null,
-          shipToAddress2:          addr?.AddressLine2    ?? null,
-          shipToCity:              addr?.City            ?? null,
-          shipToState:             addr?.StateOrRegion   ?? null,
-          shipToPostal:            addr?.PostalCode      ?? null,
-          shipToCountry:           addr?.CountryCode     ?? null,
-          shipToPhone:             addr?.Phone           ?? null,
-          isPrime:                 fullOrder.IsPrime ?? false,
-          isBuyerRequestedCancel:  fullOrder.IsBuyerRequestedCancel ?? false,
-          buyerCancelReason:       fullOrder.BuyerRequestedCancelReason ?? null,
-          latestShipDate:          fullOrder.LatestShipDate ? new Date(fullOrder.LatestShipDate) : null,
-          lastSyncedAt:            new Date(),
-        },
-        update: {
-          orderStatus:             fullOrder.OrderStatus ?? 'Unknown',
-          lastUpdateDate:          new Date(fullOrder.LastUpdateDate ?? Date.now()),
-          numberOfItemsUnshipped:  fullOrder.NumberOfItemsUnshipped ?? 0,
-          isPrime:                 fullOrder.IsPrime ?? false,
-          isBuyerRequestedCancel:  fullOrder.IsBuyerRequestedCancel ?? false,
-          buyerCancelReason:       fullOrder.BuyerRequestedCancelReason ?? null,
-          latestShipDate:          fullOrder.LatestShipDate ? new Date(fullOrder.LatestShipDate) : null,
-          lastSyncedAt:            new Date(),
-          // Only update address for new orders — existing orders already have
-          // a clean address (possibly enriched by ShipStation). Overwriting
-          // with the masked SP-API list-endpoint data would destroy that.
-          ...(isNew && addr ? {
-            shipToName:     addr.Name         ?? null,
-            shipToAddress1: addr.AddressLine1 ?? null,
-            shipToAddress2: addr.AddressLine2 ?? null,
-            shipToCity:     addr.City         ?? null,
-            shipToState:    addr.StateOrRegion ?? null,
-            shipToPostal:   addr.PostalCode   ?? null,
-            shipToCountry:  addr.CountryCode  ?? null,
-            shipToPhone:    addr.Phone        ?? null,
-          } : {}),
-        },
-      })
+      const orderRecord = await (async () => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            return await prisma.order.upsert({
+              where: { accountId_amazonOrderId_orderSource: { accountId, amazonOrderId: o.AmazonOrderId!, orderSource: 'amazon' } },
+              create: {
+                accountId,
+                amazonOrderId: o.AmazonOrderId!,
+                olmNumber: isNew ? await nextOlmNumber() : undefined,
+                orderStatus:             fullOrder.OrderStatus ?? 'Unknown',
+                workflowStatus:          'PENDING',
+                purchaseDate:            new Date(fullOrder.PurchaseDate ?? Date.now()),
+                lastUpdateDate:          new Date(fullOrder.LastUpdateDate ?? Date.now()),
+                orderTotal:              fullOrder.OrderTotal?.Amount ? parseFloat(fullOrder.OrderTotal.Amount) : null,
+                currency:                fullOrder.OrderTotal?.CurrencyCode ?? 'USD',
+                fulfillmentChannel:      fullOrder.FulfillmentChannel ?? null,
+                shipmentServiceLevel:    fullOrder.ShipmentServiceLevelCategory ?? null,
+                numberOfItemsUnshipped:  fullOrder.NumberOfItemsUnshipped ?? 0,
+                shipToName:              addr?.Name            ?? null,
+                shipToAddress1:          addr?.AddressLine1    ?? null,
+                shipToAddress2:          addr?.AddressLine2    ?? null,
+                shipToCity:              addr?.City            ?? null,
+                shipToState:             addr?.StateOrRegion   ?? null,
+                shipToPostal:            addr?.PostalCode      ?? null,
+                shipToCountry:           addr?.CountryCode     ?? null,
+                shipToPhone:             addr?.Phone           ?? null,
+                isPrime:                 fullOrder.IsPrime ?? false,
+                isBuyerRequestedCancel:  fullOrder.IsBuyerRequestedCancel ?? false,
+                buyerCancelReason:       fullOrder.BuyerRequestedCancelReason ?? null,
+                latestShipDate:          fullOrder.LatestShipDate ? new Date(fullOrder.LatestShipDate) : null,
+                lastSyncedAt:            new Date(),
+              },
+              update: {
+                orderStatus:             fullOrder.OrderStatus ?? 'Unknown',
+                lastUpdateDate:          new Date(fullOrder.LastUpdateDate ?? Date.now()),
+                numberOfItemsUnshipped:  fullOrder.NumberOfItemsUnshipped ?? 0,
+                isPrime:                 fullOrder.IsPrime ?? false,
+                isBuyerRequestedCancel:  fullOrder.IsBuyerRequestedCancel ?? false,
+                buyerCancelReason:       fullOrder.BuyerRequestedCancelReason ?? null,
+                latestShipDate:          fullOrder.LatestShipDate ? new Date(fullOrder.LatestShipDate) : null,
+                lastSyncedAt:            new Date(),
+                ...(isNew && addr ? {
+                  shipToName:     addr.Name         ?? null,
+                  shipToAddress1: addr.AddressLine1 ?? null,
+                  shipToAddress2: addr.AddressLine2 ?? null,
+                  shipToCity:     addr.City         ?? null,
+                  shipToState:    addr.StateOrRegion ?? null,
+                  shipToPostal:   addr.PostalCode   ?? null,
+                  shipToCountry:  addr.CountryCode  ?? null,
+                  shipToPhone:    addr.Phone        ?? null,
+                } : {}),
+              },
+            })
+          } catch (err) {
+            // Retry on OLM unique constraint race (concurrent Amazon + BM sync)
+            const isOlmConflict = err instanceof Error && err.message.includes('olmNumber')
+            if (isOlmConflict && attempt < 2) {
+              console.warn(`[SyncOrders] OLM conflict for ${o.AmazonOrderId}, retrying (attempt ${attempt + 1})`)
+              continue
+            }
+            throw err
+          }
+        }
+        throw new Error('Unreachable')
+      })()
 
       // ── Items call: only for new orders or those missing/changed items ─────
       if (isNew || !existingHasItems || statusChanged) {

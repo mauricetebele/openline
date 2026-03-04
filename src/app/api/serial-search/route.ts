@@ -66,6 +66,7 @@ export async function GET(req: NextRequest) {
       poNumber:      po ? String(po.poNumber) : null,
       cost:          pol?.unitCost != null ? Number(pol.unitCost) : null,
       note:          r.note ?? null,
+      binLocation:   r.binLocation ?? null,
     }
   })
 

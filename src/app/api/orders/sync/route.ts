@@ -1,6 +1,7 @@
 /**
  * POST   /api/orders/sync            — start a background sync
- * GET    /api/orders/sync?jobId=     — poll status
+ * GET    /api/orders/sync?jobId=     — poll status of a single job
+ * GET    /api/orders/sync?accountId= — find all active (PENDING/RUNNING) jobs for reconnect
  * DELETE /api/orders/sync?accountId= — reset stuck RUNNING/PENDING jobs
  */
 import { NextRequest, NextResponse } from 'next/server'
@@ -29,33 +30,53 @@ export async function POST(req: NextRequest) {
   const accountOrErr = await requireActiveAccount(accountId)
   if (accountOrErr instanceof NextResponse) return accountOrErr
 
-  // If a recent sync is already running, return its jobId instead of starting a new one
-  const existingJob = await prisma.orderSyncJob.findFirst({
-    where: {
-      accountId,
-      status: { in: ['PENDING', 'RUNNING'] },
-      startedAt: { gt: new Date(Date.now() - STALE_MINUTES * 60 * 1000) },
-    },
-    orderBy: { startedAt: 'desc' },
-  })
-  if (existingJob) {
-    return NextResponse.json({ jobId: existingJob.id, existing: true })
-  }
-
-  // Mark any stale PENDING/RUNNING jobs as failed before starting a new one.
-  await prisma.orderSyncJob.updateMany({
-    where: { accountId, status: { in: ['PENDING', 'RUNNING'] } },
-    data: { status: 'FAILED', errorMessage: 'Superseded by new sync', completedAt: new Date() },
-  })
-
+  const staleCutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1000)
   const syncAmazon = source === 'amazon' || source === 'all'
   const syncBM     = source === 'backmarket' || source === 'all'
 
+  // Check for existing in-progress jobs per source
+  const existingJobs = await prisma.orderSyncJob.findMany({
+    where: {
+      accountId,
+      status: { in: ['PENDING', 'RUNNING'] },
+      startedAt: { gt: staleCutoff },
+    },
+    orderBy: { startedAt: 'desc' },
+  })
+
+  const existingAmazon = existingJobs.find(j => j.source === 'amazon')
+  const existingBM = existingJobs.find(j => j.source === 'backmarket')
+
+  // If all requested sources already have active jobs, return them
+  if ((syncAmazon && existingAmazon) && (syncBM && existingBM)) {
+    return NextResponse.json({ jobId: existingAmazon.id, bmJobId: existingBM.id, existing: true })
+  }
+  if (syncAmazon && !syncBM && existingAmazon) {
+    return NextResponse.json({ jobId: existingAmazon.id, existing: true })
+  }
+  if (syncBM && !syncAmazon && existingBM) {
+    return NextResponse.json({ bmJobId: existingBM.id, existing: true })
+  }
+
+  // Mark stale jobs as failed (only for sources we're about to start)
+  if (syncAmazon && !existingAmazon) {
+    await prisma.orderSyncJob.updateMany({
+      where: { accountId, source: 'amazon', status: { in: ['PENDING', 'RUNNING'] } },
+      data: { status: 'FAILED', errorMessage: 'Superseded by new sync', completedAt: new Date() },
+    })
+  }
+  if (syncBM && !existingBM) {
+    await prisma.orderSyncJob.updateMany({
+      where: { accountId, source: 'backmarket', status: { in: ['PENDING', 'RUNNING'] } },
+      data: { status: 'FAILED', errorMessage: 'Superseded by new sync', completedAt: new Date() },
+    })
+  }
+
   // Start Amazon sync
-  let jobId: string | undefined
-  if (syncAmazon) {
+  let jobId: string | undefined = existingAmazon?.id
+  if (syncAmazon && !existingAmazon) {
     const job = await prisma.orderSyncJob.create({
-      data: { accountId, status: 'PENDING' },
+      data: { accountId, source: 'amazon', status: 'PENDING' },
     })
     jobId = job.id
     waitUntil(
@@ -66,15 +87,15 @@ export async function POST(req: NextRequest) {
   }
 
   // Start BackMarket sync if credentials exist
-  let bmJobId: string | undefined
-  if (syncBM) {
+  let bmJobId: string | undefined = existingBM?.id
+  if (syncBM && !existingBM) {
     const bmCredential = await prisma.backMarketCredential.findFirst({
       where: { isActive: true },
       select: { id: true },
     })
     if (bmCredential) {
       const bmJob = await prisma.orderSyncJob.create({
-        data: { accountId, status: 'PENDING' },
+        data: { accountId, source: 'backmarket', status: 'PENDING' },
       })
       bmJobId = bmJob.id
       waitUntil(
@@ -103,13 +124,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(job)
   }
 
-  // ?accountId= — find the most recent active (PENDING or RUNNING) job for this account
+  // ?accountId= — find all active (PENDING or RUNNING) jobs for this account
   if (accountId) {
-    const job = await prisma.orderSyncJob.findFirst({
+    const jobs = await prisma.orderSyncJob.findMany({
       where:   { accountId, status: { in: ['PENDING', 'RUNNING'] } },
       orderBy: { startedAt: 'desc' },
     })
-    return NextResponse.json(job ?? null)
+    // Return as { amazon: job|null, backmarket: job|null } for easy client consumption
+    const amazon = jobs.find(j => j.source === 'amazon') ?? null
+    const backmarket = jobs.find(j => j.source === 'backmarket') ?? null
+    return NextResponse.json({ amazon, backmarket })
   }
 
   return NextResponse.json({ error: 'Missing jobId or accountId' }, { status: 400 })

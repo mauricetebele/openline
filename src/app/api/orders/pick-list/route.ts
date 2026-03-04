@@ -29,6 +29,11 @@ export async function GET(req: NextRequest) {
           },
         },
       },
+      serialAssignments: {
+        include: {
+          inventorySerial: { select: { binLocation: true } },
+        },
+      },
     },
   })
 
@@ -43,11 +48,18 @@ export async function GET(req: NextRequest) {
       shipToState:    o.shipToState,
       items: o.items.map(item => {
         const itemRes = o.reservations.filter(r => r.orderItemId === item.id)
+        const itemSerials = o.serialAssignments.filter(sa => sa.orderItemId === item.id)
+        const binLocations = Array.from(new Set(
+          itemSerials
+            .map(sa => sa.inventorySerial.binLocation)
+            .filter((b): b is string => b != null)
+        ))
         return {
           orderItemId:     item.id,
           sellerSku:       item.sellerSku,
           title:           item.title,
           quantityOrdered: item.quantityOrdered,
+          binLocations,
           reservations: itemRes.map(r => ({
             locationName:  r.location.name,
             warehouseName: r.location.warehouse.name,

@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
   const serials = await prisma.inventorySerial.findMany({
     where: { productId, locationId, status: 'IN_STOCK' },
-    select: { id: true, serialNumber: true, createdAt: true },
+    select: { id: true, serialNumber: true, binLocation: true, createdAt: true },
     orderBy: { serialNumber: 'asc' },
   })
 
