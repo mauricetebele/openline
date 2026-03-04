@@ -7,8 +7,10 @@ import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { decrypt } from '@/lib/crypto'
 import { BackMarketClient } from '@/lib/backmarket/client'
+import { syncListings } from '@/lib/amazon/listings'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 // ─── GET: list all synced marketplace listings ──────────────────────────────
 
@@ -83,6 +85,19 @@ export async function POST(req: NextRequest) {
 const ASIN_AS_SKU_RE = /^B0[A-Z0-9]{8}$/
 
 async function syncAmazon() {
+  // If no seller listings exist, run the full catalog sync from Amazon first
+  const count = await prisma.sellerListing.count()
+  if (count === 0) {
+    const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
+    if (!account) {
+      return NextResponse.json({ error: 'No active Amazon account found' }, { status: 400 })
+    }
+    const job = await prisma.listingSyncJob.create({
+      data: { accountId: account.id, status: 'RUNNING' },
+    })
+    await syncListings(account.id, job.id)
+  }
+
   const listings = await prisma.sellerListing.findMany({
     select: {
       sku: true,
