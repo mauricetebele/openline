@@ -37,6 +37,42 @@ export async function GET(req: NextRequest) {
     },
   })
 
+  // Collect product+location pairs that need bin lookups (reservations without serial assignments)
+  const binLookups: { productId: string; locationId: string }[] = []
+  for (const o of orders) {
+    if (o.serialAssignments.length > 0) continue // already has serials — bins come from there
+    for (const r of o.reservations) {
+      binLookups.push({ productId: r.productId, locationId: r.locationId })
+    }
+  }
+
+  // Batch-query bin locations from in-stock serials for reserved product+location pairs
+  const binMap = new Map<string, Map<string, number>>() // "productId:locationId" → bin→count
+  if (binLookups.length > 0) {
+    const seen = new Set<string>()
+    const uniquePairs = binLookups.filter(p => {
+      const k = `${p.productId}:${p.locationId}`
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+    // Query all at once using OR conditions
+    const serials = await prisma.inventorySerial.findMany({
+      where: {
+        OR: uniquePairs.map(p => ({ productId: p.productId, locationId: p.locationId })),
+        status: 'IN_STOCK',
+        binLocation: { not: null },
+      },
+      select: { productId: true, locationId: true, binLocation: true },
+    })
+    for (const s of serials) {
+      const key = `${s.productId}:${s.locationId}`
+      let counts = binMap.get(key)
+      if (!counts) { counts = new Map(); binMap.set(key, counts) }
+      counts.set(s.binLocation!, (counts.get(s.binLocation!) ?? 0) + 1)
+    }
+  }
+
   return NextResponse.json({
     orders: orders.map(o => ({
       id:             o.id,
@@ -48,12 +84,28 @@ export async function GET(req: NextRequest) {
       shipToState:    o.shipToState,
       items: o.items.map(item => {
         const itemRes = o.reservations.filter(r => r.orderItemId === item.id)
+
+        // Bin locations from assigned serials (post-serialize)
         const itemSerials = o.serialAssignments.filter(sa => sa.orderItemId === item.id)
         const binCounts = new Map<string, number>()
         for (const sa of itemSerials) {
           const b = sa.inventorySerial.binLocation
           if (b) binCounts.set(b, (binCounts.get(b) ?? 0) + 1)
         }
+
+        // Fallback: bin locations from in-stock serials at reserved product+location
+        if (binCounts.size === 0) {
+          for (const r of itemRes) {
+            const key = `${r.productId}:${r.locationId}`
+            const counts = binMap.get(key)
+            if (counts) {
+              counts.forEach((qty, bin) => {
+                binCounts.set(bin, (binCounts.get(bin) ?? 0) + qty)
+              })
+            }
+          }
+        }
+
         const binLocations = Array.from(binCounts.entries()).map(([bin, qty]) => ({ bin, qty }))
         return {
           orderItemId:     item.id,
