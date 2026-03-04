@@ -76,18 +76,18 @@ export async function POST(req: NextRequest) {
     if (unique.size !== serials.length) {
       return NextResponse.json({ error: 'Duplicate serial numbers in submission' }, { status: 400 })
     }
-    // Check for duplicates against existing DB records
+    // Check for duplicates against existing IN_STOCK serials (any SKU)
     const existing = await prisma.inventorySerial.findMany({
       where: {
-        productId:    product.id,
-        serialNumber: { in: serials.map(s => s.trim()) },
+        serialNumber: { in: serials.map(s => s.trim()), mode: 'insensitive' },
+        status: 'IN_STOCK',
       },
-      select: { serialNumber: true },
+      select: { serialNumber: true, product: { select: { sku: true } } },
     })
     if (existing.length > 0) {
-      const dupes = existing.map(s => s.serialNumber).join(', ')
+      const dupes = existing.map(s => `${s.serialNumber} (${s.product.sku})`).join(', ')
       return NextResponse.json(
-        { error: `Serial(s) already exist for this SKU: ${dupes}` },
+        { error: `Serial(s) already in stock: ${dupes}` },
         { status: 409 },
       )
     }
