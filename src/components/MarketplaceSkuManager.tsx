@@ -79,7 +79,10 @@ async function apiPost(url: string, body: unknown) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  const data = await res.json()
+  const text = await res.text()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let data: any
+  try { data = JSON.parse(text) } catch { throw new Error(text || `Request failed (${res.status})`) }
   if (!res.ok) throw new Error(data.error ?? 'Request failed')
   return data
 }
