@@ -183,7 +183,7 @@ export async function POST(
         },
       })
 
-      // 2. For each line that has serials, create InventorySerial + SerialHistory records
+      // 2. For each line that has serials, batch-create InventorySerial then SerialHistory
       for (const line of lines) {
         if (!line.serials?.length) continue
 
@@ -191,30 +191,34 @@ export async function POST(
         const receiptLine = newReceipt.lines.find(rl => rl.purchaseOrderLineId === line.purchaseOrderLineId)
         if (!receiptLine) continue
 
-        for (const sn of cleaned) {
-          // Create the serial record
-          const serial = await tx.inventorySerial.create({
-            data: {
-              serialNumber:  sn,
-              productId:     line.productId,
-              locationId:    line.locationId,
-              gradeId:       line.gradeId || null,
-              receiptLineId: receiptLine.id,
-              status:        'IN_STOCK',
-            },
-          })
+        // Batch create all serials for this line
+        await tx.inventorySerial.createMany({
+          data: cleaned.map(sn => ({
+            serialNumber:  sn,
+            productId:     line.productId,
+            locationId:    line.locationId,
+            gradeId:       line.gradeId || null,
+            receiptLineId: receiptLine.id,
+            status:        'IN_STOCK' as const,
+          })),
+        })
 
-          // Create the history entry
-          await tx.serialHistory.create({
-            data: {
-              inventorySerialId: serial.id,
-              eventType:         'PO_RECEIPT',
-              receiptId:         newReceipt.id,
-              purchaseOrderId:   params.id,
-              locationId:        line.locationId,
-            },
-          })
-        }
+        // Fetch the created serials to get their IDs for history
+        const createdSerials = await tx.inventorySerial.findMany({
+          where: { receiptLineId: receiptLine.id },
+          select: { id: true, locationId: true },
+        })
+
+        // Batch create history entries
+        await tx.serialHistory.createMany({
+          data: createdSerials.map(s => ({
+            inventorySerialId: s.id,
+            eventType:         'PO_RECEIPT',
+            receiptId:         newReceipt.id,
+            purchaseOrderId:   params.id,
+            locationId:        s.locationId,
+          })),
+        })
       }
 
       // 3. Upsert inventory quantities per product+location+grade
@@ -272,7 +276,7 @@ export async function POST(
           },
         },
       })
-    })
+    }, { timeout: 30000 })
 
     return NextResponse.json(receipt, { status: 201 })
   } catch (err) {
