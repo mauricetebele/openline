@@ -19,19 +19,27 @@ export async function PATCH(req: NextRequest) {
   const trimmed = note?.trim() || null
 
   const updated = await prisma.$transaction(async tx => {
+    const prev = await tx.inventorySerial.findUnique({
+      where: { id },
+      select: { note: true, locationId: true },
+    })
+
     const serial = await tx.inventorySerial.update({
       where: { id },
       data: { note: trimmed },
       select: { id: true, note: true, locationId: true },
     })
 
-    if (trimmed) {
+    // Always log when note changes (new, changed, or cleared)
+    if (trimmed !== (prev?.note ?? null)) {
       await tx.serialHistory.create({
         data: {
           inventorySerialId: id,
           eventType: 'NOTE_ADDED',
           locationId: serial.locationId,
-          notes: trimmed,
+          notes: trimmed
+            ? `Note set: "${trimmed}"`
+            : `Note cleared (was: "${prev?.note}")`,
         },
       })
     }
