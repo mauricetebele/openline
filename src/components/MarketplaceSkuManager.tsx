@@ -166,6 +166,7 @@ function ProductSearchInput({
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 })
 
@@ -196,7 +197,10 @@ function ProductSearchInput({
 
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (!wrapperRef.current?.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (wrapperRef.current?.contains(target)) return
+      if (dropdownRef.current?.contains(target)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -204,10 +208,13 @@ function ProductSearchInput({
 
   if (selected) {
     return (
-      <div className="flex items-center gap-2 h-8 rounded border border-gray-300 bg-gray-50 px-2 text-xs">
-        <span className="font-mono text-gray-700">{selected.sku}</span>
-        <span className="text-gray-400 truncate flex-1">{selected.description}</span>
-        <button type="button" onClick={() => { onClear(); setQuery('') }} className="text-gray-400 hover:text-gray-600">
+      <div className="flex items-center gap-2 h-8 rounded border-2 border-green-400 bg-green-50 px-2 text-xs ring-1 ring-green-200">
+        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-green-500 text-white shrink-0">
+          <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </span>
+        <span className="font-mono font-semibold text-green-800">{selected.sku}</span>
+        <span className="text-green-600 truncate flex-1">{selected.description}</span>
+        <button type="button" onClick={() => { onClear(); setQuery('') }} className="text-green-400 hover:text-red-500 transition-colors">
           <X size={12} />
         </button>
       </div>
@@ -216,16 +223,16 @@ function ProductSearchInput({
 
   const dropdown = open && results.length > 0 && createPortal(
     <div
-      style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex: 9999 }}
-      className="bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto"
-      onMouseDown={e => e.preventDefault()}
+      ref={dropdownRef}
+      style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, minWidth: Math.max(dropPos.width, 360), zIndex: 9999 }}
+      className="bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto"
     >
       {results.map(p => (
         <button
           key={p.id}
           type="button"
           onClick={() => { onSelect(p); setQuery(''); setOpen(false) }}
-          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-gray-50"
+          className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-left hover:bg-gray-50"
         >
           <span className="font-mono text-gray-700 shrink-0">{p.sku}</span>
           <span className="text-gray-500 truncate">{p.description}</span>
