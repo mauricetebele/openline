@@ -266,11 +266,25 @@ function POPanel({
     const firstLine = raw.split('\n')[0]
     const delim = firstLine.includes('\t') ? '\t' : ','
 
-    const rows = raw.split('\n').map(r => r.split(delim).map(c => c.trim()))
+    const rows = raw.split('\n').map(r => r.split(delim).map(c => c.trim().replace(/^"|"$/g, '')))
 
-    // skip header row if first cell looks like a header
+    // Detect column mapping from header row (flexible order)
     let startIdx = 0
-    if (rows.length > 1 && /^sku$/i.test(rows[0][0])) startIdx = 1
+    let colSku = 0, colCost = 1, colGrade = 2, colQty = 3
+    const hdr = rows[0].map(h => h.toLowerCase().replace(/[^a-z]/g, ''))
+    const hasHeader = hdr.some(h => ['sku', 'cost', 'qty', 'grade', 'quantity', 'price', 'unitcost'].includes(h))
+    if (hasHeader && rows.length > 1) {
+      startIdx = 1
+      const findCol = (...names: string[]) => hdr.findIndex(h => names.includes(h))
+      const s = findCol('sku')
+      const c = findCol('cost', 'unitcost', 'price')
+      const g = findCol('grade')
+      const q = findCol('qty', 'quantity')
+      if (s >= 0) colSku = s
+      if (c >= 0) colCost = c
+      if (g >= 0) colGrade = g
+      if (q >= 0) colQty = q
+    }
 
     const errors: string[] = []
     const parsed: FormLine[] = []
@@ -278,7 +292,7 @@ function POPanel({
 
     // Pre-collect unique SKUs
     for (let i = startIdx; i < rows.length; i++) {
-      const [sku] = rows[i]
+      const sku = rows[i][colSku]
       if (!sku) continue
       const product = skuMap.get(sku.toLowerCase())
       if (product) uniqueProductIds.add(product.id)
@@ -289,17 +303,23 @@ function POPanel({
 
     for (let i = startIdx; i < rows.length; i++) {
       const row = rows[i]
-      if (row.length < 4 || !row[0]) continue
-      const [sku, costStr, gradeStr, qtyStr] = row
+      const sku = row[colSku] ?? ''
+      const rawCost = row[colCost] ?? ''
+      const gradeStr = row[colGrade] ?? ''
+      const rawQty = row[colQty] ?? ''
+      if (!sku) continue
 
       const product = skuMap.get(sku.toLowerCase())
       if (!product) { errors.push(`Row ${i + 1}: SKU "${sku}" not found`); continue }
 
-      const qty = parseInt(qtyStr, 10)
-      if (!qty || qty < 1) { errors.push(`Row ${i + 1}: invalid QTY "${qtyStr}"`); continue }
+      const costClean = rawCost.replace(/[$,\s]/g, '')
+      const qtyClean = rawQty.replace(/[$,\s]/g, '')
 
-      const cost = parseFloat(costStr)
-      if (isNaN(cost) || cost < 0) { errors.push(`Row ${i + 1}: invalid Cost "${costStr}"`); continue }
+      const cost = parseFloat(costClean)
+      if (isNaN(cost) || cost < 0) { errors.push(`Row ${i + 1}: invalid Cost "${rawCost}"`); continue }
+
+      const qty = parseInt(qtyClean, 10)
+      if (!qty || qty < 1) { errors.push(`Row ${i + 1}: invalid QTY "${rawQty}"`); continue }
 
       const grades = gradeCache.current.get(product.id) ?? []
       let gradeId: string | null = null
