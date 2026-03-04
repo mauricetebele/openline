@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronRight, ShoppingCart, Search, Printer, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw } from 'lucide-react'
+import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronRight, ShoppingCart, Search, Printer, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2410,8 +2410,43 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
 
   const serialsFilled   = serials.length === qty && serials.every(s => s.trim())
   const serialsComplete = !product?.isSerializable || serialsFilled
-  const gradeOk         = grades.length === 0 || !!gradeId
-  const canAdd = !!product && !!locationId && qty >= 1 && serialsComplete && gradeOk && !addSubmitting
+  const [serialValidationErr, setSerialValidationErr] = useState('')
+  const [serialsValidated, setSerialsValidated]       = useState(false)
+  const canAdd = !!product && !!locationId && qty >= 1 && serialsComplete && !addSubmitting && (!product?.isSerializable || serialsValidated)
+
+  // Reset validation when serials change
+  useEffect(() => { setSerialsValidated(false); setSerialValidationErr('') }, [serials])
+
+  async function validateSerials() {
+    if (!product?.isSerializable || !serialsFilled) return
+    setSerialValidationErr('')
+    try {
+      const trimmed = serials.map(s => s.trim())
+      // Check for duplicates within submission
+      const unique = new Set(trimmed.map(s => s.toUpperCase()))
+      if (unique.size !== trimmed.length) {
+        setSerialValidationErr('Duplicate serial numbers in submission')
+        return
+      }
+      // Check against DB
+      const res = await fetch('/api/serial-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serials: trimmed }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Validation failed')
+      const inStock = (data.found ?? []).filter((s: { status: string }) => s.status === 'IN_STOCK')
+      if (inStock.length > 0) {
+        const dupes = inStock.map((s: { serialNumber: string; sku: string }) => `${s.serialNumber} (${s.sku})`).join(', ')
+        setSerialValidationErr(`Already in stock: ${dupes}`)
+        return
+      }
+      setSerialsValidated(true)
+    } catch (e) {
+      setSerialValidationErr(e instanceof Error ? e.message : 'Validation failed')
+    }
+  }
 
   async function handleAdd() {
     if (!canAdd) return
@@ -2576,7 +2611,7 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
               {/* Grade picker */}
               {grades.length > 0 && (
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Grade <span className="text-red-500">*</span></label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Grade</label>
                   <select value={gradeId ?? ''} onChange={e => setGradeId(e.target.value || null)}
                     className="w-full h-8 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue">
                     <option value="">— Select grade —</option>
@@ -2643,6 +2678,22 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
                     ))}
                   </div>
                   <p className="text-[10px] text-gray-400">Tip: scan barcodes directly — Enter auto-advances to the next field.</p>
+                  {serialsFilled && !serialsValidated && (
+                    <button type="button" onClick={validateSerials}
+                      className="w-full h-8 rounded bg-gray-800 text-white text-xs font-medium hover:bg-gray-900 flex items-center justify-center gap-1.5 mt-1">
+                      <Search size={12} /> Validate Serials
+                    </button>
+                  )}
+                  {serialValidationErr && (
+                    <div className="flex items-start gap-2 p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs mt-1">
+                      <AlertCircle size={12} className="shrink-0 mt-0.5" />{serialValidationErr}
+                    </div>
+                  )}
+                  {serialsValidated && (
+                    <div className="flex items-center gap-2 p-2 rounded bg-green-50 border border-green-200 text-green-700 text-xs mt-1">
+                      <CheckCircle2 size={12} className="shrink-0" /> All serials validated — ready to add.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
