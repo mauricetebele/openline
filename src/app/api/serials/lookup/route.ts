@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
         include: {
           receipt:       { select: { id: true, receivedAt: true } },
           purchaseOrder: { select: { id: true, poNumber: true, vendor: { select: { name: true } } } },
+          order:         { select: { id: true, orderNumber: true, amazonOrderId: true, orderSource: true, shipToName: true, shipToCity: true, shipToState: true, orderTotal: true, currency: true, label: { select: { trackingNumber: true, carrier: true, serviceCode: true, shipmentCost: true } } } },
           location:      { select: { name: true, warehouse: { select: { name: true } } } },
           fromLocation:  { select: { name: true, warehouse: { select: { name: true } } } },
           fromProduct:   { select: { id: true, description: true, sku: true } },

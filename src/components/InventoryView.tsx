@@ -565,8 +565,14 @@ ${stdProps}
                               <>
                                 {event.order && (
                                   <>
+                                    {event.order.orderNumber && (
+                                      <p>
+                                        <span className="text-gray-400">OLM #:</span>{' '}
+                                        <span className="font-semibold font-mono text-gray-800">{event.order.orderNumber}</span>
+                                      </p>
+                                    )}
                                     <p>
-                                      <span className="text-gray-400">Order:</span>{' '}
+                                      <span className="text-gray-400">{event.order.orderSource === 'backmarket' ? 'BackMarket #:' : 'Amazon #:'}</span>{' '}
                                       <span className="font-semibold font-mono text-gray-800">{event.order.amazonOrderId}</span>
                                     </p>
                                     {event.order.shipToName && (
@@ -610,6 +616,25 @@ ${stdProps}
                                     <span className="font-medium text-gray-800">
                                       {event.location.warehouse.name} / {event.location.name}
                                     </span>
+                                  </p>
+                                )}
+                              </>
+                            ) : (event.eventType === 'ASSIGNED' || event.eventType === 'UNASSIGNED') && event.order ? (
+                              <>
+                                {event.order.orderNumber && (
+                                  <p>
+                                    <span className="text-gray-400">OLM #:</span>{' '}
+                                    <span className="font-semibold font-mono text-gray-800">{event.order.orderNumber}</span>
+                                  </p>
+                                )}
+                                <p>
+                                  <span className="text-gray-400">{event.order.orderSource === 'backmarket' ? 'BackMarket #:' : 'Amazon #:'}</span>{' '}
+                                  <span className="font-semibold font-mono text-gray-800">{event.order.amazonOrderId}</span>
+                                </p>
+                                {event.order.shipToName && (
+                                  <p>
+                                    <span className="text-gray-400">Buyer:</span>{' '}
+                                    <span className="font-medium text-gray-800">{event.order.shipToName}</span>
                                   </p>
                                 )}
                               </>
@@ -875,6 +900,25 @@ function SerialRow({ serial, index }: { serial: Serial; index: number }) {
                               <span className="text-gray-400">To:</span>{' '}
                               <span className="font-mono font-medium text-gray-800">{event.toProduct.sku}</span>
                               <span className="text-gray-400"> · {event.toProduct.description}</span>
+                            </p>
+                          )}
+                        </>
+                      ) : (event.eventType === 'SALE' || event.eventType === 'ASSIGNED' || event.eventType === 'UNASSIGNED') && event.order ? (
+                        <>
+                          {event.order.orderNumber && (
+                            <p>
+                              <span className="text-gray-400">OLM #:</span>{' '}
+                              <span className="font-semibold font-mono text-gray-800">{event.order.orderNumber}</span>
+                            </p>
+                          )}
+                          <p>
+                            <span className="text-gray-400">{event.order.orderSource === 'backmarket' ? 'BackMarket #:' : 'Amazon #:'}</span>{' '}
+                            <span className="font-semibold font-mono text-gray-800">{event.order.amazonOrderId}</span>
+                          </p>
+                          {event.order.shipToName && (
+                            <p>
+                              <span className="text-gray-400">Buyer:</span>{' '}
+                              <span className="font-medium text-gray-800">{event.order.shipToName}</span>
                             </p>
                           )}
                         </>
