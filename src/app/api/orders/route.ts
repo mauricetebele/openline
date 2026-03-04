@@ -132,11 +132,30 @@ export async function DELETE() {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Delete in dependency order — children with Restrict FK first
+  const rmaSerials = await prisma.marketplaceRMASerial.deleteMany({})
+  const rmaItems = await prisma.marketplaceRMAItem.deleteMany({})
+  const rmas = await prisma.marketplaceRMA.deleteMany({})
+  const serialAssignments = await prisma.orderSerialAssignment.deleteMany({})
+  const reservations = await prisma.orderInventoryReservation.deleteMany({})
+  const labels = await prisma.orderLabel.deleteMany({})
+  const batchItems = await prisma.labelBatchItem.deleteMany({})
   const items = await prisma.orderItem.deleteMany({})
   const orders = await prisma.order.deleteMany({})
   const jobs = await prisma.orderSyncJob.deleteMany({})
 
   return NextResponse.json({
-    deleted: { orders: orders.count, items: items.count, syncJobs: jobs.count },
+    deleted: {
+      orders: orders.count,
+      items: items.count,
+      labels: labels.count,
+      serialAssignments: serialAssignments.count,
+      reservations: reservations.count,
+      rmas: rmas.count,
+      rmaItems: rmaItems.count,
+      rmaSerials: rmaSerials.count,
+      batchItems: batchItems.count,
+      syncJobs: jobs.count,
+    },
   })
 }

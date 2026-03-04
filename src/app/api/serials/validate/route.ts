@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 
   // Find the serial number across ALL products (so we can give a useful error for wrong SKU)
   const serial = await prisma.inventorySerial.findFirst({
-    where: { serialNumber: sn },
+    where: { serialNumber: { equals: sn, mode: 'insensitive' } },
     include: {
       product:        true,
       location:       { include: { warehouse: true } },

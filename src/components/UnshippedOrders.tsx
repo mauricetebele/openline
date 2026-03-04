@@ -19,7 +19,7 @@ type ActiveTab = 'pending' | 'unshipped' | 'awaiting' | 'shipped' | 'cancelled'
 interface OrderItem {
   id: string; orderItemId: string; asin: string | null; sellerSku: string | null
   title: string | null; quantityOrdered: number; quantityShipped: number
-  itemPrice: string | null; shippingPrice: string | null
+  itemPrice: string | null; itemTax: string | null; shippingPrice: string | null
   imageUrl?: string | null
   isSerializable?: boolean
   isTransparency?: boolean
@@ -60,6 +60,7 @@ interface Order {
   orderSource?: 'amazon' | 'backmarket' | 'wholesale'
   wholesaleOrderNumber?: string | null
   wholesaleCustomerName?: string | null
+  customerPo?: string | null
   shipCarrier?: string | null
   shipTracking?: string | null
   shippedAt?: string | null
@@ -1884,12 +1885,15 @@ function OrderDetailModal({
   const itemsSubtotal = order.items.reduce((s, i) => {
     return s + (i.itemPrice ? parseFloat(i.itemPrice) * i.quantityOrdered : 0)
   }, 0)
+  const taxSubtotal = order.items.reduce((s, i) => {
+    return s + (i.itemTax ? parseFloat(i.itemTax) : 0)
+  }, 0)
   const shippingSubtotal = order.items.reduce((s, i) => {
     return s + (i.shippingPrice ? parseFloat(i.shippingPrice) : 0)
   }, 0)
   const orderTotalNum = order.orderTotal
     ? parseFloat(order.orderTotal)
-    : itemsSubtotal + shippingSubtotal
+    : itemsSubtotal + taxSubtotal + shippingSubtotal
 
   const addressLines = [
     addr.shipToAddress1, addr.shipToAddress2,
@@ -1994,6 +1998,12 @@ function OrderDetailModal({
                 <p className="text-[10px] text-gray-400 leading-none mb-0.5">Items Subtotal</p>
                 <p className="text-xs font-medium text-gray-700">{fmt(String(itemsSubtotal), order.currency)}</p>
               </div>
+              {taxSubtotal > 0 && (
+                <div>
+                  <p className="text-[10px] text-gray-400 leading-none mb-0.5">Tax</p>
+                  <p className="text-xs font-medium text-gray-700">{fmt(String(taxSubtotal), order.currency)}</p>
+                </div>
+              )}
               {shippingSubtotal > 0 && (
                 <div>
                   <p className="text-[10px] text-gray-400 leading-none mb-0.5">Shipping</p>
@@ -2207,6 +2217,12 @@ function OrderDetailModal({
                           <dt className="text-gray-500">Sub total:</dt>
                           <dd className="tabular-nums font-medium text-gray-800">{fmt(String(itemsSubtotal), order.currency)}</dd>
                         </div>
+                        {taxSubtotal > 0 && (
+                          <div className="flex justify-between gap-6">
+                            <dt className="text-gray-500">Tax:</dt>
+                            <dd className="tabular-nums text-gray-700">{fmt(String(taxSubtotal), order.currency)}</dd>
+                          </div>
+                        )}
                         <div className="flex justify-between gap-6">
                           <dt className="text-gray-500">Shipping:</dt>
                           <dd className="tabular-nums text-gray-700">{fmt(String(shippingSubtotal), order.currency)}</dd>
@@ -3976,6 +3992,13 @@ export default function UnshippedOrders() {
         if (!res.ok) return
         const job: SyncJob = await res.json()
         setSt(job)
+        // Refresh tab counts in real-time while syncing
+        if (selectedAccountId && job.status === 'RUNNING') {
+          fetch(`/api/orders/counts?accountId=${selectedAccountId}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d) setTabCounts(d) })
+            .catch(() => {})
+        }
         if (job.status === 'COMPLETED' || job.status === 'FAILED') {
           clearInterval(ref.current!); ref.current = null
           if (job.status === 'FAILED') setSyncError(prev => prev ? `${prev}; ${errorPrefix}` : (job.errorMessage ?? errorPrefix))
@@ -5285,7 +5308,7 @@ export default function UnshippedOrders() {
                 className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors"
               >
                 <span className="inline-flex items-center gap-1">
-                  Ship To
+                  {activeTab === 'shipped' || activeTab === 'awaiting' ? 'Tracking' : 'Ship To'}
                   <span className={clsx('text-[10px]', sortBy === 'shipToState' ? 'text-amazon-orange' : 'text-gray-500')}>
                     {sortBy === 'shipToState' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
                   </span>
@@ -5510,9 +5533,9 @@ export default function UnshippedOrders() {
                   <td className="px-3 py-1.5 text-right whitespace-nowrap text-[11px] font-semibold text-gray-800 tabular-nums">{orderTotal(order)}</td>
                   {/* Ship To */}
                   <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-700">
-                    {activeTab === 'awaiting' && order.label
+                    {(activeTab === 'awaiting' || activeTab === 'shipped') && order.label
                       ? <span className="font-mono text-[10px] text-purple-700 font-medium">{order.label.trackingNumber}</span>
-                      : activeTab === 'shipped' && order.orderSource === 'wholesale' && order.shipTracking
+                      : (activeTab === 'shipped') && order.shipTracking
                         ? <span className="font-mono text-[10px] text-emerald-700 font-medium">{order.shipTracking}</span>
                         : [order.shipToCity, order.shipToState].filter(Boolean).join(', ') || '—'
                     }
@@ -5786,7 +5809,7 @@ export default function UnshippedOrders() {
                         <button
                           type="button"
                           title="Download invoice PDF"
-                          onClick={() => generateOrderInvoicePDF(order)}
+                          onClick={() => void generateOrderInvoicePDF(order)}
                           className="p-1.5 rounded hover:bg-blue-50 text-gray-500 hover:text-amazon-blue"
                         >
                           <FileText size={14} />

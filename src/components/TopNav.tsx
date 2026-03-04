@@ -9,11 +9,12 @@ import {
   LayoutGrid, RefreshCcw, PackageMinus, Barcode, List,
   Store, Users, FileText, BarChart2, Cpu, Printer,
   Plus, Search, ArrowRightLeft, Menu, X, Settings, History,
-  Moon, Sun, FolderOpen,
+  Moon, Sun, FolderOpen, Undo2,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
 import { useAuth } from '@/context/AuthContext'
+import OrderSearchDropdown from './OrderSearchDropdown'
 
 type NavLeaf  = { href: string; label: string; icon: React.ElementType }
 type NavGroup = { group: true; label: string; icon: React.ElementType; children: NavLeaf[] }
@@ -30,7 +31,8 @@ const NAV: NavItem[] = [
     children: [
       { href: '/vendors',         label: 'Vendors',         icon: Building2 },
       { href: '/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
-      { href: '/vendor-rma',      label: 'Vendor Returns',  icon: PackageMinus },
+      { href: '/vendor-rma',            label: 'Vendor Returns',  icon: PackageMinus },
+      { href: '/marketplace-returns',  label: 'MP Returns',      icon: Undo2 },
     ],
   },
   {
@@ -187,6 +189,15 @@ export default function TopNav() {
   const pathname = usePathname()
   const { user, signOut } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [storeLogo, setStoreLogo] = useState<string | null>(null)
+
+  // Fetch store logo
+  useEffect(() => {
+    fetch('/api/store-settings')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.logoBase64) setStoreLogo(d.logoBase64) })
+      .catch(() => {})
+  }, [])
 
   function isActive(href: string) {
     const path = href.split('?')[0]  // strip query string for active check
@@ -229,10 +240,16 @@ export default function TopNav() {
       <div className="flex items-center gap-2 px-4 h-14">
 
         {/* Logo */}
-        <div className="flex flex-col leading-tight mr-4 shrink-0">
-          <span className="text-amazon-orange font-bold text-sm leading-none">Open Line</span>
-          <span className="font-bold text-sm leading-none">Mobility</span>
-        </div>
+        <Link href="/" className="flex items-center mr-4 shrink-0">
+          {storeLogo ? (
+            <img src={storeLogo} alt="Logo" className="h-8 w-auto object-contain" />
+          ) : (
+            <div className="flex flex-col leading-tight">
+              <span className="text-amazon-orange font-bold text-sm leading-none">Open Line</span>
+              <span className="font-bold text-sm leading-none">Mobility</span>
+            </div>
+          )}
+        </Link>
 
         {/* Desktop nav wrapper — takes remaining space, clips overflow */}
         <div className="hidden lg:flex flex-1 min-w-0 relative items-center">
@@ -258,6 +275,11 @@ export default function TopNav() {
           </nav>
           {/* Fade-out to indicate more items to the right */}
           <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-amazon-dark to-transparent" />
+        </div>
+
+        {/* Global order search — desktop */}
+        <div className="hidden lg:block shrink-0">
+          <OrderSearchDropdown />
         </div>
 
         {/* Dark mode toggle — desktop */}
@@ -304,6 +326,10 @@ export default function TopNav() {
       {/* Mobile dropdown menu */}
       {mobileOpen && (
         <nav className="lg:hidden bg-gray-900 border-t border-white/10 px-3 py-3 space-y-1 max-h-[80vh] overflow-y-auto">
+          {/* Mobile order search */}
+          <div className="pb-2 mb-1 border-b border-white/10">
+            <OrderSearchDropdown mobile />
+          </div>
           {mainItems.map((item) => {
             if ('divider' in item) return null
             if ('group' in item) {

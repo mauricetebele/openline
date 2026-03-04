@@ -2415,18 +2415,27 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
   const [serialsValidated, setSerialsValidated]       = useState(false)
   const canAdd = !!product && !!locationId && qty >= 1 && serialsComplete && !addSubmitting && (!product?.isSerializable || serialsValidated)
 
-  // Reset validation when serials change
-  useEffect(() => { setSerialsValidated(false); setSerialValidationErr('') }, [serials])
+  const [serialsValidating, setSerialsValidating] = useState(false)
+
+  // Auto-validate when all serials are filled
+  useEffect(() => {
+    setSerialsValidated(false); setSerialValidationErr('')
+    if (!product?.isSerializable || !serialsFilled) return
+    const timer = setTimeout(() => validateSerials(), 300)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serials, serialsFilled, product?.isSerializable])
 
   async function validateSerials() {
     if (!product?.isSerializable || !serialsFilled) return
-    setSerialValidationErr('')
+    setSerialValidationErr(''); setSerialsValidating(true)
     try {
       const trimmed = serials.map(s => s.trim())
       // Check for duplicates within submission
       const unique = new Set(trimmed.map(s => s.toUpperCase()))
       if (unique.size !== trimmed.length) {
         setSerialValidationErr('Duplicate serial numbers in submission')
+        setSerialsValidating(false)
         return
       }
       // Check against DB
@@ -2441,11 +2450,14 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
       if (inStock.length > 0) {
         const dupes = inStock.map((s: { serialNumber: string; sku: string }) => `${s.serialNumber} (${s.sku})`).join(', ')
         setSerialValidationErr(`Already in stock: ${dupes}`)
+        setSerialsValidating(false)
         return
       }
       setSerialsValidated(true)
     } catch (e) {
       setSerialValidationErr(e instanceof Error ? e.message : 'Validation failed')
+    } finally {
+      setSerialsValidating(false)
     }
   }
 
@@ -2679,11 +2691,10 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
                     ))}
                   </div>
                   <p className="text-[10px] text-gray-400">Tip: scan barcodes directly — Enter auto-advances to the next field.</p>
-                  {serialsFilled && !serialsValidated && (
-                    <button type="button" onClick={validateSerials}
-                      className="w-full h-8 rounded bg-gray-800 text-white text-xs font-medium hover:bg-gray-900 flex items-center justify-center gap-1.5 mt-1">
-                      <Search size={12} /> Validate Serials
-                    </button>
+                  {serialsValidating && (
+                    <div className="flex items-center gap-2 p-2 rounded bg-blue-50 border border-blue-200 text-blue-700 text-xs mt-1">
+                      <RefreshCcw size={12} className="animate-spin shrink-0" /> Validating serials…
+                    </div>
                   )}
                   {serialValidationErr && (
                     <div className="flex items-start gap-2 p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs mt-1">

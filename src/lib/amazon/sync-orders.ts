@@ -75,6 +75,140 @@ interface GetOrderItemsResponse {
   payload?: { OrderItems?: AmazonOrderItem[]; NextToken?: string }
 }
 
+// ─── Auto-process ────────────────────────────────────────────────────────────
+
+/**
+ * Attempts to auto-process PENDING orders for an account by reserving
+ * finished-goods inventory. Orders where ALL items have sufficient stock
+ * at a finished-goods location are moved to PROCESSING automatically.
+ */
+async function autoProcessPendingOrders(accountId: string): Promise<void> {
+  const pendingOrders = await prisma.order.findMany({
+    where: { accountId, workflowStatus: 'PENDING' },
+    include: { items: true },
+  })
+
+  if (pendingOrders.length === 0) return
+  console.log(`[AutoProcess] Evaluating ${pendingOrders.length} PENDING orders`)
+
+  let processed = 0
+  let skipped = 0
+
+  for (const order of pendingOrders) {
+    try {
+      // Build reservation plan for all items
+      const plan: {
+        orderItemId: string
+        productId: string
+        locationId: string
+        gradeId: string | null
+        qtyReserved: number
+      }[] = []
+      let canFulfill = true
+
+      for (const item of order.items) {
+        if (!item.sellerSku) { canFulfill = false; break }
+
+        // Resolve SKU → product + grade (same logic as inventory endpoint)
+        const msku = await prisma.productGradeMarketplaceSku.findFirst({
+          where: { sellerSku: item.sellerSku },
+        })
+
+        const gradeId = msku?.gradeId ?? null
+        let productId: string | null = null
+
+        // Try direct SKU match first
+        const directProduct = await prisma.product.findUnique({
+          where: { sku: item.sellerSku },
+          select: { id: true },
+        })
+        if (directProduct) {
+          productId = directProduct.id
+        } else if (msku) {
+          productId = msku.productId
+        }
+
+        if (!productId) { canFulfill = false; break }
+
+        // Find a finished-goods location with enough stock
+        const inv = await prisma.inventoryItem.findFirst({
+          where: {
+            productId,
+            qty: { gte: item.quantityOrdered },
+            ...(gradeId ? { gradeId } : {}),
+            location: { isFinishedGoods: true },
+          },
+          orderBy: { qty: 'desc' },
+        })
+
+        if (!inv) { canFulfill = false; break }
+
+        plan.push({
+          orderItemId: item.id,
+          productId,
+          locationId: inv.locationId,
+          gradeId: inv.gradeId,
+          qtyReserved: item.quantityOrdered,
+        })
+      }
+
+      if (!canFulfill || plan.length === 0) {
+        skipped++
+        continue
+      }
+
+      // Execute reservations in a transaction
+      await prisma.$transaction(async (tx) => {
+        for (const r of plan) {
+          if (r.gradeId) {
+            await tx.inventoryItem.update({
+              where: {
+                productId_locationId_gradeId: {
+                  productId: r.productId,
+                  locationId: r.locationId,
+                  gradeId: r.gradeId,
+                },
+              },
+              data: { qty: { decrement: r.qtyReserved } },
+            })
+          } else {
+            const inv = await tx.inventoryItem.findFirst({
+              where: { productId: r.productId, locationId: r.locationId, gradeId: null },
+            })
+            if (!inv) throw new Error(`Inventory not found for product ${r.productId}`)
+            await tx.inventoryItem.update({
+              where: { id: inv.id },
+              data: { qty: { decrement: r.qtyReserved } },
+            })
+          }
+
+          await tx.orderInventoryReservation.create({
+            data: {
+              orderId: order.id,
+              orderItemId: r.orderItemId,
+              productId: r.productId,
+              locationId: r.locationId,
+              gradeId: r.gradeId,
+              qtyReserved: r.qtyReserved,
+            },
+          })
+        }
+
+        await tx.order.update({
+          where: { id: order.id },
+          data: { workflowStatus: 'PROCESSING', processedAt: new Date() },
+        })
+      })
+
+      processed++
+    } catch (err) {
+      console.error(`[AutoProcess] Failed for order ${order.amazonOrderId}:`, err)
+    }
+  }
+
+  console.log(`[AutoProcess] Done — ${processed} auto-processed, ${skipped} skipped (insufficient stock)`)
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export async function syncUnshippedOrders(
@@ -304,6 +438,7 @@ export async function syncUnshippedOrders(
                   quantityOrdered: item.QuantityOrdered ?? 1,
                   quantityShipped: item.QuantityShipped ?? 0,
                   itemPrice: item.ItemPrice?.Amount ? parseFloat(item.ItemPrice.Amount) : null,
+                  itemTax: item.ItemTax?.Amount ? parseFloat(item.ItemTax.Amount) : null,
                   shippingPrice: item.ShippingPrice?.Amount ? parseFloat(item.ShippingPrice.Amount) : null,
                   isTransparency: item.IsTransparency === true,
                 },
@@ -311,6 +446,7 @@ export async function syncUnshippedOrders(
                   quantityOrdered: item.QuantityOrdered ?? 1,
                   quantityShipped: item.QuantityShipped ?? 0,
                   sellerSku: item.SellerSKU ?? null,
+                  itemTax: item.ItemTax?.Amount ? parseFloat(item.ItemTax.Amount) : undefined,
                   isTransparency: item.IsTransparency === true,
                 },
               })),
@@ -329,6 +465,9 @@ export async function syncUnshippedOrders(
     }
 
     console.log(`[SyncOrders] SP-API calls made — detail: ${detailCallCount}, items: ${itemsCallCount} (of ${allOrders.length} total orders)`)
+
+    // Auto-process orders that can be fulfilled from finished-goods inventory
+    await autoProcessPendingOrders(accountId)
 
     // NOTE: ShipStation enrichment (ssOrderId + address backfill) is now a
     // separate step triggered by the frontend AFTER sync completes.

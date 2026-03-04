@@ -82,7 +82,7 @@ export async function POST(
 
     for (const sn of a.serialNumbers) {
       const serial = await prisma.inventorySerial.findFirst({
-        where: { serialNumber: sn },
+        where: { serialNumber: { equals: sn, mode: 'insensitive' } },
         include: { product: true, orderAssignment: true },
       })
 

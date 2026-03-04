@@ -33,8 +33,9 @@ export async function POST(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { notes, lines } = body as {
+  const { notes, lines, confirmExisting } = body as {
     notes?: string
+    confirmExisting?: boolean
     lines: Array<{
       purchaseOrderLineId: string
       productId: string
@@ -128,17 +129,31 @@ export async function POST(
   }
 
   // Duplicate check against existing DB serials
+  const allWarnings: string[] = []
   for (const line of lines) {
     if (!line.serials?.length) continue
     const cleaned = line.serials.map((s: string) => s.trim()).filter(Boolean)
     const existing = await prisma.inventorySerial.findMany({
-      where: { productId: line.productId, serialNumber: { in: cleaned } },
-      select: { serialNumber: true },
+      where: { serialNumber: { in: cleaned } },
+      select: { serialNumber: true, status: true, product: { select: { sku: true } } },
     })
-    if (existing.length > 0) {
-      const dupes = existing.map(e => e.serialNumber).join(', ')
-      return NextResponse.json({ error: `Serial number(s) already exist in inventory: ${dupes}` }, { status: 409 })
+    // Hard block: serials currently IN_STOCK
+    const inStock = existing.filter(e => e.status === 'IN_STOCK')
+    if (inStock.length > 0) {
+      const dupes = inStock.map(e => `${e.serialNumber} (${e.product.sku})`).join(', ')
+      return NextResponse.json({ error: `Serial(s) already IN_STOCK: ${dupes}` }, { status: 409 })
     }
+    // Soft warning: serials exist but not in stock
+    const notInStock = existing.filter(e => e.status !== 'IN_STOCK')
+    for (const e of notInStock) {
+      allWarnings.push(`${e.serialNumber} already exists as ${e.product.sku} (${e.status})`)
+    }
+  }
+  if (allWarnings.length > 0 && !confirmExisting) {
+    return NextResponse.json(
+      { error: 'existing_serials_warning', warnings: allWarnings },
+      { status: 409 },
+    )
   }
 
   // Normalise gradeId: convert empty strings to null so Prisma doesn't reject them

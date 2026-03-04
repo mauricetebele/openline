@@ -376,6 +376,7 @@ model Order {
   appliedPresetId        String?
   appliedPreset          ShippingPreset?             @relation(fields: [appliedPresetId], references: [id], onDelete: SetNull)
   ssOrderId              Int?
+  customerPo             String?
   shipCarrier            String?
   shipTracking           String?
   shippedAt              DateTime?
@@ -385,6 +386,7 @@ model Order {
   serialAssignments      OrderSerialAssignment[]
   labelBatchItems        LabelBatchItem[]
   serialHistory          SerialHistory[]
+  marketplaceRMAs        MarketplaceRMA[]
 
   @@unique([accountId, amazonOrderId, orderSource])
   @@index([accountId, orderStatus])
@@ -404,14 +406,16 @@ model OrderItem {
   quantityOrdered Int      @default(1)
   quantityShipped Int      @default(0)
   itemPrice       Decimal? @db.Decimal(12, 2)
+  itemTax         Decimal? @db.Decimal(12, 2)
   shippingPrice   Decimal? @db.Decimal(12, 2)
   imageUrl        String?
   isTransparency    Boolean  @default(false)
   transparencyCodes String[] @default([])
   bmSerials         String[] @default([]) // BackMarket serial/IMEI numbers (one per unit)
 
-  reservations      OrderInventoryReservation[]
-  serialAssignments OrderSerialAssignment[]
+  reservations         OrderInventoryReservation[]
+  serialAssignments    OrderSerialAssignment[]
+  marketplaceRMAItems  MarketplaceRMAItem[]
 
   @@unique([orderId, orderItemId])
   @@index([orderId])
@@ -675,6 +679,7 @@ model Product {
   salesOrderReservations SalesOrderInventoryReservation[]
   grades                 ProductGrade[]
   marketplaceSkus        ProductGradeMarketplaceSku[]
+  marketplaceRMAItems    MarketplaceRMAItem[]
 
   @@map("products")
 }
@@ -696,6 +701,7 @@ model ProductGrade {
   inventoryItems         InventoryItem[]
   orderReservations      OrderInventoryReservation[]
   salesOrderReservations SalesOrderInventoryReservation[]
+  marketplaceRMASerials  MarketplaceRMASerial[]
 
   @@unique([productId, grade])
   @@index([productId])
@@ -870,6 +876,7 @@ model Location {
   fromSerialHistory      SerialHistory[]                  @relation("SHFromLocation")
   orderReservations      OrderInventoryReservation[]
   salesOrderReservations SalesOrderInventoryReservation[]
+  marketplaceRMASerials  MarketplaceRMASerial[]
 
   @@unique([warehouseId, name])
   @@index([warehouseId])
@@ -948,9 +955,10 @@ model InventorySerial {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  history              SerialHistory[]
-  orderAssignment      OrderSerialAssignment?
-  salesOrderAssignment SalesOrderSerialAssignment?
+  history               SerialHistory[]
+  orderAssignment       OrderSerialAssignment?
+  salesOrderAssignment  SalesOrderSerialAssignment?
+  marketplaceRMASerials MarketplaceRMASerial[]
 
   @@unique([productId, serialNumber])
   @@index([productId, locationId])
@@ -1009,6 +1017,7 @@ enum SerialEventType {
   NOTE_ADDED
   MANUAL_ADD
   MANUAL_REMOVE
+  MP_RMA_RETURN
 }
 
 // ─── RMA (Return Merchandise Authorization) ───────────────────────────────────
@@ -1440,4 +1449,99 @@ model CaseMessage {
 
   @@index([caseId])
   @@map("case_messages")
+}
+
+// ─── Marketplace Returns (MP-RMA) ────────────────────────────────────────────
+
+enum MarketplaceRMAStatus {
+  OPEN
+  RECEIVED
+}
+
+model MarketplaceRMA {
+  id        String               @id @default(cuid())
+  rmaNumber String               @unique // "MP-RMA-0001"
+  orderId   String
+  order     Order                @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  status    MarketplaceRMAStatus @default(OPEN)
+  notes     String?
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  items MarketplaceRMAItem[]
+
+  @@index([orderId])
+  @@index([status])
+  @@map("marketplace_rmas")
+}
+
+model MarketplaceRMAItem {
+  id               String         @id @default(cuid())
+  rmaId            String
+  rma              MarketplaceRMA @relation(fields: [rmaId], references: [id], onDelete: Cascade)
+  orderItemId      String
+  orderItem        OrderItem      @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  productId        String?
+  product          Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sellerSku        String?
+  asin             String?
+  title            String?
+  quantityReturned Int            @default(1)
+  returnReason     String?
+  createdAt        DateTime       @default(now())
+
+  serials MarketplaceRMASerial[]
+
+  @@index([rmaId])
+  @@map("marketplace_rma_items")
+}
+
+model MarketplaceRMASerial {
+  id                String           @id @default(cuid())
+  rmaItemId         String
+  rmaItem           MarketplaceRMAItem @relation(fields: [rmaItemId], references: [id], onDelete: Cascade)
+  inventorySerialId String?
+  inventorySerial   InventorySerial? @relation(fields: [inventorySerialId], references: [id], onDelete: SetNull)
+  serialNumber      String
+  receivedAt        DateTime?
+  locationId        String?
+  location          Location?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  gradeId           String?
+  grade             ProductGrade?    @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  note              String?
+
+  @@index([rmaItemId])
+  @@map("marketplace_rma_serials")
+}
+
+model RMAReturnReason {
+  id        String   @id @default(cuid())
+  label     String   @unique
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("rma_return_reasons")
+}
+
+// ─── Store Settings (singleton — one row) ────────────────────────────────────
+
+model StoreSettings {
+  id             String   @id @default("singleton")
+  storeName      String   @default("Open Line Mobility")
+  logoBase64     String?  @db.Text // data-URI (e.g. data:image/png;base64,…)
+  phone          String?
+  email          String?
+  addressLine    String?  // street address
+  city           String?
+  state          String?
+  zip            String?
+  thankYouMsg    String   @default("Thank you for shopping with us!")
+  primaryColor   String   @default("#14284B")
+  accentColor    String   @default("#007ACC")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("store_settings")
 }

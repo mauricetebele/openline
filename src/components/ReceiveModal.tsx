@@ -371,10 +371,16 @@ export default function ReceiveModal({
       }
     }
 
+    await submitReceive(activeLines, false)
+  }
+
+  async function submitReceive(activeLines: Array<LineState & { qty: number }>, confirmExisting: boolean) {
     setSaving(true)
+    setErr('')
     try {
       const payload = {
         notes: notes.trim() || undefined,
+        confirmExisting: confirmExisting || undefined,
         lines: activeLines.map(l => ({
           purchaseOrderLineId: l.poLineId,
           productId:           l.product.id,
@@ -391,7 +397,19 @@ export default function ReceiveModal({
         body: JSON.stringify(payload),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Receive failed')
+      if (!res.ok) {
+        // Soft warning: serials exist but not IN_STOCK — prompt user
+        if (data.error === 'existing_serials_warning' && data.warnings?.length) {
+          const msg = data.warnings.join('\n') + '\n\nDo you want to proceed anyway?'
+          if (window.confirm(msg)) {
+            await submitReceive(activeLines, true)
+            return
+          }
+          setSaving(false)
+          return
+        }
+        throw new Error(data.error ?? 'Receive failed')
+      }
       onReceived()
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Receive failed')

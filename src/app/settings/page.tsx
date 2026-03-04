@@ -1,10 +1,11 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
 import {
   CheckCircle, AlertTriangle, Clock, RefreshCw, FlaskConical,
   ExternalLink, Warehouse, Truck, Settings,
-  ChevronRight, Trash2,
+  ChevronRight, Trash2, RotateCcw, Plus, X,
+  Store, Upload, ImageIcon,
 } from 'lucide-react'
 import AppShell from '@/components/AppShell'
 import WarehouseManager from '@/components/WarehouseManager'
@@ -70,7 +71,7 @@ interface AmazonAccount {
   createdAt: string
 }
 
-type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'backmarket'
+type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'backmarket' | 'rma-settings' | 'store-settings'
 
 // ─── Amazon Accounts Section ──────────────────────────────────────────────────
 
@@ -680,7 +681,313 @@ function BackMarketSection() {
   )
 }
 
+// ─── Store Settings Section ────────────────────────────────────────────────────
+
+function StoreSettingsSection() {
+  const [storeName, setStoreName] = useState('Open Line Mobility')
+  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
+  const [addressLine, setAddressLine] = useState('')
+  const [city, setCity] = useState('')
+  const [state, setState] = useState('')
+  const [zip, setZip] = useState('')
+  const [thankYouMsg, setThankYouMsg] = useState('Thank you for shopping with us!')
+  const [primaryColor, setPrimaryColor] = useState('#14284B')
+  const [accentColor, setAccentColor] = useState('#007ACC')
+  const safeHex = (v: string, fb: string) => /^#[0-9A-Fa-f]{6}$/.test(v) ? v : fb
+  const primaryRef = useRef<HTMLInputElement>(null!)
+  const accentRef = useRef<HTMLInputElement>(null!)
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [logoBase64, setLogoBase64] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const fileRef = useRef<HTMLInputElement>(null!)
+
+  useEffect(() => {
+    fetch('/api/store-settings')
+      .then(r => r.json())
+      .then(data => {
+        setStoreName(data.storeName ?? '')
+        setPhone(data.phone ?? '')
+        setEmail(data.email ?? '')
+        setAddressLine(data.addressLine ?? '')
+        setCity(data.city ?? '')
+        setState(data.state ?? '')
+        setZip(data.zip ?? '')
+        setThankYouMsg(data.thankYouMsg ?? '')
+        setPrimaryColor(data.primaryColor ?? '#14284B')
+        setAccentColor(data.accentColor ?? '#007ACC')
+        if (data.logoBase64) { setLogoPreview(data.logoBase64); setLogoBase64(data.logoBase64) }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 400_000) { toast.error('Logo must be under 400 KB'); return }
+    if (!file.type.startsWith('image/')) { toast.error('File must be an image'); return }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      setLogoPreview(result)
+      setLogoBase64(result)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/store-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storeName, logoBase64, phone, email, addressLine, city, state, zip, thankYouMsg, primaryColor: safeHex(primaryColor, '#14284B'), accentColor: safeHex(accentColor, '#007ACC') }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Store settings saved!')
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <p className="text-sm text-gray-400">Loading...</p>
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      <div className="card p-6 space-y-5">
+        {/* Logo upload */}
+        <div>
+          <label className="label mb-2">Store Logo</label>
+          <div className="flex items-center gap-4">
+            <div
+              onClick={() => fileRef.current?.click()}
+              className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-300 hover:border-amazon-blue flex items-center justify-center cursor-pointer transition-colors overflow-hidden bg-gray-50"
+            >
+              {logoPreview ? (
+                <img src={logoPreview} alt="Logo" className="w-full h-full object-contain p-1" />
+              ) : (
+                <div className="text-center">
+                  <ImageIcon size={20} className="mx-auto text-gray-400" />
+                  <span className="text-[10px] text-gray-400 mt-1 block">Upload</span>
+                </div>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="flex items-center gap-1.5 text-xs font-medium text-amazon-blue hover:underline"
+              >
+                <Upload size={12} /> Choose image
+              </button>
+              {logoPreview && (
+                <button
+                  type="button"
+                  onClick={() => { setLogoPreview(null); setLogoBase64(null) }}
+                  className="flex items-center gap-1 text-xs text-red-500 hover:underline"
+                >
+                  <Trash2 size={12} /> Remove
+                </button>
+              )}
+              <p className="text-[10px] text-gray-400">PNG or JPG, max 400 KB. Shows on invoices.</p>
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFile} />
+          </div>
+        </div>
+
+        {/* Fields */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label">Store Name</label>
+            <input className="input" value={storeName} onChange={e => setStoreName(e.target.value)} placeholder="Open Line Mobility" />
+          </div>
+          <div>
+            <label className="label">Phone</label>
+            <input className="input" value={phone} onChange={e => setPhone(e.target.value)} placeholder="(555) 123-4567" />
+          </div>
+          <div>
+            <label className="label">Email</label>
+            <input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="info@example.com" />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="label">Street Address</label>
+            <input className="input" value={addressLine} onChange={e => setAddressLine(e.target.value)} placeholder="123 Main St" />
+          </div>
+          <div>
+            <label className="label">City</label>
+            <input className="input" value={city} onChange={e => setCity(e.target.value)} placeholder="Miami" />
+          </div>
+          <div>
+            <label className="label">State / Zip</label>
+            <div className="flex gap-2">
+              <input className="input w-20" value={state} onChange={e => setState(e.target.value)} placeholder="FL" maxLength={2} />
+              <input className="input flex-1" value={zip} onChange={e => setZip(e.target.value)} placeholder="33101" />
+            </div>
+          </div>
+        </div>
+        <div>
+          <label className="label">Thank You Message</label>
+          <input className="input" value={thankYouMsg} onChange={e => setThankYouMsg(e.target.value)} placeholder="Thank you for shopping with us!" />
+          <p className="text-[10px] text-gray-400 mt-1">Appears at the bottom of invoices.</p>
+        </div>
+
+        {/* Invoice Color Theme */}
+        <div className="border-t pt-5 space-y-3">
+          <label className="label">Invoice Color Theme</label>
+          <input ref={primaryRef} type="color" className="hidden" onChange={e => setPrimaryColor(e.target.value)} />
+          <input ref={accentRef} type="color" className="hidden" onChange={e => setAccentColor(e.target.value)} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Primary Color (header, totals)</label>
+              <div className="flex items-center gap-2">
+                <div
+                  onClick={() => { primaryRef.current.value = safeHex(primaryColor, '#14284B'); primaryRef.current.click() }}
+                  className="w-10 h-10 rounded border border-gray-200 cursor-pointer shrink-0"
+                  style={{ backgroundColor: safeHex(primaryColor, '#14284B') }}
+                />
+                <input className="input flex-1 font-mono text-sm" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} placeholder="#14284B" maxLength={7} />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Accent Color (thank-you text)</label>
+              <div className="flex items-center gap-2">
+                <div
+                  onClick={() => { accentRef.current.value = safeHex(accentColor, '#007ACC'); accentRef.current.click() }}
+                  className="w-10 h-10 rounded border border-gray-200 cursor-pointer shrink-0"
+                  style={{ backgroundColor: safeHex(accentColor, '#007ACC') }}
+                />
+                <input className="input flex-1 font-mono text-sm" value={accentColor} onChange={e => setAccentColor(e.target.value)} placeholder="#007ACC" maxLength={7} />
+              </div>
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-400">Controls the colors used in generated PDF invoices.</p>
+        </div>
+
+        <button onClick={handleSave} disabled={saving} className="btn-primary">
+          <RefreshCw size={14} className={saving ? 'animate-spin' : ''} />
+          {saving ? 'Saving...' : 'Save Store Settings'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Hub Cards Data ────────────────────────────────────────────────────────────
+
+// ─── RMA Settings Section ─────────────────────────────────────────────────────
+
+interface ReturnReason {
+  id: string
+  label: string
+  sortOrder: number
+  isActive: boolean
+}
+
+function RMASettingsSection() {
+  const [reasons, setReasons] = useState<ReturnReason[]>([])
+  const [loading, setLoading] = useState(true)
+  const [newLabel, setNewLabel] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/rma-return-reasons')
+      .then(r => r.json())
+      .then(j => setReasons(j.data ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  async function handleAdd() {
+    if (!newLabel.trim()) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/rma-return-reasons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: newLabel.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || 'Failed to add'); return }
+      setReasons(prev => [...prev, data])
+      setNewLabel('')
+      toast.success('Return reason added')
+    } catch { toast.error('Failed to add reason') }
+    finally { setSaving(false) }
+  }
+
+  async function handleDelete(id: string) {
+    setDeletingId(id)
+    try {
+      const res = await fetch(`/api/rma-return-reasons?id=${id}`, { method: 'DELETE' })
+      if (!res.ok) { toast.error('Failed to delete'); return }
+      setReasons(prev => prev.filter(r => r.id !== id))
+      toast.success('Reason removed')
+    } catch { toast.error('Failed to delete') }
+    finally { setDeletingId(null) }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-800 mb-1">Return Reasons</h3>
+        <p className="text-xs text-gray-500 mb-4">
+          These options appear in the reason dropdown when creating a marketplace return (MP-RMA).
+        </p>
+
+        {/* Add new */}
+        <div className="flex items-center gap-2 mb-4">
+          <input
+            value={newLabel}
+            onChange={e => setNewLabel(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
+            placeholder="e.g. Defective, Wrong Item, Buyer Remorse..."
+            className="flex-1 h-9 px-3 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+          />
+          <button
+            onClick={handleAdd}
+            disabled={!newLabel.trim() || saving}
+            className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50"
+          >
+            <Plus size={14} /> Add
+          </button>
+        </div>
+
+        {/* List */}
+        {loading ? (
+          <p className="text-sm text-gray-400 py-4 text-center">Loading...</p>
+        ) : reasons.length === 0 ? (
+          <p className="text-sm text-gray-400 py-4 text-center">No return reasons configured yet</p>
+        ) : (
+          <div className="space-y-1.5">
+            {reasons.map(r => (
+              <div
+                key={r.id}
+                className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-gray-200 bg-white"
+              >
+                <span className="text-sm text-gray-800">{r.label}</span>
+                <button
+                  onClick={() => handleDelete(r.id)}
+                  disabled={deletingId === r.id}
+                  className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                  title="Remove"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Hub Cards ────────────────────────────────────────────────────────────────
 
 interface HubCard {
   id: Section
@@ -741,12 +1048,28 @@ const HUB_GROUPS: HubGroup[] = [
     label: 'Operations',
     cards: [
       {
+        id: 'store-settings',
+        icon: Store,
+        iconBg: 'bg-indigo-50',
+        iconColor: 'text-indigo-600',
+        title: 'Store Settings',
+        description: 'Set your store name, logo, contact info, and invoice thank-you message.',
+      },
+      {
         id: 'warehouses',
         icon: Warehouse,
         iconBg: 'bg-purple-50',
         iconColor: 'text-purple-600',
         title: 'Warehouses',
         description: 'Add and manage ship-from warehouse locations used when purchasing shipping labels through ShipStation.',
+      },
+      {
+        id: 'rma-settings',
+        icon: RotateCcw,
+        iconBg: 'bg-rose-50',
+        iconColor: 'text-rose-600',
+        title: 'RMA Settings',
+        description: 'Configure return reasons that appear when creating marketplace or customer RMAs.',
       },
     ],
   },
@@ -833,11 +1156,13 @@ function SettingsContent() {
                 <h2 className="text-base font-semibold text-gray-900">{activeCard.title}</h2>
               </div>
             )}
-            {activeSection === 'amazon'      && <AmazonAccountsSection />}
-            {activeSection === 'shipstation' && <ShipStationSection />}
-            {activeSection === 'warehouses'  && <WarehouseManager />}
-            {activeSection === 'ups'         && <UpsCredentialsSection />}
-            {activeSection === 'backmarket'  && <BackMarketSection />}
+            {activeSection === 'amazon'         && <AmazonAccountsSection />}
+            {activeSection === 'shipstation'    && <ShipStationSection />}
+            {activeSection === 'warehouses'     && <WarehouseManager />}
+            {activeSection === 'ups'            && <UpsCredentialsSection />}
+            {activeSection === 'backmarket'     && <BackMarketSection />}
+            {activeSection === 'rma-settings'   && <RMASettingsSection />}
+            {activeSection === 'store-settings' && <StoreSettingsSection />}
           </div>
         )}
 
