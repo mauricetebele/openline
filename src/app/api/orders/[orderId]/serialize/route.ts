@@ -12,6 +12,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
+import { decrypt } from '@/lib/crypto'
+import { BackMarketClient } from '@/lib/backmarket/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -102,13 +104,22 @@ export async function POST(
 
   // ── Build sale notes with all available context ──────────────────────────
   const label = order.label
-  const noteParts = [`Amazon Order ${order.amazonOrderId}`]
+  const isBM = order.orderSource === 'backmarket'
+  const noteParts = [isBM ? `BackMarket Order ${order.amazonOrderId}` : `Amazon Order ${order.amazonOrderId}`]
   if (order.shipToName) noteParts.push(`Buyer: ${order.shipToName}`)
   if (label?.carrier) noteParts.push(`Carrier: ${label.carrier}`)
   if (label?.serviceCode) noteParts.push(`Service: ${label.serviceCode}`)
   if (label?.trackingNumber) noteParts.push(`Tracking: ${label.trackingNumber}`)
   if (label?.shipmentCost) noteParts.push(`Cost: $${Number(label.shipmentCost).toFixed(2)}`)
   const saleNotes = noteParts.join(' · ')
+
+  // ── Group serials by orderItemId for bmSerials update ──────────────────
+  const serialsByItem = new Map<string, string[]>()
+  for (const r of resolvedSerials) {
+    const arr = serialsByItem.get(r.orderItemId) ?? []
+    arr.push(r.serialNumber)
+    serialsByItem.set(r.orderItemId, arr)
+  }
 
   // ── Apply all changes in a transaction ────────────────────────────────────
   await prisma.$transaction(async tx => {
@@ -146,6 +157,17 @@ export async function POST(
       })
     }
 
+    // For BackMarket orders: also save serials as bmSerials on each OrderItem
+    // so they get transmitted to BackMarket as IMEI values
+    if (isBM) {
+      for (const [orderItemId, serials] of Array.from(serialsByItem.entries())) {
+        await tx.orderItem.update({
+          where: { id: orderItemId },
+          data:  { bmSerials: serials },
+        })
+      }
+    }
+
     // Advance workflow to SHIPPED
     await tx.order.update({
       where: { id: params.orderId },
@@ -153,5 +175,56 @@ export async function POST(
     })
   })
 
+  // ── BackMarket: push tracking + IMEI to BackMarket API (non-blocking) ──
+  if (isBM && label?.trackingNumber) {
+    shipToBackMarket(order.amazonOrderId, order.items, label, serialsByItem).catch(err => {
+      console.error('[serialize] BackMarket ship failed (non-blocking):', err)
+    })
+  }
+
   return NextResponse.json({ success: true })
+}
+
+/** Map ShipStation carrier codes to clean names BackMarket recognizes */
+const CARRIER_NAME_MAP: Record<string, string> = {
+  stamps_com: 'USPS', usps: 'USPS', ups: 'UPS', ups_walleted: 'UPS',
+  fedex: 'FedEx', dhl_express: 'DHL', dhl_ecommerce: 'DHL', ontrac: 'OnTrac',
+}
+
+async function shipToBackMarket(
+  bmOrderId: string,
+  items: { id: string; sellerSku: string | null }[],
+  label: { trackingNumber: string; carrier: string | null },
+  serialsByItem: Map<string, string[]>,
+) {
+  const credential = await prisma.backMarketCredential.findFirst({
+    where: { isActive: true },
+    select: { apiKeyEnc: true },
+  })
+  if (!credential) {
+    console.warn('[serialize] No BM credentials — skipping BackMarket ship')
+    return
+  }
+
+  const client = new BackMarketClient(decrypt(credential.apiKeyEnc))
+  const shipper = label.carrier
+    ? (CARRIER_NAME_MAP[label.carrier.toLowerCase()] ?? label.carrier)
+    : undefined
+
+  for (const item of items) {
+    if (!item.sellerSku) continue
+    const imei = (serialsByItem.get(item.id) ?? []).join(',')
+
+    console.log('[serialize→bm-ship] order=%s sku=%s tracking=%s shipper=%s imei=%s',
+      bmOrderId, item.sellerSku, label.trackingNumber, shipper, imei)
+
+    await client.post(`/orders/${bmOrderId}`, {
+      order_id:        bmOrderId,
+      new_state:       3,
+      sku:             item.sellerSku,
+      tracking_number: label.trackingNumber,
+      ...(shipper ? { shipper } : {}),
+      imei,
+    })
+  }
 }

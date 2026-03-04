@@ -65,11 +65,24 @@ export async function POST(req: NextRequest) {
       })
 
       // Upsert destination inventory item
-      await tx.inventoryItem.upsert({
-        where:  { productId_locationId_gradeId: { productId: serial.productId, locationId, gradeId: serial.gradeId ?? null } },
-        create: { productId: serial.productId, locationId, gradeId: serial.gradeId ?? null, qty: 1 },
-        update: { qty: { increment: 1 } },
-      })
+      // Prisma's composite-unique upsert rejects null, so handle null gradeId separately
+      const moveGradeId = serial.gradeId ?? null
+      if (moveGradeId) {
+        await tx.inventoryItem.upsert({
+          where:  { productId_locationId_gradeId: { productId: serial.productId, locationId, gradeId: moveGradeId } },
+          create: { productId: serial.productId, locationId, gradeId: moveGradeId, qty: 1 },
+          update: { qty: { increment: 1 } },
+        })
+      } else {
+        const existingInv = await tx.inventoryItem.findFirst({
+          where: { productId: serial.productId, locationId, gradeId: null },
+        })
+        if (existingInv) {
+          await tx.inventoryItem.update({ where: { id: existingInv.id }, data: { qty: { increment: 1 } } })
+        } else {
+          await tx.inventoryItem.create({ data: { productId: serial.productId, locationId, gradeId: null, qty: 1 } })
+        }
+      }
     }
   })
 

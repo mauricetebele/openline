@@ -15,11 +15,25 @@ export async function GET(req: NextRequest) {
   const accountId = req.nextUrl.searchParams.get('accountId')?.trim()
   if (!accountId) return NextResponse.json({ pending: 0, unshipped: 0, awaiting: 0 })
 
-  const [pending, unshipped, awaiting] = await Promise.all([
+  // End of today in Pacific time: get today's date string in PT, then add 1 day
+  // latestShipDate from Amazon is typically a full timestamp, so we compare < tomorrow midnight UTC
+  // (Amazon ship-by dates are UTC-based, so UTC comparison is correct here)
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+  const [y, m, d] = todayStr.split('-').map(Number)
+  const tomorrowMidnight = new Date(Date.UTC(y, m - 1, d + 1))
+
+  const [pending, unshipped, awaiting, dueOutToday] = await Promise.all([
     prisma.order.count({ where: { accountId, workflowStatus: 'PENDING' } }),
     prisma.order.count({ where: { accountId, workflowStatus: 'PROCESSING' } }),
     prisma.order.count({ where: { accountId, workflowStatus: 'AWAITING_VERIFICATION' } }),
+    prisma.order.count({
+      where: {
+        accountId,
+        workflowStatus: { in: ['PENDING', 'PROCESSING', 'AWAITING_VERIFICATION'] },
+        latestShipDate: { lt: tomorrowMidnight },
+      },
+    }),
   ])
 
-  return NextResponse.json({ pending, unshipped, awaiting })
+  return NextResponse.json({ pending, unshipped, awaiting, dueOutToday })
 }

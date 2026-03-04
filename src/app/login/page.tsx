@@ -50,9 +50,10 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-amazon-dark flex items-center justify-center p-4">
       <div className="card w-full max-w-sm p-8">
-        <div className="mb-8 text-center">
-          <div className="text-amazon-orange font-bold text-2xl mb-1">Refund Auditor</div>
-          <p className="text-gray-500 text-sm">Amazon Seller Central</p>
+        <div className="mb-8 text-center flex flex-col items-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logos/olm-logo.svg" alt="Open Line Mobility" width={200} height={140} className="mb-2" />
+          <p className="text-gray-500 text-sm">Seller Management Platform</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

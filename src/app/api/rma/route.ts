@@ -112,18 +112,20 @@ export async function POST(req: NextRequest) {
         }
 
         // Upsert inventory item (no grade for RMA restocks — goes into ungraded stock)
-        await tx.inventoryItem.upsert({
-          where: {
-            productId_locationId_gradeId: { productId: product.id, locationId: rmaItem.restockedLocationId, gradeId: null },
-          },
-          update: { qty: { increment: rmaItem.quantityReturned } },
-          create: {
-            productId:  product.id,
-            locationId: rmaItem.restockedLocationId,
-            gradeId:    null,
-            qty:        rmaItem.quantityReturned,
-          },
+        // Prisma's composite-unique upsert rejects null, so use findFirst + create/update
+        const existingInv = await tx.inventoryItem.findFirst({
+          where: { productId: product.id, locationId: rmaItem.restockedLocationId, gradeId: null },
         })
+        if (existingInv) {
+          await tx.inventoryItem.update({
+            where: { id: existingInv.id },
+            data:  { qty: { increment: rmaItem.quantityReturned } },
+          })
+        } else {
+          await tx.inventoryItem.create({
+            data: { productId: product.id, locationId: rmaItem.restockedLocationId, gradeId: null, qty: rmaItem.quantityReturned },
+          })
+        }
 
         // Mark the RMAItem as restocked
         await tx.rMAItem.update({

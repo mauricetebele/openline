@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, ClipboardList, Link2, LogOut, ChevronRight, ChevronDown,
   Truck, Tag, Package, Boxes, Building2, RotateCcw, ShoppingCart, Warehouse,
-  LayoutGrid, X, RefreshCcw, PackageMinus, Barcode,
+  LayoutGrid, X, RefreshCcw, PackageMinus, Barcode, List,
   Store, Users, FileText, BarChart2, Cpu, Ship,
   Plus, Search, ArrowRightLeft, FolderOpen,
 } from 'lucide-react'
@@ -51,6 +51,7 @@ const NAV: NavItem[] = [
       { href: '/refunds',            label: 'Refunds',           icon: RefreshCcw },
       { href: '/shipping-templates', label: 'Shipping Templates',icon: Truck },
       { href: '/returns',            label: 'MFN Returns',       icon: RotateCcw },
+      { href: '/active-listings',    label: 'Active Listings',   icon: List },
       { href: '/pricing-rules',      label: 'Pricing Rules',     icon: Tag },
       { href: '/audit',              label: 'Audit Log',         icon: ClipboardList },
     ],
@@ -62,7 +63,7 @@ const NAV: NavItem[] = [
   { href: '/wholesale/aging',     label: 'Aging Report',  icon: BarChart2 },
 ]
 
-const AMAZON_TOOL_HREFS    = ['/refunds', '/shipping-templates', '/returns', '/pricing-rules', '/audit']
+const AMAZON_TOOL_HREFS    = ['/refunds', '/shipping-templates', '/returns', '/active-listings', '/pricing-rules', '/audit']
 const INVENTORY_HREFS      = ['/inventory']
 
 interface SidebarProps {
@@ -97,10 +98,14 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
       )}
     >
       {/* Logo row + mobile close button */}
-      <div className="flex items-center justify-between px-5 py-5 border-b border-white/10">
-        <div className="flex flex-col leading-tight">
-          <span className="text-amazon-orange font-bold text-sm leading-none">Open Line</span>
-          <span className="font-bold text-sm leading-none">Mobility</span>
+      <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+        <div className="flex items-center gap-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logos/olm-icon.svg" alt="" width={36} height={24} className="shrink-0" />
+          <div className="flex flex-col leading-tight">
+            <span className="text-[#5B9BD5] font-bold text-sm leading-none">Open Line</span>
+            <span className="text-[#C1342C] font-bold text-[11px] leading-none tracking-wider">MOBILITY</span>
+          </div>
         </div>
         <button
           onClick={onClose}

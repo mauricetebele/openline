@@ -84,6 +84,9 @@ export async function GET(req: NextRequest) {
           minPrice: true,
           maxPrice: true,
           lastSyncedAt: true,
+          sold24h: true,
+          sold3d: true,
+          sold7d: true,
         },
       }),
       prisma.sellerListing.findMany({

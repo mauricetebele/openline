@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Plus, Pencil, Trash2, X, AlertCircle, ShoppingCart, ChevronDown, ChevronUp, PackageCheck, Clock } from 'lucide-react'
 import { clsx } from 'clsx'
 import ReceiveModal from './ReceiveModal'
+import SpreadsheetReceiveModal from './SpreadsheetReceiveModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -403,11 +404,13 @@ function PORow({
   onEdit,
   onDeleted,
   onReceive,
+  onSpreadsheetReceive,
 }: {
   po: PurchaseOrder
   onEdit: (po: PurchaseOrder) => void
   onDeleted: () => void
   onReceive: (po: PurchaseOrder) => void
+  onSpreadsheetReceive: (po: PurchaseOrder) => void
 }) {
   const [expanded,      setExpanded]      = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
@@ -462,24 +465,38 @@ function PORow({
             </div>
           ) : (
             <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-              {po.status !== 'CANCELLED' && (
-                <button
-                  type="button"
-                  onClick={() => onReceive(po)}
-                  title="Receive inventory"
-                  className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200"
-                >
-                  <PackageCheck size={12} /> Receive
+              {po.status !== 'CANCELLED' && po.status !== 'RECEIVED' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onReceive(po)}
+                    title="Receive inventory"
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200"
+                  >
+                    <PackageCheck size={12} /> Receive
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSpreadsheetReceive(po)}
+                    title="Receive via spreadsheet paste"
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200"
+                  >
+                    Spreadsheet
+                  </button>
+                </>
+              )}
+              {po.status !== 'RECEIVED' && (
+                <button type="button" onClick={() => onEdit(po)}
+                  className="p-1.5 rounded text-gray-400 hover:text-amazon-blue hover:bg-blue-50">
+                  <Pencil size={13} />
                 </button>
               )}
-              <button type="button" onClick={() => onEdit(po)}
-                className="p-1.5 rounded text-gray-400 hover:text-amazon-blue hover:bg-blue-50">
-                <Pencil size={13} />
-              </button>
-              <button type="button" onClick={() => setDeleteConfirm(true)}
-                className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
-                <Trash2 size={13} />
-              </button>
+              {po.status !== 'RECEIVED' && (
+                <button type="button" onClick={() => setDeleteConfirm(true)}
+                  className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
+                  <Trash2 size={13} />
+                </button>
+              )}
             </div>
           )}
         </td>
@@ -544,6 +561,7 @@ export default function PurchaseOrdersManager() {
   const [err,      setErr]      = useState('')
   const [panel,    setPanel]    = useState<'create' | PurchaseOrder | null>(null)
   const [receiving, setReceiving] = useState<PurchaseOrder | null>(null)
+  const [spreadsheetReceiving, setSpreadsheetReceiving] = useState<PurchaseOrder | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
 
   const load = useCallback(async () => {
@@ -650,6 +668,7 @@ export default function PurchaseOrdersManager() {
                   onEdit={p => setPanel(p)}
                   onDeleted={load}
                   onReceive={p => setReceiving(p)}
+                  onSpreadsheetReceive={p => setSpreadsheetReceiving(p)}
                 />
               ))}
             </tbody>
@@ -683,6 +702,14 @@ export default function PurchaseOrdersManager() {
           po={receiving}
           onReceived={() => { setReceiving(null); load() }}
           onClose={() => setReceiving(null)}
+        />
+      )}
+
+      {spreadsheetReceiving !== null && (
+        <SpreadsheetReceiveModal
+          po={spreadsheetReceiving}
+          onReceived={() => { setSpreadsheetReceiving(null); load() }}
+          onClose={() => setSpreadsheetReceiving(null)}
         />
       )}
     </div>

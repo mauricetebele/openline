@@ -225,6 +225,11 @@ model SellerListing {
   minPrice           Decimal? @db.Decimal(12, 2)
   maxPrice           Decimal? @db.Decimal(12, 2)
 
+  sold24h            Int       @default(0)
+  sold3d             Int       @default(0)
+  sold7d             Int       @default(0)
+  velocitySyncedAt   DateTime?
+
   @@unique([accountId, sku])
   @@index([accountId])
   @@index([shippingTemplate])
@@ -357,6 +362,7 @@ model Order {
   shipToCountry          String?
   shipToPhone            String?
   isPrime                Boolean                     @default(false)
+  orderSource            String                      @default("amazon") // "amazon" | "backmarket"
   lastSyncedAt           DateTime                    @default(now())
   isBuyerRequestedCancel Boolean                     @default(false)
   buyerCancelReason      String?
@@ -369,6 +375,7 @@ model Order {
   presetRateCheckedAt    DateTime?
   appliedPresetId        String?
   appliedPreset          ShippingPreset?             @relation(fields: [appliedPresetId], references: [id], onDelete: SetNull)
+  ssOrderId              Int?
   items                  OrderItem[]
   reservations           OrderInventoryReservation[]
   label                  OrderLabel?
@@ -376,9 +383,10 @@ model Order {
   labelBatchItems        LabelBatchItem[]
   serialHistory          SerialHistory[]
 
-  @@unique([accountId, amazonOrderId])
+  @@unique([accountId, amazonOrderId, orderSource])
   @@index([accountId, orderStatus])
   @@index([accountId, workflowStatus])
+  @@index([accountId, orderSource])
   @@map("orders")
 }
 
@@ -394,6 +402,10 @@ model OrderItem {
   quantityShipped Int      @default(0)
   itemPrice       Decimal? @db.Decimal(12, 2)
   shippingPrice   Decimal? @db.Decimal(12, 2)
+  imageUrl        String?
+  isTransparency    Boolean  @default(false)
+  transparencyCodes String[] @default([])
+  bmSerials         String[] @default([]) // BackMarket serial/IMEI numbers (one per unit)
 
   reservations      OrderInventoryReservation[]
   serialAssignments OrderSerialAssignment[]
@@ -436,7 +448,7 @@ model OrderLabel {
   carrier        String?
   serviceCode    String?
   isTest         Boolean  @default(false)
-  ssShipmentId   Int?     // ShipStation shipmentId — required to void the label
+  ssShipmentId   String?  // ShipStation shipmentId (V1 int or V2 "se-xxx") — required to void the label
   createdAt      DateTime @default(now())
 
   @@map("order_labels")
@@ -644,6 +656,8 @@ model Product {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  archivedAt             DateTime? // null = active, non-null = archived
+
   poLines                PurchaseOrderLine[]
   receiptLines           POReceiptLine[]
   inventoryItems         InventoryItem[]
@@ -656,6 +670,7 @@ model Product {
   orderReservations      OrderInventoryReservation[]
   salesOrderReservations SalesOrderInventoryReservation[]
   grades                 ProductGrade[]
+  marketplaceSkus        ProductGradeMarketplaceSku[]
 
   @@map("products")
 }
@@ -684,17 +699,43 @@ model ProductGrade {
 }
 
 model ProductGradeMarketplaceSku {
-  id          String       @id @default(cuid())
-  gradeId     String
-  grade       ProductGrade @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  id          String        @id @default(cuid())
+  productId   String
+  product     Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  gradeId     String?
+  grade       ProductGrade? @relation(fields: [gradeId], references: [id], onDelete: Cascade)
   marketplace String // "amazon" | "backmarket" | "wholesale"
   accountId   String? // null = applies to all accounts for that marketplace
   sellerSku   String
-  createdAt   DateTime     @default(now())
+  syncQty     Boolean       @default(false)
+  isSynced    Boolean       @default(false) // true = came from marketplace sync
+  createdAt   DateTime      @default(now())
 
-  @@unique([gradeId, marketplace, accountId])
+  marketplaceListing MarketplaceListing?
+
+  @@unique([productId, gradeId, marketplace, accountId])
   @@index([sellerSku])
   @@map("product_grade_marketplace_skus")
+}
+
+// ─── Marketplace Listings (synced from marketplaces) ──────────────────────────
+
+model MarketplaceListing {
+  id                 String    @id @default(cuid())
+  marketplace        String    // "amazon" | "backmarket"
+  sellerSku          String
+  title              String?
+  accountId          String?   // Amazon account ID or null for BM
+  fulfillmentChannel String?   // "MFN" | "FBA" (Amazon only)
+  lastSyncedAt       DateTime  @default(now())
+  createdAt          DateTime  @default(now())
+
+  // Link to the mapping (null = unmapped)
+  mskuId        String?   @unique
+  msku          ProductGradeMarketplaceSku? @relation(fields: [mskuId], references: [id], onDelete: SetNull)
+
+  @@unique([marketplace, sellerSku, accountId])
+  @@map("marketplace_listings")
 }
 
 // ─── Purchase Orders ──────────────────────────────────────────────────────────
@@ -956,6 +997,7 @@ enum SerialEventType {
   LOCATION_MOVE
   SKU_CONVERSION
   SALE
+  VOID_REINSTATE
   MANUAL_ADD
   MANUAL_REMOVE
 }

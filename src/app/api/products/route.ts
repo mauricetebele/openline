@@ -10,7 +10,14 @@ export async function GET(req: NextRequest) {
   const search       = searchParams.get('search')?.trim()
   const serializable = searchParams.get('serializable')
 
+  const archived = searchParams.get('archived')
+
   const where: Record<string, unknown> = {}
+  if (archived === 'true') {
+    where.archivedAt = { not: null }
+  } else {
+    where.archivedAt = null
+  }
   if (serializable === 'true')  where.isSerializable = true
   if (serializable === 'false') where.isSerializable = false
   if (search) {

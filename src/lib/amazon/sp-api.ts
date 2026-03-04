@@ -137,6 +137,45 @@ export class SpApiClient {
   }
 
   /**
+   * Obtain a Restricted Data Token for accessing PII / restricted fields
+   * (e.g. buyerInfo, shippingAddress).  The returned token replaces the
+   * regular access token in subsequent requests.
+   */
+  async getRestrictedDataToken(
+    restrictedResources: { method: string; path: string; dataElements?: string[] }[],
+  ): Promise<string> {
+    await this.ensureFreshToken()
+    const { data } = await this.http.post<{ restrictedDataToken: string }>(
+      '/tokens/2021-03-01/restrictedDataToken',
+      { restrictedResources },
+      {
+        headers: {
+          'x-amz-access-token': this.accessToken,
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+    return data.restrictedDataToken
+  }
+
+  /**
+   * GET with a pre-fetched Restricted Data Token instead of the regular LWA token.
+   */
+  async getWithRDT<T>(path: string, rdt: string, params?: Record<string, string>): Promise<T> {
+    const config: AxiosRequestConfig = {
+      params,
+      headers: {
+        'x-amz-access-token': rdt,
+        'Content-Type': 'application/json',
+      },
+    }
+    return withRetry(async () => {
+      const { data } = await this.http.get<T>(path, config)
+      return data
+    })
+  }
+
+  /**
    * Fetch all paginated pages using SP-API NextToken pattern.
    * The SDK returns { payload: { [listKey]: T[], NextToken?: string } }
    */

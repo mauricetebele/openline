@@ -4,10 +4,17 @@
  * DELETE /api/orders/sync?accountId= — reset stuck RUNNING/PENDING jobs
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { syncUnshippedOrders } from '@/lib/amazon/sync-orders'
+import { syncBackMarketOrders } from '@/lib/backmarket/sync-orders'
 import { requireAdmin, requireActiveAccount } from '@/lib/auth-helpers'
+
+export const maxDuration = 300
+
+/** How old (in minutes) a PENDING/RUNNING job must be before we consider it stale. */
+const STALE_MINUTES = 10
 
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
@@ -16,30 +23,69 @@ export async function POST(req: NextRequest) {
   const adminErr = requireAdmin(user)
   if (adminErr) return adminErr
 
-  const { accountId } = await req.json()
+  const { accountId, source = 'all' } = await req.json() as { accountId?: string; source?: 'amazon' | 'backmarket' | 'all' }
   if (!accountId) return NextResponse.json({ error: 'Missing accountId' }, { status: 400 })
 
   const accountOrErr = await requireActiveAccount(accountId)
   if (accountOrErr instanceof NextResponse) return accountOrErr
 
+  // If a recent sync is already running, return its jobId instead of starting a new one
+  const existingJob = await prisma.orderSyncJob.findFirst({
+    where: {
+      accountId,
+      status: { in: ['PENDING', 'RUNNING'] },
+      startedAt: { gt: new Date(Date.now() - STALE_MINUTES * 60 * 1000) },
+    },
+    orderBy: { startedAt: 'desc' },
+  })
+  if (existingJob) {
+    return NextResponse.json({ jobId: existingJob.id, existing: true })
+  }
+
   // Mark any stale PENDING/RUNNING jobs as failed before starting a new one.
-  // This handles the case where a previous sync was killed (e.g. dev-server hot-reload)
-  // before it could update its own status.
   await prisma.orderSyncJob.updateMany({
     where: { accountId, status: { in: ['PENDING', 'RUNNING'] } },
     data: { status: 'FAILED', errorMessage: 'Superseded by new sync', completedAt: new Date() },
   })
 
-  const job = await prisma.orderSyncJob.create({
-    data: { accountId, status: 'PENDING' },
-  })
+  const syncAmazon = source === 'amazon' || source === 'all'
+  const syncBM     = source === 'backmarket' || source === 'all'
 
-  // Fire and forget
-  syncUnshippedOrders(accountId, job.id).catch(err =>
-    console.error('[orders/sync] background error:', err),
-  )
+  // Start Amazon sync
+  let jobId: string | undefined
+  if (syncAmazon) {
+    const job = await prisma.orderSyncJob.create({
+      data: { accountId, status: 'PENDING' },
+    })
+    jobId = job.id
+    waitUntil(
+      syncUnshippedOrders(accountId, job.id).catch(err =>
+        console.error('[orders/sync] background error:', err),
+      ),
+    )
+  }
 
-  return NextResponse.json({ jobId: job.id })
+  // Start BackMarket sync if credentials exist
+  let bmJobId: string | undefined
+  if (syncBM) {
+    const bmCredential = await prisma.backMarketCredential.findFirst({
+      where: { isActive: true },
+      select: { id: true },
+    })
+    if (bmCredential) {
+      const bmJob = await prisma.orderSyncJob.create({
+        data: { accountId, status: 'PENDING' },
+      })
+      bmJobId = bmJob.id
+      waitUntil(
+        syncBackMarketOrders(accountId, bmJob.id).catch(err =>
+          console.error('[orders/sync] BackMarket background error:', err),
+        ),
+      )
+    }
+  }
+
+  return NextResponse.json({ jobId, bmJobId })
 }
 
 export async function GET(req: NextRequest) {

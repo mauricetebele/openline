@@ -94,37 +94,61 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Apply in a transaction ─────────────────────────────────────────────────
-  await prisma.$transaction(async tx => {
-    if (product.isSerializable && serials) {
-      for (const sn of serials) {
-        const serial = await tx.inventorySerial.create({
-          data: {
-            serialNumber: sn.trim(),
-            productId:    product.id,
-            locationId:   location.id,
-            gradeId:      gradeId ?? null,
-            status:       'IN_STOCK',
-          },
-        })
-        await tx.serialHistory.create({
-          data: {
-            inventorySerialId: serial.id,
-            eventType:         'MANUAL_ADD',
-            locationId:        location.id,
-            notes:             `Manual add — Reason: ${reason}`,
-          },
-        })
+  try {
+    await prisma.$transaction(async tx => {
+      if (product.isSerializable && serials) {
+        for (const sn of serials) {
+          const serial = await tx.inventorySerial.create({
+            data: {
+              serialNumber: sn.trim(),
+              productId:    product.id,
+              locationId:   location.id,
+              gradeId:      gradeId ?? null,
+              status:       'IN_STOCK',
+            },
+          })
+          await tx.serialHistory.create({
+            data: {
+              inventorySerialId: serial.id,
+              eventType:         'MANUAL_ADD',
+              locationId:        location.id,
+              notes:             `Manual add — Reason: ${reason}`,
+            },
+          })
+        }
       }
-    }
 
-    // Upsert inventory item quantity (grade-aware)
-    const resolvedGradeId = gradeId ?? null
-    await tx.inventoryItem.upsert({
-      where:  { productId_locationId_gradeId: { productId: product.id, locationId: location.id, gradeId: resolvedGradeId } },
-      create: { productId: product.id, locationId: location.id, gradeId: resolvedGradeId, qty },
-      update: { qty: { increment: qty } },
+      // Upsert inventory item quantity (grade-aware)
+      // Prisma's composite unique where clause does NOT support null values,
+      // so we use findFirst + create/update when gradeId is null.
+      const resolvedGradeId = gradeId ?? null
+      if (resolvedGradeId) {
+        await tx.inventoryItem.upsert({
+          where:  { productId_locationId_gradeId: { productId: product.id, locationId: location.id, gradeId: resolvedGradeId } },
+          create: { productId: product.id, locationId: location.id, gradeId: resolvedGradeId, qty },
+          update: { qty: { increment: qty } },
+        })
+      } else {
+        const existing = await tx.inventoryItem.findFirst({
+          where: { productId: product.id, locationId: location.id, gradeId: null },
+        })
+        if (existing) {
+          await tx.inventoryItem.update({
+            where: { id: existing.id },
+            data:  { qty: { increment: qty } },
+          })
+        } else {
+          await tx.inventoryItem.create({
+            data: { productId: product.id, locationId: location.id, gradeId: null, qty },
+          })
+        }
+      }
     })
-  })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[manual-add] Transaction error:', message)
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 
   return NextResponse.json({ success: true, added: qty })
 }

@@ -57,9 +57,11 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
 
-  // 1. Request report
+  // 1. Request report (all listings — includes Active, Inactive, Incomplete statuses)
+  const reportType = 'GET_MERCHANT_LISTINGS_ALL_DATA'
+  console.log(`[syncListings] Requesting report: ${reportType}`)
   const { reportId } = await client.post<CreateReportResponse>('/reports/2021-06-30/reports', {
-    reportType: 'GET_MERCHANT_LISTINGS_ALL_DATA',
+    reportType,
     marketplaceIds: [account.marketplaceId],
   })
 
@@ -95,11 +97,13 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
     buffer = await gunzipAsync(buffer)
   }
 
-  const tsvText = buffer.toString('utf-8')
+  // Strip UTF-8 BOM that Amazon sometimes includes in TSV reports
+  const tsvText = buffer.toString('utf-8').replace(/^\uFEFF/, '')
 
   // 6. Parse TSV — include all listings (FBA + MFN)
   const lines = tsvText.split('\n')
   const headers = lines[0]?.split('\t').map((h) => h.trim().toLowerCase()) ?? []
+  console.log('[syncListings] TSV headers:', headers.join(', '))
 
   const col = (row: string[], name: string) => {
     const idx = headers.indexOf(name)
@@ -111,20 +115,30 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
     .filter((line) => line.trim())
     .map((line) => line.split('\t'))
 
-  // 7. Upsert each listing (FBA + MFN)
-  let totalFound = 0
-  let totalUpserted = 0
+  // 7. Parse all rows, then batch-upsert via raw SQL (single round-trip per batch)
+  interface ParsedListing {
+    sku: string
+    asin: string | null
+    productTitle: string | null
+    condition: string | null
+    fulfillmentChannel: string
+    shippingTemplate: string | null
+    listingStatus: string | null
+    quantity: number
+    price: number | null
+    minPrice: number | null
+    maxPrice: number | null
+  }
+
+  const parsed: ParsedListing[] = []
 
   for (const row of rows) {
-    totalFound++
     const sku = col(row, 'seller-sku')
     if (!sku) continue
 
     const asin = col(row, 'asin1') || null
     const productTitle = col(row, 'item-name') || null
-    // 'DEFAULT' = merchant-fulfilled (MFN); anything else (e.g. 'AMAZON_NA') = FBA
     const fulfillmentChannel = col(row, 'fulfillment-channel') === 'DEFAULT' ? 'MFN' : 'FBA'
-    // MFN listings have a shipping template; FBA listings do not
     const shippingTemplate = fulfillmentChannel === 'MFN'
       ? (col(row, 'merchant-shipping-group') || null)
       : null
@@ -140,43 +154,85 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
     const conditionRaw = col(row, 'item-condition')
     const condition = conditionRaw ? (CONDITION_MAP[conditionRaw] ?? conditionRaw) : null
 
-    await prisma.sellerListing.upsert({
-      where: { accountId_sku: { accountId, sku } },
-      create: {
-        accountId,
-        sku,
-        asin,
-        productTitle,
-        condition,
-        fulfillmentChannel,
-        shippingTemplate,
-        listingStatus,
-        quantity,
-        price,
-        minPrice,
-        maxPrice,
-        lastSyncedAt: new Date(),
-      },
-      update: {
-        // groupName is intentionally excluded — it is a local assignment and
-        // must never be overwritten by data coming from Amazon.
-        asin,
-        productTitle,
-        condition,
-        fulfillmentChannel,
-        shippingTemplate,
-        listingStatus,
-        quantity,
-        price,
-        minPrice,
-        maxPrice,
-        lastSyncedAt: new Date(),
-      },
-    })
-    totalUpserted++
+    parsed.push({ sku, asin, productTitle, condition, fulfillmentChannel, shippingTemplate, listingStatus, quantity, price, minPrice, maxPrice })
   }
 
-  // 8. Mark job COMPLETED
+  const totalFound = rows.length
+  let totalUpserted = 0
+  const now = new Date()
+  const BATCH_SIZE = 200
+
+  for (let i = 0; i < parsed.length; i += BATCH_SIZE) {
+    const batch = parsed.slice(i, i + BATCH_SIZE)
+
+    // Build VALUES clause: ($1,$2,...), ($14,$15,...), ...
+    const values: unknown[] = []
+    const placeholders: string[] = []
+    for (const listing of batch) {
+      const offset = values.length
+      placeholders.push(
+        `(gen_random_uuid(), $${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14})`,
+      )
+      values.push(
+        accountId,             // 1  accountId
+        listing.sku,           // 2  sku
+        listing.asin,          // 3  asin
+        listing.productTitle,  // 4  productTitle
+        listing.condition,     // 5  condition
+        listing.fulfillmentChannel, // 6
+        listing.shippingTemplate,   // 7
+        listing.listingStatus, // 8
+        listing.quantity,      // 9
+        listing.price,         // 10
+        listing.minPrice,      // 11
+        listing.maxPrice,      // 12
+        now,                   // 13 lastSyncedAt
+        now,                   // 14 updatedAt
+      )
+    }
+
+    const sql = `
+      INSERT INTO seller_listings (id, "accountId", sku, asin, "productTitle", condition, "fulfillmentChannel", "shippingTemplate", "listingStatus", quantity, price, "minPrice", "maxPrice", "lastSyncedAt", "updatedAt")
+      VALUES ${placeholders.join(', ')}
+      ON CONFLICT ("accountId", sku) DO UPDATE SET
+        asin = EXCLUDED.asin,
+        "productTitle" = EXCLUDED."productTitle",
+        condition = EXCLUDED.condition,
+        "fulfillmentChannel" = EXCLUDED."fulfillmentChannel",
+        "shippingTemplate" = EXCLUDED."shippingTemplate",
+        "listingStatus" = EXCLUDED."listingStatus",
+        quantity = EXCLUDED.quantity,
+        price = EXCLUDED.price,
+        "minPrice" = EXCLUDED."minPrice",
+        "maxPrice" = EXCLUDED."maxPrice",
+        "lastSyncedAt" = EXCLUDED."lastSyncedAt",
+        "updatedAt" = EXCLUDED."updatedAt"
+    `
+
+    await prisma.$executeRawUnsafe(sql, ...values)
+    totalUpserted += batch.length
+
+    await prisma.listingSyncJob.update({
+      where: { id: jobId },
+      data: { totalFound, totalUpserted },
+    })
+  }
+
+  console.log(`[syncListings] Batch-upserted ${totalUpserted} listings in ${Math.ceil(parsed.length / BATCH_SIZE)} batches`)
+
+  // 8. Mark listings not in the report as Inactive (they were deactivated/closed on Amazon)
+  // Use `now` (the same timestamp written to lastSyncedAt during upsert) so that
+  // only listings from *previous* syncs are marked Inactive — not the ones just synced.
+  await prisma.sellerListing.updateMany({
+    where: {
+      accountId,
+      lastSyncedAt: { lt: now },
+      listingStatus: { not: 'Inactive' },
+    },
+    data: { listingStatus: 'Inactive' },
+  })
+
+  // 9. Mark job COMPLETED
   await prisma.listingSyncJob.update({
     where: { id: jobId },
     data: { status: 'COMPLETED', totalFound, totalUpserted, completedAt: new Date() },
@@ -404,5 +460,152 @@ export async function updateShippingTemplate(
   await prisma.sellerListing.updateMany({
     where: { accountId, sku },
     data: { shippingTemplate: templateName, updatedAt: new Date() },
+  })
+}
+
+// ─── updateListingPrice ──────────────────────────────────────────────────────
+
+export async function updateListingPrice(
+  accountId: string,
+  sku: string,
+  newPrice: number,
+): Promise<void> {
+  const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
+  const client = new SpApiClient(accountId)
+  const encodedSku = encodeURIComponent(sku)
+
+  // 1. GET listing to determine productType
+  const listingItem = await client.get<ListingItemResponse>(
+    `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+    { marketplaceIds: account.marketplaceId, includedData: 'summaries' },
+  )
+
+  const productType =
+    listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
+    ?? listingItem.summaries?.[0]?.productType
+
+  if (!productType) {
+    throw new Error(
+      `Could not determine product type for SKU ${sku}. ` +
+      `summaries=${JSON.stringify(listingItem.summaries)}`,
+    )
+  }
+
+  // 2. PATCH with purchasable_offer attribute
+  const patches = [
+    {
+      op: 'replace',
+      path: '/attributes/purchasable_offer',
+      value: [
+        {
+          marketplace_id: account.marketplaceId,
+          currency: 'USD',
+          our_price: [{ schedule: [{ value_with_tax: newPrice }] }],
+        },
+      ],
+    },
+  ]
+
+  let patchResult: ListingsPatchResponse
+  try {
+    patchResult = await client.patch<ListingsPatchResponse>(
+      `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+      { productType, patches },
+      { marketplaceIds: account.marketplaceId },
+    )
+  } catch (err: unknown) {
+    const base = err instanceof Error ? err.message : String(err)
+    throw new Error(`${base} — productType: ${productType}`)
+  }
+
+  if (patchResult.status === 'INVALID') {
+    const errors = patchResult.issues
+      ?.filter((i) => i.severity === 'ERROR')
+      .map((i) => `${i.code}: ${i.message}${i.attributeNames?.length ? ` (${i.attributeNames.join(', ')})` : ''}`)
+      .join('; ')
+    throw new Error(
+      `Amazon rejected price update (INVALID) — ${errors ?? 'no details'} — productType: ${productType}`,
+    )
+  }
+
+  console.log(`[updateListingPrice] SKU=${sku} price=${newPrice} status=${patchResult.status} submissionId=${patchResult.submissionId}`)
+
+  // Mirror new price in DB immediately.
+  await prisma.sellerListing.updateMany({
+    where: { accountId, sku },
+    data: { price: newPrice, updatedAt: new Date() },
+  })
+}
+
+// ─── updateListingQuantity ─────────────────────────────────────────────────
+
+export async function updateListingQuantity(
+  accountId: string,
+  sku: string,
+  quantity: number,
+): Promise<void> {
+  const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
+  const client = new SpApiClient(accountId)
+  const encodedSku = encodeURIComponent(sku)
+
+  // 1. GET listing to determine productType
+  const listingItem = await client.get<ListingItemResponse>(
+    `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+    { marketplaceIds: account.marketplaceId, includedData: 'summaries' },
+  )
+
+  const productType =
+    listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
+    ?? listingItem.summaries?.[0]?.productType
+
+  if (!productType) {
+    throw new Error(
+      `Could not determine product type for SKU ${sku}. ` +
+      `summaries=${JSON.stringify(listingItem.summaries)}`,
+    )
+  }
+
+  // 2. PATCH with fulfillment_availability attribute
+  const patches = [
+    {
+      op: 'replace',
+      path: '/attributes/fulfillment_availability',
+      value: [
+        {
+          fulfillment_channel_code: 'DEFAULT',
+          quantity,
+        },
+      ],
+    },
+  ]
+
+  let patchResult: ListingsPatchResponse
+  try {
+    patchResult = await client.patch<ListingsPatchResponse>(
+      `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+      { productType, patches },
+      { marketplaceIds: account.marketplaceId },
+    )
+  } catch (err: unknown) {
+    const base = err instanceof Error ? err.message : String(err)
+    throw new Error(`${base} — productType: ${productType}`)
+  }
+
+  if (patchResult.status === 'INVALID') {
+    const errors = patchResult.issues
+      ?.filter((i) => i.severity === 'ERROR')
+      .map((i) => `${i.code}: ${i.message}${i.attributeNames?.length ? ` (${i.attributeNames.join(', ')})` : ''}`)
+      .join('; ')
+    throw new Error(
+      `Amazon rejected quantity update (INVALID) — ${errors ?? 'no details'} — productType: ${productType}`,
+    )
+  }
+
+  console.log(`[updateListingQuantity] SKU=${sku} qty=${quantity} status=${patchResult.status} submissionId=${patchResult.submissionId}`)
+
+  // Mirror new quantity in DB immediately.
+  await prisma.sellerListing.updateMany({
+    where: { accountId, sku },
+    data: { quantity, updatedAt: new Date() },
   })
 }

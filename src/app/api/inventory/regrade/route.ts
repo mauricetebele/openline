@@ -76,12 +76,24 @@ export async function POST(req: NextRequest) {
         })
 
         // Upsert to-grade inventory item
+        // Prisma's composite-unique upsert rejects null, so handle null gradeId separately
         const toGrade = toGradeId ?? null
-        await tx.inventoryItem.upsert({
-          where:  { productId_locationId_gradeId: { productId: serial.productId, locationId: serial.locationId, gradeId: toGrade } },
-          create: { productId: serial.productId, locationId: serial.locationId, gradeId: toGrade, qty: 1 },
-          update: { qty: { increment: 1 } },
-        })
+        if (toGrade) {
+          await tx.inventoryItem.upsert({
+            where:  { productId_locationId_gradeId: { productId: serial.productId, locationId: serial.locationId, gradeId: toGrade } },
+            create: { productId: serial.productId, locationId: serial.locationId, gradeId: toGrade, qty: 1 },
+            update: { qty: { increment: 1 } },
+          })
+        } else {
+          const existingInv = await tx.inventoryItem.findFirst({
+            where: { productId: serial.productId, locationId: serial.locationId, gradeId: null },
+          })
+          if (existingInv) {
+            await tx.inventoryItem.update({ where: { id: existingInv.id }, data: { qty: { increment: 1 } } })
+          } else {
+            await tx.inventoryItem.create({ data: { productId: serial.productId, locationId: serial.locationId, gradeId: null, qty: 1 } })
+          }
+        }
       }
     })
 
@@ -109,9 +121,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Check source item has enough stock
-    const sourceItem = await prisma.inventoryItem.findUnique({
-      where: { productId_locationId_gradeId: { productId, locationId, gradeId: fromGradeId } },
-    })
+    // Prisma's composite-unique rejects null, so handle null gradeId separately
+    const sourceItem = fromGradeId
+      ? await prisma.inventoryItem.findUnique({
+          where: { productId_locationId_gradeId: { productId, locationId, gradeId: fromGradeId } },
+        })
+      : await prisma.inventoryItem.findFirst({
+          where: { productId, locationId, gradeId: null },
+        })
     if (!sourceItem || sourceItem.qty < qty) {
       return NextResponse.json(
         { error: `Insufficient stock — available: ${sourceItem?.qty ?? 0}` },
@@ -120,18 +137,29 @@ export async function POST(req: NextRequest) {
     }
 
     await prisma.$transaction(async tx => {
-      // Decrement source
+      // Decrement source (use id since we already found it)
       await tx.inventoryItem.update({
-        where: { productId_locationId_gradeId: { productId, locationId, gradeId: fromGradeId } },
+        where: { id: sourceItem.id },
         data:  { qty: { decrement: qty } },
       })
 
       // Upsert destination
-      await tx.inventoryItem.upsert({
-        where:  { productId_locationId_gradeId: { productId, locationId, gradeId: toGradeId } },
-        create: { productId, locationId, gradeId: toGradeId, qty },
-        update: { qty: { increment: qty } },
-      })
+      if (toGradeId) {
+        await tx.inventoryItem.upsert({
+          where:  { productId_locationId_gradeId: { productId, locationId, gradeId: toGradeId } },
+          create: { productId, locationId, gradeId: toGradeId, qty },
+          update: { qty: { increment: qty } },
+        })
+      } else {
+        const existingDest = await tx.inventoryItem.findFirst({
+          where: { productId, locationId, gradeId: null },
+        })
+        if (existingDest) {
+          await tx.inventoryItem.update({ where: { id: existingDest.id }, data: { qty: { increment: qty } } })
+        } else {
+          await tx.inventoryItem.create({ data: { productId, locationId, gradeId: null, qty } })
+        }
+      }
     })
 
     return NextResponse.json({ regraded: qty })

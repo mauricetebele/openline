@@ -25,9 +25,9 @@ export async function POST(
       include: { label: true },
     })
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
-    if (order.workflowStatus !== 'AWAITING_VERIFICATION') {
+    if (order.workflowStatus !== 'AWAITING_VERIFICATION' && order.workflowStatus !== 'SHIPPED') {
       return NextResponse.json(
-        { error: 'Only orders in Awaiting Verification can have their label voided' },
+        { error: 'Only orders in Awaiting Verification or Shipped can have their label voided' },
         { status: 409 },
       )
     }
@@ -53,7 +53,7 @@ export async function POST(
     )
 
     // Resolve shipmentId — use stored value or look up by tracking number
-    let shipmentId = order.label.ssShipmentId
+    let shipmentId: string | number | null = order.label.ssShipmentId
     if (!shipmentId) {
       const shipment = await client.findShipmentByTracking(order.label.trackingNumber)
       if (!shipment) {
@@ -66,7 +66,7 @@ export async function POST(
       // Persist so future voids are instant
       await prisma.orderLabel.update({
         where: { orderId: params.orderId },
-        data:  { ssShipmentId: shipmentId },
+        data:  { ssShipmentId: String(shipmentId) },
       })
     }
 
@@ -79,14 +79,50 @@ export async function POST(
       )
     }
 
-    // Delete the label and move order back to PROCESSING
-    await prisma.$transaction([
-      prisma.orderLabel.delete({ where: { orderId: params.orderId } }),
-      prisma.order.update({
-        where: { id: params.orderId },
-        data:  { workflowStatus: 'PROCESSING' },
-      }),
-    ])
+    // If order was SHIPPED, undo serial assignments (mark serials back to IN_STOCK)
+    if (order.workflowStatus === 'SHIPPED') {
+      const assignments = await prisma.orderSerialAssignment.findMany({
+        where: { orderId: params.orderId },
+        select: { inventorySerialId: true, inventorySerial: { select: { serialNumber: true, locationId: true } } },
+      })
+      await prisma.$transaction(async tx => {
+        for (const a of assignments) {
+          // Restore serial to IN_STOCK
+          await tx.inventorySerial.update({
+            where: { id: a.inventorySerialId },
+            data: { status: 'IN_STOCK' },
+          })
+          // Record history
+          await tx.serialHistory.create({
+            data: {
+              inventorySerialId: a.inventorySerialId,
+              eventType:         'VOID_REINSTATE',
+              orderId:           params.orderId,
+              locationId:        a.inventorySerial.locationId ?? null,
+              notes:             `Label voided for order ${order.amazonOrderId} — serial ${a.inventorySerial.serialNumber} reinstated to IN_STOCK`,
+            },
+          })
+        }
+        // Delete serial assignments
+        await tx.orderSerialAssignment.deleteMany({ where: { orderId: params.orderId } })
+        // Delete the label
+        await tx.orderLabel.delete({ where: { orderId: params.orderId } })
+        // Move order back to PROCESSING (Unshipped)
+        await tx.order.update({
+          where: { id: params.orderId },
+          data: { workflowStatus: 'PROCESSING' },
+        })
+      })
+    } else {
+      // AWAITING_VERIFICATION — just delete label and move back
+      await prisma.$transaction([
+        prisma.orderLabel.delete({ where: { orderId: params.orderId } }),
+        prisma.order.update({
+          where: { id: params.orderId },
+          data: { workflowStatus: 'PROCESSING' },
+        }),
+      ])
+    }
 
     return NextResponse.json({ success: true, message: result.message })
   } catch (err: unknown) {

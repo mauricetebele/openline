@@ -409,6 +409,7 @@ export default function CustomersPage() {
             <option value="">All Types</option>
             <option value="wholesale">Wholesale</option>
             <option value="amazon">Amazon</option>
+            <option value="backmarket">BackMarket</option>
           </select>
 
           <div className="flex-1" />

@@ -25,8 +25,6 @@
  */
 import { prisma } from '@/lib/prisma'
 import { SpApiClient } from './sp-api'
-import { decrypt } from '@/lib/crypto'
-import { ShipStationClient } from '@/lib/shipstation/client'
 
 const ORDERS_PAGE_BURST  = 20   // free burst calls for GetOrders
 const ORDER_DETAIL_BURST = 30   // free burst calls for GetOrder
@@ -65,6 +63,7 @@ interface AmazonOrderItem {
   OrderItemId?: string; ASIN?: string; SellerSKU?: string; Title?: string
   QuantityOrdered?: number; QuantityShipped?: number
   ItemPrice?: { Amount?: string }; ShippingPrice?: { Amount?: string }
+  IsTransparency?: boolean
 }
 interface GetOrderItemsResponse {
   payload?: { OrderItems?: AmazonOrderItem[]; NextToken?: string }
@@ -84,43 +83,77 @@ export async function syncUnshippedOrders(
     console.log(`[SyncOrders] Account: sellerId=${account.sellerId} marketplace=${account.marketplaceId}`)
     const client = new SpApiClient(accountId)
 
-    const createdAfter = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
-    console.log(`[SyncOrders] Fetching orders created after ${createdAfter}`)
+    // ── Incremental sync: use LastUpdatedAfter from last successful sync ──
+    // This drastically reduces pages on re-syncs (only recently changed orders).
+    // Fall back to 60-day CreatedAfter window if no prior sync exists.
+    const lastSuccessfulSync = await prisma.orderSyncJob.findFirst({
+      where: { accountId, status: 'COMPLETED' },
+      orderBy: { completedAt: 'desc' },
+      select: { completedAt: true },
+    })
+
+    const isIncremental = !!lastSuccessfulSync?.completedAt
     const allOrders: AmazonOrder[] = []
     let nextToken: string | undefined
     let pagesFetched = 0
 
-    // Fetch all order statuses in one pass
-    do {
-      const params: Record<string, string> = {
-        MarketplaceIds:     account.marketplaceId,
-        OrderStatuses:      'Unshipped,PartiallyShipped',  // MFN shippable only (no Pending)
-        FulfillmentChannels: 'MFN',                                // exclude FBA
-        CreatedAfter:       createdAfter,
-        MaxResultsPerPage:  '100',
-      }
-      if (nextToken) params.NextToken = nextToken
+    if (isIncremental) {
+      // Incremental: fetch only orders updated since last sync (minus 5 min buffer)
+      const lastUpdatedAfter = new Date(lastSuccessfulSync.completedAt!.getTime() - 5 * 60 * 1000).toISOString()
+      console.log(`[SyncOrders] Incremental sync — LastUpdatedAfter=${lastUpdatedAfter}`)
+      do {
+        const params: Record<string, string> = {
+          MarketplaceIds:      account.marketplaceId,
+          OrderStatuses:       'Unshipped,PartiallyShipped',
+          FulfillmentChannels: 'MFN',
+          LastUpdatedAfter:    lastUpdatedAfter,
+          MaxResultsPerPage:   '100',
+        }
+        if (nextToken) params.NextToken = nextToken
 
-      console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (page ${pagesFetched + 1})`)
-      const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
-      pagesFetched++
+        console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (incremental page ${pagesFetched + 1})`)
+        const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
+        pagesFetched++
+        if (resp?.errors?.length) {
+          const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
+          throw new Error(`SP-API returned errors: ${errMsg}`)
+        }
+        const ordersOnPage = resp?.payload?.Orders ?? []
+        console.log(`[SyncOrders] Incremental page ${pagesFetched} returned ${ordersOnPage.length} orders`)
+        allOrders.push(...ordersOnPage)
+        nextToken = resp?.payload?.NextToken
+        if (nextToken && pagesFetched >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
+      } while (nextToken)
+    } else {
+      // Full sync: 60-day window for first-time or fallback
+      const createdAfter = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+      console.log(`[SyncOrders] Full sync — CreatedAfter=${createdAfter}`)
+      do {
+        const params: Record<string, string> = {
+          MarketplaceIds:      account.marketplaceId,
+          OrderStatuses:       'Unshipped,PartiallyShipped',
+          FulfillmentChannels: 'MFN',
+          CreatedAfter:        createdAfter,
+          MaxResultsPerPage:   '100',
+        }
+        if (nextToken) params.NextToken = nextToken
 
-      // SP-API can return 200 with an errors array instead of a payload
-      if (resp?.errors?.length) {
-        const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
-        throw new Error(`SP-API returned errors: ${errMsg}`)
-      }
+        console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (page ${pagesFetched + 1})`)
+        const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
+        pagesFetched++
+        if (resp?.errors?.length) {
+          const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
+          throw new Error(`SP-API returned errors: ${errMsg}`)
+        }
+        const ordersOnPage = resp?.payload?.Orders ?? []
+        console.log(`[SyncOrders] Page ${pagesFetched} returned ${ordersOnPage.length} orders`)
+        allOrders.push(...ordersOnPage)
+        nextToken = resp?.payload?.NextToken
+        if (nextToken && pagesFetched >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
+      } while (nextToken)
+    }
 
-      const ordersOnPage = resp?.payload?.Orders ?? []
-      console.log(`[SyncOrders] Page ${pagesFetched} returned ${ordersOnPage.length} orders`)
-      allOrders.push(...ordersOnPage)
-      nextToken = resp?.payload?.NextToken
-      // Use burst capacity for the first ORDERS_PAGE_BURST pages (no sleep needed).
-      // After that, throttle to stay within the 0.0167 req/s sustained rate.
-      if (nextToken && pagesFetched >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
-    } while (nextToken)
-
-    console.log(`[SyncOrders] Total orders fetched: ${allOrders.length}`)
+    console.log(`[SyncOrders] Total orders fetched: ${allOrders.length} (${isIncremental ? 'incremental' : 'full'} sync, ${pagesFetched} pages)`)
     await prisma.orderSyncJob.update({ where: { id: jobId }, data: { totalFound: allOrders.length } })
 
     // ── Pre-load existing orders to avoid per-order DB lookups and skip ──────
@@ -184,7 +217,7 @@ export async function syncUnshippedOrders(
       const addr = fullOrder.ShippingAddress
 
       const orderRecord = await prisma.order.upsert({
-        where: { accountId_amazonOrderId: { accountId, amazonOrderId: o.AmazonOrderId } },
+        where: { accountId_amazonOrderId_orderSource: { accountId, amazonOrderId: o.AmazonOrderId, orderSource: 'amazon' } },
         create: {
           accountId,
           amazonOrderId: o.AmazonOrderId,
@@ -245,25 +278,30 @@ export async function syncUnshippedOrders(
             `/orders/v0/orders/${o.AmazonOrderId}/orderItems`, {},
           )
           itemsCallCount++
-          for (const item of itemResp?.payload?.OrderItems ?? []) {
-            if (!item.OrderItemId) continue
-            await prisma.orderItem.upsert({
-              where: { orderId_orderItemId: { orderId: orderRecord.id, orderItemId: item.OrderItemId } },
-              create: {
-                orderId: orderRecord.id, orderItemId: item.OrderItemId,
-                asin: item.ASIN ?? null, sellerSku: item.SellerSKU ?? null,
-                title: item.Title ?? null,
-                quantityOrdered: item.QuantityOrdered ?? 1,
-                quantityShipped: item.QuantityShipped ?? 0,
-                itemPrice: item.ItemPrice?.Amount ? parseFloat(item.ItemPrice.Amount) : null,
-                shippingPrice: item.ShippingPrice?.Amount ? parseFloat(item.ShippingPrice.Amount) : null,
-              },
-              update: {
-                quantityOrdered: item.QuantityOrdered ?? 1,
-                quantityShipped: item.QuantityShipped ?? 0,
-                sellerSku: item.SellerSKU ?? null,
-              },
-            })
+          const items = (itemResp?.payload?.OrderItems ?? []).filter(it => it.OrderItemId)
+          if (items.length > 0) {
+            // Batch all item upserts in a single transaction
+            await prisma.$transaction(
+              items.map(item => prisma.orderItem.upsert({
+                where: { orderId_orderItemId: { orderId: orderRecord.id, orderItemId: item.OrderItemId! } },
+                create: {
+                  orderId: orderRecord.id, orderItemId: item.OrderItemId!,
+                  asin: item.ASIN ?? null, sellerSku: item.SellerSKU ?? null,
+                  title: item.Title ?? null,
+                  quantityOrdered: item.QuantityOrdered ?? 1,
+                  quantityShipped: item.QuantityShipped ?? 0,
+                  itemPrice: item.ItemPrice?.Amount ? parseFloat(item.ItemPrice.Amount) : null,
+                  shippingPrice: item.ShippingPrice?.Amount ? parseFloat(item.ShippingPrice.Amount) : null,
+                  isTransparency: item.IsTransparency === true,
+                },
+                update: {
+                  quantityOrdered: item.QuantityOrdered ?? 1,
+                  quantityShipped: item.QuantityShipped ?? 0,
+                  sellerSku: item.SellerSKU ?? null,
+                  isTransparency: item.IsTransparency === true,
+                },
+              })),
+            )
           }
         } catch (e) {
           console.error(`[SyncOrders] items fetch failed for ${o.AmazonOrderId}:`, e)
@@ -271,83 +309,35 @@ export async function syncUnshippedOrders(
       }
 
       synced++
-      // Batch progress updates — write every 5 orders to reduce DB round-trips
-      if (synced % 5 === 0 || i === allOrders.length - 1) {
+      // Batch progress updates — write every 25 orders to reduce DB round-trips
+      if (synced % 25 === 0 || i === allOrders.length - 1) {
         await prisma.orderSyncJob.update({ where: { id: jobId }, data: { totalSynced: synced } })
       }
     }
 
     console.log(`[SyncOrders] SP-API calls made — detail: ${detailCallCount}, items: ${itemsCallCount} (of ${allOrders.length} total orders)`)
 
-    // ── ShipStation address enrichment ──────────────────────────────────────
-    // Amazon masks shipping addresses on unshipped orders — city, state, and
-    // postal often come back null from the SP-API.  ShipStation has the real
-    // (unmasked) address, so after the Amazon pass we back-fill any orders
-    // that are still missing address fields.
-    try {
-      const ssAccount = await prisma.shipStationAccount.findFirst({
-        where: { isActive: true },
-        orderBy: { createdAt: 'asc' },
-        select: { apiKeyEnc: true, apiSecretEnc: true },
-      })
-      if (ssAccount) {
-        const ssClient = new ShipStationClient(
-          decrypt(ssAccount.apiKeyEnc),
-          ssAccount.apiSecretEnc ? decrypt(ssAccount.apiSecretEnc) : '',
-        )
-        const needsAddress = await prisma.order.findMany({
-          where: { accountId, OR: [{ shipToPostal: null }, { shipToCity: null }] },
-          select: { id: true, amazonOrderId: true },
-        })
-        console.log(`[SyncOrders] ShipStation address enrichment: ${needsAddress.length} orders need address lookup`)
-        for (let j = 0; j < needsAddress.length; j++) {
-          const o = needsAddress[j]
-          try {
-            const ssOrder = await ssClient.findOrderByNumber(o.amazonOrderId)
-            if (ssOrder?.shipTo) {
-              const st = ssOrder.shipTo
-              await prisma.order.update({
-                where: { id: o.id },
-                data: {
-                  shipToName:     st.name       || null,
-                  shipToAddress1: st.street1    || null,
-                  shipToAddress2: st.street2    || null,
-                  shipToCity:     st.city       || null,
-                  shipToState:    st.state      || null,
-                  shipToPostal:   st.postalCode || null,
-                  shipToCountry:  st.country    || null,
-                  shipToPhone:    st.phone      || null,
-                },
-              })
-              console.log(`[SyncOrders] Enriched address for ${o.amazonOrderId}: ${st.city}, ${st.state} ${st.postalCode}`)
-            }
-          } catch (e) {
-            console.warn(`[SyncOrders] Address enrichment failed for ${o.amazonOrderId}:`, e instanceof Error ? e.message : String(e))
-          }
-          // ShipStation V1 allows 40 req/min — 700 ms gap keeps us well under
-          if (j < needsAddress.length - 1) await sleep(700)
-        }
-      } else {
-        console.log('[SyncOrders] No ShipStation account configured — skipping address enrichment')
-      }
-    } catch (enrichErr) {
-      // Don't fail the whole sync if enrichment errors out
-      console.warn('[SyncOrders] Address enrichment error:', enrichErr instanceof Error ? enrichErr.message : String(enrichErr))
-    }
+    // NOTE: ShipStation enrichment (ssOrderId + address backfill) is now a
+    // separate step triggered by the frontend AFTER sync completes.
+    // See /api/orders/enrich-shipstation
 
     // Remove orders that are no longer Unshipped/PartiallyShipped on Amazon
     // (shipped, cancelled, or reverted to Pending). Only touch PENDING internal
     // status — orders already being processed stay in the system.
-    const fetched = allOrders.map(o => o.AmazonOrderId!).filter(Boolean)
-    await prisma.order.deleteMany({
-      where: {
-        accountId,
-        fulfillmentChannel: 'MFN',
-        workflowStatus: 'PENDING',
-        amazonOrderId: { notIn: fetched },
-        purchaseDate: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
-      },
-    })
+    // Skip cleanup on incremental syncs since we only fetched a subset of orders.
+    if (!isIncremental) {
+      const fetched = allOrders.map(o => o.AmazonOrderId!).filter(Boolean)
+      await prisma.order.deleteMany({
+        where: {
+          accountId,
+          orderSource: 'amazon',
+          fulfillmentChannel: 'MFN',
+          workflowStatus: 'PENDING',
+          amazonOrderId: { notIn: fetched },
+          purchaseDate: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
+        },
+      })
+    }
 
     console.log(`[SyncOrders] Sync complete — ${synced} orders upserted`)
     await prisma.orderSyncJob.update({

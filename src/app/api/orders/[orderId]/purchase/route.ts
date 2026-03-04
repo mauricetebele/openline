@@ -37,6 +37,9 @@ export async function POST(
         ItemList: order.items.map(item => ({
           OrderItemId: item.orderItemId,
           Quantity: item.quantityOrdered,
+          ...(item.transparencyCodes.length > 0
+            ? { TransparencyCodeList: item.transparencyCodes }
+            : {}),
         })),
         ShipFromAddress: {
           Name: shipFrom.name,

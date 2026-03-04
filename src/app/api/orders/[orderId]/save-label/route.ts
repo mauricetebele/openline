@@ -2,10 +2,16 @@
  * POST /api/orders/[orderId]/save-label
  * Persists a purchased shipping label and advances order → AWAITING_VERIFICATION.
  * Only called for real (non-test) label purchases.
+ *
+ * After saving, if the order has transparency codes on any items AND the label
+ * was NOT purchased via Amazon Buy Shipping, submits fulfillment confirmation
+ * to Amazon via the Feeds API (non-blocking). Amazon Buy Shipping labels are
+ * skipped because Amazon already owns the shipment/tracking data.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
+import { submitFulfillmentWithTransparency } from '@/lib/amazon/submit-fulfillment'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +22,8 @@ interface SaveLabelBody {
   shipmentCost?:  number
   carrier?:       string
   serviceCode?:   string
-  ssShipmentId?:  number   // ShipStation shipmentId — enables label voiding
+  ssShipmentId?:  string | number  // ShipStation shipmentId — enables label voiding
+  isAmazonBuyShipping?: boolean // skip fulfillment feed — Amazon already owns the shipment
 }
 
 export async function POST(
@@ -49,7 +56,7 @@ export async function POST(
         carrier:        body.carrier ?? null,
         serviceCode:    body.serviceCode ?? null,
         isTest:         false,
-        ssShipmentId:   body.ssShipmentId ?? null,
+        ssShipmentId:   body.ssShipmentId != null ? String(body.ssShipmentId) : null,
       },
       update: {
         trackingNumber: body.trackingNumber,
@@ -58,7 +65,7 @@ export async function POST(
         shipmentCost:   body.shipmentCost ?? null,
         carrier:        body.carrier ?? null,
         serviceCode:    body.serviceCode ?? null,
-        ssShipmentId:   body.ssShipmentId ?? null,
+        ssShipmentId:   body.ssShipmentId != null ? String(body.ssShipmentId) : null,
       },
     }),
     prisma.order.update({
@@ -66,6 +73,18 @@ export async function POST(
       data:  { workflowStatus: 'AWAITING_VERIFICATION' },
     }),
   ])
+
+  // Submit fulfillment confirmation with transparency codes to Amazon (non-blocking).
+  // Skip for Amazon Buy Shipping — Amazon already owns the shipment/tracking.
+  if (!body.isAmazonBuyShipping) {
+    submitFulfillmentWithTransparency(
+      params.orderId,
+      body.trackingNumber,
+      body.carrier ?? 'Other',
+    ).catch(err => {
+      console.error('[save-label] Fulfillment submission failed (non-blocking):', err)
+    })
+  }
 
   return NextResponse.json({ success: true })
 }

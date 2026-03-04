@@ -38,6 +38,16 @@ export async function PUT(
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Block edits to fully received POs
+  const existing = await prisma.purchaseOrder.findUnique({
+    where: { id: params.id },
+    select: { status: true },
+  })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (existing.status === 'RECEIVED') {
+    return NextResponse.json({ error: 'Cannot edit a fully received PO' }, { status: 400 })
+  }
+
   const body = await req.json()
   const { vendorId, date, notes, status, lines } = body
 

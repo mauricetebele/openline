@@ -36,6 +36,7 @@ interface RateShopPayload {
   residential?: boolean
   amazonOrderId?: string
   orderItems?: OrderItem[]
+  orderSource?: string  // 'amazon' | 'backmarket' — controls which carriers to query
 }
 
 /** 'ounces' → 'ounce', 'pounds' → 'pound', 'inches' → 'inch', etc. (V2 uses singular units) */
@@ -94,91 +95,125 @@ export async function POST(req: NextRequest) {
 
   const rateErrors: string[] = []
   const allRates: (SSRate & { carrierName: string })[] = []
+  const isAmazonOrder = body.orderSource !== 'backmarket'
 
   await Promise.all(carriers.map(async carrier => {
     const carrierName = carrier.nickname?.trim() || carrier.name
+    const isAmzCarrier = isAmazonCarrier(carrier.code)
 
-    // ── Skip non-Amazon carriers ──────────────────────────────────────────
-    if (!isAmazonCarrier(carrier.code)) return
+    // ── Amazon orders → Amazon Buy Shipping only (V2) ───────────────────
+    // ── Non-Amazon orders → all non-Amazon carriers (V1) ────────────────
+    if (isAmazonOrder && !isAmzCarrier) return
+    if (!isAmazonOrder && isAmzCarrier) return
 
-    // ── Amazon Buy Shipping → V2 API only (ShipStation confirmed V1 unsupported) ──
-    if (!amazonV2CarrierId) {
-      rateErrors.push('Amazon Buy Shipping: no carrier ID configured — set it in ShipStation Settings')
-      return
-    }
-
-    const wtUnit  = singularUnit(body.weight.units) as 'ounce' | 'pound' | 'gram' | 'kilogram'
-    const dimUnit = singularUnit(body.dimensions.units) as 'inch' | 'centimeter'
-
-    const v2Payload: V2RatesRequest = {
-      rate_options: { carrier_ids: [amazonV2CarrierId] },
-      shipment: {
-        ship_from: {
-          name:            body.fromName,
-          phone:           body.fromPhone || '555-555-5555',
-          address_line1:   body.fromAddress1 ?? '',
-          city_locality:   body.fromCity ?? '',
-          state_province:  body.fromState ?? '',
-          postal_code:     body.fromPostalCode,
-          country_code:    body.fromCountry ?? 'US',
-        },
-        ship_to: {
-          name:                          body.toName,
-          phone:                         body.toPhone || '555-555-5555',
-          address_line1:                 body.toAddress1 ?? '',
-          address_line2:                 body.toAddress2 ?? undefined,
-          city_locality:                 body.toCity,
-          state_province:                body.toState,
-          postal_code:                   body.toPostalCode,
-          country_code:                  body.toCountry,
-          address_residential_indicator: body.residential ? 'yes' : 'unknown',
-        },
-        packages: [{
-          weight:     { unit: wtUnit,  value: body.weight.value },
-          dimensions: { unit: dimUnit, length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height },
-        }],
-        order_source_code: 'amazon',
-        items: body.orderItems?.map(item => ({
-          name:                    item.title ?? undefined,
-          quantity:                item.quantity,
-          external_order_id:       body.amazonOrderId ?? '',
-          external_order_item_id:  item.orderItemId,
-        })),
-      },
-    }
-
-    console.log('[rate-shop] V2 payload:', JSON.stringify(v2Payload, null, 2))
-    try {
-      const v2Result = await client.getRatesV2(v2Payload)
-      const v2Rates  = v2Result.rate_response?.rates ?? []
-      console.log('[rate-shop] V2 rates: %d valid, %d invalid',
-        v2Rates.length, v2Result.rate_response?.invalid_rates?.length ?? 0)
-
-      const mapped = v2Rates
-        .filter(r => r.validation_status !== 'invalid' && !r.error_messages?.length)
-        .map(r => ({
-          serviceName:  r.service_type || r.service_code,
-          serviceCode:  r.service_code,
-          carrierCode:  r.carrier_code,
-          carrierName,
-          shipmentCost: r.shipping_amount?.amount ?? 0,
-          otherCost:    r.other_amount?.amount ?? 0,
-          transitDays:  r.carrier_delivery_days ?? null,
-          deliveryDate: r.estimated_delivery_date ?? null,
-          rate_id:      r.rate_id,
-        } as SSRate & { carrierName: string }))
-
-      for (const r of mapped) allRates.push(r)
-
-      if (mapped.length === 0) {
-        const invalids = v2Result.rate_response?.invalid_rates ?? []
-        const firstErr = invalids[0]?.error_messages?.[0]
-        rateErrors.push(`Amazon Buy Shipping: no rates returned${firstErr ? ` — ${firstErr}` : ''}`)
+    if (isAmzCarrier) {
+      // ── Amazon Buy Shipping → V2 API ──────────────────────────────────
+      if (!amazonV2CarrierId) {
+        rateErrors.push('Amazon Buy Shipping: no carrier ID configured — set it in ShipStation Settings')
+        return
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error('[rate-shop] V2 error:', msg)
-      rateErrors.push(`Amazon Buy Shipping: ${msg}`)
+
+      const wtUnit  = singularUnit(body.weight.units) as 'ounce' | 'pound' | 'gram' | 'kilogram'
+      const dimUnit = singularUnit(body.dimensions.units) as 'inch' | 'centimeter'
+
+      const v2Payload: V2RatesRequest = {
+        rate_options: { carrier_ids: [amazonV2CarrierId] },
+        shipment: {
+          ship_from: {
+            name:            body.fromName,
+            phone:           body.fromPhone || '555-555-5555',
+            address_line1:   body.fromAddress1 ?? '',
+            city_locality:   body.fromCity ?? '',
+            state_province:  body.fromState ?? '',
+            postal_code:     body.fromPostalCode,
+            country_code:    body.fromCountry ?? 'US',
+          },
+          ship_to: {
+            name:                          body.toName,
+            phone:                         body.toPhone || '555-555-5555',
+            address_line1:                 body.toAddress1 ?? '',
+            address_line2:                 body.toAddress2 ?? undefined,
+            city_locality:                 body.toCity,
+            state_province:                body.toState,
+            postal_code:                   body.toPostalCode,
+            country_code:                  body.toCountry,
+            address_residential_indicator: body.residential ? 'yes' : 'unknown',
+          },
+          packages: [{
+            weight:     { unit: wtUnit,  value: body.weight.value },
+            dimensions: { unit: dimUnit, length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height },
+          }],
+          order_source_code: 'amazon',
+          items: body.orderItems?.map(item => ({
+            name:                    item.title ?? undefined,
+            quantity:                item.quantity,
+            external_order_id:       body.amazonOrderId ?? '',
+            external_order_item_id:  item.orderItemId,
+          })),
+        },
+      }
+
+      console.log('[rate-shop] V2 payload:', JSON.stringify(v2Payload, null, 2))
+      try {
+        const v2Result = await client.getRatesV2(v2Payload)
+        const v2Rates  = v2Result.rate_response?.rates ?? []
+        console.log('[rate-shop] V2 rates: %d valid, %d invalid',
+          v2Rates.length, v2Result.rate_response?.invalid_rates?.length ?? 0)
+
+        const mapped = v2Rates
+          .filter(r => r.validation_status !== 'invalid' && !r.error_messages?.length)
+          .map(r => ({
+            serviceName:  r.service_type || r.service_code,
+            serviceCode:  r.service_code,
+            carrierCode:  r.carrier_code,
+            carrierName,
+            shipmentCost: r.shipping_amount?.amount ?? 0,
+            otherCost:    r.other_amount?.amount ?? 0,
+            transitDays:  r.carrier_delivery_days ?? null,
+            deliveryDate: r.estimated_delivery_date ?? null,
+            rate_id:      r.rate_id,
+          } as SSRate & { carrierName: string }))
+
+        for (const r of mapped) allRates.push(r)
+
+        if (mapped.length === 0) {
+          const invalids = v2Result.rate_response?.invalid_rates ?? []
+          const firstErr = invalids[0]?.error_messages?.[0]
+          rateErrors.push(`Amazon Buy Shipping: no rates returned${firstErr ? ` — ${firstErr}` : ''}`)
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[rate-shop] V2 error:', msg)
+        rateErrors.push(`Amazon Buy Shipping: ${msg}`)
+      }
+    } else {
+      // ── Non-Amazon carriers → V1 getRates per carrier ─────────────────
+      const v1Payload: import('@/lib/shipstation/client').SSRatesPayload = {
+        carrierCode:    carrier.code,
+        fromPostalCode: body.fromPostalCode,
+        fromCity:       body.fromCity,
+        fromState:      body.fromState,
+        toPostalCode:   body.toPostalCode,
+        toCity:         body.toCity,
+        toState:        body.toState,
+        toCountry:      body.toCountry ?? 'US',
+        weight:         { value: body.weight.value, units: body.weight.units },
+        dimensions:     { units: body.dimensions.units, length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height },
+        confirmation:   (body.confirmation ?? 'none') as 'none' | 'delivery' | 'signature' | 'adult_signature',
+        residential:    body.residential,
+      }
+
+      try {
+        const v1Rates = await client.getRates(v1Payload)
+        for (const r of v1Rates) {
+          allRates.push({ ...r, carrierName })
+        }
+        console.log('[rate-shop] V1 %s: %d rates', carrier.code, v1Rates.length)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[rate-shop] V1 %s error:', carrier.code, msg)
+        rateErrors.push(`${carrierName}: ${msg}`)
+      }
     }
   }))
 

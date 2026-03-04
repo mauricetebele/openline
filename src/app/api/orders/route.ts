@@ -1,6 +1,6 @@
 /**
- * GET /api/orders?accountId=&tab=pending|unshipped|shipped&page=&pageSize=&search=
- * Returns orders filtered by workflow status tab.
+ * GET    /api/orders?accountId=&tab=pending|unshipped|shipped&page=&pageSize=&search=
+ * DELETE /api/orders — delete all orders (admin only, for testing)
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
@@ -95,8 +95,15 @@ export async function GET(req: NextRequest) {
       }),
     ])
 
+    // Compute requiresTransparency per order from SP-API's IsTransparency flag
+    // stored on each OrderItem during sync
+    const data = orders.map(order => ({
+      ...order,
+      requiresTransparency: order.items.some(item => item.isTransparency),
+    }))
+
     return NextResponse.json({
-      data: orders,
+      data,
       pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
     })
   } catch (err: unknown) {
@@ -104,4 +111,17 @@ export async function GET(req: NextRequest) {
     console.error('[GET /api/orders]', message)
     return NextResponse.json({ error: message }, { status: 500 })
   }
+}
+
+export async function DELETE() {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const items = await prisma.orderItem.deleteMany({})
+  const orders = await prisma.order.deleteMany({})
+  const jobs = await prisma.orderSyncJob.deleteMany({})
+
+  return NextResponse.json({
+    deleted: { orders: orders.count, items: items.count, syncJobs: jobs.count },
+  })
 }

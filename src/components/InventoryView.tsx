@@ -114,9 +114,98 @@ function SNLookupModal({ onClose }: { onClose: () => void }) {
   const [err,      setErr]      = useState('')
   const [printing,  setPrinting]  = useState(false)
   const [printErr,  setPrintErr]  = useState('')
+
+  // DYMO printer setup
+  const DYMO_API = 'https://127.0.0.1:41951/DYMO/DLS/Printing'
+  const [dymoStatus, setDymoStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [dymoErr, setDymoErr]       = useState('')
+  const [printers, setPrinters]     = useState<string[]>([])
+  const [selectedPrinter, setSelectedPrinter] = useState('')
+  const [detectedLabel, setDetectedLabel]     = useState<string | null>(null)
+  const [dymoLabelNames, setDymoLabelNames]  = useState<string[]>([])
+
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { inputRef.current?.focus() }, [])
+
+  useEffect(() => {
+    const saved = localStorage.getItem('dymo_printer')
+    if (saved) setSelectedPrinter(saved)
+  }, [])
+
+  // Auto-detect DYMO printers on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { detectDymo() }, [])
+
+  async function detectDymo() {
+    setDymoStatus('loading')
+    setDymoErr('')
+    try {
+      const res = await fetch(`${DYMO_API}/GetPrinters`)
+      if (!res.ok) throw new Error('Cannot reach DYMO Connect')
+      const xml = await res.text()
+      const matches = [...xml.matchAll(/<LabelWriterPrinter>[\s\S]*?<Name>(.*?)<\/Name>[\s\S]*?<IsConnected>True<\/IsConnected>/g)]
+      const names = matches.map(m => m[1])
+      setPrinters(names)
+      if (names.length === 0) throw new Error('No connected DYMO printers found')
+      const saved = localStorage.getItem('dymo_printer')
+      const pick = (saved && names.includes(saved)) ? saved : names[0]
+      setSelectedPrinter(pick)
+      localStorage.setItem('dymo_printer', pick)
+
+      // Try to auto-detect loaded label via 550 API
+      try {
+        const infoRes = await fetch(
+          `${DYMO_API}/GetConsumableInfoIn550Printer?printerName=${encodeURIComponent(pick)}`,
+        )
+        if (infoRes.ok) {
+          const infoText = await infoRes.text()
+          try {
+            const info = JSON.parse(infoText)
+            if (info.sku) setDetectedLabel(info.sku)
+          } catch {
+            const skuMatch = infoText.match(/<Name>([^<]+)<\/Name>/)
+              ?? infoText.match(/<LabelSize>([^<]+)<\/LabelSize>/)
+              ?? infoText.match(/<Sku>([^<]+)<\/Sku>/)
+            if (skuMatch) setDetectedLabel(skuMatch[1])
+          }
+        }
+      } catch { /* not a 550 — ignore */ }
+
+      // Discover available label names from the DYMO framework JS
+      try {
+        const fwUrls = [
+          `${DYMO_API}/js/DYMO.Label.Framework.latest.js`,
+          `${DYMO_API}/js/dymo.connect.framework.js`,
+        ]
+        for (const url of fwUrls) {
+          try {
+            const fwRes = await fetch(url)
+            if (!fwRes.ok) continue
+            const js = await fwRes.text()
+            // Extract all label name strings containing "30334"
+            const nameMatches = js.match(/["']([^"']*30334[^"']*?)["']/gi) ?? []
+            const found = [...new Set(nameMatches.map(m => m.slice(1, -1)))]
+            if (found.length > 0) {
+              console.log('[DYMO] Found 30334 label names in framework:', found)
+              setDymoLabelNames(found)
+              break
+            }
+          } catch { /* try next URL */ }
+        }
+      } catch { /* framework not available */ }
+
+      setDymoStatus('ready')
+    } catch (e) {
+      setDymoErr(e instanceof Error ? e.message : 'DYMO detection failed')
+      setDymoStatus('error')
+    }
+  }
+
+  function handlePrinterChange(printer: string) {
+    setSelectedPrinter(printer)
+    localStorage.setItem('dymo_printer', printer)
+  }
 
   function escapeXml(s: string): string {
     return s
@@ -128,122 +217,153 @@ function SNLookupModal({ onClose }: { onClose: () => void }) {
   }
 
   async function printLabel() {
-    if (!result) return
+    if (!result || !selectedPrinter) return
     setPrinting(true)
     setPrintErr('')
     try {
-      // Load DYMO Label Framework SDK on first use
-      if (!(window as any).dymo?.label?.framework) {
-        await new Promise<void>((resolve, reject) => {
-          const script = document.createElement('script')
-          script.src = 'https://labelwriter.com/software/dls/sdk/js/DYMO.Label.Framework.latest.js'
-          script.onload  = () => resolve()
-          script.onerror = () => reject(new Error('Could not load DYMO SDK — is DYMO Connect installed?'))
-          document.head.appendChild(script)
+      const serial = escapeXml(result.serialNumber)
+      const sku    = escapeXml(result.product.sku)
+      const grade  = result.grade ? escapeXml(result.grade.grade) : ''
+      const topLine = grade ? `${sku}  [${grade}]` : sku
+
+      // DYMO Connect DesktopLabel format (DYMOLabel v3)
+      // Use label names discovered from the DYMO framework JS, plus known variants
+      const labelNames = [
+        ...dymoLabelNames,
+        'MediumMultipurpose30334',
+        'Medium Multipurpose Labels',
+        '30334 Medium Multipurpose',
+        '30334 Medium',
+        '30334 Multipurpose',
+        '30334 2-1/4 in x 1-1/4 in',
+        'Medium30334',
+        'Multipurpose30334',
+        '30334 LW',
+        'LW30334',
+      ]
+      // Deduplicate
+      const uniqueNames = [...new Set(labelNames)]
+      const saved = localStorage.getItem('dymo_paper')
+      if (saved) {
+        const idx = uniqueNames.indexOf(saved)
+        if (idx > 0) { uniqueNames.splice(idx, 1); uniqueNames.unshift(saved) }
+        else if (idx === -1) uniqueNames.unshift(saved)
+      }
+
+      const brush = (a: string, r: string, g: string, b: string) =>
+        `<SolidColorBrush><Color A="${a}" R="${r}" G="${g}" B="${b}"></Color></SolidColorBrush>`
+      const stdBrushes = `<Brushes>
+<BackgroundBrush>${brush('0','1','1','1')}</BackgroundBrush>
+<BorderBrush>${brush('1','0','0','0')}</BorderBrush>
+<StrokeBrush>${brush('1','0','0','0')}</StrokeBrush>
+<FillBrush>${brush('0','0','0','0')}</FillBrush>
+</Brushes>`
+      const stdProps = `<Rotation>Rotation0</Rotation>
+<OutlineThickness>1</OutlineThickness>
+<IsOutlined>False</IsOutlined>
+<BorderStyle>SolidLine</BorderStyle>
+<Margin><DYMOThickness Left="0" Top="0" Right="0" Bottom="0" /></Margin>`
+
+      let lastErr = ''
+      for (const labelName of uniqueNames) {
+        const labelXml = `<?xml version="1.0" encoding="utf-8"?>
+<DesktopLabel Version="1">
+<DYMOLabel Version="3">
+<Description>DYMO Label</Description>
+<Orientation>Landscape</Orientation>
+<LabelName>${labelName}</LabelName>
+<InitialLength>0</InitialLength>
+<BorderStyle>SolidLine</BorderStyle>
+<DYMORect>
+<DYMOPoint><X>0.1</X><Y>0.06</Y></DYMOPoint>
+<Size><Width>2.05</Width><Height>1.13</Height></Size>
+</DYMORect>
+<BorderColor>${brush('1','0','0','0')}</BorderColor>
+<BorderThickness>0</BorderThickness>
+<Show_Border>False</Show_Border>
+<DynamicLayoutManager>
+<RotationBehavior>ClearObjects</RotationBehavior>
+<LabelObjects>
+<TextObject>
+<Name>SKU</Name>
+${stdBrushes}
+${stdProps}
+<HorizontalAlignment>Left</HorizontalAlignment>
+<VerticalAlignment>Middle</VerticalAlignment>
+<FitMode>ShrinkToFit</FitMode>
+<IsVertical>False</IsVertical>
+<FormattedText>
+<FitMode>ShrinkToFit</FitMode>
+<HorizontalAlignment>Left</HorizontalAlignment>
+<VerticalAlignment>Middle</VerticalAlignment>
+<IsVertical>False</IsVertical>
+<LineTextSpan>
+<TextSpan>
+<Text>${topLine}</Text>
+<FontInfo>
+<FontName>Arial</FontName>
+<FontSize>10</FontSize>
+<IsBold>True</IsBold>
+<IsItalic>False</IsItalic>
+<IsUnderline>False</IsUnderline>
+<FontBrush>${brush('1','0','0','0')}</FontBrush>
+</FontInfo>
+</TextSpan>
+</LineTextSpan>
+</FormattedText>
+<ObjectLayout>
+<DYMOPoint><X>0.12</X><Y>0.07</Y></DYMOPoint>
+<Size><Width>1.9</Width><Height>0.3</Height></Size>
+</ObjectLayout>
+</TextObject>
+<BarcodeObject>
+<Name>BARCODE</Name>
+${stdBrushes}
+${stdProps}
+<BarcodeFormat>Code128Auto</BarcodeFormat>
+<Data>
+<DataString>${serial}</DataString>
+</Data>
+<HorizontalAlignment>Center</HorizontalAlignment>
+<VerticalAlignment>Middle</VerticalAlignment>
+<Size>Medium</Size>
+<TextPosition>Bottom</TextPosition>
+<ObjectLayout>
+<DYMOPoint><X>0.12</X><Y>0.4</Y></DYMOPoint>
+<Size><Width>1.9</Width><Height>0.65</Height></Size>
+</ObjectLayout>
+</BarcodeObject>
+</LabelObjects>
+</DynamicLayoutManager>
+</DYMOLabel>
+<LabelApplication>Blank</LabelApplication>
+<DataTable><Columns></Columns><Rows></Rows></DataTable>
+</DesktopLabel>`
+
+        console.log(`[DYMO] Trying LabelName="${labelName}" (${uniqueNames.indexOf(labelName) + 1}/${uniqueNames.length})`)
+
+        const printRes = await fetch(`${DYMO_API}/PrintLabel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            printerName: selectedPrinter,
+            printParamsXml: '',
+            labelXml,
+            labelSetXml: '',
+          }),
         })
-        // Brief pause for the SDK to self-initialise
-        await new Promise(r => setTimeout(r, 500))
+        if (printRes.ok) {
+          console.log(`[DYMO] Success with LabelName="${labelName}"`)
+          localStorage.setItem('dymo_paper', labelName)
+          return
+        }
+        const errText = await printRes.text()
+        console.log(`[DYMO] Error:`, errText)
+        lastErr = errText
+        if (/labelname|not available|paper/i.test(errText)) continue
+        throw new Error(errText)
       }
-
-      const fw = (window as any).dymo?.label?.framework
-      if (!fw) throw new Error('DYMO SDK unavailable')
-
-      // Find a connected LabelWriter printer
-      const printers: Array<{ name: string; printerType: string }> = fw.getPrinters()
-      const printer = printers.find((p: any) => p.printerType === 'LabelWriterPrinter')
-      if (!printer) {
-        throw new Error('No DYMO LabelWriter found — make sure DYMO Connect is running and a printer is connected.')
-      }
-
-      // Build Dymo 30334 label XML
-      // Units = twips (1 inch = 1440 twips)  →  2.25" × 1.25" = 3240 × 1800 twips
-      const sku       = escapeXml(result.product.sku)
-      const serial    = escapeXml(result.serialNumber)
-      const gradeName = result.grade ? escapeXml(result.grade.grade) : null
-
-      // When a grade exists, shrink SKU area and add bold grade on the right
-      const skuWidth     = gradeName ? '2200' : '3000'
-      const gradeObject  = gradeName ? `
-  <ObjectInfo>
-    <TextObject>
-      <Name>GRADE_VAL</Name>
-      <ForeColor Alpha="255" Red="0" Green="0" Blue="0"/>
-      <BackColor Alpha="0" Red="255" Green="255" Blue="255"/>
-      <LinkedObjectName></LinkedObjectName>
-      <Rotation>Rotation0</Rotation>
-      <IsMirrored>False</IsMirrored>
-      <IsVariable>False</IsVariable>
-      <Text>${gradeName}</Text>
-      <StyledText>
-        <Element>
-          <String>${gradeName}</String>
-          <Attributes>
-            <Font Family="Arial" Size="18" Bold="True" Italic="False" Underline="False" StrikeThrough="False"/>
-          </Attributes>
-        </Element>
-      </StyledText>
-      <ShowBarcodeFor9PartAddress>False</ShowBarcodeFor9PartAddress>
-      <BarcodePosition>BelowText</BarcodePosition>
-      <LineFeedAutomaticFullRotation>False</LineFeedAutomaticFullRotation>
-    </TextObject>
-    <Bounds X="2380" Y="60" Width="760" Height="500"/>
-  </ObjectInfo>` : ''
-
-      const labelXml = `<?xml version="1.0" encoding="utf-8"?>
-<DieCutLabel Version="8.0" Units="twips">
-  <PaperOrientation>Landscape</PaperOrientation>
-  <Id>Address2</Id>
-  <PaperName>30334 2-1/4 in x 1-1/4 in</PaperName>
-  <DrawCommands>
-    <RoundRectangle X="0" Y="0" Width="3240" Height="1800" Rx="270" Ry="270"/>
-  </DrawCommands>
-  <ObjectInfo>
-    <TextObject>
-      <Name>SKU</Name>
-      <ForeColor Alpha="255" Red="0" Green="0" Blue="0"/>
-      <BackColor Alpha="0" Red="255" Green="255" Blue="255"/>
-      <LinkedObjectName></LinkedObjectName>
-      <Rotation>Rotation0</Rotation>
-      <IsMirrored>False</IsMirrored>
-      <IsVariable>False</IsVariable>
-      <Text>${sku}</Text>
-      <StyledText>
-        <Element>
-          <String>${sku}</String>
-          <Attributes>
-            <Font Family="Arial" Size="10" Bold="True" Italic="False" Underline="False" StrikeThrough="False"/>
-          </Attributes>
-        </Element>
-      </StyledText>
-      <ShowBarcodeFor9PartAddress>False</ShowBarcodeFor9PartAddress>
-      <BarcodePosition>BelowText</BarcodePosition>
-      <LineFeedAutomaticFullRotation>False</LineFeedAutomaticFullRotation>
-    </TextObject>
-    <Bounds X="120" Y="100" Width="${skuWidth}" Height="420"/>
-  </ObjectInfo>${gradeObject}
-  <ObjectInfo>
-    <BarcodeObject>
-      <Name>BARCODE</Name>
-      <ForeColor Alpha="255" Red="0" Green="0" Blue="0"/>
-      <BackColor Alpha="0" Red="255" Green="255" Blue="255"/>
-      <LinkedObjectName></LinkedObjectName>
-      <Rotation>Rotation0</Rotation>
-      <IsMirrored>False</IsMirrored>
-      <IsVariable>False</IsVariable>
-      <Text>${serial}</Text>
-      <Type>Code128Auto</Type>
-      <Size>Medium</Size>
-      <TextPosition>Bottom</TextPosition>
-      <TextFont Family="Arial" Size="8" Bold="False" Italic="False" Underline="False" StrikeThrough="False"/>
-      <CheckSumEnabled>False</CheckSumEnabled>
-      <InitialValue>${serial}</InitialValue>
-    </BarcodeObject>
-    <Bounds X="120" Y="560" Width="3000" Height="1140"/>
-  </ObjectInfo>
-</DieCutLabel>`
-
-      const label = fw.openLabelXml(labelXml)
-      label.print(printer.name)
+      throw new Error(`No matching label name found. Open DYMO Connect → select your 30334 label → note the exact label name shown. Tried: ${uniqueNames.join(', ')}`)
     } catch (e: unknown) {
       setPrintErr(e instanceof Error ? e.message : 'Print failed')
     } finally {
@@ -533,10 +653,39 @@ function SNLookupModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="px-5 py-3 border-t shrink-0 space-y-2">
+          {/* DYMO Printer Setup */}
+          {result && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">DYMO Printer</p>
+                {dymoStatus === 'error' && (
+                  <button onClick={detectDymo} className="text-[10px] text-blue-600 hover:underline">Retry</button>
+                )}
+              </div>
+              {dymoStatus === 'loading' && (
+                <p className="text-xs text-gray-500">Detecting printers…</p>
+              )}
+              {dymoStatus === 'error' && (
+                <p className="text-xs text-red-600">{dymoErr}</p>
+              )}
+              {dymoStatus === 'ready' && (
+                <div className="space-y-1">
+                  <select value={selectedPrinter} onChange={e => handlePrinterChange(e.target.value)}
+                    className="h-7 w-full rounded border border-gray-300 text-xs px-2 bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue">
+                    {printers.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  {detectedLabel && (
+                    <p className="text-[10px] text-gray-500">Label: {detectedLabel}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {printErr && (
             <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
               <AlertCircle size={13} className="shrink-0 mt-0.5" />
-              <span>{printErr}</span>
+              <span className="whitespace-pre-wrap">{printErr}</span>
             </div>
           )}
           <div className="flex items-center justify-between">
@@ -544,7 +693,7 @@ function SNLookupModal({ onClose }: { onClose: () => void }) {
               <button
                 type="button"
                 onClick={printLabel}
-                disabled={printing}
+                disabled={printing || dymoStatus !== 'ready'}
                 className="flex items-center gap-1.5 h-8 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50 transition-colors"
               >
                 <Printer size={13} />
@@ -2300,7 +2449,7 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Quantity <span className="text-red-500">*</span></label>
-                  <input type="text" inputMode="numeric" pattern="[0-9]*" value={qtyStr}
+                  <input type="text" inputMode="numeric" value={qtyStr}
                     onChange={e => { if (/^\d*$/.test(e.target.value)) setQtyStr(e.target.value) }}
                     onBlur={() => { if (!qtyStr || parseInt(qtyStr) < 1) setQtyStr('1') }}
                     className="w-full h-8 rounded border border-gray-300 px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-amazon-blue" />

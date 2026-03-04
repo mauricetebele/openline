@@ -34,6 +34,13 @@ export async function GET(req: NextRequest) {
     if (!ssOrder) {
       return NextResponse.json({ found: false })
     }
+
+    // Persist ssOrderId on the local Order record so the grid can show a "synced" badge
+    prisma.order.updateMany({
+      where: { amazonOrderId, ssOrderId: null },
+      data:  { ssOrderId: ssOrder.orderId },
+    }).catch(() => {}) // best-effort, don't block the response
+
     return NextResponse.json({
       found:       true,
       ssOrderId:   ssOrder.orderId,

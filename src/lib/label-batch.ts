@@ -92,7 +92,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
       let shipmentCost: number | undefined
       let carrier: string | undefined
       let serviceCode: string | undefined
-      let ssShipmentId: number | undefined
+      let ssShipmentId: string | undefined
 
       if (order.presetRateId) {
         // ── V2 path: buy from captured rate ID ──────────────────────────────
@@ -105,7 +105,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
         shipmentCost   = label.shipmentCost
         carrier        = order.presetRateCarrier ?? undefined
         serviceCode    = order.presetRateService ?? undefined
-        ssShipmentId   = label.shipmentId || undefined
+        ssShipmentId   = label.shipmentId ? String(label.shipmentId) : undefined
 
       } else {
         // ── V1 path: direct createLabel with preset parameters ───────────────
@@ -180,7 +180,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
         shipmentCost   = label.shipmentCost
         carrier        = preset.carrierCode
         serviceCode    = preset.serviceCode
-        ssShipmentId   = label.shipmentId || undefined
+        ssShipmentId   = label.shipmentId ? String(label.shipmentId) : undefined
       }
 
       // ── Success: save label and advance order status ──────────────────────

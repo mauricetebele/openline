@@ -120,10 +120,14 @@ export async function POST(req: NextRequest) {
           const order = orders[i]
 
           try {
-            // Reject orders Amazon has already marked as shipped
+            // Reject orders already marked as shipped
             if (order.orderStatus === 'Shipped') {
-              throw new Error('Order is already marked as Shipped on Amazon')
+              throw new Error('Order is already marked as Shipped')
             }
+
+            // Amazon Buy Shipping presets can't be used for non-Amazon orders
+            const orderIsAmazon = order.orderSource !== 'backmarket'
+            const useAmazonV2   = isAmazonCarrier && orderIsAmazon
 
             let rateAmount: number | null  = null
             let rateCarrier: string | null = null
@@ -179,7 +183,7 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            if (isAmazonCarrier) {
+            if (useAmazonV2) {
               if (!ssAccount.amazonCarrierId) {
                 throw new Error('Amazon carrier ID not configured in ShipStation Settings')
               }
@@ -250,6 +254,55 @@ export async function POST(req: NextRequest) {
               rateCarrier = match.carrier_code
               rateService = match.service_type || match.service_code
               rateId      = match.rate_id
+
+            } else if (isAmazonCarrier && !orderIsAmazon) {
+              // Amazon preset applied to a non-Amazon order — query all non-Amazon V1 carriers
+              // and pick the cheapest rate across all of them.
+              let v1Carriers
+              try { v1Carriers = await client.getCarriers() } catch {
+                throw new Error('Failed to load ShipStation carriers')
+              }
+              const nonAmazonCarriers = v1Carriers.filter(c => !c.code.toLowerCase().includes('amazon'))
+              if (nonAmazonCarriers.length === 0) {
+                throw new Error('No non-Amazon carriers connected to ShipStation. Add UPS/FedEx/USPS to rate BackMarket orders.')
+              }
+
+              const allV1Rates: { serviceName: string; serviceCode: string; carrierCode: string; shipmentCost: number; otherCost: number; rate_id?: string }[] = []
+              for (const c of nonAmazonCarriers) {
+                try {
+                  const rates = await client.getRates({
+                    carrierCode:    c.code,
+                    fromPostalCode,
+                    fromCity:       from.city,
+                    fromState:      from.state,
+                    toPostalCode,
+                    toCity,
+                    toState,
+                    toCountry,
+                    weight: { value: preset.weightValue, units: preset.weightUnit as 'ounces' | 'pounds' | 'grams' | 'kilograms' },
+                    ...(preset.dimLength && preset.dimWidth && preset.dimHeight
+                      ? { dimensions: { units: preset.dimUnit as 'inches' | 'centimeters', length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight } }
+                      : {}),
+                    ...(preset.confirmation
+                      ? { confirmation: preset.confirmation as 'none' | 'delivery' | 'signature' | 'adult_signature' }
+                      : {}),
+                  })
+                  for (const r of rates) allV1Rates.push(r)
+                } catch (e) {
+                  console.warn('[apply-preset] V1 carrier %s error: %s', c.code, e instanceof Error ? e.message : String(e))
+                }
+              }
+
+              if (allV1Rates.length === 0) {
+                throw new Error('No valid rates returned from any carrier (UPS/FedEx/USPS)')
+              }
+
+              const cheapest = allV1Rates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))[0]
+              rateAmount  = cheapest.shipmentCost + cheapest.otherCost
+              rateCarrier = cheapest.carrierCode
+              rateService = cheapest.serviceName
+              rateId      = cheapest.rate_id ?? null
+              console.log('[apply-preset] order=%s BM fallback cheapest=%s %s $%s', order.amazonOrderId, rateCarrier, rateService, rateAmount?.toFixed(2))
 
             } else {
               const v1Payload: SSRatesPayload = {

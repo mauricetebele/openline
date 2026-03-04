@@ -6,7 +6,7 @@
  *
  * Query params:
  *   search  — filter by name / company / city / state / zip
- *   type    — "amazon" | "wholesale" | "" (all)
+ *   type    — "amazon" | "backmarket" | "wholesale" | "" (all)
  *   page    — 1-based
  *   limit   — default 100
  */
@@ -98,13 +98,15 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── Amazon order customers (deduplicated by name+postal) ─────────────────
-  if (!typeFilter || typeFilter === 'amazon') {
+  // ── Marketplace order customers (deduplicated by name+postal) ────────────
+  if (!typeFilter || typeFilter === 'amazon' || typeFilter === 'backmarket') {
     // Group orders by (shipToName, shipToPostal) to deduplicate; get the account marketplace
     const orders = await prisma.order.findMany({
       where: {
         shipToName: { not: null },
         NOT: { shipToName: '' },
+        ...(typeFilter === 'amazon' ? { orderSource: 'amazon' } : {}),
+        ...(typeFilter === 'backmarket' ? { orderSource: 'backmarket' } : {}),
       },
       select: {
         id: true,
@@ -114,6 +116,7 @@ export async function GET(req: NextRequest) {
         shipToPostal:  true,
         shipToPhone:   true,
         purchaseDate:  true,
+        orderSource:   true,
         account: { select: { id: true, marketplaceName: true } },
       },
       orderBy: { purchaseDate: 'desc' },
@@ -139,7 +142,7 @@ export async function GET(req: NextRequest) {
 
       const row: UnifiedCustomer = {
         id:          `amz-${o.id}`,
-        type:        o.account.marketplaceName,
+        type:        o.orderSource === 'backmarket' ? 'BackMarket' : o.account.marketplaceName,
         firstName,
         lastName,
         companyName: null,

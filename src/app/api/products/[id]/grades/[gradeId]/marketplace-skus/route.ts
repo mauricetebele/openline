@@ -60,6 +60,7 @@ export async function POST(
   try {
     const created = await prisma.productGradeMarketplaceSku.create({
       data: {
+        productId:   grade.productId,
         gradeId:     params.gradeId,
         marketplace: marketplace.toLowerCase(),
         accountId:   accountId?.trim() || null,

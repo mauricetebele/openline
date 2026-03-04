@@ -5,8 +5,8 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ClipboardList, LogOut, ChevronDown,
-  Truck, Tag, Package, Boxes, Building2, RotateCcw, ShoppingCart,
-  LayoutGrid, RefreshCcw, PackageMinus, Barcode,
+  Truck, Tag, Tags, Package, Boxes, Building2, RotateCcw, ShoppingCart,
+  LayoutGrid, RefreshCcw, PackageMinus, Barcode, List,
   Store, Users, FileText, BarChart2, Cpu, Printer,
   Plus, Search, ArrowRightLeft, Menu, X, Settings, History,
   Moon, Sun, FolderOpen,
@@ -21,7 +21,8 @@ type NavDivider = { divider: true; label: string }
 type NavItem  = NavLeaf | NavGroup | NavDivider
 
 const NAV: NavItem[] = [
-  { href: '/products',         label: 'Products',        icon: Boxes },
+  { href: '/products',          label: 'Products',         icon: Boxes },
+  { href: '/marketplace-skus', label: 'Marketplace SKUs', icon: Tags },
   {
     group: true,
     label: 'Vendors',
@@ -57,6 +58,7 @@ const NAV: NavItem[] = [
       { href: '/shipping-templates', label: 'Shipping Templates', icon: Truck },
       { href: '/returns',            label: 'MFN Returns',        icon: RotateCcw },
       { href: '/return-label',       label: 'Return Label',       icon: Printer },
+      { href: '/active-listings',    label: 'Active Listings',    icon: List },
       { href: '/pricing-rules',      label: 'Pricing Rules',      icon: Tag },
       { href: '/audit',              label: 'Audit Log',          icon: ClipboardList },
     ],

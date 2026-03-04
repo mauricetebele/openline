@@ -1,13 +1,14 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, Search, Pencil, Trash2, X, AlertCircle, Package, ChevronDown, ChevronRight, Tag, Upload, Download, CheckCircle2 } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, X, AlertCircle, Package, ChevronDown, ChevronRight, Tag, Upload, Download, CheckCircle2, RotateCcw, Archive } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface MarketplaceSku {
   id: string
-  gradeId: string
+  productId: string
+  gradeId: string | null
   marketplace: string
   accountId: string | null
   sellerSku: string
@@ -28,6 +29,7 @@ interface Product {
   sku: string
   isSerializable: boolean
   createdAt: string
+  archivedAt: string | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -56,6 +58,17 @@ async function apiPut(url: string, body: unknown) {
 
 async function apiDelete(url: string) {
   const res = await fetch(url, { method: 'DELETE' })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error ?? 'Request failed')
+  return data
+}
+
+async function apiPatch(url: string, body: unknown) {
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error ?? 'Request failed')
   return data
@@ -798,12 +811,19 @@ export default function ProductsManager() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [showImport, setShowImport] = useState(false)
+  const [viewArchived, setViewArchived] = useState(false)
+  const [actionId, setActionId] = useState<string | null>(null) // restoring/purging
+  const [purgeConfirm, setPurgeConfirm] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setErr('')
     try {
-      const url = search.trim() ? `/api/products?search=${encodeURIComponent(search.trim())}` : '/api/products'
+      const params = new URLSearchParams()
+      if (search.trim()) params.set('search', search.trim())
+      if (viewArchived) params.set('archived', 'true')
+      const qs = params.toString()
+      const url = `/api/products${qs ? `?${qs}` : ''}`
       const res = await fetch(url)
       if (!res.ok) throw new Error('Failed to load')
       const data = await res.json()
@@ -813,7 +833,7 @@ export default function ProductsManager() {
     } finally {
       setLoading(false)
     }
-  }, [search])
+  }, [search, viewArchived])
 
   useEffect(() => {
     const t = setTimeout(load, search ? 300 : 0)
@@ -833,6 +853,31 @@ export default function ProductsManager() {
     }
   }
 
+  async function handleRestore(id: string) {
+    setActionId(id)
+    try {
+      await apiPatch(`/api/products/${id}`, { action: 'restore' })
+      load()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Restore failed')
+    } finally {
+      setActionId(null)
+    }
+  }
+
+  async function handlePurge(id: string) {
+    setActionId(id)
+    try {
+      await apiPatch(`/api/products/${id}`, { action: 'purge' })
+      setPurgeConfirm(null)
+      load()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Purge failed')
+    } finally {
+      setActionId(null)
+    }
+  }
+
   return (
     <div className="flex-1 overflow-auto px-6 py-4">
       {/* Toolbar */}
@@ -849,25 +894,58 @@ export default function ProductsManager() {
           />
         </div>
 
+        {/* Active / Archived toggle */}
+        <div className="flex items-center gap-1 bg-gray-100 rounded-md p-0.5">
+          <button
+            type="button"
+            onClick={() => setViewArchived(false)}
+            className={clsx(
+              'px-3 py-1.5 text-xs font-medium rounded transition-colors',
+              !viewArchived
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700',
+            )}
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewArchived(true)}
+            className={clsx(
+              'flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded transition-colors',
+              viewArchived
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700',
+            )}
+          >
+            <Archive size={12} />
+            Archived
+          </button>
+        </div>
+
         <div className="flex-1" />
 
-        <button
-          type="button"
-          onClick={() => setShowImport(true)}
-          className="flex items-center gap-1.5 h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-700 font-medium hover:bg-gray-50"
-        >
-          <Upload size={14} />
-          Import
-        </button>
+        {!viewArchived && (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-1.5 h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-700 font-medium hover:bg-gray-50"
+            >
+              <Upload size={14} />
+              Import
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setPanel('create')}
-          className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"
-        >
-          <Plus size={14} />
-          New Product
-        </button>
+            <button
+              type="button"
+              onClick={() => setPanel('create')}
+              className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"
+            >
+              <Plus size={14} />
+              New Product
+            </button>
+          </>
+        )}
       </div>
 
       {err && <ErrorBanner msg={err} onClose={() => setErr('')} />}
@@ -878,9 +956,13 @@ export default function ProductsManager() {
         <div className="py-20 text-center">
           <Package size={36} className="mx-auto text-gray-200 mb-3" />
           <p className="text-sm font-medium text-gray-400">
-            {search ? 'No products match your search' : 'No products yet'}
+            {search
+              ? 'No products match your search'
+              : viewArchived
+              ? 'No archived products'
+              : 'No products yet'}
           </p>
-          {!search && (
+          {!search && !viewArchived && (
             <button
               type="button"
               onClick={() => setPanel('create')}
@@ -890,7 +972,87 @@ export default function ProductsManager() {
             </button>
           )}
         </div>
+      ) : viewArchived ? (
+        /* ─── Archived Products Table ─── */
+        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Serialization</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Archived On</th>
+                <th className="px-4 py-3 w-32" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {products.map((product) => (
+                <tr key={product.id} className="hover:bg-gray-50 group">
+                  <td className="px-4 py-3 font-medium text-gray-600">{product.description}</td>
+                  <td className="px-4 py-3 font-mono text-gray-500 text-xs">{product.sku}</td>
+                  <td className="px-4 py-3">
+                    {product.isSerializable ? (
+                      <span className="inline-flex items-center rounded-full bg-purple-100 text-purple-700 px-2.5 py-0.5 text-xs font-medium">
+                        Serializable
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-600 px-2.5 py-0.5 text-xs font-medium">
+                        Non-Serializable
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-400 text-xs">
+                    {product.archivedAt ? new Date(product.archivedAt).toLocaleDateString() : '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    {purgeConfirm === product.id ? (
+                      <div className="flex items-center gap-2 justify-end">
+                        <span className="text-xs text-red-600 whitespace-nowrap">Permanently delete?</span>
+                        <button
+                          type="button"
+                          onClick={() => handlePurge(product.id)}
+                          disabled={actionId === product.id}
+                          className="text-xs font-medium text-red-600 hover:underline disabled:opacity-60"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPurgeConfirm(null)}
+                          className="text-xs text-gray-500 hover:underline"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={() => handleRestore(product.id)}
+                          disabled={actionId === product.id}
+                          className="flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium text-green-700 hover:bg-green-50 border border-green-300 disabled:opacity-60"
+                        >
+                          <RotateCcw size={12} />
+                          Restore
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPurgeConfirm(product.id)}
+                          className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50"
+                          title="Permanently delete"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
+        /* ─── Active Products Table ─── */
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
           <table className="min-w-full text-sm">
             <thead>

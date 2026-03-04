@@ -16,7 +16,7 @@ import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { decrypt } from '@/lib/crypto'
-import { ShipStationClient, V2RatesRequest } from '@/lib/shipstation/client'
+import { ShipStationClient, V2RatesRequest, SSRatesPayload } from '@/lib/shipstation/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -69,9 +69,6 @@ export async function POST(req: NextRequest) {
     select: { apiKeyEnc: true, apiSecretEnc: true, v2ApiKeyEnc: true, amazonCarrierId: true },
   })
   if (!ssAccount) return NextResponse.json({ error: 'No ShipStation account connected' }, { status: 404 })
-  if (!ssAccount.amazonCarrierId) {
-    return NextResponse.json({ error: 'Amazon carrier ID not configured. Go to ShipStation Settings to add it.' }, { status: 400 })
-  }
 
   const v2ApiKey = ssAccount.v2ApiKeyEnc ? decrypt(ssAccount.v2ApiKeyEnc) : null
   const client = new ShipStationClient(
@@ -166,69 +163,127 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            // ── Fetch Amazon Buy Shipping rates (V2) ─────────────────────────
-            const v2Payload: V2RatesRequest = {
-              rate_options: { carrier_ids: [ssAccount.amazonCarrierId!] },
-              shipment: {
-                ship_from: {
-                  name:           from.name,
-                  phone:          from.phone || '555-555-5555',
-                  address_line1:  from.street1,
-                  city_locality:  from.city,
-                  state_province: from.state,
-                  postal_code:    fromPostalCode,
-                  country_code:   from.country || 'US',
+            // ── Fetch shipping rates ─────────────────────────────────────────
+            let rateAmount:  number
+            let rateCarrier: string
+            let rateService: string
+            let rateId:      string | undefined
+
+            const orderIsAmazon = order.orderSource !== 'backmarket'
+
+            if (orderIsAmazon) {
+              // ── Amazon Buy Shipping (V2) ────────────────────────────────────
+              if (!ssAccount.amazonCarrierId) {
+                throw new Error('Amazon carrier ID not configured — go to ShipStation Settings')
+              }
+
+              const v2Payload: V2RatesRequest = {
+                rate_options: { carrier_ids: [ssAccount.amazonCarrierId] },
+                shipment: {
+                  ship_from: {
+                    name:           from.name,
+                    phone:          from.phone || '555-555-5555',
+                    address_line1:  from.street1,
+                    city_locality:  from.city,
+                    state_province: from.state,
+                    postal_code:    fromPostalCode,
+                    country_code:   from.country || 'US',
+                  },
+                  ship_to: {
+                    name:                          toName,
+                    phone:                         toPhone || '555-555-5555',
+                    address_line1:                 toAddress1,
+                    address_line2:                 toAddress2,
+                    city_locality:                 toCity,
+                    state_province:                toState,
+                    postal_code:                   toPostalCode,
+                    country_code:                  toCountry,
+                    address_residential_indicator: 'unknown',
+                  },
+                  packages: [{
+                    weight: { unit: wtUnit, value: preset.weightValue },
+                    ...(preset.dimLength && preset.dimWidth && preset.dimHeight
+                      ? { dimensions: { unit: dimUnit, length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight } }
+                      : {}),
+                  }],
+                  order_source_code: 'amazon',
+                  items: order.items.map(item => ({
+                    name:                   item.title ?? undefined,
+                    quantity:               item.quantityOrdered,
+                    external_order_id:      order.amazonOrderId,
+                    external_order_item_id: item.orderItemId,
+                  })),
                 },
-                ship_to: {
-                  name:                          toName,
-                  phone:                         toPhone || '555-555-5555',
-                  address_line1:                 toAddress1,
-                  address_line2:                 toAddress2,
-                  city_locality:                 toCity,
-                  state_province:                toState,
-                  postal_code:                   toPostalCode,
-                  country_code:                  toCountry,
-                  address_residential_indicator: 'unknown',
-                },
-                packages: [{
-                  weight: { unit: wtUnit, value: preset.weightValue },
-                  ...(preset.dimLength && preset.dimWidth && preset.dimHeight
-                    ? { dimensions: { unit: dimUnit, length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight } }
-                    : {}),
-                }],
-                order_source_code: 'amazon',
-                items: order.items.map(item => ({
-                  name:                   item.title ?? undefined,
-                  quantity:               item.quantityOrdered,
-                  external_order_id:      order.amazonOrderId,
-                  external_order_item_id: item.orderItemId,
-                })),
-              },
+              }
+
+              const v2Result = await client.getRatesV2(v2Payload)
+              const allRates = v2Result.rate_response?.rates ?? []
+              const validRates = allRates
+                .filter(r => r.validation_status !== 'invalid')
+                .sort((a, b) =>
+                  (a.shipping_amount.amount + a.other_amount.amount) -
+                  (b.shipping_amount.amount + b.other_amount.amount)
+                )
+
+              console.log('[apply-package-preset] order=%s v2 rates total=%d valid=%d',
+                order.amazonOrderId, allRates.length, validRates.length)
+
+              const cheapest = validRates[0]
+              if (!cheapest) {
+                const statuses = allRates.map(r => `${r.service_code}:${r.validation_status}`).join(', ')
+                throw new Error(`No valid rates returned (${allRates.length} total: ${statuses || 'none'})`)
+              }
+
+              rateAmount  = cheapest.shipping_amount.amount + cheapest.other_amount.amount
+              rateCarrier = cheapest.carrier_code
+              rateService = cheapest.service_type || cheapest.service_code
+              rateId      = cheapest.rate_id
+
+            } else {
+              // ── Non-Amazon orders → V1 rates across all carriers ─────────────
+              let v1Carriers
+              try { v1Carriers = await client.getCarriers() } catch {
+                throw new Error('Failed to load ShipStation carriers')
+              }
+              const nonAmazonCarriers = v1Carriers.filter(c => !c.code.toLowerCase().includes('amazon'))
+              if (nonAmazonCarriers.length === 0) {
+                throw new Error('No non-Amazon carriers connected to ShipStation (add UPS/FedEx/USPS)')
+              }
+
+              const allV1Rates: { serviceName: string; serviceCode: string; carrierCode: string; shipmentCost: number; otherCost: number; rate_id?: string }[] = []
+              for (const c of nonAmazonCarriers) {
+                try {
+                  const rates = await client.getRates({
+                    carrierCode:    c.code,
+                    fromPostalCode,
+                    fromCity:       from.city,
+                    fromState:      from.state,
+                    toPostalCode,
+                    toCity,
+                    toState,
+                    toCountry,
+                    weight: { value: preset.weightValue, units: preset.weightUnit as 'ounces' | 'pounds' | 'grams' | 'kilograms' },
+                    ...(preset.dimLength && preset.dimWidth && preset.dimHeight
+                      ? { dimensions: { units: preset.dimUnit as 'inches' | 'centimeters', length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight } }
+                      : {}),
+                  } as SSRatesPayload)
+                  for (const r of rates) allV1Rates.push(r)
+                } catch (e) {
+                  console.warn('[apply-package-preset] V1 carrier %s error: %s', c.code, e instanceof Error ? e.message : String(e))
+                }
+              }
+
+              if (allV1Rates.length === 0) {
+                throw new Error('No valid rates returned from any carrier (UPS/FedEx/USPS)')
+              }
+
+              const cheapest = allV1Rates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))[0]
+              rateAmount  = cheapest.shipmentCost + cheapest.otherCost
+              rateCarrier = cheapest.carrierCode
+              rateService = cheapest.serviceName
+              rateId      = cheapest.rate_id
+              console.log('[apply-package-preset] order=%s V1 cheapest=%s %s $%s', order.amazonOrderId, rateCarrier, rateService, rateAmount.toFixed(2))
             }
-
-            const v2Result = await client.getRatesV2(v2Payload)
-            const allRates = v2Result.rate_response?.rates ?? []
-            // Pick cheapest valid rate (exclude explicitly invalid ones)
-            const validRates = allRates
-              .filter(r => r.validation_status !== 'invalid')
-              .sort((a, b) =>
-                (a.shipping_amount.amount + a.other_amount.amount) -
-                (b.shipping_amount.amount + b.other_amount.amount)
-              )
-
-            console.log('[apply-package-preset] order=%s rates total=%d valid=%d',
-              order.amazonOrderId, allRates.length, validRates.length)
-
-            const cheapest = validRates[0]
-            if (!cheapest) {
-              const statuses = allRates.map(r => `${r.service_code}:${r.validation_status}`).join(', ')
-              throw new Error(`No valid rates returned (${allRates.length} total: ${statuses || 'none'})`)
-            }
-
-            const rateAmount  = cheapest.shipping_amount.amount + cheapest.other_amount.amount
-            const rateCarrier = cheapest.carrier_code
-            const rateService = cheapest.service_type || cheapest.service_code
-            const rateId      = cheapest.rate_id
 
             // ── Persist rate on order ─────────────────────────────────────────
             await prisma.order.update({

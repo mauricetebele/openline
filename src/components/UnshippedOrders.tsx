@@ -4,11 +4,13 @@ import {
   Search, RefreshCcw, Package, X, AlertCircle, ChevronLeft, ChevronRight,
   Download, Link2, CheckCircle2, Truck, Settings, FlaskConical, ClipboardCheck,
   MapPin, Printer, RotateCcw, Hash, XCircle, ExternalLink, Phone, FileText, Eye,
-  AlertTriangle, Pencil, Tag, History, ChevronDown, ChevronUp, Ban,
+  AlertTriangle, Pencil, Tag, History, ChevronDown, ChevronUp, Ban, ShieldCheck, Trash2, ScanLine,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { AmazonAccountDTO } from '@/types'
+import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
 import PickListModal from '@/components/PickListModal'
+import ShipByItemModal from '@/components/ShipByItemModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,13 +20,17 @@ interface OrderItem {
   id: string; orderItemId: string; asin: string | null; sellerSku: string | null
   title: string | null; quantityOrdered: number; quantityShipped: number
   itemPrice: string | null; shippingPrice: string | null
+  imageUrl?: string | null
   isSerializable?: boolean
+  isTransparency?: boolean
+  transparencyCodes?: string[]
+  bmSerials?: string[]
 }
 
 interface OrderLabelSummary {
   trackingNumber: string; labelFormat: string; carrier: string | null
   serviceCode: string | null; shipmentCost: string | null
-  createdAt: string; isTest: boolean; ssShipmentId: number | null
+  createdAt: string; isTest: boolean; ssShipmentId: string | null
 }
 
 interface Order {
@@ -48,8 +54,10 @@ interface Order {
   presetRateError: string | null
   presetRateCheckedAt: string | null
   appliedPresetId: string | null
-  // Wholesale-specific (undefined / null for Amazon orders)
-  orderSource?: 'amazon' | 'wholesale'
+  ssOrderId: number | null
+  requiresTransparency?: boolean
+  // Source: amazon, backmarket, or wholesale
+  orderSource?: 'amazon' | 'backmarket' | 'wholesale'
   wholesaleOrderNumber?: string | null
   wholesaleCustomerName?: string | null
   shipCarrier?: string | null
@@ -131,6 +139,19 @@ function PrimeBadge() {
   return (
     <span className="inline-flex items-center text-[7px] font-black italic tracking-wider bg-[#00A8E0] text-white px-1 py-px rounded" title="Amazon Prime">
       prime
+    </span>
+  )
+}
+
+function BackMarketBadge() {
+  return (
+    <span
+      title="Back Market order"
+      aria-label="Back Market"
+      className="inline-flex items-center justify-center shrink-0 select-none"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logos/backmarket-icon.svg" alt="BM" width={16} height={16} className="inline-block" />
     </span>
   )
 }
@@ -836,26 +857,56 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                     {Array.from({ length: item.quantityOrdered }, (_, i) => {
                       const key   = `${item.orderItemId}-${i}`
                       const state = serialInputs[key] ?? { value: '', valid: null, message: '', checking: false }
+                      // For BackMarket orders, show the expected serial from the BM Serialize step
+                      const bmItem = order.orderSource === 'backmarket'
+                        ? order.items.find(oi => oi.orderItemId === item.orderItemId)
+                        : null
+                      const expectedSerial = bmItem?.bmSerials?.[i]
                       return (
-                        <div key={key} className="flex items-center gap-2">
-                          <span className="text-xs text-gray-400 w-4 shrink-0">#{i + 1}</span>
-                          <input
-                            type="text"
-                            placeholder="Enter serial number…"
-                            value={state.value}
-                            onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '')}
-                            className={clsx(
-                              'flex-1 h-8 rounded border px-2 text-xs font-mono focus:outline-none focus:ring-1',
-                              state.valid === true  ? 'border-green-400 bg-green-50 focus:ring-green-400' :
-                              state.valid === false ? 'border-red-400   bg-red-50   focus:ring-red-400' :
-                              'border-gray-300 focus:ring-amazon-blue',
-                            )}
-                          />
-                          <div className="w-5 shrink-0">
-                            {state.checking && <RefreshCcw size={12} className="animate-spin text-gray-400" />}
-                            {!state.checking && state.valid === true  && <CheckCircle2 size={14} className="text-green-500" />}
-                            {!state.checking && state.valid === false && <AlertCircle  size={14} className="text-red-500" />}
+                        <div key={key} className="space-y-0.5">
+                          {expectedSerial && (
+                            <p className="text-[10px] text-purple-600 font-medium pl-6">
+                              EXPECTED SERIAL #: <span className="font-mono">{expectedSerial}</span>
+                            </p>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400 w-4 shrink-0">#{i + 1}</span>
+                            <input
+                              type="text"
+                              placeholder="Enter serial number…"
+                              value={state.value}
+                              onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '')}
+                              className={clsx(
+                                'flex-1 h-8 rounded border px-2 text-xs font-mono focus:outline-none focus:ring-1',
+                                state.valid === true  ? 'border-green-400 bg-green-50 focus:ring-green-400' :
+                                state.valid === false ? 'border-red-400   bg-red-50   focus:ring-red-400' :
+                                'border-gray-300 focus:ring-amazon-blue',
+                              )}
+                            />
+                            <div className="w-5 shrink-0">
+                              {state.checking && <RefreshCcw size={12} className="animate-spin text-gray-400" />}
+                              {!state.checking && state.valid === true  && <CheckCircle2 size={14} className="text-green-500" />}
+                              {!state.checking && state.valid === false && <AlertCircle  size={14} className="text-red-500" />}
+                            </div>
                           </div>
+                          {/* Warn if entered serial doesn't match expected BM serial */}
+                          {expectedSerial && state.value.trim() && state.valid === true
+                            && state.value.trim().toUpperCase() !== expectedSerial.trim().toUpperCase() && (
+                            <div className="flex items-start gap-1.5 pl-6 py-1 px-2 rounded bg-amber-50 border border-amber-200 text-amber-800">
+                              <AlertTriangle size={11} className="shrink-0 mt-0.5" />
+                              <div className="text-[10px]">
+                                <p className="font-semibold">Serial mismatch — expected <span className="font-mono">{expectedSerial}</span></p>
+                                <p className="text-amber-600 mt-0.5">
+                                  This serial differs from the one assigned during BackMarket serialization.{' '}
+                                  <button type="button" className="underline font-medium hover:text-amber-800"
+                                    onClick={() => validateSerial(key, expectedSerial, item.sellerSku ?? '')}>
+                                    Use expected serial
+                                  </button>{' '}
+                                  or proceed with the current one.
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )
                     })}
@@ -1272,6 +1323,119 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
   )
 }
 
+// ─── BackMarket Serialize Modal ────────────────────────────────────────────────
+
+function BmSerializeModal({ order, onClose, onSaved }: {
+  order: Order
+  onClose: () => void
+  onSaved: (updatedItems: { orderItemId: string; serials: string[] }[]) => void
+}) {
+  // Initialize serial inputs from existing bmSerials or empty strings
+  const [serialMap, setSerialMap] = useState<Record<string, string[]>>(() => {
+    const m: Record<string, string[]> = {}
+    for (const item of order.items) {
+      const existing = item.bmSerials ?? []
+      m[item.id] = Array.from({ length: item.quantityOrdered }, (_, i) => existing[i] ?? '')
+    }
+    return m
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const allFilled = order.items.every(item =>
+    (serialMap[item.id] ?? []).every(s => s.trim().length > 0),
+  )
+
+  async function save() {
+    setSaving(true); setError(null)
+    try {
+      const items = order.items.map(item => ({
+        orderItemId: item.id,
+        serials: serialMap[item.id] ?? [],
+      }))
+      const res = await fetch(`/api/orders/${order.id}/bm-serialize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? 'Failed to save'); return }
+      onSaved(items)
+      onClose()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Save failed') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
+          <div>
+            <h3 className="text-sm font-bold text-gray-900">Assign Serial Numbers</h3>
+            <p className="text-[10px] text-gray-400 font-mono">{order.amazonOrderId}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {order.items.map(item => (
+            <div key={item.id} className="space-y-2">
+              <div className="flex items-center gap-2">
+                {item.imageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={item.imageUrl} alt="" className="w-8 h-8 rounded border object-cover shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-gray-800 truncate">{item.title ?? item.sellerSku ?? 'Unknown'}</p>
+                  <p className="text-[10px] text-gray-400">SKU: {item.sellerSku ?? '—'} · Qty: {item.quantityOrdered}</p>
+                </div>
+              </div>
+              {Array.from({ length: item.quantityOrdered }, (_, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-400 w-14 shrink-0">
+                    {item.quantityOrdered > 1 ? `Unit ${idx + 1}` : 'Serial'}
+                  </span>
+                  <input
+                    type="text"
+                    value={serialMap[item.id]?.[idx] ?? ''}
+                    onChange={e => {
+                      const val = e.target.value
+                      setSerialMap(prev => {
+                        const arr = [...(prev[item.id] ?? [])]
+                        arr[idx] = val
+                        return { ...prev, [item.id]: arr }
+                      })
+                    }}
+                    placeholder="Enter IMEI / Serial #"
+                    className="flex-1 h-7 px-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 font-mono"
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-5 py-3 border-t shrink-0 bg-gray-50/50 rounded-b-xl">
+          {error && <p className="text-[10px] text-red-600 mr-2 truncate">{error}</p>}
+          <div className="flex items-center gap-2 ml-auto">
+            <button onClick={onClose} className="h-8 px-3 rounded text-xs text-gray-600 hover:bg-gray-100">Cancel</button>
+            <button
+              onClick={save}
+              disabled={saving || !allFilled}
+              className="h-8 px-4 rounded text-xs font-medium bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save Serials'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Order Detail Modal ────────────────────────────────────────────────────────
 
 const WORKFLOW_BADGE: Record<string, string> = {
@@ -1463,14 +1627,21 @@ function OrderDetailModal({
 
         {/* ── Header ─────────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-4 px-6 py-3.5 border-b bg-white shrink-0 rounded-t-xl">
-          {/* Amazon logo */}
-          <div className="shrink-0 w-9 h-9 rounded-lg bg-[#232F3E] flex items-center justify-center">
-            <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
-              <path d="M4 20c7 5 17 5 24 0" stroke="#FF9900" strokeWidth="2.5" strokeLinecap="round"/>
-              <path d="M22 17l4 3-4 3" stroke="#FF9900" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <text x="3" y="13" fontFamily="Arial" fontWeight="900" fontSize="10" fill="white" letterSpacing="-0.5">amazon</text>
-            </svg>
-          </div>
+          {/* Marketplace logo */}
+          {order.orderSource === 'backmarket' ? (
+            <div className="shrink-0 w-9 h-9 rounded-lg bg-black flex items-center justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logos/backmarket-icon.svg" alt="Back Market" className="h-6 w-6 invert" />
+            </div>
+          ) : (
+            <div className="shrink-0 w-9 h-9 rounded-lg bg-[#232F3E] flex items-center justify-center">
+              <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
+                <path d="M4 20c7 5 17 5 24 0" stroke="#FF9900" strokeWidth="2.5" strokeLinecap="round"/>
+                <path d="M22 17l4 3-4 3" stroke="#FF9900" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <text x="3" y="13" fontFamily="Arial" fontWeight="900" fontSize="10" fill="white" letterSpacing="-0.5">amazon</text>
+              </svg>
+            </div>
+          )}
 
           {/* Order identity */}
           <div className="flex-1 min-w-0">
@@ -1478,7 +1649,9 @@ function OrderDetailModal({
               <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Order Number</span>
               {order.isPrime && <PrimeBadge />}
               <a
-                href={`https://sellercentral.amazon.com/orders-v3/order/${order.amazonOrderId}`}
+                href={order.orderSource === 'backmarket'
+                  ? `https://www.backmarket.com/dashboard/sales/orders/${order.amazonOrderId}`
+                  : `https://sellercentral.amazon.com/orders-v3/order/${order.amazonOrderId}`}
                 target="_blank" rel="noopener noreferrer"
                 className="font-mono text-base font-bold text-amazon-blue hover:underline flex items-center gap-1"
               >
@@ -1491,7 +1664,7 @@ function OrderDetailModal({
               )}
             </div>
             <div className="flex items-center gap-3 mt-0.5">
-              <span className="text-xs text-gray-500">Store: <strong className="text-gray-700">Amazon</strong></span>
+              <span className="text-xs text-gray-500">Store: <strong className="text-gray-700">{order.orderSource === 'backmarket' ? 'Back Market' : 'Amazon'}</strong></span>
               <span className="text-gray-300">|</span>
               <span className="text-xs text-gray-500">Status:</span>
               <span className={clsx('inline-flex items-center px-1.5 py-px rounded text-[10px] font-semibold',
@@ -1526,7 +1699,7 @@ function OrderDetailModal({
               {[
                 { label: 'Order Date',    value: fmtDate(order.purchaseDate) },
                 { label: 'Last Updated',  value: fmtDate(order.lastUpdateDate) },
-                { label: 'Fulfillment',   value: order.fulfillmentChannel ? (FULFILLMENT_LABEL[order.fulfillmentChannel] ?? order.fulfillmentChannel) : null },
+                { label: 'Selling Channel', value: order.fulfillmentChannel ? (FULFILLMENT_LABEL[order.fulfillmentChannel] ?? order.fulfillmentChannel) : null },
                 { label: 'Service Level', value: order.shipmentServiceLevel },
                 { label: 'Items Unshipped', value: String(order.numberOfItemsUnshipped) },
                 { label: 'Processed',     value: order.processedAt ? fmtDate(order.processedAt) : null },
@@ -1701,7 +1874,17 @@ function OrderDetailModal({
                             </td>
                             <td className="px-4 py-2.5 align-top">
                               <div className="flex items-start gap-2">
-                                {item.asin ? (
+                                {item.imageUrl ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={item.imageUrl}
+                                    alt={item.sellerSku ?? 'Product'}
+                                    width={44}
+                                    height={44}
+                                    className="rounded border border-gray-200 object-contain bg-gray-50 shrink-0"
+                                    onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                                  />
+                                ) : item.asin ? (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
                                     src={`/api/asin-image?asin=${item.asin}`}
@@ -1993,6 +2176,41 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   const [purchased, setPurchased]       = useState<{ trackingNumber: string; labelData: string; labelFormat: string; isTest?: boolean } | null>(null)
   const [savingLabel, setSavingLabel]   = useState(false)
 
+  // ── Transparency code entry state ──
+  const [pendingRate, setPendingRate]   = useState<SSRate | null>(null)
+  const [tCodes, setTCodes]           = useState<Record<string, string[]>>({}) // orderItemId → codes[]
+  const [tSubmitting, setTSubmitting] = useState(false)
+  const [tError, setTError]           = useState<string | null>(null)
+
+  const transparencyItems = useMemo(
+    () => order.items.filter(i => i.isTransparency),
+    [order.items],
+  )
+  const needsTransparency = transparencyItems.length > 0
+
+  // Check if codes were already submitted (persisted on the order items)
+  const codesAlreadySaved = useMemo(
+    () => needsTransparency && transparencyItems.every(
+      i => (i.transparencyCodes?.length ?? 0) >= i.quantityOrdered,
+    ),
+    [needsTransparency, transparencyItems],
+  )
+
+  // Initialize tCodes from any already-saved codes
+  useEffect(() => {
+    if (!needsTransparency) return
+    const initial: Record<string, string[]> = {}
+    for (const item of transparencyItems) {
+      const existing = item.transparencyCodes ?? []
+      initial[item.orderItemId] = Array.from(
+        { length: item.quantityOrdered },
+        (_, idx) => existing[idx] ?? '',
+      )
+    }
+    setTCodes(initial)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id])
+
   useEffect(() => {
     if (!ssAccount) { setLookup({ status: 'not_found', error: 'No ShipStation account connected.' }); return }
     setLookup({ status: 'loading' })
@@ -2044,6 +2262,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
           dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
           confirmation, residential: true,
           amazonOrderId: order.amazonOrderId,
+          orderSource: order.orderSource ?? 'amazon',
           orderItems: order.items.map(item => ({ orderItemId: item.orderItemId, title: item.title, quantity: item.quantityOrdered })),
         })
       setRates(Array.isArray(data.rates) ? data.rates : [])
@@ -2058,7 +2277,63 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
     finally { setLoadingRates(false) }
   }
 
+  async function submitTransparencyCodes(): Promise<boolean> {
+    setTSubmitting(true); setTError(null)
+    try {
+      const payload = {
+        items: transparencyItems.map(item => ({
+          orderItemId: item.orderItemId,
+          codes: tCodes[item.orderItemId] ?? [],
+        })),
+      }
+      const res = await fetch(`/api/orders/${order.id}/transparency`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Failed to save codes' }))
+        setTError(data.error ?? `Error ${res.status}`)
+        return false
+      }
+      return true
+    } catch (e) {
+      setTError(e instanceof Error ? e.message : 'Failed to save transparency codes')
+      return false
+    } finally { setTSubmitting(false) }
+  }
+
+  async function handleBuyWithTransparency() {
+    if (!pendingRate) return
+    const ok = await submitTransparencyCodes()
+    if (!ok) return
+    // Codes saved — proceed with label purchase
+    const rate = pendingRate
+    setPendingRate(null)
+    await executeBuyLabel(rate)
+  }
+
+  // BackMarket orders must have all serial/IMEI numbers assigned before label purchase
+  const bmNeedsSerials = order.orderSource === 'backmarket' && order.items.some(
+    i => (i.bmSerials?.length ?? 0) < i.quantityOrdered,
+  )
+
   async function buyLabel(rate: SSRate) {
+    // Gate: BackMarket orders must be serialized first
+    if (bmNeedsSerials) {
+      setPurchaseErr('All serial/IMEI numbers must be assigned before purchasing a label. Use the Serialize button first.')
+      return
+    }
+    // Gate: if order needs transparency codes and they haven't been saved yet
+    if (needsTransparency && !codesAlreadySaved) {
+      setPendingRate(rate)
+      setPurchaseErr(null)
+      return // Show transparency code entry UI instead
+    }
+    await executeBuyLabel(rate)
+  }
+
+  async function executeBuyLabel(rate: SSRate) {
     if (lookup.status !== 'found') return
     setPurchasing(`${rate.carrierCode}-${rate.serviceCode}`); setPurchaseErr(null)
     try {
@@ -2085,7 +2360,24 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
             shipmentCost:   rate.shipmentCost + rate.otherCost,
             carrier:        rate.carrierCode,
             serviceCode:    rate.serviceCode,
+            isAmazonBuyShipping: !!rate.rate_id,
           })
+
+          // ── BackMarket: push tracking + serial/IMEI to BM API ────────────
+          if (order.orderSource === 'backmarket') {
+            try {
+              const bmRes = await apiPost<{ shipped?: boolean; error?: string }>(
+                `/api/orders/${order.id}/bm-ship`, {},
+              )
+              if (bmRes.shipped) {
+                console.log('[LabelPanel] BackMarket order shipped successfully')
+              }
+            } catch (bmErr) {
+              // Non-fatal: label was purchased, BM ship can be retried
+              console.error('[LabelPanel] BackMarket ship failed (can retry):', bmErr)
+            }
+          }
+
           // Notify parent so the unshipped list refreshes and order disappears
           onLabelSaved?.()
         } catch (e) {
@@ -2246,6 +2538,79 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
 
           {ratesErr && <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs"><AlertCircle size={13} className="shrink-0 mt-0.5" /><span>{ratesErr}</span></div>}
           {purchaseErr && <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs"><AlertCircle size={13} className="shrink-0 mt-0.5" /><span>{purchaseErr}</span></div>}
+
+          {/* ── Transparency Code Entry (shown when user clicks Buy on an order that needs codes) ── */}
+          {pendingRate && needsTransparency && (
+            <section className="rounded-xl border-2 border-teal-300 bg-teal-50/50 p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={16} className="text-teal-600" />
+                <h3 className="text-sm font-semibold text-teal-800">Transparency Codes Required</h3>
+              </div>
+              <p className="text-xs text-teal-700">
+                Enter the Transparency code for each unit before purchasing the label.
+              </p>
+
+              {transparencyItems.map(item => (
+                <div key={item.orderItemId} className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="font-mono font-semibold text-gray-700">{item.sellerSku ?? item.asin ?? '—'}</span>
+                    <span className="text-gray-400">×{item.quantityOrdered}</span>
+                    <span className="text-gray-500 truncate">{item.title ?? ''}</span>
+                  </div>
+                  {Array.from({ length: item.quantityOrdered }, (_, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <label className="text-xs text-gray-500 w-16 shrink-0">Code {idx + 1}</label>
+                      <input
+                        type="text"
+                        value={tCodes[item.orderItemId]?.[idx] ?? ''}
+                        onChange={e => {
+                          const val = e.target.value
+                          setTCodes(prev => {
+                            const codes = [...(prev[item.orderItemId] ?? Array(item.quantityOrdered).fill(''))]
+                            codes[idx] = val
+                            return { ...prev, [item.orderItemId]: codes }
+                          })
+                        }}
+                        placeholder="Scan or enter transparency code"
+                        className="flex-1 h-8 rounded border border-gray-300 px-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-teal-400"
+                        autoFocus={idx === 0}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ))}
+
+              {tError && (
+                <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+                  <AlertCircle size={13} className="shrink-0 mt-0.5" /><span>{tError}</span>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleBuyWithTransparency}
+                  disabled={tSubmitting || transparencyItems.some(i => (tCodes[i.orderItemId] ?? []).some(c => !c.trim()))}
+                  className={clsx(
+                    'flex-1 h-10 rounded-md text-sm font-semibold flex items-center justify-center gap-2 transition-colors',
+                    tSubmitting || transparencyItems.some(i => (tCodes[i.orderItemId] ?? []).some(c => !c.trim()))
+                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      : 'bg-teal-600 text-white hover:bg-teal-700',
+                  )}
+                >
+                  {tSubmitting
+                    ? <><RefreshCcw size={13} className="animate-spin" /> Saving codes…</>
+                    : <><ShieldCheck size={13} /> Submit Codes & Buy Label</>}
+                </button>
+                <button
+                  onClick={() => { setPendingRate(null); setTError(null) }}
+                  disabled={tSubmitting}
+                  className="px-4 h-10 rounded-md text-sm font-medium text-gray-600 border border-gray-300 hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </section>
+          )}
 
           {amazonServices && amazonServices.length > 0 && (
             <section className="space-y-2">
@@ -3111,9 +3476,14 @@ export default function UnshippedOrders() {
   const [sortDir, setSortDir]             = useState<'asc' | 'desc'>('desc')
 
   const [syncing, setSyncing]             = useState(false)
+  const [syncSource, setSyncSource]       = useState<'all' | 'amazon' | 'backmarket'>('all')
   const [syncStatus, setSyncStatus]       = useState<SyncJob | null>(null)
+  const [bmSyncStatus, setBmSyncStatus]   = useState<SyncJob | null>(null)
   const [syncError, setSyncError]         = useState<string | null>(null)
+  const [ssEnriching, setSsEnriching]     = useState(false)
+  const [ssEnrichResult, setSsEnrichResult] = useState<{ enriched: number; addresses: number } | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const bmPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Buyer cancellation check state
   type CancelFlaggedOrder = { id: string; amazonOrderId: string; olmNumber: number | null; buyerCancelReason: string | null; workflowStatus: string }
@@ -3121,6 +3491,9 @@ export default function UnshippedOrders() {
   const [cancelFlagged, setCancelFlagged]       = useState<CancelFlaggedOrder[] | null>(null)
   const [cancelCheckedCount, setCancelCheckedCount] = useState<number | null>(null)
   const [cancelCheckError, setCancelCheckError] = useState<string | null>(null)
+  const [cancelProgress, setCancelProgress]     = useState<string | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [cancelDebug, setCancelDebug]           = useState<any>(null)
 
   const [ssAccount, setSSAccount]         = useState<SSAccount | null>(null)
   const [showConnectSS, setShowConnectSS] = useState(false)
@@ -3161,7 +3534,7 @@ export default function UnshippedOrders() {
   const [showPickList, setShowPickList]           = useState(false)
 
   // Tab counts
-  const [tabCounts, setTabCounts] = useState<{ pending: number; unshipped: number; awaiting: number } | null>(null)
+  const [tabCounts, setTabCounts] = useState<{ pending: number; unshipped: number; awaiting: number; dueOutToday: number } | null>(null)
 
   // Label batch state
   const [activeBatchId,    setActiveBatchId]    = useState<string | null>(null)
@@ -3169,6 +3542,24 @@ export default function UnshippedOrders() {
   const [batchIsTest,      setBatchIsTest]      = useState(false)
   const [batchCreateErr,   setBatchCreateErr]   = useState<string | null>(null)
   const [showBatchHistory, setShowBatchHistory] = useState(false)
+
+  // Delete all orders state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deletingAll, setDeletingAll]             = useState(false)
+
+  // BackMarket confirm order state
+  const [confirmingBmId, setConfirmingBmId] = useState<string | null>(null)
+
+  // BackMarket serialize modal
+  const [bmSerializeOrder, setBmSerializeOrder] = useState<Order | null>(null)
+  const [bmShippingId, setBmShippingId]         = useState<string | null>(null)
+  const [bmShipError, setBmShipError]           = useState<string | null>(null)
+
+  // Ship-by-item scan state
+  const [scanInput, setScanInput]               = useState('')
+  const [scanLoading, setScanLoading]           = useState(false)
+  const [scanError, setScanError]               = useState<string | null>(null)
+  const [shipByItemData, setShipByItemData]     = useState<{ order: Order; serialNumber: string; serialSku: string } | null>(null)
 
   // Bulk process state
   const [bulkProcessing,      setBulkProcessing]      = useState(false)
@@ -3289,36 +3680,125 @@ export default function UnshippedOrders() {
     if (!selectedAccountId) return
     // Cancel any existing poll (including stale reconnects) before starting fresh
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
-    setSyncing(true); setSyncStatus(null); setSyncError(null)
+    if (bmPollRef.current) { clearInterval(bmPollRef.current); bmPollRef.current = null }
+    setSyncing(true); setSyncStatus(null); setBmSyncStatus(null); setSyncError(null)
     try {
-      const { jobId } = await apiPost<{ jobId: string }>('/api/orders/sync', { accountId: selectedAccountId })
-      pollRef.current = setInterval(async () => {
-        try {
-          const res = await fetch(`/api/orders/sync?jobId=${jobId}`)
-          if (!res.ok) return
-          const job: SyncJob = await res.json()
-          setSyncStatus(job)
-          if (job.status === 'COMPLETED' || job.status === 'FAILED') {
-            clearInterval(pollRef.current!); pollRef.current = null; setSyncing(false)
-            if (job.status === 'FAILED') setSyncError(job.errorMessage ?? 'Sync failed')
-            else setFetchKey(k => k + 1)
+      const { jobId, bmJobId } = await apiPost<{ jobId?: string; bmJobId?: string }>('/api/orders/sync', { accountId: selectedAccountId, source: syncSource })
+
+      // Track completion of both jobs
+      let amazonDone = !jobId   // if no Amazon job, consider it done
+      let bmDone = !bmJobId     // if no BM job, consider it done
+
+      const checkAllDone = () => {
+        if (amazonDone && bmDone) {
+          setSyncing(false)
+          setFetchKey(k => k + 1)
+          // Auto-trigger ShipStation enrichment after sync completes
+          if (selectedAccountId && (syncSource === 'amazon' || syncSource === 'all')) {
+            setSsEnriching(true)
+            setSsEnrichResult(null)
+            fetch('/api/orders/enrich-shipstation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ accountId: selectedAccountId }),
+            })
+              .then(r => r.json())
+              .then((data: { enriched?: number; addresses?: number; error?: string }) => {
+                if (data.enriched != null) {
+                  setSsEnrichResult({ enriched: data.enriched, addresses: data.addresses ?? 0 })
+                  if (data.enriched > 0 || (data.addresses ?? 0) > 0) setFetchKey(k => k + 1)
+                }
+              })
+              .catch(() => {})
+              .finally(() => setSsEnriching(false))
           }
-        } catch { /* transient */ }
-      }, 5_000)
+        }
+      }
+
+      // Poll Amazon sync job if started
+      if (jobId) {
+        pollRef.current = setInterval(async () => {
+          try {
+            const res = await fetch(`/api/orders/sync?jobId=${jobId}`)
+            if (!res.ok) return
+            const job: SyncJob = await res.json()
+            setSyncStatus(job)
+            if (job.status === 'COMPLETED' || job.status === 'FAILED') {
+              clearInterval(pollRef.current!); pollRef.current = null
+              if (job.status === 'FAILED') setSyncError(job.errorMessage ?? 'Amazon sync failed')
+              amazonDone = true
+              checkAllDone()
+            }
+          } catch { /* transient */ }
+        }, 5_000)
+      }
+
+      // Poll BackMarket sync job if started
+      if (bmJobId) {
+        bmPollRef.current = setInterval(async () => {
+          try {
+            const res = await fetch(`/api/orders/sync?jobId=${bmJobId}`)
+            if (!res.ok) return
+            const job: SyncJob = await res.json()
+            setBmSyncStatus(job)
+            if (job.status === 'COMPLETED' || job.status === 'FAILED') {
+              clearInterval(bmPollRef.current!); bmPollRef.current = null
+              if (job.status === 'FAILED') setSyncError(prev => prev ? `${prev}; BM sync failed` : (job.errorMessage ?? 'BM sync failed'))
+              bmDone = true
+              checkAllDone()
+            }
+          } catch { /* transient */ }
+        }, 5_000)
+      }
+
+      // If neither job was started (e.g. backmarket-only but no BM credential)
+      if (!jobId && !bmJobId) {
+        setSyncing(false)
+        setSyncError('No sync sources available')
+      }
     } catch (err) { setSyncError(err instanceof Error ? err.message : String(err)); setSyncing(false) }
   }
 
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
+  useEffect(() => () => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    if (bmPollRef.current) clearInterval(bmPollRef.current)
+  }, [])
 
   async function resetSync() {
     if (!selectedAccountId) return
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    if (bmPollRef.current) { clearInterval(bmPollRef.current); bmPollRef.current = null }
     try {
       await fetch(`/api/orders/sync?accountId=${encodeURIComponent(selectedAccountId)}`, { method: 'DELETE' })
     } catch { /* ignore */ }
     setSyncing(false)
     setSyncStatus(null)
+    setBmSyncStatus(null)
     setSyncError(null)
+    setSsEnriching(false)
+    setSsEnrichResult(null)
+  }
+
+  async function deleteAllOrders() {
+    setDeletingAll(true)
+    try {
+      const res = await fetch('/api/orders', { method: 'DELETE' })
+      if (!res.ok) throw new Error('Delete failed')
+      setFetchKey(k => k + 1)
+    } catch { /* ignore */ }
+    finally { setDeletingAll(false); setShowDeleteConfirm(false) }
+  }
+
+  async function confirmBackMarketOrder(order: Order) {
+    setConfirmingBmId(order.id)
+    try {
+      const res = await fetch(`/api/orders/${order.id}/confirm-backmarket`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { alert(`Confirm failed: ${data.error}`); return }
+      // Update local state to reflect acceptance
+      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, orderStatus: 'Accepted' } : o))
+    } catch (e) { alert(e instanceof Error ? e.message : 'Confirm failed') }
+    finally { setConfirmingBmId(null) }
   }
 
   function handleSort(field: string) {
@@ -3331,23 +3811,121 @@ export default function UnshippedOrders() {
     setPage(1)
   }
 
+  async function handleScanSerial(sn: string) {
+    if (!sn.trim() || !selectedAccountId) return
+    setScanLoading(true); setScanError(null)
+    try {
+      // 1. Look up the serial
+      const lookupRes = await fetch(`/api/serials/lookup?sn=${encodeURIComponent(sn.trim())}`)
+      if (!lookupRes.ok) {
+        const j = await lookupRes.json().catch(() => ({}))
+        throw new Error((j as { error?: string }).error ?? `Serial lookup failed (${lookupRes.status})`)
+      }
+      const serial: { status: string; product?: { sku: string } } = await lookupRes.json()
+      if (serial.status !== 'IN_STOCK') throw new Error(`Serial "${sn.trim()}" is not in stock (status: ${serial.status})`)
+      if (!serial.product?.sku) throw new Error(`Serial "${sn.trim()}" has no associated SKU`)
+
+      // 2. Find matching order
+      const matchRes = await fetch(`/api/orders/match-by-sku?sku=${encodeURIComponent(serial.product.sku)}&accountId=${encodeURIComponent(selectedAccountId)}`)
+      if (!matchRes.ok) {
+        const j = await matchRes.json().catch(() => ({}))
+        throw new Error((j as { error?: string }).error ?? `Order match failed (${matchRes.status})`)
+      }
+      const { match } = await matchRes.json()
+      if (!match) throw new Error(`No awaiting order found for SKU "${serial.product.sku}"`)
+
+      // 3. Open modal
+      setShipByItemData({ order: match, serialNumber: sn.trim(), serialSku: serial.product.sku })
+      setScanInput('')
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : 'Scan failed')
+    } finally {
+      setScanLoading(false)
+    }
+  }
 
   async function checkCancellations() {
     if (!selectedAccountId) return
-    setCheckingCancels(true); setCancelCheckError(null); setCancelFlagged(null); setCancelCheckedCount(null)
+    setCheckingCancels(true); setCancelCheckError(null); setCancelFlagged(null); setCancelCheckedCount(null); setCancelProgress(null)
     try {
-      const res = await apiPost<{ checked: number; flagged: CancelFlaggedOrder[] }>(
-        '/api/orders/check-cancellations',
-        { accountId: selectedAccountId },
-      )
-      setCancelFlagged(res.flagged)
-      setCancelCheckedCount(res.checked)
-      // Refresh the grid so row highlights appear immediately
-      setFetchKey(k => k + 1)
+      const resp = await fetch('/api/orders/check-cancellations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: selectedAccountId }),
+      })
+
+      // If the response is JSON (0 orders case), handle directly
+      const ct = resp.headers.get('content-type') ?? ''
+      if (ct.includes('application/json')) {
+        const data = await resp.json()
+        if (!resp.ok) throw new Error(data.error ?? 'Check failed')
+        setCancelFlagged(data.flagged ?? [])
+        setCancelCheckedCount(data.checked ?? 0)
+        return
+      }
+
+      // SSE stream
+      const reader = resp.body?.getReader()
+      if (!reader) throw new Error('No response stream')
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        // Parse SSE lines
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const evt = JSON.parse(line.slice(6))
+            if (evt.type === 'debug') {
+              console.log('[check-cancellations] API debug:', evt)
+            } else if (evt.type === 'progress') {
+              setCancelProgress(`Checking ${evt.checked} of ${evt.total}…`)
+            } else if (evt.type === 'done') {
+              setCancelFlagged(evt.flagged ?? [])
+              setCancelCheckedCount(evt.checked ?? 0)
+              if (evt._debug) setCancelDebug(evt._debug)
+              setFetchKey(k => k + 1)
+            } else if (evt.type === 'error') {
+              throw new Error(evt.error)
+            }
+          } catch (parseErr) {
+            if (parseErr instanceof Error && parseErr.message !== 'Check failed') {
+              // Only rethrow if it's our explicit error, not a JSON parse issue
+              if (line.slice(6).includes('"type":"error"')) throw parseErr
+            }
+          }
+        }
+      }
     } catch (err) {
       setCancelCheckError(err instanceof Error ? err.message : 'Check failed')
     } finally {
       setCheckingCancels(false)
+      setCancelProgress(null)
+    }
+  }
+
+  async function checkShipStationSync() {
+    if (!selectedAccountId) return
+    setSsEnriching(true); setSsEnrichResult(null)
+    try {
+      const res = await apiPost<{ enriched: number; addresses: number; total: number; checked: number; error?: string }>(
+        '/api/orders/enrich-shipstation',
+        { accountId: selectedAccountId },
+      )
+      if (res.error) throw new Error(res.error)
+      setSsEnrichResult({ enriched: res.enriched, addresses: res.addresses })
+      // Refresh grid so SS badges appear immediately
+      if (res.enriched > 0 || res.addresses > 0) setFetchKey(k => k + 1)
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'SS check failed')
+    } finally {
+      setSsEnriching(false)
     }
   }
 
@@ -3453,17 +4031,32 @@ export default function UnshippedOrders() {
   }
 
   async function handleVoidLabel(order: Order) {
-    if (!confirm(`Void the shipping label for order ${order.amazonOrderId}?\n\nThe order will move back to Unshipped so you can create a new label.`)) return
+    const isShipped = order.workflowStatus === 'SHIPPED'
+    const msg = isShipped
+      ? `Void the label for shipped order ${order.amazonOrderId}?\n\nThis will undo serial assignments, restore serials to IN_STOCK, and move the order back to Unshipped.`
+      : `Void the shipping label for order ${order.amazonOrderId}?\n\nThe order will move back to Unshipped so you can create a new label.`
+    if (!confirm(msg)) return
     setVoidingId(order.id)
     try {
       const res = await fetch(`/api/orders/${order.id}/void-label`, { method: 'POST' })
       const data = await res.json() as { error?: string }
       if (!res.ok) { alert(`Void failed: ${data.error}`); return }
-      load()
+      setFetchKey(k => k + 1)
       setVoidSuccessMsg(`Label voided for order ${order.amazonOrderId} — order moved back to Unshipped.`)
       setTimeout(() => setVoidSuccessMsg(null), 5000)
     } catch { alert('Failed to void label') }
     finally { setVoidingId(null) }
+  }
+
+  async function handleBmShip(order: Order) {
+    setBmShippingId(order.id); setBmShipError(null)
+    try {
+      const res = await fetch(`/api/orders/${order.id}/bm-ship`, { method: 'POST' })
+      const data = await res.json() as { shipped?: boolean; error?: string }
+      if (!res.ok) { setBmShipError(data.error ?? 'Ship failed'); return }
+      setFetchKey(k => k + 1) // refresh list — order will move to shipped tab
+    } catch { setBmShipError('Failed to ship on BackMarket') }
+    finally { setBmShippingId(null) }
   }
 
   async function handleCreateBatch() {
@@ -3711,10 +4304,20 @@ export default function UnshippedOrders() {
   }
 
   function syncStatusText() {
-    if (!syncStatus) return 'Syncing orders…'
-    if (syncStatus.status === 'RUNNING') return `Syncing… (${syncStatus.totalSynced} imported)`
-    if (syncStatus.status === 'COMPLETED') return `Synced ${syncStatus.totalSynced} order${syncStatus.totalSynced !== 1 ? 's' : ''}`
-    return 'Syncing…'
+    const parts: string[] = []
+    if (syncStatus) {
+      if (syncStatus.status === 'RUNNING') parts.push(`Amazon: ${syncStatus.totalSynced} imported`)
+      else if (syncStatus.status === 'COMPLETED') parts.push(`Amazon: ${syncStatus.totalSynced}`)
+    }
+    if (bmSyncStatus) {
+      if (bmSyncStatus.status === 'RUNNING') parts.push(`BM: ${bmSyncStatus.totalSynced} imported`)
+      else if (bmSyncStatus.status === 'COMPLETED') parts.push(`BM: ${bmSyncStatus.totalSynced}`)
+    }
+    if (ssEnriching) parts.push('SS enrichment…')
+    else if (ssEnrichResult) parts.push(`SS: ${ssEnrichResult.enriched} linked`)
+    if (parts.length === 0) return 'Syncing orders…'
+    const allDone = (!syncStatus || syncStatus.status === 'COMPLETED') && (!bmSyncStatus || bmSyncStatus.status === 'COMPLETED') && !ssEnriching
+    return allDone ? `Synced ${parts.join(' | ')}` : `Syncing… (${parts.join(' | ')})`
   }
 
   function orderTotal(order: Order) {
@@ -3746,13 +4349,8 @@ export default function UnshippedOrders() {
     return Math.round((new Date(sy, sm - 1, sd).getTime() - new Date(ty, tm - 1, td).getTime()) / 86400000)
   }
 
-  // Orders due out today or overdue (pending/unshipped only)
-  const todayPst = pstDateStr(new Date().toISOString())
-  const dueCount = orders.filter(o =>
-    o.latestShipDate &&
-    pstDateStr(o.latestShipDate) <= todayPst &&
-    o.workflowStatus !== 'COMPLETED' && o.workflowStatus !== 'CANCELLED'
-  ).length
+  // Orders due out today or overdue (from server — counts ALL unshipped orders, not just current page)
+  const dueCount = tabCounts?.dueOutToday ?? 0
 
   // Merge Amazon + wholesale orders, sorted client-side
   const displayOrders = useMemo(() => {
@@ -3804,8 +4402,35 @@ export default function UnshippedOrders() {
         />
       )}
       {verifyOrder  && <VerifyOrderModal  order={verifyOrder}  onClose={() => setVerifyOrder(null)}  onVerified={() => { setVerifyOrder(null); setActiveTab('shipped') }} />}
+      {shipByItemData && (
+        <ShipByItemModal
+          order={shipByItemData.order}
+          serialNumber={shipByItemData.serialNumber}
+          serialSku={shipByItemData.serialSku}
+          onClose={() => setShipByItemData(null)}
+          onComplete={() => { setShipByItemData(null); setFetchKey(k => k + 1) }}
+        />
+      )}
       {wholesaleProcessOrder && <WholesaleProcessModal order={wholesaleProcessOrder} onClose={() => setWholesaleProcessOrder(null)} onProcessed={() => { setWholesaleProcessOrder(null); setFetchKey(k => k + 1) }} />}
       {wholesaleShipOrder && <WholesaleShipModal order={wholesaleShipOrder} onClose={() => setWholesaleShipOrder(null)} onShipped={() => { setWholesaleShipOrder(null); setFetchKey(k => k + 1) }} />}
+      {bmSerializeOrder && (
+        <BmSerializeModal
+          order={bmSerializeOrder}
+          onClose={() => setBmSerializeOrder(null)}
+          onSaved={(updatedItems) => {
+            setOrders(prev => prev.map(o => {
+              if (o.id !== bmSerializeOrder.id) return o
+              return {
+                ...o,
+                items: o.items.map(i => {
+                  const match = updatedItems.find(u => u.orderItemId === i.id)
+                  return match ? { ...i, bmSerials: match.serials } : i
+                }),
+              }
+            }))
+          }}
+        />
+      )}
       {showPickList && (
         <PickListModal
           orderIds={Array.from(selectedOrderIds)}
@@ -3910,10 +4535,20 @@ export default function UnshippedOrders() {
                 </div>
               </div>
             ) : (
-              <span>No buyer cancellation requests found ({cancelCheckedCount} orders checked)</span>
+              <div>
+                <span>No buyer cancellation requests found ({cancelCheckedCount} orders checked)</span>
+                {cancelDebug && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-[10px] text-green-600 underline">Debug: API response shape</summary>
+                    <pre className="mt-1 text-[10px] bg-white/60 rounded p-1.5 whitespace-pre-wrap break-all max-h-32 overflow-y-auto">
+                      {JSON.stringify(cancelDebug, null, 2)}
+                    </pre>
+                  </details>
+                )}
+              </div>
             )}
           </div>
-          <button onClick={() => { setCancelFlagged(null); setCancelCheckedCount(null) }} className="shrink-0 mt-0.5">
+          <button onClick={() => { setCancelFlagged(null); setCancelCheckedCount(null); setCancelDebug(null) }} className="shrink-0 mt-0.5">
             <X size={13} />
           </button>
         </div>
@@ -3993,21 +4628,95 @@ export default function UnshippedOrders() {
         </div>
       )}
 
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b bg-gray-50">
-        <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)} disabled={accounts.length === 0}
-          className="h-8 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue disabled:opacity-50">
-          {accounts.length === 0 && <option value="">No accounts</option>}
-          {accounts.map(a => <option key={a.id} value={a.id}>{a.marketplaceName} — {a.sellerId}</option>)}
-        </select>
+      {/* ── Toolbar Row 1: Navigation & Search ─────────────────────────────── */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b bg-gray-50">
+        {/* Search */}
         <div className="relative">
           <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           <input type="text" placeholder="Order ID or SKU…" value={search} onChange={e => setSearch(e.target.value)}
             className="h-8 pl-7 pr-2 rounded border border-gray-300 text-xs focus:outline-none focus:ring-1 focus:ring-amazon-blue w-48" />
         </div>
+
+        {/* Scan-to-ship (awaiting tab only) */}
+        {activeTab === 'awaiting' && (
+          <div className="relative">
+            <ScanLine size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-purple-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Scan serial to ship…"
+              value={scanInput}
+              onChange={e => setScanInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleScanSerial(scanInput) }}
+              disabled={scanLoading || !selectedAccountId}
+              className="h-8 pl-7 pr-2 rounded border border-purple-300 bg-purple-50 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-purple-500 w-52 placeholder:text-purple-300 disabled:opacity-50"
+            />
+            {scanLoading && <RefreshCcw size={11} className="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-purple-400" />}
+          </div>
+        )}
+
         <div className="flex-1" />
+
+        {/* Sync status text */}
+        {(syncing || ssEnriching) && <span className="text-xs text-gray-500 flex items-center gap-1"><RefreshCcw size={12} className="animate-spin" />{syncStatusText()}</span>}
+        {!syncing && !ssEnriching && syncStatus?.status === 'COMPLETED' && <span className="text-xs text-green-600">{syncStatusText()}</span>}
+
+        {/* Sync & data controls */}
+        <div className="flex items-center gap-1.5">
+          <button onClick={checkCancellations} disabled={checkingCancels || !selectedAccountId}
+            className={clsx('flex items-center gap-1.5 h-8 px-2.5 rounded text-xs font-medium transition-colors',
+              checkingCancels || !selectedAccountId
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : cancelFlagged && cancelFlagged.length > 0
+                  ? 'bg-amber-500 text-white hover:bg-amber-600'
+                  : 'bg-white border border-gray-300 text-gray-700 hover:border-amber-400 hover:text-amber-700')}>
+            {checkingCancels
+              ? <><RefreshCcw size={12} className="animate-spin" /> {cancelProgress ?? 'Checking…'}</>
+              : <><AlertTriangle size={12} /> Cancels{cancelFlagged && cancelFlagged.length > 0 ? ` (${cancelFlagged.length})` : ''}</>
+            }
+          </button>
+          <button onClick={checkShipStationSync} disabled={ssEnriching || !selectedAccountId || !ssAccount}
+            className={clsx('flex items-center gap-1.5 h-8 px-2.5 rounded text-xs font-medium transition-colors',
+              ssEnriching || !selectedAccountId || !ssAccount
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : ssEnrichResult && ssEnrichResult.enriched > 0
+                  ? 'bg-blue-500 text-white hover:bg-blue-600'
+                  : 'bg-white border border-gray-300 text-gray-700 hover:border-blue-400 hover:text-blue-700')}>
+            {ssEnriching
+              ? <><RefreshCcw size={12} className="animate-spin" /> SS…</>
+              : <><Link2 size={12} /> SS Sync{ssEnrichResult ? ` (${ssEnrichResult.enriched})` : ''}</>
+            }
+          </button>
+          <div className="flex items-center">
+            <select
+              value={syncSource}
+              onChange={e => setSyncSource(e.target.value as 'all' | 'amazon' | 'backmarket')}
+              disabled={syncing}
+              className="h-8 rounded-l border border-r-0 border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+            >
+              <option value="all">All</option>
+              <option value="amazon">Amazon</option>
+              <option value="backmarket">Back Market</option>
+            </select>
+            <button onClick={startSync} disabled={syncing || !selectedAccountId}
+              className={clsx('flex items-center gap-1.5 h-8 px-3 rounded-r text-xs font-medium transition-colors',
+                syncing || !selectedAccountId ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-amazon-blue text-white hover:bg-blue-700')}>
+              <Package size={12} />{syncing ? 'Syncing…' : 'Sync'}
+            </button>
+          </div>
+          {syncing && (
+            <button onClick={resetSync} title="Reset stuck sync job"
+              className="flex items-center gap-1 h-8 px-2 rounded text-xs font-medium bg-white border border-red-300 text-red-600 hover:bg-red-50">
+              <XCircle size={12} /> Reset
+            </button>
+          )}
+        </div>
+
+        {/* Divider */}
+        <div className="w-px h-6 bg-gray-300" />
+
+        {/* ShipStation status */}
         {ssAccount ? (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <span className="flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded">
               <CheckCircle2 size={11} /> {ssAccount.name}
             </span>
@@ -4015,123 +4724,152 @@ export default function UnshippedOrders() {
           </div>
         ) : (
           <button onClick={() => setShowConnectSS(true)} className="flex items-center gap-1 h-8 px-2.5 rounded border border-dashed border-gray-300 text-xs text-gray-600 hover:border-amazon-blue hover:text-amazon-blue transition-colors">
-            <Link2 size={12} /> Connect ShipStation
-          </button>
-        )}
-        {syncing && <span className="text-xs text-gray-500 flex items-center gap-1"><RefreshCcw size={12} className="animate-spin" />{syncStatusText()}</span>}
-        {!syncing && syncStatus?.status === 'COMPLETED' && <span className="text-xs text-green-600">{syncStatusText()}</span>}
-        {/* Preset controls */}
-        {presets.length > 0 && (
-          <select value={selectedPresetId} onChange={e => setSelectedPresetId(e.target.value)}
-            className="h-8 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue max-w-[180px]">
-            <option value="">— Select preset —</option>
-            {presets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        )}
-        <button onClick={applyPreset}
-          disabled={applyingPreset || selectedOrderIds.size === 0 || !selectedPresetId || !selectedAccountId}
-          className={clsx('flex items-center gap-1.5 h-8 px-3 rounded text-xs font-medium transition-colors',
-            applyingPreset || selectedOrderIds.size === 0 || !selectedPresetId || !selectedAccountId
-              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              : 'bg-indigo-600 text-white hover:bg-indigo-700')}>
-          {applyingPreset
-            ? <><RefreshCcw size={12} className="animate-spin" /> Rating {ratingOrderIds.size > 0 ? `${ratingOrderIds.size} left…` : '…'}</>
-            : <><Truck size={12} /> Apply to {selectedOrderIds.size > 0 ? selectedOrderIds.size : ''} Selected</>
-          }
-        </button>
-        {selectedOrderIds.size > 0 && (
-          <button onClick={() => setShowPickList(true)}
-            className="flex items-center gap-1.5 h-8 px-3 rounded border border-gray-300 text-xs text-gray-600 hover:border-green-500 hover:text-green-700 transition-colors">
-            <FileText size={12} /> Pick List ({selectedOrderIds.size})
-          </button>
-        )}
-        <button onClick={() => setShowPresetModal(true)}
-          className="flex items-center gap-1 h-8 px-2.5 rounded border border-gray-300 text-xs text-gray-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
-          <Settings size={12} /> Presets
-        </button>
-        {/* Package preset controls */}
-        {packagePresets.length > 0 && (
-          <select value={selectedPackagePresetId} onChange={e => setSelectedPackagePresetId(e.target.value)}
-            className="h-8 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 max-w-[180px]">
-            <option value="">— Package Preset —</option>
-            {packagePresets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        )}
-        <button onClick={applyPackagePreset}
-          disabled={applyingPackagePreset || selectedOrderIds.size === 0 || !selectedPackagePresetId || !selectedAccountId}
-          className={clsx('flex items-center gap-1.5 h-8 px-3 rounded text-xs font-medium transition-colors',
-            applyingPackagePreset || selectedOrderIds.size === 0 || !selectedPackagePresetId || !selectedAccountId
-              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              : 'bg-emerald-600 text-white hover:bg-emerald-700')}>
-          {applyingPackagePreset
-            ? <><RefreshCcw size={12} className="animate-spin" /> Pricing {pkgRatingOrderIds.size > 0 ? `${pkgRatingOrderIds.size} left…` : '…'}</>
-            : <><Truck size={12} /> Rate Shop {selectedOrderIds.size > 0 ? selectedOrderIds.size : ''} Selected</>
-          }
-        </button>
-        <button onClick={() => setShowPackagePresetModal(true)}
-          className="flex items-center gap-1 h-8 px-2.5 rounded border border-gray-300 text-xs text-gray-600 hover:border-emerald-500 hover:text-emerald-700 transition-colors">
-          <Settings size={12} /> Pkg Presets
-        </button>
-        {activeTab === 'pending' && selectedOrderIds.size > 0 && (
-          <button
-            onClick={handleBulkProcess}
-            disabled={bulkProcessing}
-            className={clsx(
-              'flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium transition-colors',
-              bulkProcessing
-                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                : 'bg-amazon-blue text-white hover:bg-blue-700',
-            )}
-          >
-            {bulkProcessing
-              ? <><RefreshCcw size={12} className="animate-spin" /> Loading…</>
-              : <><ClipboardCheck size={12} /> Process Selected ({selectedOrderIds.size})</>
-            }
-          </button>
-        )}
-        {activeTab === 'unshipped' && batchEligible.length > 0 && (
-          <button
-            onClick={() => { setBatchCreateErr(null); setShowBatchConfirm(true) }}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition-colors"
-          >
-            <Tag size={13} />
-            Create Label Batch ({batchEligible.length})
-          </button>
-        )}
-        <button
-          onClick={() => setShowBatchHistory(true)}
-          className="flex items-center gap-1 h-8 px-2.5 rounded border border-gray-300 text-xs text-gray-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors"
-          title="View label batch history"
-        >
-          <History size={12} /> Batches
-        </button>
-        <button onClick={checkCancellations} disabled={checkingCancels || !selectedAccountId}
-          className={clsx('flex items-center gap-1.5 h-8 px-3 rounded text-xs font-medium transition-colors',
-            checkingCancels || !selectedAccountId
-              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              : cancelFlagged && cancelFlagged.length > 0
-                ? 'bg-amber-500 text-white hover:bg-amber-600'
-                : 'bg-white border border-gray-300 text-gray-700 hover:border-amber-400 hover:text-amber-700')}>
-          {checkingCancels
-            ? <><RefreshCcw size={12} className="animate-spin" /> Checking…</>
-            : <><AlertTriangle size={12} /> Check Cancellations{cancelFlagged && cancelFlagged.length > 0 ? ` (${cancelFlagged.length})` : ''}</>
-          }
-        </button>
-        <button onClick={startSync} disabled={syncing || !selectedAccountId}
-          className={clsx('flex items-center gap-1.5 h-8 px-3 rounded text-xs font-medium transition-colors',
-            syncing || !selectedAccountId ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-amazon-blue text-white hover:bg-blue-700')}>
-          <Package size={12} />{syncing ? 'Syncing…' : 'Sync Orders'}
-        </button>
-        {syncing && (
-          <button
-            onClick={resetSync}
-            title="Reset stuck sync job"
-            className="flex items-center gap-1.5 h-8 px-3 rounded text-xs font-medium transition-colors bg-white border border-red-300 text-red-600 hover:bg-red-50"
-          >
-            <XCircle size={12} /> Reset Sync
+            <Link2 size={12} /> Connect SS
           </button>
         )}
       </div>
+
+      {/* ── Toolbar Row 2: Tab-Contextual Actions ────────────────────────────── */}
+      {(selectedOrderIds.size > 0 || activeTab === 'unshipped' || activeTab === 'pending') && (
+        <div className="flex items-center gap-2 px-4 py-1.5 border-b bg-white">
+          {/* Shipping preset group (pending & unshipped) */}
+          {(activeTab === 'pending' || activeTab === 'unshipped') && (
+            <div className="flex items-center gap-1.5 pr-3 border-r border-gray-200 mr-1">
+              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Shipping</span>
+              {presets.length > 0 && (
+                <select value={selectedPresetId} onChange={e => setSelectedPresetId(e.target.value)}
+                  className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue max-w-[160px]">
+                  <option value="">— Preset —</option>
+                  {presets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              )}
+              <button onClick={applyPreset}
+                disabled={applyingPreset || selectedOrderIds.size === 0 || !selectedPresetId || !selectedAccountId}
+                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
+                  applyingPreset || selectedOrderIds.size === 0 || !selectedPresetId || !selectedAccountId
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700')}>
+                {applyingPreset
+                  ? <><RefreshCcw size={11} className="animate-spin" /> {ratingOrderIds.size > 0 ? `${ratingOrderIds.size} left` : 'Rating…'}</>
+                  : <><Truck size={11} /> Apply{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>
+                }
+              </button>
+              <button onClick={() => setShowPresetModal(true)} title="Manage shipping presets"
+                className="h-7 w-7 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:border-indigo-400 hover:text-indigo-600 transition-colors">
+                <Settings size={11} />
+              </button>
+            </div>
+          )}
+
+          {/* Package preset group (pending & unshipped) */}
+          {(activeTab === 'pending' || activeTab === 'unshipped') && (
+            <div className="flex items-center gap-1.5 pr-3 border-r border-gray-200 mr-1">
+              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Package</span>
+              {packagePresets.length > 0 && (
+                <select value={selectedPackagePresetId} onChange={e => setSelectedPackagePresetId(e.target.value)}
+                  className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 max-w-[160px]">
+                  <option value="">— Preset —</option>
+                  {packagePresets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              )}
+              <button onClick={applyPackagePreset}
+                disabled={applyingPackagePreset || selectedOrderIds.size === 0 || !selectedPackagePresetId || !selectedAccountId}
+                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
+                  applyingPackagePreset || selectedOrderIds.size === 0 || !selectedPackagePresetId || !selectedAccountId
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700')}>
+                {applyingPackagePreset
+                  ? <><RefreshCcw size={11} className="animate-spin" /> {pkgRatingOrderIds.size > 0 ? `${pkgRatingOrderIds.size} left` : 'Pricing…'}</>
+                  : <><Truck size={11} /> Rate Shop{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>
+                }
+              </button>
+              <button onClick={() => setShowPackagePresetModal(true)} title="Manage package presets"
+                className="h-7 w-7 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:border-emerald-500 hover:text-emerald-600 transition-colors">
+                <Settings size={11} />
+              </button>
+            </div>
+          )}
+
+          {/* Bulk actions */}
+          <div className="flex items-center gap-1.5">
+            {/* Bulk process (pending tab) */}
+            {activeTab === 'pending' && selectedOrderIds.size > 0 && (
+              <button
+                onClick={handleBulkProcess}
+                disabled={bulkProcessing}
+                className={clsx(
+                  'flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
+                  bulkProcessing
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-amazon-blue text-white hover:bg-blue-700',
+                )}
+              >
+                {bulkProcessing
+                  ? <><RefreshCcw size={11} className="animate-spin" /> Loading…</>
+                  : <><ClipboardCheck size={11} /> Process ({selectedOrderIds.size})</>
+                }
+              </button>
+            )}
+
+            {/* Create label batch (unshipped tab) */}
+            {activeTab === 'unshipped' && batchEligible.length > 0 && (
+              <button
+                onClick={() => { setBatchCreateErr(null); setShowBatchConfirm(true) }}
+                className="flex items-center gap-1 h-7 px-2.5 rounded bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition-colors"
+              >
+                <Tag size={11} /> Label Batch ({batchEligible.length})
+              </button>
+            )}
+
+            {/* Pick list */}
+            {selectedOrderIds.size > 0 && (
+              <button onClick={() => setShowPickList(true)}
+                className="flex items-center gap-1 h-7 px-2.5 rounded border border-gray-300 text-xs text-gray-600 hover:border-green-500 hover:text-green-700 transition-colors">
+                <FileText size={11} /> Pick List ({selectedOrderIds.size})
+              </button>
+            )}
+
+            {/* Batch history */}
+            <button
+              onClick={() => setShowBatchHistory(true)}
+              className="flex items-center gap-1 h-7 px-2.5 rounded border border-gray-200 text-xs text-gray-500 hover:border-indigo-400 hover:text-indigo-700 transition-colors"
+              title="View label batch history"
+            >
+              <History size={11} /> Batches
+            </button>
+          </div>
+
+          <div className="flex-1" />
+
+          {/* Danger zone: delete all */}
+          {!showDeleteConfirm ? (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              title="Delete all orders from the database"
+              className="flex items-center gap-1 h-7 px-2 rounded border border-gray-200 text-[10px] text-gray-400 hover:border-red-400 hover:text-red-600 transition-colors"
+            >
+              <Trash2 size={10} /> Delete All
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5 bg-red-50 border border-red-300 rounded px-2.5 py-1">
+              <span className="text-xs text-red-700 font-medium">Delete all orders?</span>
+              <button
+                onClick={deleteAllOrders}
+                disabled={deletingAll}
+                className="h-6 px-2 rounded text-[10px] font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deletingAll ? 'Deleting…' : 'Yes, Delete'}
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="h-6 px-2 rounded text-[10px] font-medium bg-white border border-gray-300 text-gray-600 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className="flex border-b bg-white px-4 gap-0 shrink-0">
@@ -4170,6 +4908,14 @@ export default function UnshippedOrders() {
           <CheckCircle2 size={14} className="shrink-0 text-green-600" />
           <span className="flex-1">{voidSuccessMsg}</span>
           <button onClick={() => setVoidSuccessMsg(null)} className="text-green-600 hover:text-green-800"><X size={13} /></button>
+        </div>
+      )}
+
+      {scanError && (
+        <div className="mx-4 mb-2 flex items-center gap-2 rounded-md bg-purple-50 border border-purple-200 px-3 py-2 text-xs text-purple-800">
+          <AlertCircle size={14} className="shrink-0 text-purple-600" />
+          <span className="flex-1">{scanError}</span>
+          <button onClick={() => setScanError(null)} className="text-purple-600 hover:text-purple-800"><X size={13} /></button>
         </div>
       )}
 
@@ -4276,7 +5022,7 @@ export default function UnshippedOrders() {
               </th>
               {showActionCol && (
                 <th className="px-3 py-2.5 text-center font-semibold text-gray-100 whitespace-nowrap">
-                  {showProcessCol ? 'Actions' : showShipCol ? 'Ship' : showReinstateCol ? 'Reinstate' : showShippedPrintCol ? 'Label' : 'Verify'}
+                  {showProcessCol ? 'Actions' : showShipCol ? 'Ship' : showReinstateCol ? 'Reinstate' : showShippedPrintCol ? 'Actions' : 'Verify'}
                 </th>
               )}
             </tr>
@@ -4302,9 +5048,11 @@ export default function UnshippedOrders() {
                   'border-b border-gray-200 last:border-0 transition-colors align-middle',
                   hasCancelRequest
                     ? 'bg-amber-50 hover:bg-amber-100/60'
-                    : rowIdx % 2 === 0
-                      ? 'bg-white hover:bg-blue-50/50'
-                      : 'bg-gray-50 hover:bg-blue-50/50',
+                    : (order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null
+                      ? 'bg-yellow-50/70 hover:bg-yellow-100/50'
+                      : rowIdx % 2 === 0
+                        ? 'bg-white hover:bg-blue-50/50'
+                        : 'bg-gray-50 hover:bg-blue-50/50',
                 )}>
                   {/* Checkbox */}
                   <td className="px-3 py-1.5 text-center w-8">
@@ -4350,8 +5098,17 @@ export default function UnshippedOrders() {
                               }
                               <Eye size={10} className="text-gray-300 group-hover:text-amazon-blue transition-colors" />
                             </button>
-                            <AmazonSmileIcon />
+                            {order.orderSource === 'backmarket' ? <BackMarketBadge /> : <AmazonSmileIcon />}
                             {order.isPrime && <PrimeBadge />}
+                            {order.requiresTransparency && (
+                              <span
+                                title="Transparency code required"
+                                className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-teal-100 text-teal-800 border border-teal-300 px-1 py-px rounded"
+                              >
+                                <ShieldCheck size={8} /> T
+                              </span>
+                            )}
+                            {/* SS sync indicated by row tint — yellow = not synced */}
                             {order.isBuyerRequestedCancel && (
                               <span
                                 title={order.buyerCancelReason ? `Buyer cancel reason: ${order.buyerCancelReason}` : 'Buyer requested cancellation'}
@@ -4362,7 +5119,9 @@ export default function UnshippedOrders() {
                             )}
                           </div>
                           <a
-                            href={`https://sellercentral.amazon.com/orders-v3/order/${order.amazonOrderId}`}
+                            href={order.orderSource === 'backmarket'
+                              ? `https://www.backmarket.com/dashboard/sales/orders/${order.amazonOrderId}`
+                              : `https://sellercentral.amazon.com/orders-v3/order/${order.amazonOrderId}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="font-mono text-[10px] text-gray-400 hover:text-amazon-blue hover:underline"
@@ -4502,6 +5261,44 @@ export default function UnshippedOrders() {
                           className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-emerald-600 text-white hover:bg-emerald-700">
                           <Truck size={10} /> Ship
                         </button>
+                      ) : order.orderSource === 'backmarket' ? (
+                        <div className="flex items-center justify-center gap-1">
+                          {order.orderStatus === 'Unshipped' ? (
+                            <button
+                              onClick={() => confirmBackMarketOrder(order)}
+                              disabled={confirmingBmId === order.id}
+                              className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-[#05C35E] text-white hover:bg-[#04a84f] disabled:opacity-50"
+                            >
+                              {confirmingBmId === order.id
+                                ? <><RefreshCcw size={10} className="animate-spin" /> Confirming…</>
+                                : <><CheckCircle2 size={10} /> Confirm</>}
+                            </button>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-green-50 text-green-700 border border-green-200">
+                              <CheckCircle2 size={10} /> Accepted
+                            </span>
+                          )}
+                          {(() => {
+                            const allSerialized = order.items.every(i => (i.bmSerials?.length ?? 0) >= i.quantityOrdered)
+                            return (
+                              <button
+                                onClick={() => setBmSerializeOrder(order)}
+                                title={allSerialized ? 'All serials assigned' : 'Assign serial numbers'}
+                                className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium transition-colors',
+                                  allSerialized
+                                    ? 'bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100'
+                                    : 'bg-purple-600 text-white hover:bg-purple-700'
+                                )}
+                              >
+                                {allSerialized ? <><CheckCircle2 size={10} /> Serialized</> : <><ClipboardCheck size={10} /> Serialize</>}
+                              </button>
+                            )
+                          })()}
+                          <button onClick={() => handleUnprocess(order)} disabled={isUnprocessing} title="Unprocess — release inventory reservation"
+                            className="inline-flex items-center justify-center h-6 w-6 rounded text-[10px] text-gray-400 hover:text-amber-600 hover:bg-amber-50 disabled:opacity-40 transition-colors">
+                            {isUnprocessing ? <RefreshCcw size={10} className="animate-spin" /> : <RotateCcw size={10} />}
+                          </button>
+                        </div>
                       ) : (
                         <div className="flex items-center justify-center gap-1">
                           <button onClick={() => setLabelOrder(order)}
@@ -4566,18 +5363,36 @@ export default function UnshippedOrders() {
                   )}
                   {showShippedPrintCol && (
                     <td className="px-3 py-1.5 text-center whitespace-nowrap">
-                      {order.label && order.orderSource !== 'wholesale' ? (
+                      <div className="flex items-center justify-center gap-1">
+                        {order.label && order.orderSource !== 'wholesale' && (
+                          <button
+                            type="button"
+                            title="Print shipping label"
+                            onClick={() => handlePrintLabel(order.id)}
+                            className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                          >
+                            <Printer size={14} />
+                          </button>
+                        )}
                         <button
                           type="button"
-                          title="Print shipping label"
-                          onClick={() => handlePrintLabel(order.id)}
-                          className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                          title="Download invoice PDF"
+                          onClick={() => generateOrderInvoicePDF(order)}
+                          className="p-1.5 rounded hover:bg-blue-50 text-gray-500 hover:text-amazon-blue"
                         >
-                          <Printer size={14} />
+                          <FileText size={14} />
                         </button>
-                      ) : (
-                        <span className="text-gray-300">—</span>
-                      )}
+                        {order.label && order.orderSource !== 'wholesale' && (
+                          <button
+                            onClick={() => handleVoidLabel(order)}
+                            disabled={voidingId === order.id}
+                            title="Void shipping label"
+                            className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors"
+                          >
+                            {voidingId === order.id ? <RefreshCcw size={12} className="animate-spin" /> : <Ban size={14} />}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>

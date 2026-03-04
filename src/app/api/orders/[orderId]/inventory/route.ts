@@ -68,11 +68,11 @@ export async function GET(
     // Check if this sellerSku maps to a grade-specific SKU
     const msku = await prisma.productGradeMarketplaceSku.findFirst({
       where: { sellerSku: item.sellerSku },
-      include: { grade: true },
+      include: { grade: true, product: true },
     })
 
     const gradeId   = msku?.gradeId ?? null
-    const gradeName = msku?.grade.grade ?? null
+    const gradeName = msku?.grade?.grade ?? null
 
     // Try exact product match first, then fall back to grade's product
     let product = await prisma.product.findUnique({
@@ -89,25 +89,21 @@ export async function GET(
       },
     })
 
-    // If no exact match but we have a grade mapping, look up the product via the grade
+    // If no exact match but we have an MSKU mapping, look up the product
     if (!product && msku) {
-      const gradeRecord = await prisma.productGrade.findUnique({
-        where: { id: msku.gradeId },
+      product = await prisma.product.findUnique({
+        where: { id: msku.productId },
         include: {
-          product: {
-            include: {
-              inventoryItems: {
-                where: { qty: { gt: 0 }, gradeId: msku.gradeId },
-                include: { location: { include: { warehouse: true } }, grade: true },
-                orderBy: { qty: 'desc' },
-              },
+          inventoryItems: {
+            where: {
+              qty: { gt: 0 },
+              ...(gradeId ? { gradeId } : {}),
             },
+            include: { location: { include: { warehouse: true } }, grade: true },
+            orderBy: { qty: 'desc' },
           },
         },
       })
-      if (gradeRecord) {
-        product = gradeRecord.product as typeof product
-      }
     }
 
     const locations: InventoryLocation[] = (product?.inventoryItems ?? []).map(inv => ({

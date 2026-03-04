@@ -53,9 +53,14 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid reservation data' }, { status: 400 })
     }
     const gradeId = r.gradeId ?? null
-    const inv = await prisma.inventoryItem.findUnique({
-      where: { productId_locationId_gradeId: { productId: r.productId, locationId: r.locationId, gradeId } },
-    })
+    // Prisma's composite-unique rejects null, so handle null gradeId separately
+    const inv = gradeId
+      ? await prisma.inventoryItem.findUnique({
+          where: { productId_locationId_gradeId: { productId: r.productId, locationId: r.locationId, gradeId } },
+        })
+      : await prisma.inventoryItem.findFirst({
+          where: { productId: r.productId, locationId: r.locationId, gradeId: null },
+        })
     if (!inv || inv.qty < r.qtyReserved) {
       return NextResponse.json(
         { error: `Insufficient stock at selected location (available: ${inv?.qty ?? 0})` },
@@ -69,11 +74,22 @@ export async function POST(
     for (const r of reservations) {
       const gradeId = r.gradeId ?? null
 
-      // Deduct from inventory
-      await tx.inventoryItem.update({
-        where: { productId_locationId_gradeId: { productId: r.productId, locationId: r.locationId, gradeId } },
-        data: { qty: { decrement: r.qtyReserved } },
-      })
+      // Deduct from inventory — Prisma composite-unique rejects null
+      if (gradeId) {
+        await tx.inventoryItem.update({
+          where: { productId_locationId_gradeId: { productId: r.productId, locationId: r.locationId, gradeId } },
+          data: { qty: { decrement: r.qtyReserved } },
+        })
+      } else {
+        const inv = await tx.inventoryItem.findFirst({
+          where: { productId: r.productId, locationId: r.locationId, gradeId: null },
+        })
+        if (!inv) throw new Error(`Inventory item not found for product ${r.productId}`)
+        await tx.inventoryItem.update({
+          where: { id: inv.id },
+          data: { qty: { decrement: r.qtyReserved } },
+        })
+      }
 
       // Record the reservation
       await tx.salesOrderInventoryReservation.create({

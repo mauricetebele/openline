@@ -95,7 +95,7 @@ export interface SSLabelForOrderPayload {
 }
 
 export interface SSLabel {
-  shipmentId: number
+  shipmentId: string | number
   trackingNumber: string
   labelData: string        // base64 PDF
   labelResolution: string
@@ -227,7 +227,7 @@ export class ShipStationClient {
     this.auth     = 'Basic ' + Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')
   }
 
-  private async request<T>(method: string, path: string, body?: unknown, retries = 3): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, retries = 5): Promise<T> {
     const res = await fetch(`${BASE}${path}`, {
       method,
       headers: {
@@ -238,7 +238,10 @@ export class ShipStationClient {
       body: body ? JSON.stringify(body) : undefined,
     })
     if (res.status === 429 && retries > 0) {
-      const retryAfter = parseInt(res.headers.get('Retry-After') ?? '2', 10)
+      // ShipStation rate limit resets every 40-60s; Retry-After header gives seconds to wait
+      const retryAfterRaw = res.headers.get('Retry-After')
+      const retryAfter = retryAfterRaw ? Math.max(parseInt(retryAfterRaw, 10), 5) : 30
+      console.log(`[ShipStation] 429 rate limited — waiting ${retryAfter}s (retries left: ${retries - 1})`)
       await new Promise(r => setTimeout(r, retryAfter * 1000))
       return this.request(method, path, body, retries - 1)
     }
@@ -285,6 +288,35 @@ export class ShipStationClient {
       `/orders?orderNumber=${encodeURIComponent(orderNumber)}`,
     )
     return resp.orders?.[0] ?? null
+  }
+
+  /**
+   * List orders from ShipStation with pagination.
+   * Returns all orders matching the given date filter.
+   * ShipStation V1 allows 40 req/min — pageSize 500 minimizes calls.
+   */
+  async listOrders(opts?: { modifyDateStart?: string; pageSize?: number }): Promise<SSOrder[]> {
+    const allOrders: SSOrder[] = []
+    const pageSize = opts?.pageSize ?? 500
+    let page = 1
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let path = `/orders?page=${page}&pageSize=${pageSize}&sortBy=ModifyDate&sortDir=DESC`
+      if (opts?.modifyDateStart) path += `&modifyDateStart=${encodeURIComponent(opts.modifyDateStart)}`
+
+      const resp = await this.request<{ orders: SSOrder[]; total: number; page: number; pages: number }>(
+        'GET',
+        path,
+      )
+      if (resp.orders?.length) allOrders.push(...resp.orders)
+      if (page >= resp.pages) break
+      page++
+      // 40 req/min — 1.5s between pages keeps us well under
+      await new Promise(r => setTimeout(r, 1500))
+    }
+
+    return allOrders
   }
 
   getWarehouses(): Promise<SSWarehouse[]> {
@@ -407,12 +439,17 @@ export class ShipStationClient {
       const pdfUrl: string = json.label_download?.href ?? json.label_download?.pdf ?? ''
       if (pdfUrl) {
         console.log('[createLabelV2FromRate] fetching label PDF from URL:', pdfUrl)
-        const pdfRes = await fetch(pdfUrl, {
-          headers: { 'API-Key': this.v2ApiKey },
-        })
+        // label_download URLs are pre-signed — do not send auth headers
+        const pdfRes = await fetch(pdfUrl)
         if (pdfRes.ok) {
+          const contentType = pdfRes.headers.get('content-type') ?? ''
           const buf = await pdfRes.arrayBuffer()
-          labelData = Buffer.from(buf).toString('base64')
+          // Guard: if the response is XML/HTML instead of PDF, the URL may have expired
+          if (contentType.includes('xml') || contentType.includes('html')) {
+            console.error('[createLabelV2FromRate] label URL returned %s instead of PDF', contentType)
+          } else {
+            labelData = Buffer.from(buf).toString('base64')
+          }
         } else {
           console.error('[createLabelV2FromRate] failed to fetch PDF URL status=%d', pdfRes.status)
         }
@@ -420,7 +457,7 @@ export class ShipStationClient {
     }
 
     return {
-      shipmentId:     json.shipment_id ?? 0,
+      shipmentId:     json.label_id ?? json.shipment_id ?? 0,
       trackingNumber: json.tracking_number ?? '',
       labelData,
       labelResolution: '300',
@@ -433,8 +470,8 @@ export class ShipStationClient {
    * GET /shipments?trackingNumber=xxx
    * Looks up a shipment by tracking number and returns the first match.
    */
-  async findShipmentByTracking(trackingNumber: string): Promise<{ shipmentId: number } | null> {
-    const resp = await this.request<{ shipments: { shipmentId: number }[] }>(
+  async findShipmentByTracking(trackingNumber: string): Promise<{ shipmentId: string | number } | null> {
+    const resp = await this.request<{ shipments: { shipmentId: string | number }[] }>(
       'GET',
       `/shipments?trackingNumber=${encodeURIComponent(trackingNumber)}`,
     )
@@ -442,11 +479,61 @@ export class ShipStationClient {
   }
 
   /**
-   * POST /shipments/voidlabel
-   * Requests a void (cancellation) of a purchased label by ShipStation shipmentId.
+   * Voids a purchased label.
+   * V2 labels (IDs starting with "se-") use PUT /v2/labels/{id}/void.
+   * V1 labels use POST /shipments/voidlabel.
    */
-  voidLabel(shipmentId: number): Promise<{ approved: boolean; message: string }> {
+  async voidLabel(shipmentId: string | number): Promise<{ approved: boolean; message: string }> {
+    const id = String(shipmentId)
+
+    // V2 label — use ShipEngine-based endpoint
+    if (id.startsWith('se-')) {
+      const result = await this.voidLabelV2(id)
+      // If not found, the stored ID may be a shipment_id rather than label_id (legacy).
+      // Look up the shipment to get the actual label_id.
+      if (!result.approved && /not found/i.test(result.message)) {
+        console.log('[voidLabel] label_id %s not found — looking up shipment for label_id…', id)
+        const labelId = await this.getLabelIdFromShipment(id)
+        if (labelId && labelId !== id) {
+          console.log('[voidLabel] found label_id=%s from shipment=%s', labelId, id)
+          return this.voidLabelV2(labelId)
+        }
+      }
+      return result
+    }
+
+    // V1 label — classic endpoint
     return this.request('POST', '/shipments/voidlabel', { shipmentId })
+  }
+
+  /** PUT /v2/labels/{label_id}/void */
+  private async voidLabelV2(labelId: string): Promise<{ approved: boolean; message: string }> {
+    const res = await fetch(`https://api.shipstation.com/v2/labels/${encodeURIComponent(labelId)}/void`, {
+      method: 'PUT',
+      headers: { 'API-Key': this.v2ApiKey, Accept: 'application/json' },
+    })
+    const json = await res.json()
+    console.log('[voidLabelV2] labelId=%s status=%d body=%s', labelId, res.status, JSON.stringify(json))
+    if (!res.ok) {
+      const errMsg = (json.errors as { message: string }[] | undefined)?.[0]?.message
+        ?? json.message ?? json.title ?? `HTTP ${res.status}`
+      return { approved: false, message: errMsg }
+    }
+    return { approved: json.voided ?? true, message: json.message ?? 'Label voided' }
+  }
+
+  /** GET /v2/shipments/{shipment_id} → extract label_id from the response */
+  private async getLabelIdFromShipment(shipmentId: string): Promise<string | null> {
+    try {
+      const res = await fetch(`https://api.shipstation.com/v2/shipments/${encodeURIComponent(shipmentId)}`, {
+        headers: { 'API-Key': this.v2ApiKey, Accept: 'application/json' },
+      })
+      if (!res.ok) return null
+      const json = await res.json()
+      return (json.label_id as string) ?? null
+    } catch {
+      return null
+    }
   }
 
   /** Quick connectivity test */
