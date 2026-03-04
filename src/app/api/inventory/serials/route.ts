@@ -14,11 +14,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'productId and locationId are required' }, { status: 400 })
   }
 
-  const serials = await prisma.inventorySerial.findMany({
-    where: { productId, locationId, status: 'IN_STOCK' },
-    select: { id: true, serialNumber: true, binLocation: true, createdAt: true },
-    orderBy: { serialNumber: 'asc' },
-  })
+  try {
+    const serials = await prisma.inventorySerial.findMany({
+      where: { productId, locationId, status: 'IN_STOCK' },
+      select: { id: true, serialNumber: true, binLocation: true, createdAt: true },
+      orderBy: { serialNumber: 'asc' },
+    })
 
-  return NextResponse.json({ data: serials })
+    return NextResponse.json({ data: serials })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[GET /api/inventory/serials]', message)
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }

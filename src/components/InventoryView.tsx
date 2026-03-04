@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronRight, ShoppingCart, Search, Printer, ArrowRightLeft, CheckSquare, Square, Tag, Plus, MapPin, RefreshCcw } from 'lucide-react'
+import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronRight, ShoppingCart, Search, Printer, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -920,11 +920,9 @@ function SerialRow({ serial, index }: { serial: Serial; index: number }) {
   )
 }
 
-// ─── Serial Row with Checkbox (for SerialsModal) ─────────────────────────────
+// ─── Serial Row (for SerialsModal) ────────────────────────────────────────────
 
-function SerialRowWithCheckbox({ serial, index, checked, onToggle }: {
-  serial: Serial; index: number; checked: boolean; onToggle: () => void
-}) {
+function ModalSerialRow({ serial, index }: { serial: Serial; index: number }) {
   const [expanded, setExpanded]   = useState(false)
   const [history,  setHistory]    = useState<HistoryEvent[]>([])
   const [loading,  setLoading]    = useState(false)
@@ -947,10 +945,6 @@ function SerialRowWithCheckbox({ serial, index, checked, onToggle }: {
   return (
     <div className="border-b border-gray-100 last:border-0">
       <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors">
-        <span className="w-6 shrink-0 text-center" onClick={e => e.stopPropagation()}>
-          <input type="checkbox" checked={checked}
-            onChange={onToggle} className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue" />
-        </span>
         <span className="text-xs text-gray-400 w-6 text-right shrink-0">{index + 1}.</span>
         <button type="button" onClick={toggle} className="font-mono text-sm text-gray-800 flex-1 text-left hover:text-amazon-blue flex items-center gap-1.5">
           {expanded ? <ChevronDown size={12} className="text-gray-400 shrink-0" /> : <ChevronRight size={12} className="text-gray-400 shrink-0" />}
@@ -2181,65 +2175,31 @@ function SerialsModal({
   const [serials, setSerials] = useState<Serial[]>([])
   const [loading, setLoading] = useState(true)
   const [err,     setErr]     = useState('')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [binEdit,  setBinEdit]  = useState(false)
-  const [binValue, setBinValue] = useState('')
-  const [binSaving, setBinSaving] = useState(false)
 
-  async function load() {
-    setLoading(true)
-    setErr('')
-    try {
-      const res  = await fetch(`/api/inventory/serials?productId=${product.id}&locationId=${location.id}`)
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed to load')
-      setSerials(data.data)
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Failed to load')
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setErr('')
+      try {
+        const res  = await fetch(`/api/inventory/serials?productId=${product.id}&locationId=${location.id}`)
+        const data = await res.json()
+        if (cancelled) return
+        if (!res.ok) throw new Error(data.error ?? 'Failed to load')
+        setSerials(data.data)
+      } catch (e: unknown) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : 'Failed to load')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
-  }
-
-  useEffect(() => { load() }, [product.id, location.id]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function toggleOne(id: string) {
-    setSelected(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-  }
-
-  function toggleAll() {
-    if (selected.size === serials.length) setSelected(new Set())
-    else setSelected(new Set(serials.map(s => s.id)))
-  }
-
-  async function applyBin() {
-    setBinSaving(true)
-    try {
-      const res = await fetch('/api/serials/bin-location', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serialIds: Array.from(selected), binLocation: binValue }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed to update')
-      setBinEdit(false)
-      setBinValue('')
-      setSelected(new Set())
-      await load()
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Failed to update')
-    } finally {
-      setBinSaving(false)
-    }
-  }
+    load()
+    return () => { cancelled = true }
+  }, [product.id, location.id])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-2xl w-[620px] max-h-[82vh] flex flex-col">
+      <div className="bg-white rounded-xl shadow-2xl w-[520px] max-h-[82vh] flex flex-col">
         {/* Header */}
         <div className="flex items-start justify-between px-5 py-4 border-b shrink-0">
           <div>
@@ -2268,50 +2228,15 @@ function SerialsModal({
             </div>
           ) : (
             <div>
-              {/* Toolbar */}
-              <div className="px-5 pt-3 pb-2 flex items-center justify-between gap-2">
+              <div className="px-5 pt-3 pb-2">
                 <p className="text-xs text-gray-500">
                   {serials.length} unit{serials.length !== 1 ? 's' : ''} in stock
-                  {selected.size > 0 && <span className="ml-1 text-amazon-blue font-medium">· {selected.size} selected</span>}
                 </p>
-                <div className="flex items-center gap-2">
-                  {selected.size > 0 && !binEdit && (
-                    <button type="button" onClick={() => setBinEdit(true)}
-                      className="h-7 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium hover:bg-amazon-blue/90 flex items-center gap-1">
-                      <MapPin size={11} /> Set Bin Location
-                    </button>
-                  )}
-                  {binEdit && (
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="text"
-                        value={binValue}
-                        onChange={e => setBinValue(e.target.value)}
-                        placeholder="e.g. A1"
-                        className="h-7 w-24 rounded border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amazon-blue"
-                        autoFocus
-                        onKeyDown={e => { if (e.key === 'Enter') applyBin() }}
-                      />
-                      <button type="button" onClick={applyBin} disabled={binSaving}
-                        className="h-7 px-3 rounded-md bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50">
-                        {binSaving ? '…' : 'Apply'}
-                      </button>
-                      <button type="button" onClick={() => { setBinEdit(false); setBinValue('') }}
-                        className="h-7 px-2 rounded-md border border-gray-300 text-xs text-gray-600 hover:bg-gray-50">
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* Table header */}
               <div className="border-t border-gray-100">
                 <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
-                  <span className="w-6 shrink-0 text-center">
-                    <input type="checkbox" checked={selected.size === serials.length && serials.length > 0}
-                      onChange={toggleAll} className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue" />
-                  </span>
                   <span className="w-6 shrink-0 text-right">#</span>
                   <span className="flex-1">Serial Number</span>
                   <span className="w-20 text-center">Bin</span>
@@ -2319,8 +2244,7 @@ function SerialsModal({
                   <span className="w-14 shrink-0" />
                 </div>
                 {serials.map((s, i) => (
-                  <SerialRowWithCheckbox key={s.id} serial={s} index={i}
-                    checked={selected.has(s.id)} onToggle={() => toggleOne(s.id)} />
+                  <ModalSerialRow key={s.id} serial={s} index={i} />
                 ))}
               </div>
             </div>

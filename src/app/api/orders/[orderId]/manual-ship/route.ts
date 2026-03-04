@@ -161,6 +161,29 @@ export async function POST(
       }
     }
 
+    // Mark any pre-assigned serials (from earlier serialization) as SOLD
+    const existingAssignments = await tx.orderSerialAssignment.findMany({
+      where: { orderId: params.orderId },
+      include: { inventorySerial: { select: { id: true, status: true, locationId: true } } },
+    })
+    for (const sa of existingAssignments) {
+      if (sa.inventorySerial.status === 'IN_STOCK') {
+        await tx.inventorySerial.update({
+          where: { id: sa.inventorySerialId },
+          data: { status: 'SOLD' },
+        })
+        await tx.serialHistory.create({
+          data: {
+            inventorySerialId: sa.inventorySerialId,
+            eventType: 'SALE',
+            orderId: params.orderId,
+            locationId: sa.inventorySerial.locationId,
+            notes: saleNotes,
+          },
+        })
+      }
+    }
+
     // Advance workflow to SHIPPED with carrier/tracking (local only)
     await tx.order.update({
       where: { id: params.orderId },

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef } from 'react'
-import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen } from 'lucide-react'
+import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -103,6 +103,10 @@ export default function SerialSearchManager() {
   const [bulkNote, setBulkNote] = useState('')
   const [bulkSaving, setBulkSaving] = useState(false)
 
+  // Bulk bin location state
+  const [bulkBin, setBulkBin] = useState('')
+  const [bulkBinSaving, setBulkBinSaving] = useState(false)
+
   // Sort state
   const [sortCol, setSortCol] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -136,6 +140,7 @@ export default function SerialSearchManager() {
     setEditingId(null)
     setSelectedIds(new Set())
     setBulkNote('')
+    setBulkBin('')
     try {
       const res = await fetch(`/api/serial-search?serials=${encodeURIComponent(sns.join(','))}`)
       const data = await res.json()
@@ -159,6 +164,7 @@ export default function SerialSearchManager() {
     setEditingId(null)
     setSelectedIds(new Set())
     setBulkNote('')
+    setBulkBin('')
     textareaRef.current?.focus()
   }
 
@@ -210,6 +216,32 @@ export default function SerialSearchManager() {
       setBulkNote('')
     } catch { /* ignore */ }
     finally { setBulkSaving(false) }
+  }
+
+  // Count how many selected serials are IN_STOCK
+  const selectedInStock = found.filter(r => selectedIds.has(r.id) && r.status === 'IN_STOCK')
+
+  async function applyBulkBin() {
+    if (selectedInStock.length === 0) return
+    setBulkBinSaving(true)
+    try {
+      const res = await fetch('/api/serials/bin-location', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serialIds: selectedInStock.map(r => r.id), binLocation: bulkBin }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to update')
+      const newBin = bulkBin.trim() || null
+      const updatedIds = new Set(selectedInStock.map(r => r.id))
+      setFound(prev => prev.map(r => updatedIds.has(r.id) ? { ...r, binLocation: newBin } : r))
+      setSelectedIds(new Set())
+      setBulkBin('')
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to update bin location')
+    } finally {
+      setBulkBinSaving(false)
+    }
   }
 
   function handleSort(col: string) {
@@ -350,36 +382,65 @@ export default function SerialSearchManager() {
             </div>
           )}
 
-          {/* Bulk note bar — shown when rows are selected */}
+          {/* Bulk actions bar — shown when rows are selected */}
           {someSelected && (
-            <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5">
-              <NotebookPen size={14} className="text-indigo-500 shrink-0" />
-              <span className="text-xs font-semibold text-indigo-700 whitespace-nowrap">
-                {selectedIds.size} selected
-              </span>
-              <input
-                type="text"
-                value={bulkNote}
-                onChange={e => setBulkNote(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') applyBulkNote() }}
-                placeholder="Type a note to apply to all selected…"
-                className="flex-1 text-xs border border-indigo-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
-              />
-              <button
-                onClick={applyBulkNote}
-                disabled={bulkSaving}
-                className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
-              >
-                <Check size={12} />
-                {bulkSaving ? 'Saving…' : 'Apply Note'}
-              </button>
-              <button
-                onClick={() => setSelectedIds(new Set())}
-                className="text-indigo-400 hover:text-indigo-600 ml-1"
-                title="Clear selection"
-              >
-                <X size={14} />
-              </button>
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-indigo-700">
+                  {selectedIds.size} selected
+                  {selectedInStock.length > 0 && selectedInStock.length < selectedIds.size && (
+                    <span className="font-normal text-indigo-500 ml-1">({selectedInStock.length} in stock)</span>
+                  )}
+                </span>
+                <button
+                  onClick={() => setSelectedIds(new Set())}
+                  className="text-indigo-400 hover:text-indigo-600"
+                  title="Clear selection"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              {/* Bulk note */}
+              <div className="flex items-center gap-2">
+                <NotebookPen size={13} className="text-indigo-400 shrink-0" />
+                <input
+                  type="text"
+                  value={bulkNote}
+                  onChange={e => setBulkNote(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') applyBulkNote() }}
+                  placeholder="Note for all selected…"
+                  className="flex-1 text-xs border border-indigo-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
+                />
+                <button
+                  onClick={applyBulkNote}
+                  disabled={bulkSaving}
+                  className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+                >
+                  <Check size={12} />
+                  {bulkSaving ? 'Saving…' : 'Apply Note'}
+                </button>
+              </div>
+              {/* Bulk bin location — only for IN_STOCK serials */}
+              <div className="flex items-center gap-2">
+                <MapPin size={13} className="text-indigo-400 shrink-0" />
+                <input
+                  type="text"
+                  value={bulkBin}
+                  onChange={e => setBulkBin(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') applyBulkBin() }}
+                  placeholder={selectedInStock.length > 0 ? 'Bin location (e.g. A1)…' : 'No IN_STOCK serials selected'}
+                  disabled={selectedInStock.length === 0}
+                  className="flex-1 text-xs border border-indigo-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                />
+                <button
+                  onClick={applyBulkBin}
+                  disabled={bulkBinSaving || selectedInStock.length === 0}
+                  className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+                >
+                  <MapPin size={12} />
+                  {bulkBinSaving ? 'Saving…' : 'Set Bin'}
+                </button>
+              </div>
             </div>
           )}
 

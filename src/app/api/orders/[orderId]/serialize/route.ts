@@ -48,6 +48,7 @@ export async function POST(
     orderItemId: string
     serialId:    string
     serialNumber: string
+    alreadyAssigned: boolean
   }[] = []
 
   for (const a of assignments) {
@@ -85,7 +86,7 @@ export async function POST(
           { status: 422 },
         )
       }
-      if (serial.orderAssignment) {
+      if (serial.orderAssignment && serial.orderAssignment.orderId !== params.orderId) {
         return NextResponse.json(
           { error: `Serial "${sn}" is already assigned to another order` },
           { status: 422 },
@@ -98,7 +99,8 @@ export async function POST(
         )
       }
 
-      resolvedSerials.push({ orderItemId: a.orderItemId, serialId: serial.id, serialNumber: sn })
+      const alreadyAssigned = serial.orderAssignment?.orderId === params.orderId
+      resolvedSerials.push({ orderItemId: a.orderItemId, serialId: serial.id, serialNumber: sn, alreadyAssigned })
     }
   }
 
@@ -122,43 +124,45 @@ export async function POST(
   }
 
   // ── Apply all changes in a transaction ────────────────────────────────────
+  const isShipping = order.workflowStatus === 'AWAITING_VERIFICATION'
+
   await prisma.$transaction(async tx => {
     for (const r of resolvedSerials) {
-      // Look up the serial's current location for the history record
       const serial = await tx.inventorySerial.findUnique({
         where: { id: r.serialId },
         select: { locationId: true },
       })
 
-      // Mark serial as SOLD
-      await tx.inventorySerial.update({
-        where: { id: r.serialId },
-        data:  { status: 'SOLD' },
-      })
+      // Only mark SOLD when actually shipping; otherwise stays IN_STOCK
+      if (isShipping) {
+        await tx.inventorySerial.update({
+          where: { id: r.serialId },
+          data:  { status: 'SOLD' },
+        })
+      }
 
-      // Record serial assignment
-      await tx.orderSerialAssignment.create({
-        data: {
-          orderId:           params.orderId,
-          orderItemId:       r.orderItemId,
-          inventorySerialId: r.serialId,
-        },
-      })
+      // Skip creating assignment if serial is already assigned to this order
+      if (!r.alreadyAssigned) {
+        await tx.orderSerialAssignment.create({
+          data: {
+            orderId:           params.orderId,
+            orderItemId:       r.orderItemId,
+            inventorySerialId: r.serialId,
+          },
+        })
+      }
 
-      // Add serial history event with full sale context
       await tx.serialHistory.create({
         data: {
           inventorySerialId: r.serialId,
-          eventType:         'SALE',
+          eventType:         isShipping ? 'SALE' : 'ASSIGNED',
           orderId:           params.orderId,
           locationId:        serial?.locationId ?? null,
-          notes:             saleNotes,
+          notes:             isShipping ? saleNotes : `Assigned to order ${order.amazonOrderId}`,
         },
       })
     }
 
-    // For BackMarket orders: also save serials as bmSerials on each OrderItem
-    // so they get transmitted to BackMarket as IMEI values
     if (isBM) {
       for (const [orderItemId, serials] of Array.from(serialsByItem.entries())) {
         await tx.orderItem.update({
@@ -168,9 +172,7 @@ export async function POST(
       }
     }
 
-    // Advance workflow to SHIPPED only from AWAITING_VERIFICATION
-    // From PROCESSING, stay in PROCESSING (serialization only, not shipping)
-    if (order.workflowStatus === 'AWAITING_VERIFICATION') {
+    if (isShipping) {
       await tx.order.update({
         where: { id: params.orderId },
         data:  { workflowStatus: 'SHIPPED' },

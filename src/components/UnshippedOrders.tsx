@@ -1395,6 +1395,95 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
   )
 }
 
+// ─── Unserialize Modal ────────────────────────────────────────────────────────
+
+function UnserializeModal({ order, onClose, onUnserialized }: {
+  order: Order; onClose: () => void; onUnserialized: () => void
+}) {
+  const [submitting, setSubmitting] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const assignments = order.serialAssignments ?? []
+
+  // Group serials by SKU
+  const bySku = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const sa of assignments) {
+      const item = order.items.find(i => i.id === sa.orderItemId)
+      const sku = item?.sellerSku ?? 'Unknown'
+      const arr = map.get(sku) ?? []
+      arr.push(sa.inventorySerial.serialNumber)
+      map.set(sku, arr)
+    }
+    return Array.from(map.entries())
+  }, [assignments, order.items])
+
+  async function handleUnserialize() {
+    setSubmitting(true); setErr(null)
+    try {
+      const res = await fetch(`/api/orders/${order.id}/unserialize`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to unserialize')
+      onUnserialized()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to unserialize')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-[420px] max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Serial Assignments</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {order.olmNumber != null ? `OLM-${order.olmNumber}` : order.amazonOrderId}
+              <span className="ml-1 text-gray-400">· {assignments.length} serial{assignments.length !== 1 ? 's' : ''}</span>
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+          {bySku.map(([sku, serials]) => (
+            <div key={sku}>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">{sku}</p>
+              <div className="space-y-0.5">
+                {serials.map(sn => (
+                  <div key={sn} className="flex items-center gap-2 py-1 px-2 rounded bg-gray-50">
+                    <ScanLine size={11} className="text-indigo-400 shrink-0" />
+                    <span className="font-mono text-xs text-gray-800">{sn}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {err && (
+          <div className="px-5 py-2">
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-1.5">{err}</p>
+          </div>
+        )}
+
+        <div className="px-5 py-3 border-t flex items-center justify-between gap-3">
+          <button type="button" onClick={onClose}
+            className="h-8 px-4 rounded-lg border border-gray-300 text-xs font-medium text-gray-600 hover:bg-gray-50">
+            Close
+          </button>
+          <button type="button" onClick={handleUnserialize} disabled={submitting}
+            className="h-8 px-4 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-50 inline-flex items-center gap-1.5">
+            <RotateCcw size={11} />
+            {submitting ? 'Removing…' : 'Unserialize All'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Manual Ship Modal (2-step: serialize → carrier/tracking) ─────────────────
 
 function ManualShipModal({ order, onClose, onShipped }: {
@@ -3707,6 +3796,7 @@ export default function UnshippedOrders() {
 
   // Order detail modal
   const [detailOrder, setDetailOrder] = useState<Order | null>(null)
+  const [unserializeOrder, setUnserializeOrder] = useState<Order | null>(null)
 
   // Shipping presets state
   const [presets, setPresets]                 = useState<ShippingPreset[]>([])
@@ -4214,8 +4304,13 @@ export default function UnshippedOrders() {
   const batchEligible = useMemo(
     () => Array.from(selectedOrderIds).filter(id => {
       const o = orders.find(x => x.id === id)
-      return o && !o.presetRateError &&
-        (o.presetRateId || (o.presetRateCarrier && o.appliedPresetId))
+      if (!o || o.presetRateError) return false
+      if (!(o.presetRateId || (o.presetRateCarrier && o.appliedPresetId))) return false
+      // Exclude serialized orders — they must use Manual Ship
+      const totalSerializable = o.items.filter(i => i.isSerializable).reduce((s, i) => s + i.quantityOrdered, 0)
+      const assigned = o.serialAssignments?.length ?? 0
+      if (totalSerializable > 0 && assigned >= totalSerializable) return false
+      return true
     }),
     [selectedOrderIds, orders],
   )
@@ -4601,6 +4696,7 @@ export default function UnshippedOrders() {
       {wholesaleProcessOrder && <WholesaleProcessModal order={wholesaleProcessOrder} onClose={() => setWholesaleProcessOrder(null)} onProcessed={() => { setWholesaleProcessOrder(null); setFetchKey(k => k + 1) }} />}
       {wholesaleShipOrder && <WholesaleShipModal order={wholesaleShipOrder} onClose={() => setWholesaleShipOrder(null)} onShipped={() => { setWholesaleShipOrder(null); setFetchKey(k => k + 1) }} />}
       {manualShipOrder && <ManualShipModal order={manualShipOrder} onClose={() => setManualShipOrder(null)} onShipped={() => { setManualShipOrder(null); setFetchKey(k => k + 1) }} />}
+      {unserializeOrder && <UnserializeModal order={unserializeOrder} onClose={() => setUnserializeOrder(null)} onUnserialized={() => { setUnserializeOrder(null); setFetchKey(k => k + 1) }} />}
       {bmSerializeOrder && (
         <BmSerializeModal
           order={bmSerializeOrder}
@@ -5541,26 +5637,50 @@ export default function UnshippedOrders() {
                         </div>
                       ) : (
                         <div className="flex items-center justify-center gap-1">
-                          <button onClick={() => setLabelOrder(order)}
-                            className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium transition-colors',
-                              ssAccount ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}>
-                            <Truck size={10} /> Ship
-                          </button>
                           {(() => {
                             const totalSerializable = order.items.filter(i => i.isSerializable).reduce((s, i) => s + i.quantityOrdered, 0)
-                            const isSerialized = totalSerializable === 0 || (order.serialAssignments?.length ?? 0) >= totalSerializable
-                            return isSerialized ? (
-                              <button onClick={() => setManualShipOrder(order)}
-                                title="Manual Ship — mark as shipped without marketplace push"
-                                className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
-                                <Truck size={10} /> Manual
-                              </button>
-                            ) : (
-                              <button onClick={() => setVerifyOrder(order)}
-                                title="Assign serial numbers to items"
-                                className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-purple-500 text-white hover:bg-purple-600 transition-colors">
-                                <Hash size={10} /> Serialize
-                              </button>
+                            const assigned = order.serialAssignments?.length ?? 0
+                            const isSerialized = totalSerializable === 0 || assigned >= totalSerializable
+                            const isFullySerialized = totalSerializable > 0 && assigned >= totalSerializable
+                            return (
+                              <>
+                                {!isFullySerialized && (
+                                  <button onClick={() => setLabelOrder(order)}
+                                    className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium transition-colors',
+                                      ssAccount ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}>
+                                    <Truck size={10} /> Ship
+                                  </button>
+                                )}
+                                {isSerialized ? (
+                                  <button onClick={() => setManualShipOrder(order)}
+                                    title="Manual Ship — mark as shipped without marketplace push"
+                                    className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+                                    <Truck size={10} /> Manual
+                                  </button>
+                                ) : (
+                                  <button onClick={() => setVerifyOrder(order)}
+                                    title="Assign serial numbers to items"
+                                    className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-purple-500 text-white hover:bg-purple-600 transition-colors">
+                                    <Hash size={10} /> Serialize
+                                  </button>
+                                )}
+                                {totalSerializable > 0 && assigned >= totalSerializable && (
+                                  <button
+                                    onClick={() => setUnserializeOrder(order)}
+                                    title={`Serialized (${assigned}/${totalSerializable}) — click to manage`}
+                                    className="inline-flex items-center gap-[3px] h-6 px-[5px] rounded bg-gray-900 text-white hover:bg-gray-700 transition-colors cursor-pointer"
+                                  >
+                                    <svg width="14" height="12" viewBox="0 0 14 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                      <rect x="0" y="0" width="1.5" height="12" fill="white"/>
+                                      <rect x="2.5" y="0" width="2.5" height="12" fill="white"/>
+                                      <rect x="6" y="0" width="1" height="12" fill="white"/>
+                                      <rect x="8" y="0" width="1.5" height="12" fill="white"/>
+                                      <rect x="10.5" y="0" width="2.5" height="12" fill="white"/>
+                                    </svg>
+                                    <span className="text-[9px] font-bold tracking-wide leading-none">SN</span>
+                                  </button>
+                                )}
+                              </>
                             )
                           })()}
                           <button onClick={() => handleUnprocess(order)} disabled={isUnprocessing} title="Unprocess — release inventory reservation"
@@ -5594,14 +5714,35 @@ export default function UnshippedOrders() {
                         </button>
                         {(() => {
                           const totalSerializable = order.items.filter(i => i.isSerializable).reduce((s, i) => s + i.quantityOrdered, 0)
-                          const isSerialized = totalSerializable === 0 || (order.serialAssignments?.length ?? 0) >= totalSerializable
-                          return isSerialized ? (
-                            <button onClick={() => setManualShipOrder(order)}
-                              title="Manual Ship — mark as shipped without marketplace push"
-                              className="inline-flex items-center gap-1 h-6 px-1.5 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
-                              <Truck size={10} />
-                            </button>
-                          ) : null
+                          const assigned = order.serialAssignments?.length ?? 0
+                          const isSerialized = totalSerializable === 0 || assigned >= totalSerializable
+                          return (
+                            <>
+                              {isSerialized && (
+                                <button onClick={() => setManualShipOrder(order)}
+                                  title="Manual Ship — mark as shipped without marketplace push"
+                                  className="inline-flex items-center gap-1 h-6 px-1.5 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+                                  <Truck size={10} />
+                                </button>
+                              )}
+                              {totalSerializable > 0 && assigned >= totalSerializable && (
+                                <button
+                                  onClick={() => setUnserializeOrder(order)}
+                                  title={`Serialized (${assigned}/${totalSerializable}) — click to manage`}
+                                  className="inline-flex items-center gap-[3px] h-6 px-[5px] rounded bg-gray-900 text-white hover:bg-gray-700 transition-colors cursor-pointer"
+                                >
+                                  <svg width="14" height="12" viewBox="0 0 14 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="0" y="0" width="1.5" height="12" fill="white"/>
+                                    <rect x="2.5" y="0" width="2.5" height="12" fill="white"/>
+                                    <rect x="6" y="0" width="1" height="12" fill="white"/>
+                                    <rect x="8" y="0" width="1.5" height="12" fill="white"/>
+                                    <rect x="10.5" y="0" width="2.5" height="12" fill="white"/>
+                                  </svg>
+                                  <span className="text-[9px] font-bold tracking-wide leading-none">SN</span>
+                                </button>
+                              )}
+                            </>
+                          )
                         })()}
                         {order.label && (
                           <button onClick={() => handleVoidLabel(order)} disabled={voidingId === order.id}
