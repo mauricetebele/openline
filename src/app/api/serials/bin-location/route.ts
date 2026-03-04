@@ -16,10 +16,32 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'binLocation is required' }, { status: 400 })
   }
 
-  const result = await prisma.inventorySerial.updateMany({
-    where: { id: { in: serialIds } },
-    data: { binLocation: binLocation.trim() || null },
+  const trimmed = binLocation.trim() || null
+
+  await prisma.$transaction(async tx => {
+    const serials = await tx.inventorySerial.findMany({
+      where: { id: { in: serialIds } },
+      select: { id: true, locationId: true, binLocation: true },
+    })
+
+    for (const s of serials) {
+      if (s.binLocation === trimmed) continue
+
+      await tx.inventorySerial.update({
+        where: { id: s.id },
+        data: { binLocation: trimmed },
+      })
+
+      await tx.serialHistory.create({
+        data: {
+          inventorySerialId: s.id,
+          eventType: 'BIN_ASSIGNED',
+          locationId: s.locationId,
+          notes: trimmed ? `Bin location set to "${trimmed}"` : 'Bin location cleared',
+        },
+      })
+    }
   })
 
-  return NextResponse.json({ updated: result.count })
+  return NextResponse.json({ updated: serialIds.length })
 }

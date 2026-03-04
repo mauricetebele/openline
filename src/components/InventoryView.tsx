@@ -84,6 +84,9 @@ const EVENT_LABEL: Record<string, string> = {
   LOCATION_MOVE:  'Location Move',
   SKU_CONVERSION: 'SKU Conversion',
   SALE:           'Sale',
+  ASSIGNED:       'Assigned',
+  UNASSIGNED:     'Unassigned',
+  BIN_ASSIGNED:   'Bin Location Assigned',
   MANUAL_ADD:     'Manual Inventory Add',
   MANUAL_REMOVE:  'Manual Inventory Remove',
 }
