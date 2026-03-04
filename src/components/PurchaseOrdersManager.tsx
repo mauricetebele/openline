@@ -1,6 +1,6 @@
 'use client'
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, Pencil, Trash2, X, AlertCircle, ShoppingCart, ChevronDown, ChevronUp, PackageCheck, Clock } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { Plus, Pencil, Trash2, X, AlertCircle, ShoppingCart, ChevronDown, ChevronUp, PackageCheck, Clock, Upload, Search, Download } from 'lucide-react'
 import { clsx } from 'clsx'
 import ReceiveModal from './ReceiveModal'
 import SpreadsheetReceiveModal from './SpreadsheetReceiveModal'
@@ -9,11 +9,14 @@ import SpreadsheetReceiveModal from './SpreadsheetReceiveModal'
 
 interface Vendor  { id: string; name: string }
 interface Product { id: string; description: string; sku: string; isSerializable: boolean }
+interface Grade   { id: string; grade: string }
 
 interface POLine {
   id: string
   productId: string
   product: Product
+  gradeId: string | null
+  grade: Grade | null
   qty: number
   unitCost: string
 }
@@ -31,8 +34,13 @@ interface PurchaseOrder {
 
 interface FormLine {
   productId: string
+  sku: string
+  description: string
   qty: number
   unitCost: string
+  gradeId: string | null
+  gradeName: string | null
+  grades: Grade[]
 }
 
 interface ReceiptLine {
@@ -84,7 +92,28 @@ function ErrorBanner({ msg, onClose }: { msg: string; onClose: () => void }) {
   )
 }
 
-// ─── PO Form Panel ────────────────────────────────────────────────────────────
+// ─── Dedup helper ─────────────────────────────────────────────────────────────
+
+function dedupKey(sku: string, unitCost: string, grade: string | null) {
+  return `${sku.toLowerCase()}|${unitCost}|${(grade || '').toLowerCase()}`
+}
+
+function mergeFormLines(existing: FormLine[], incoming: FormLine[]): FormLine[] {
+  const map = new Map<string, FormLine>()
+  for (const l of [...existing, ...incoming]) {
+    if (!l.productId) continue
+    const k = dedupKey(l.sku, l.unitCost, l.gradeName)
+    const prev = map.get(k)
+    if (prev) {
+      map.set(k, { ...prev, qty: prev.qty + l.qty })
+    } else {
+      map.set(k, { ...l })
+    }
+  }
+  return Array.from(map.values())
+}
+
+// ─── PO Form Modal ───────────────────────────────────────────────────────────
 
 function POPanel({
   editing,
@@ -100,35 +129,240 @@ function POPanel({
   onClose: () => void
 }) {
   const isEdit = editing !== null
-  const firstRef = useRef<HTMLSelectElement>(null)
 
   const [vendorId, setVendorId]   = useState(editing?.vendor.id ?? '')
   const [date,     setDate]       = useState(editing ? editing.date.slice(0, 10) : today())
   const [notes,    setNotes]      = useState(editing?.notes ?? '')
   const [status,   setStatus]     = useState<'OPEN' | 'RECEIVED' | 'CANCELLED'>(editing?.status ?? 'OPEN')
-  const [lines,    setLines]      = useState<FormLine[]>(
-    editing?.lines.length
-      ? editing.lines.map(l => ({ productId: l.productId, qty: l.qty, unitCost: String(l.unitCost) }))
-      : [{ productId: '', qty: 1, unitCost: '' }]
-  )
-  const [saving, setSaving] = useState(false)
-  const [err,    setErr]    = useState('')
+  const [saving,   setSaving]     = useState(false)
+  const [err,      setErr]        = useState('')
 
-  useEffect(() => { firstRef.current?.focus() }, [])
+  // ── Line items state ──────────────────────────────────────────────────────
+  const [lines, setLines] = useState<FormLine[]>([])
+  const [linesReady, setLinesReady] = useState(false)
+
+  // Build product lookup by SKU (lowercase)
+  const skuMap = useMemo(() => {
+    const m = new Map<string, Product>()
+    for (const p of products) m.set(p.sku.toLowerCase(), p)
+    return m
+  }, [products])
+
+  // Grade cache: productId → Grade[]
+  const gradeCache = useRef<Map<string, Grade[]>>(new Map())
+
+  async function fetchGrades(productId: string): Promise<Grade[]> {
+    const cached = gradeCache.current.get(productId)
+    if (cached) return cached
+    try {
+      const res = await fetch(`/api/products/${productId}/grades`)
+      const data = await res.json()
+      const grades: Grade[] = (data.data ?? []).map((g: { id: string; grade: string }) => ({ id: g.id, grade: g.grade }))
+      gradeCache.current.set(productId, grades)
+      return grades
+    } catch {
+      return []
+    }
+  }
+
+  // Init lines from editing PO (need to fetch grades for each product)
+  useEffect(() => {
+    if (isEdit && editing.lines.length) {
+      let cancelled = false
+      ;(async () => {
+        const formLines: FormLine[] = await Promise.all(
+          editing.lines.map(async (l) => {
+            const grades = await fetchGrades(l.productId)
+            return {
+              productId: l.productId,
+              sku: l.product.sku,
+              description: l.product.description,
+              qty: l.qty,
+              unitCost: String(l.unitCost),
+              gradeId: l.gradeId ?? null,
+              gradeName: l.grade?.grade ?? null,
+              grades,
+            }
+          })
+        )
+        if (!cancelled) { setLines(formLines); setLinesReady(true) }
+      })()
+      return () => { cancelled = true }
+    } else {
+      setLinesReady(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function removeLine(i: number) { setLines(p => p.filter((_, idx) => idx !== i)) }
+  function updateLine(i: number, patch: Partial<FormLine>) {
+    setLines(p => p.map((l, idx) => idx === i ? { ...l, ...patch } : l))
+  }
 
   const lineTotal = lines.reduce((sum, l) => sum + (Number(l.qty) || 0) * (Number(l.unitCost) || 0), 0)
 
-  function addLine()             { setLines(p => [...p, { productId: '', qty: 1, unitCost: '' }]) }
-  function removeLine(i: number) { setLines(p => p.filter((_, idx) => idx !== i)) }
-  function setLine(i: number, field: keyof FormLine, val: string | number) {
-    setLines(p => p.map((l, idx) => idx === i ? { ...l, [field]: val } : l))
+  // ── SKU autocomplete ──────────────────────────────────────────────────────
+  const [skuSearch, setSkuSearch]       = useState('')
+  const [skuResults, setSkuResults]     = useState<Product[]>([])
+  const [skuDropOpen, setSkuDropOpen]   = useState(false)
+  const [skuLoading, setSkuLoading]     = useState(false)
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>()
+  const skuWrapRef = useRef<HTMLDivElement>(null)
+
+  function handleSkuChange(val: string) {
+    setSkuSearch(val)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    if (!val.trim()) { setSkuResults([]); setSkuDropOpen(false); return }
+    searchTimer.current = setTimeout(async () => {
+      setSkuLoading(true)
+      try {
+        const res = await fetch(`/api/products?search=${encodeURIComponent(val.trim())}`)
+        const data = await res.json()
+        setSkuResults(data.data ?? [])
+        setSkuDropOpen(true)
+      } catch { /* ignore */ }
+      setSkuLoading(false)
+    }, 250)
   }
 
+  async function selectProduct(p: Product) {
+    setSkuSearch('')
+    setSkuResults([])
+    setSkuDropOpen(false)
+    const grades = await fetchGrades(p.id)
+    setLines(prev => [...prev, {
+      productId: p.id,
+      sku: p.sku,
+      description: p.description,
+      qty: 1,
+      unitCost: '',
+      gradeId: null,
+      gradeName: null,
+      grades,
+    }])
+  }
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (skuWrapRef.current && !skuWrapRef.current.contains(e.target as Node)) setSkuDropOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
+
+  // ── Spreadsheet import ────────────────────────────────────────────────────
+  const [showSpreadsheet, setShowSpreadsheet] = useState(false)
+  const [pasteText, setPasteText]             = useState('')
+  const [importErrors, setImportErrors]       = useState<string[]>([])
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function handleImport() {
+    const raw = pasteText.trim()
+    if (!raw) return
+    setImportErrors([])
+
+    // auto-detect delimiter
+    const firstLine = raw.split('\n')[0]
+    const delim = firstLine.includes('\t') ? '\t' : ','
+
+    const rows = raw.split('\n').map(r => r.split(delim).map(c => c.trim()))
+
+    // skip header row if first cell looks like a header
+    let startIdx = 0
+    if (rows.length > 1 && /^sku$/i.test(rows[0][0])) startIdx = 1
+
+    const errors: string[] = []
+    const parsed: FormLine[] = []
+    const uniqueProductIds = new Set<string>()
+
+    // Pre-collect unique SKUs
+    for (let i = startIdx; i < rows.length; i++) {
+      const [sku] = rows[i]
+      if (!sku) continue
+      const product = skuMap.get(sku.toLowerCase())
+      if (product) uniqueProductIds.add(product.id)
+    }
+
+    // Pre-fetch all grades
+    await Promise.all(Array.from(uniqueProductIds).map(pid => fetchGrades(pid)))
+
+    for (let i = startIdx; i < rows.length; i++) {
+      const row = rows[i]
+      if (row.length < 4 || !row[0]) continue
+      const [sku, costStr, gradeStr, qtyStr] = row
+
+      const product = skuMap.get(sku.toLowerCase())
+      if (!product) { errors.push(`Row ${i + 1}: SKU "${sku}" not found`); continue }
+
+      const qty = parseInt(qtyStr, 10)
+      if (!qty || qty < 1) { errors.push(`Row ${i + 1}: invalid QTY "${qtyStr}"`); continue }
+
+      const cost = parseFloat(costStr)
+      if (isNaN(cost) || cost < 0) { errors.push(`Row ${i + 1}: invalid Cost "${costStr}"`); continue }
+
+      const grades = gradeCache.current.get(product.id) ?? []
+      let gradeId: string | null = null
+      let gradeName: string | null = null
+      if (gradeStr) {
+        const match = grades.find(g => g.grade.toLowerCase() === gradeStr.toLowerCase())
+        if (!match) { errors.push(`Row ${i + 1}: grade "${gradeStr}" not found for SKU "${sku}"`); continue }
+        gradeId = match.id
+        gradeName = match.grade
+      }
+
+      parsed.push({
+        productId: product.id,
+        sku: product.sku,
+        description: product.description,
+        qty,
+        unitCost: cost.toFixed(2),
+        gradeId,
+        gradeName,
+        grades,
+      })
+    }
+
+    setImportErrors(errors)
+    if (parsed.length > 0) {
+      setLines(prev => mergeFormLines(prev, parsed))
+      setPasteText('')
+      if (errors.length === 0) setShowSpreadsheet(false)
+    }
+  }
+
+  function downloadTemplate() {
+    const header = 'SKU,Cost,Grade,QTY'
+    const example = 'ABC-123,25.00,A,10'
+    const blob = new Blob([header + '\n' + example + '\n'], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'po-import-template.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => { if (typeof reader.result === 'string') setPasteText(reader.result) }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  // ── Save ──────────────────────────────────────────────────────────────────
   async function handleSave() {
     setErr('')
     if (!vendorId)    { setErr('Select a vendor'); return }
     if (!date)        { setErr('Date is required'); return }
     if (!lines.length){ setErr('Add at least one line item'); return }
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i]
+      if (!l.productId) { setErr(`Line ${i + 1}: select a product`); return }
+      if (!l.qty || l.qty < 1) { setErr(`Line ${i + 1}: qty must be at least 1`); return }
+    }
 
     setSaving(true)
     try {
@@ -139,6 +373,7 @@ function POPanel({
           productId: l.productId,
           qty: Number(l.qty),
           unitCost: Number(l.unitCost),
+          gradeId: l.gradeId || null,
         })),
       }
       if (isEdit) {
@@ -154,13 +389,15 @@ function POPanel({
     }
   }
 
+  if (!linesReady) return null
+
   return (
-    <div className="fixed inset-0 z-40 flex">
-      <div className="flex-1 bg-black/30" onClick={onClose} />
-      <div className="w-[540px] bg-white shadow-xl flex flex-col">
+    <div className="fixed inset-0 z-40 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative w-full max-w-3xl max-h-[90vh] bg-white rounded-xl shadow-2xl flex flex-col mx-4">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
           <h2 className="text-sm font-semibold text-gray-900">
             {isEdit ? `Edit PO #${editing.poNumber}` : 'New Purchase Order'}
           </h2>
@@ -170,7 +407,7 @@ function POPanel({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           {err && <ErrorBanner msg={err} onClose={() => setErr('')} />}
 
           {/* Vendor + Date row */}
@@ -180,7 +417,6 @@ function POPanel({
                 Vendor <span className="text-red-500">*</span>
               </label>
               <select
-                ref={firstRef}
                 value={vendorId}
                 onChange={e => setVendorId(e.target.value)}
                 className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
@@ -247,86 +483,190 @@ function POPanel({
               </label>
               <button
                 type="button"
-                onClick={addLine}
-                className="flex items-center gap-1 text-xs text-amazon-blue hover:underline"
+                onClick={() => setShowSpreadsheet(s => !s)}
+                className={clsx(
+                  'flex items-center gap-1 text-xs font-medium px-2 py-1 rounded border transition-colors',
+                  showSpreadsheet
+                    ? 'text-purple-700 bg-purple-50 border-purple-200'
+                    : 'text-gray-500 hover:text-gray-700 border-gray-200 hover:border-gray-300',
+                )}
               >
-                <Plus size={12} /> Add item
+                <Upload size={12} /> Spreadsheet Import
               </button>
             </div>
 
-            {/* Column headers */}
-            <div className="grid grid-cols-[1fr_60px_96px_32px] gap-2 mb-1 px-1">
-              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Product</span>
-              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide text-center">Qty</span>
-              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide text-right">Unit Cost</span>
-              <span />
-            </div>
-
-            <div className="space-y-2">
-              {lines.map((line, i) => (
-                <div key={i} className="grid grid-cols-[1fr_60px_96px_32px] gap-2 items-center">
-                  {/* Product */}
-                  <select
-                    value={line.productId}
-                    onChange={e => setLine(i, 'productId', e.target.value)}
-                    className="h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue truncate"
-                  >
-                    <option value="">Select product…</option>
-                    {products.map(p => (
-                      <option key={p.id} value={p.id}>{p.description} ({p.sku})</option>
+            {/* Spreadsheet paste area */}
+            {showSpreadsheet && (
+              <div className="mb-3 rounded-md border border-dashed border-purple-300 bg-purple-50/50 p-3 space-y-2">
+                <p className="text-[11px] text-gray-500">
+                  Paste or upload CSV/TSV with columns: <span className="font-semibold">SKU, Cost, Grade, QTY</span>
+                </p>
+                <textarea
+                  value={pasteText}
+                  onChange={e => setPasteText(e.target.value)}
+                  rows={4}
+                  placeholder={"SKU\tCost\tGrade\tQTY\nABC-123\t25.00\tA\t10\nDEF-456\t15.50\tB\t5"}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"
+                />
+                {importErrors.length > 0 && (
+                  <div className="rounded border border-red-200 bg-red-50 px-2 py-1.5 space-y-0.5">
+                    {importErrors.map((e, i) => (
+                      <p key={i} className="text-[11px] text-red-600">{e}</p>
                     ))}
-                  </select>
-
-                  {/* Qty */}
-                  <input
-                    type="number"
-                    min={1}
-                    value={line.qty}
-                    onChange={e => setLine(i, 'qty', e.target.value)}
-                    autoComplete="off"
-                    className="h-9 w-full rounded-md border border-gray-300 px-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                  />
-
-                  {/* Unit Cost */}
-                  <div className="relative">
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">$</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={line.unitCost}
-                      onChange={e => setLine(i, 'unitCost', e.target.value)}
-                      autoComplete="off"
-                      placeholder="0.00"
-                      className="h-9 w-full rounded-md border border-gray-300 pl-6 pr-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                    />
                   </div>
-
-                  {/* Remove */}
-                  <button
-                    type="button"
-                    onClick={() => removeLine(i)}
-                    disabled={lines.length === 1}
-                    className="h-9 w-8 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50 disabled:opacity-0 disabled:pointer-events-none"
-                  >
-                    <Trash2 size={13} />
+                )}
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={handleImport} disabled={!pasteText.trim()}
+                    className="h-7 px-3 rounded text-xs font-medium bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50">
+                    Import
+                  </button>
+                  <button type="button" onClick={() => fileRef.current?.click()}
+                    className="h-7 px-3 rounded text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50">
+                    Upload File
+                  </button>
+                  <input ref={fileRef} type="file" accept=".csv,.tsv,.txt" className="hidden" onChange={handleFileUpload} />
+                  <div className="flex-1" />
+                  <button type="button" onClick={downloadTemplate}
+                    className="flex items-center gap-1 h-7 px-3 rounded text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100">
+                    <Download size={11} /> Template
                   </button>
                 </div>
-              ))}
+              </div>
+            )}
+
+            {/* Column headers */}
+            {lines.length > 0 && (
+              <>
+                <div className="grid grid-cols-[120px_1fr_100px_60px_90px_28px] gap-2 mb-1 px-1">
+                  <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">SKU</span>
+                  <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Description</span>
+                  <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Grade</span>
+                  <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide text-center">Qty</span>
+                  <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide text-right">Cost</span>
+                  <span />
+                </div>
+
+                <div className="space-y-1.5">
+                  {lines.map((line, i) => (
+                    <div key={i} className="grid grid-cols-[120px_1fr_100px_60px_90px_28px] gap-2 items-center">
+                      {/* SKU (read-only) */}
+                      <span className="h-9 flex items-center px-2 rounded-md bg-gray-50 border border-gray-200 text-xs font-mono text-gray-700 truncate">
+                        {line.sku}
+                      </span>
+
+                      {/* Description (read-only) */}
+                      <span className="h-9 flex items-center px-2 rounded-md bg-gray-50 border border-gray-200 text-xs text-gray-600 truncate">
+                        {line.description}
+                      </span>
+
+                      {/* Grade dropdown */}
+                      <select
+                        value={line.gradeId ?? ''}
+                        onChange={e => {
+                          const gid = e.target.value || null
+                          const g = line.grades.find(g => g.id === gid)
+                          updateLine(i, { gradeId: gid, gradeName: g?.grade ?? null })
+                        }}
+                        className="h-9 rounded-md border border-gray-300 px-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                      >
+                        <option value="">—</option>
+                        {line.grades.map(g => (
+                          <option key={g.id} value={g.id}>{g.grade}</option>
+                        ))}
+                      </select>
+
+                      {/* Qty */}
+                      <input
+                        type="number"
+                        min={1}
+                        value={line.qty}
+                        onChange={e => updateLine(i, { qty: Math.max(1, parseInt(e.target.value) || 1) })}
+                        autoComplete="off"
+                        className="h-9 w-full rounded-md border border-gray-300 px-2 text-xs text-center focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                      />
+
+                      {/* Unit Cost */}
+                      <div className="relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">$</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={line.unitCost}
+                          onChange={e => updateLine(i, { unitCost: e.target.value })}
+                          autoComplete="off"
+                          placeholder="0.00"
+                          className="h-9 w-full rounded-md border border-gray-300 pl-5 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                        />
+                      </div>
+
+                      {/* Remove */}
+                      <button
+                        type="button"
+                        onClick={() => removeLine(i)}
+                        className="h-9 w-7 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* SKU autocomplete input to add lines */}
+            <div className="mt-3 relative" ref={skuWrapRef}>
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={skuSearch}
+                  onChange={e => handleSkuChange(e.target.value)}
+                  onFocus={() => { if (skuResults.length) setSkuDropOpen(true) }}
+                  placeholder="Type SKU or description to add a line…"
+                  autoComplete="off"
+                  className="w-full h-9 rounded-md border border-gray-300 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                />
+                {skuLoading && (
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">…</span>
+                )}
+              </div>
+              {skuDropOpen && skuResults.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg">
+                  {skuResults.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => selectProduct(p)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center gap-2"
+                    >
+                      <span className="font-mono text-xs text-gray-500 shrink-0">{p.sku}</span>
+                      <span className="text-gray-700 truncate">{p.description}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {skuDropOpen && skuResults.length === 0 && skuSearch.trim() && !skuLoading && (
+                <div className="absolute z-10 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg px-3 py-2 text-xs text-gray-400">
+                  No products found
+                </div>
+              )}
             </div>
 
             {/* Total */}
-            <div className="mt-3 flex justify-end border-t pt-3">
-              <div className="text-right">
-                <span className="text-xs text-gray-500">Order Total</span>
-                <p className="text-lg font-bold text-gray-900">${lineTotal.toFixed(2)}</p>
+            {lines.length > 0 && (
+              <div className="mt-3 flex justify-end border-t pt-3">
+                <div className="text-right">
+                  <span className="text-xs text-gray-500">Order Total</span>
+                  <p className="text-lg font-bold text-gray-900">${lineTotal.toFixed(2)}</p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex gap-2 justify-end px-5 py-4 border-t shrink-0">
+        <div className="flex gap-2 justify-end px-6 py-4 border-t shrink-0">
           <button type="button" onClick={onClose}
             className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">
             Cancel
@@ -513,8 +853,9 @@ function PORow({
               <table className="w-full text-sm">
                 <thead>
                   <tr>
-                    <th className="text-left text-xs font-medium text-gray-400 pb-2 w-[40%]">Product</th>
+                    <th className="text-left text-xs font-medium text-gray-400 pb-2 w-[35%]">Product</th>
                     <th className="text-left text-xs font-medium text-gray-400 pb-2">SKU</th>
+                    <th className="text-left text-xs font-medium text-gray-400 pb-2">Grade</th>
                     <th className="text-right text-xs font-medium text-gray-400 pb-2">Qty</th>
                     <th className="text-right text-xs font-medium text-gray-400 pb-2">Unit Cost</th>
                     <th className="text-right text-xs font-medium text-gray-400 pb-2">Subtotal</th>
@@ -525,6 +866,7 @@ function PORow({
                     <tr key={line.id}>
                       <td className="py-1.5 pr-4 text-gray-800 font-medium">{line.product.description}</td>
                       <td className="py-1.5 pr-4 font-mono text-xs text-gray-500">{line.product.sku}</td>
+                      <td className="py-1.5 pr-4 text-xs text-gray-500">{line.grade?.grade ?? '—'}</td>
                       <td className="py-1.5 text-right text-gray-700">{line.qty}</td>
                       <td className="py-1.5 text-right text-gray-700">${Number(line.unitCost).toFixed(2)}</td>
                       <td className="py-1.5 text-right font-medium text-gray-900">
@@ -535,7 +877,7 @@ function PORow({
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-gray-200">
-                    <td colSpan={4} className="pt-2 text-right text-xs font-semibold text-gray-600 pr-4">Total</td>
+                    <td colSpan={5} className="pt-2 text-right text-xs font-semibold text-gray-600 pr-4">Total</td>
                     <td className="pt-2 text-right font-bold text-gray-900">${total.toFixed(2)}</td>
                   </tr>
                 </tfoot>

@@ -702,6 +702,7 @@ model ProductGrade {
   orderReservations      OrderInventoryReservation[]
   salesOrderReservations SalesOrderInventoryReservation[]
   marketplaceRMASerials  MarketplaceRMASerial[]
+  purchaseOrderLines     PurchaseOrderLine[]
 
   @@unique([productId, grade])
   @@index([productId])
@@ -781,6 +782,8 @@ model PurchaseOrderLine {
   purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   productId       String
   product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  gradeId         String?
+  grade           ProductGrade? @relation(fields: [gradeId], references: [id], onDelete: SetNull)
   qty             Int           @default(1)
   unitCost        Decimal       @db.Decimal(12, 2)
   createdAt       DateTime      @default(now())
@@ -789,6 +792,7 @@ model PurchaseOrderLine {
 
   @@index([purchaseOrderId])
   @@index([productId])
+  @@index([gradeId])
   @@map("purchase_order_lines")
 }
 

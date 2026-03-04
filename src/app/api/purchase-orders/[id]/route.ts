@@ -21,6 +21,7 @@ export async function GET(
               grades: { select: { id: true, grade: true, description: true }, orderBy: { sortOrder: 'asc' } },
             },
           },
+          grade: { select: { id: true, grade: true } },
         },
         orderBy: { createdAt: 'asc' },
       },
@@ -72,10 +73,11 @@ export async function PUT(
         notes: notes?.trim() || null,
         status: status ?? 'OPEN',
         lines: {
-          create: lines.map((l: { productId: string; qty: number; unitCost: number }) => ({
+          create: lines.map((l: { productId: string; qty: number; unitCost: number; gradeId?: string | null }) => ({
             productId: l.productId,
             qty: Number(l.qty),
             unitCost: Number(l.unitCost),
+            ...(l.gradeId ? { gradeId: l.gradeId } : {}),
           })),
         },
       },
@@ -89,6 +91,7 @@ export async function PUT(
                 grades: { select: { id: true, grade: true, description: true }, orderBy: { sortOrder: 'asc' } },
               },
             },
+            grade: { select: { id: true, grade: true } },
           },
           orderBy: { createdAt: 'asc' },
         },

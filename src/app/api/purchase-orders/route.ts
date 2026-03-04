@@ -14,7 +14,10 @@ export async function GET(req: NextRequest) {
     include: {
       vendor: { select: { id: true, name: true } },
       lines: {
-        include: { product: { select: { id: true, description: true, sku: true, isSerializable: true } } },
+        include: {
+          product: { select: { id: true, description: true, sku: true, isSerializable: true } },
+          grade: { select: { id: true, grade: true } },
+        },
         orderBy: { createdAt: 'asc' },
       },
     },
@@ -57,17 +60,21 @@ export async function POST(req: NextRequest) {
         date: new Date(date),
         notes: notes?.trim() || null,
         lines: {
-          create: lines.map((l: { productId: string; qty: number; unitCost: number }) => ({
+          create: lines.map((l: { productId: string; qty: number; unitCost: number; gradeId?: string | null }) => ({
             productId: l.productId,
             qty: Number(l.qty),
             unitCost: Number(l.unitCost),
+            ...(l.gradeId ? { gradeId: l.gradeId } : {}),
           })),
         },
       },
       include: {
         vendor: { select: { id: true, name: true } },
         lines: {
-          include: { product: { select: { id: true, description: true, sku: true, isSerializable: true } } },
+          include: {
+            product: { select: { id: true, description: true, sku: true, isSerializable: true } },
+            grade: { select: { id: true, grade: true } },
+          },
           orderBy: { createdAt: 'asc' },
         },
       },
