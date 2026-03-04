@@ -520,16 +520,52 @@ export default function MarketplaceSkuManager() {
     return () => { cancelled = true }
   }, [selectedProduct])
 
+  const [syncProgress, setSyncProgress] = useState('')
+  const syncPollRef = useRef<ReturnType<typeof setInterval>>()
+
+  useEffect(() => {
+    return () => { if (syncPollRef.current) clearInterval(syncPollRef.current) }
+  }, [])
+
   async function handleSync(marketplace: 'amazon' | 'backmarket') {
     setSyncing(marketplace)
     setErr('')
+    setSyncProgress('')
     try {
       const data = await apiPost('/api/marketplace-skus/sync', { marketplace })
+
+      // Amazon sync returns a jobId for background processing
+      if (data.jobId && marketplace === 'amazon') {
+        setSyncProgress('Starting sync…')
+        syncPollRef.current = setInterval(async () => {
+          try {
+            const res = await fetch(`/api/marketplace-skus/sync?jobId=${data.jobId}`)
+            if (!res.ok) return
+            const job = await res.json()
+            if (job.totalFound > 0) {
+              setSyncProgress(`Syncing: ${job.totalUpserted} / ${job.totalFound} listings`)
+            }
+            if (job.status === 'COMPLETED' || job.status === 'FAILED') {
+              if (syncPollRef.current) clearInterval(syncPollRef.current)
+              setSyncing(null)
+              setSyncProgress('')
+              if (job.status === 'COMPLETED') {
+                setToast(`Synced ${job.totalUpserted} Amazon listings`)
+                loadAll()
+              } else {
+                setErr(job.errorMessage ?? 'Sync failed')
+              }
+            }
+          } catch { /* ignore polling errors */ }
+        }, 2000)
+        return
+      }
+
       setToast(`Synced ${data.synced} ${marketplace === 'backmarket' ? 'Back Market' : 'Amazon'} listings (${data.new} new)`)
       loadAll()
+      setSyncing(null)
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Sync failed')
-    } finally {
       setSyncing(null)
     }
   }
@@ -712,6 +748,10 @@ export default function MarketplaceSkuManager() {
           <RefreshCw size={14} className={clsx(syncing === 'backmarket' && 'animate-spin')} />
           Sync Back Market
         </button>
+
+        {syncProgress && (
+          <span className="text-sm text-orange-600 font-medium animate-pulse">{syncProgress}</span>
+        )}
 
         <button
           type="button"

@@ -7,16 +7,26 @@ import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { decrypt } from '@/lib/crypto'
 import { BackMarketClient } from '@/lib/backmarket/client'
+import { waitUntil } from '@vercel/functions'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300
 
-// ─── GET: list all synced marketplace listings ──────────────────────────────
+// ─── GET: list synced listings OR poll sync job progress ─────────────────────
 
 export async function GET(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
+    // If jobId param is present, return job progress
+    const jobId = req.nextUrl.searchParams.get('jobId')
+    if (jobId) {
+      const job = await prisma.listingSyncJob.findUnique({ where: { id: jobId } })
+      if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+      return NextResponse.json(job)
+    }
+
     const marketplace = req.nextUrl.searchParams.get('marketplace')?.toLowerCase()
 
     const listings = await prisma.marketplaceListing.findMany({
@@ -71,7 +81,37 @@ export async function POST(req: NextRequest) {
   }
 
   if (mp === 'amazon') {
-    return syncAmazon()
+    // Check catalog exists
+    const count = await prisma.sellerListing.count()
+    if (count === 0) {
+      return NextResponse.json(
+        { error: 'No Amazon catalog data found. Go to Active Listings and click "Sync Catalog" first, then try again.' },
+        { status: 400 },
+      )
+    }
+
+    // Find account for job tracking
+    const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
+    if (!account) {
+      return NextResponse.json({ error: 'No active Amazon account' }, { status: 400 })
+    }
+
+    const job = await prisma.listingSyncJob.create({
+      data: { accountId: account.id, status: 'RUNNING' },
+    })
+
+    waitUntil(
+      syncAmazon(job.id).catch(async (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        console.error('[MarketplaceSync] Amazon job failed:', message)
+        await prisma.listingSyncJob.update({
+          where: { id: job.id },
+          data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
+        })
+      })
+    )
+
+    return NextResponse.json({ jobId: job.id }, { status: 202 })
   } else {
     return syncBackMarket()
   }
@@ -82,16 +122,7 @@ export async function POST(req: NextRequest) {
 // Amazon ASINs used as SKUs — skip these (not real seller-managed listings)
 const ASIN_AS_SKU_RE = /^B0[A-Z0-9]{8}$/
 
-async function syncAmazon() {
-  // If no seller listings exist, the user needs to sync the catalog first
-  const count = await prisma.sellerListing.count()
-  if (count === 0) {
-    return NextResponse.json(
-      { error: 'No Amazon catalog data found. Go to Active Listings and click "Sync Catalog" first, then try again.' },
-      { status: 400 },
-    )
-  }
-
+async function syncAmazon(jobId: string) {
   const listings = await prisma.sellerListing.findMany({
     select: {
       sku: true,
@@ -103,8 +134,15 @@ async function syncAmazon() {
 
   // Filter out entries where Amazon used the ASIN as the SKU
   const filtered = listings.filter(l => !ASIN_AS_SKU_RE.test(l.sku))
+  const total = filtered.length
+
+  await prisma.listingSyncJob.update({
+    where: { id: jobId },
+    data: { totalFound: total },
+  })
 
   let newCount = 0
+  let processed = 0
 
   for (const listing of filtered) {
     const existing = await prisma.marketplaceListing.findFirst({
@@ -136,9 +174,21 @@ async function syncAmazon() {
       })
       newCount++
     }
+
+    processed++
+    // Update progress every 100 records
+    if (processed % 100 === 0 || processed === total) {
+      await prisma.listingSyncJob.update({
+        where: { id: jobId },
+        data: { totalUpserted: processed },
+      })
+    }
   }
 
-  return NextResponse.json({ synced: filtered.length, new: newCount })
+  await prisma.listingSyncJob.update({
+    where: { id: jobId },
+    data: { status: 'COMPLETED', totalUpserted: processed, completedAt: new Date() },
+  })
 }
 
 // ─── Back Market sync ────────────────────────────────────────────────────────
