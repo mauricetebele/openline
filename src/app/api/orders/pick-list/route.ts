@@ -49,11 +49,12 @@ export async function GET(req: NextRequest) {
       items: o.items.map(item => {
         const itemRes = o.reservations.filter(r => r.orderItemId === item.id)
         const itemSerials = o.serialAssignments.filter(sa => sa.orderItemId === item.id)
-        const binLocations = Array.from(new Set(
-          itemSerials
-            .map(sa => sa.inventorySerial.binLocation)
-            .filter((b): b is string => b != null)
-        ))
+        const binCounts = new Map<string, number>()
+        for (const sa of itemSerials) {
+          const b = sa.inventorySerial.binLocation
+          if (b) binCounts.set(b, (binCounts.get(b) ?? 0) + 1)
+        }
+        const binLocations = Array.from(binCounts.entries()).map(([bin, qty]) => ({ bin, qty }))
         return {
           orderItemId:     item.id,
           sellerSku:       item.sellerSku,

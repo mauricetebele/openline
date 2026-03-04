@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   if (!account) return NextResponse.json({ error: 'No ShipStation account connected' }, { status: 404 })
 
   const v2ApiKey = account.v2ApiKeyEnc ? decrypt(account.v2ApiKeyEnc) : null
-  const client = new ShipStationClient(decrypt(account.apiKeyEnc), decrypt(account.apiSecretEnc), v2ApiKey)
+  const client = new ShipStationClient(decrypt(account.apiKeyEnc), account.apiSecretEnc ? decrypt(account.apiSecretEnc) : '', v2ApiKey)
 
   const body: SSLabelForOrderPayload & { rateId?: string } = await req.json()
 

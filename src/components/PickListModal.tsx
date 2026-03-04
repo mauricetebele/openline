@@ -10,12 +10,17 @@ interface PickReservation {
   qtyReserved: number
 }
 
+interface BinCount {
+  bin: string
+  qty: number
+}
+
 interface PickItem {
   orderItemId: string
   sellerSku: string | null
   title: string | null
   quantityOrdered: number
-  binLocations: string[]
+  binLocations: BinCount[]
   reservations: PickReservation[]
 }
 
@@ -34,7 +39,7 @@ interface AggregatedItem {
   sellerSku: string | null
   title: string | null
   totalQty: number
-  binLocations: string[]
+  binLocations: BinCount[]
   reservations: PickReservation[]
 }
 
@@ -64,7 +69,7 @@ function buildPrintHtml(opts: {
 
   const rowsHtml = aggregated.map(item => {
     const binHtml = item.binLocations.length > 0
-      ? `<br/><span class="bin-val">Bin: ${item.binLocations.map(b => esc(b)).join(', ')}</span>`
+      ? `<br/><span class="bin-val">Bin: ${item.binLocations.map(bc => bc.qty > 1 ? `${esc(bc.bin)} (×${bc.qty})` : esc(bc.bin)).join(', ')}</span>`
       : ''
     const locationCell = showLocations ? `<td class="loc">${
       item.reservations.length > 0
@@ -294,8 +299,10 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
         if (existing) {
           existing.totalQty += item.quantityOrdered
           existing.reservations.push(...item.reservations)
-          for (const b of item.binLocations) {
-            if (!existing.binLocations.includes(b)) existing.binLocations.push(b)
+          for (const bc of item.binLocations) {
+            const found = existing.binLocations.find(e => e.bin === bc.bin)
+            if (found) found.qty += bc.qty
+            else existing.binLocations.push({ ...bc })
           }
         } else {
           map.set(key, {
@@ -418,7 +425,7 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
                         </td>
                         {showLocations && (
                           <td className="px-4 py-3 text-xs align-top">
-                            {item.reservations.length > 0 ? (
+                            {(item.reservations.length > 0 || item.binLocations.length > 0) ? (
                               <div className="flex flex-col gap-1">
                                 {item.reservations.map((r, j) => (
                                   <span key={j} className="font-semibold text-indigo-700 whitespace-nowrap">
@@ -429,7 +436,9 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
                                   </span>
                                 ))}
                                 {item.binLocations.length > 0 && (
-                                  <span className="text-gray-500 text-[10px]">Bin: {item.binLocations.join(', ')}</span>
+                                  <span className="text-gray-500 text-[10px]">
+                                    Bin: {item.binLocations.map(bc => bc.qty > 1 ? `${bc.bin} (×${bc.qty})` : bc.bin).join(', ')}
+                                  </span>
                                 )}
                               </div>
                             ) : (

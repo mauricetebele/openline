@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
   console.log('[rate-shop] orderId=%s warehouseId=%s toPostalCode=%s', body.orderId, body.warehouseId, body.toPostalCode)
 
   const v2ApiKey = account.v2ApiKeyEnc ? decrypt(account.v2ApiKeyEnc) : null
-  const client = new ShipStationClient(decrypt(account.apiKeyEnc), decrypt(account.apiSecretEnc), v2ApiKey)
+  const client = new ShipStationClient(decrypt(account.apiKeyEnc), account.apiSecretEnc ? decrypt(account.apiSecretEnc) : '', v2ApiKey)
 
   // ── Load V1 carriers (UPS, FedEx, USPS, Amazon, etc.) ─────────────────────
   let carriers

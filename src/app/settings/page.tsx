@@ -1,11 +1,11 @@
 'use client'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
   CheckCircle, AlertTriangle, Clock, RefreshCw, FlaskConical,
   ExternalLink, Warehouse, Truck, Settings,
   ChevronRight, Trash2, RotateCcw, Plus, X,
-  Store, Upload, ImageIcon,
+  Store, Upload, ImageIcon, Users, Shield,
 } from 'lucide-react'
 import AppShell from '@/components/AppShell'
 import WarehouseManager from '@/components/WarehouseManager'
@@ -71,7 +71,7 @@ interface AmazonAccount {
   createdAt: string
 }
 
-type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'backmarket' | 'rma-settings' | 'store-settings'
+type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users'
 
 // ─── Amazon Accounts Section ──────────────────────────────────────────────────
 
@@ -214,6 +214,11 @@ function ShipStationSection() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<CarrierTestResult | null>(null)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [addApiKey, setAddApiKey] = useState('')
+  const [addApiSecret, setAddApiSecret] = useState('')
+  const [addName, setAddName] = useState('')
+  const [connecting, setConnecting] = useState(false)
 
   useEffect(() => { fetchAccounts() }, [])
 
@@ -231,6 +236,34 @@ function ShipStationSection() {
       }
     }
     setLoading(false)
+  }
+
+  async function handleConnect(e: React.FormEvent) {
+    e.preventDefault()
+    if (!addApiKey.trim()) return
+    setConnecting(true)
+    try {
+      const res = await fetch('/api/shipstation/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: addName.trim() || 'ShipStation',
+          apiKey: addApiKey.trim(),
+          apiSecret: addApiSecret.trim() || undefined,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('ShipStation account connected!')
+      setAddApiKey('')
+      setAddApiSecret('')
+      setAddName('')
+      setShowAddForm(false)
+      fetchAccounts()
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    } finally {
+      setConnecting(false)
+    }
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -385,11 +418,47 @@ function ShipStationSection() {
         )
       })}
 
-      {accounts.length === 0 && (
-        <div className="card p-6 text-center text-sm text-gray-500">
-          No ShipStation account found. Add one from the Unshipped Orders page.
+      {/* Add Account */}
+      <div className="card">
+        <div className="px-5 py-3 border-b flex items-center justify-between">
+          <p className="font-semibold text-sm">{accounts.length === 0 ? 'Connect ShipStation' : 'Add Another Account'}</p>
+          {accounts.length > 0 && (
+            <button
+              onClick={() => setShowAddForm(f => !f)}
+              className="flex items-center gap-1.5 text-xs font-medium text-amazon-blue hover:underline"
+            >
+              <Plus size={14} /> Add Account
+            </button>
+          )}
         </div>
-      )}
+        {(showAddForm || accounts.length === 0) && (
+          <form onSubmit={handleConnect} className="px-5 py-4 space-y-4">
+            <div>
+              <label className="label">Account Name</label>
+              <input className="input" placeholder="ShipStation" value={addName} onChange={e => setAddName(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">API Key</label>
+              <input className="input font-mono" placeholder="V1 API Key or V2 ShipEngine Key" value={addApiKey} onChange={e => setAddApiKey(e.target.value)} required />
+              <p className="text-[10px] text-gray-400 mt-1">Found in ShipStation → Account Settings → API Settings.</p>
+            </div>
+            <div>
+              <label className="label">API Secret <span className="text-gray-400 font-normal">(leave blank for V2-only)</span></label>
+              <input className="input font-mono" type="password" placeholder="V1 API Secret" value={addApiSecret} onChange={e => setAddApiSecret(e.target.value)} />
+              <p className="text-[10px] text-gray-400 mt-1">Required for V1 Basic auth. If you only have a V2/ShipEngine key, leave this empty.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="submit" disabled={connecting || !addApiKey.trim()} className="btn-primary">
+                <RefreshCw size={14} className={connecting ? 'animate-spin' : ''} />
+                {connecting ? 'Testing & Saving…' : 'Connect Account'}
+              </button>
+              {accounts.length > 0 && (
+                <button type="button" onClick={() => setShowAddForm(false)} className="btn btn-secondary text-xs">Cancel</button>
+              )}
+            </div>
+          </form>
+        )}
+      </div>
 
       {accounts.length > 0 && (
         <div className="card p-5">
@@ -987,6 +1056,214 @@ function RMASettingsSection() {
   )
 }
 
+// ─── Users Management Section ─────────────────────────────────────────────────
+
+interface ManagedUser {
+  id: string
+  name: string
+  email: string
+  role: string
+  createdAt: string
+}
+
+function UsersSection() {
+  const [users, setUsers] = useState<ManagedUser[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // Form state
+  const [formEmail, setFormEmail] = useState('')
+  const [formName, setFormName] = useState('')
+  const [formPassword, setFormPassword] = useState('')
+  const [formRole, setFormRole] = useState<'REVIEWER' | 'ADMIN'>('REVIEWER')
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/users')
+      if (res.ok) {
+        const json = await res.json()
+        setUsers(json.data)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchUsers() }, [fetchUsers])
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formEmail, name: formName, password: formPassword, role: formRole }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      toast.success(`User ${formName} created`)
+      setFormEmail('')
+      setFormName('')
+      setFormPassword('')
+      setFormRole('REVIEWER')
+      setShowForm(false)
+      fetchUsers()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleToggleRole(u: ManagedUser) {
+    const newRole = u.role === 'ADMIN' ? 'REVIEWER' : 'ADMIN'
+    setTogglingId(u.id)
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id, role: newRole }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success(`${u.name} is now ${newRole}`)
+      fetchUsers()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
+  async function handleDelete(u: ManagedUser) {
+    if (!confirm(`Delete user "${u.name}" (${u.email})? This cannot be undone.`)) return
+    setDeletingId(u.id)
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      toast.success(`User ${u.name} deleted`)
+      fetchUsers()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  if (loading) return <p className="text-sm text-gray-500">Loading users…</p>
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      {/* Users table */}
+      <div className="card">
+        <div className="px-5 py-3 border-b flex items-center justify-between">
+          <p className="font-semibold text-sm">Team Members</p>
+          <button
+            onClick={() => setShowForm(f => !f)}
+            className="flex items-center gap-1.5 text-xs font-medium text-amazon-blue hover:underline"
+          >
+            <Plus size={14} /> Add User
+          </button>
+        </div>
+
+        {/* Inline create form */}
+        {showForm && (
+          <form onSubmit={handleCreate} className="px-5 py-4 border-b bg-gray-50 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                type="text"
+                placeholder="Full name"
+                value={formName}
+                onChange={e => setFormName(e.target.value)}
+                required
+                className="input"
+              />
+              <input
+                type="email"
+                placeholder="Email"
+                value={formEmail}
+                onChange={e => setFormEmail(e.target.value)}
+                required
+                className="input"
+              />
+              <input
+                type="password"
+                placeholder="Temporary password (min 6)"
+                value={formPassword}
+                onChange={e => setFormPassword(e.target.value)}
+                required
+                minLength={6}
+                className="input"
+              />
+              <select
+                value={formRole}
+                onChange={e => setFormRole(e.target.value as 'REVIEWER' | 'ADMIN')}
+                className="input"
+              >
+                <option value="REVIEWER">Reviewer</option>
+                <option value="ADMIN">Admin</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="submit" disabled={saving} className="btn btn-primary text-xs">
+                {saving ? 'Creating…' : 'Create User'}
+              </button>
+              <button type="button" onClick={() => setShowForm(false)} className="btn btn-secondary text-xs">
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+
+        <div className="divide-y">
+          {users.map(u => (
+            <div key={u.id} className="flex items-center gap-4 px-5 py-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">{u.name}</p>
+                <p className="text-xs text-gray-500 truncate">{u.email}</p>
+              </div>
+              <p className="text-xs text-gray-400 whitespace-nowrap hidden sm:block">
+                {new Date(u.createdAt).toLocaleDateString()}
+              </p>
+              <button
+                onClick={() => handleToggleRole(u)}
+                disabled={togglingId === u.id}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                  u.role === 'ADMIN'
+                    ? 'bg-amazon-blue/10 text-amazon-blue hover:bg-amazon-blue/20'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+                title={`Click to switch to ${u.role === 'ADMIN' ? 'Reviewer' : 'Admin'}`}
+              >
+                {togglingId === u.id ? '…' : u.role === 'ADMIN' ? 'Admin' : 'Reviewer'}
+              </button>
+              <button
+                onClick={() => handleDelete(u)}
+                disabled={deletingId === u.id}
+                className="text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
+                title="Delete user"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+          {users.length === 0 && (
+            <p className="px-5 py-6 text-sm text-gray-400 text-center">No users yet</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Hub Cards ────────────────────────────────────────────────────────────────
 
 interface HubCard {
@@ -1070,6 +1347,19 @@ const HUB_GROUPS: HubGroup[] = [
         iconColor: 'text-rose-600',
         title: 'RMA Settings',
         description: 'Configure return reasons that appear when creating marketplace or customer RMAs.',
+      },
+    ],
+  },
+  {
+    label: 'Administration',
+    cards: [
+      {
+        id: 'users',
+        icon: Shield,
+        iconBg: 'bg-sky-50',
+        iconColor: 'text-sky-600',
+        title: 'Users',
+        description: 'Create team accounts, assign Admin or Reviewer roles, and manage access to the platform.',
       },
     ],
   },
@@ -1163,6 +1453,7 @@ function SettingsContent() {
             {activeSection === 'backmarket'     && <BackMarketSection />}
             {activeSection === 'rma-settings'   && <RMASettingsSection />}
             {activeSection === 'store-settings' && <StoreSettingsSection />}
+            {activeSection === 'users'          && <UsersSection />}
           </div>
         )}
 

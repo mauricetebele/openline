@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   if (!account) return NextResponse.json({ error: 'No ShipStation account connected' }, { status: 404 })
 
   const body: SSLabelPayload = await req.json()
-  const client = new ShipStationClient(decrypt(account.apiKeyEnc), decrypt(account.apiSecretEnc))
+  const client = new ShipStationClient(decrypt(account.apiKeyEnc), account.apiSecretEnc ? decrypt(account.apiSecretEnc) : '')
 
   try {
     const label = await client.createLabel(body)

@@ -41,7 +41,7 @@ export async function POST(
   // ── Look up order in ShipStation ────────────────────────────────────────────
   const client = new ShipStationClient(
     decrypt(account.apiKeyEnc),
-    decrypt(account.apiSecretEnc),
+    account.apiSecretEnc ? decrypt(account.apiSecretEnc) : '',
   )
 
   let ssOrder
