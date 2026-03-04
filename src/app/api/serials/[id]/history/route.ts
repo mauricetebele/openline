@@ -25,7 +25,7 @@ export async function GET(
       order: {
         select: {
           id:             true,
-          orderNumber:    true,
+          olmNumber:      true,
           amazonOrderId:  true,
           orderSource:    true,
           shipToName:     true,

@@ -25,12 +25,12 @@ interface Serial { id: string; serialNumber: string; binLocation: string | null;
 
 interface HistoryEvent {
   id:            string
-  eventType:     'PO_RECEIPT' | 'LOCATION_MOVE' | 'SKU_CONVERSION' | 'SALE' | 'MANUAL_ADD' | 'MANUAL_REMOVE'
+  eventType:     string
   createdAt:     string
   notes:         string | null
   receipt:       { id: string; receivedAt: string } | null
   purchaseOrder: { id: string; poNumber: number; vendor: { name: string } } | null
-  order:         { id: string; amazonOrderId: string; shipToName: string | null; shipToCity: string | null; shipToState: string | null; orderTotal: string | null; currency: string | null; label: { trackingNumber: string; carrier: string | null; serviceCode: string | null; shipmentCost: string | null } | null } | null
+  order:         { id: string; olmNumber: number | null; amazonOrderId: string; orderSource: string; shipToName: string | null; shipToCity: string | null; shipToState: string | null; orderTotal: string | null; currency: string | null; label: { trackingNumber: string; carrier: string | null; serviceCode: string | null; shipmentCost: string | null } | null } | null
   location:      { name: string; warehouse: { name: string } } | null
   fromLocation:  { name: string; warehouse: { name: string } } | null
   fromProduct:   { id: string; description: string; sku: string } | null
@@ -99,17 +99,7 @@ interface LookupSerial {
   product:      { description: string; sku: string }
   grade:        { id: string; grade: string } | null
   location:     { name: string; warehouse: { name: string } }
-  history: Array<{
-    id:            string
-    eventType:     string
-    createdAt:     string
-    receipt:       { id: string; receivedAt: string } | null
-    purchaseOrder: { id: string; poNumber: number; vendor: { name: string } } | null
-    location:      { name: string; warehouse: { name: string } } | null
-    fromLocation:  { name: string; warehouse: { name: string } } | null
-    fromProduct:   { id: string; description: string; sku: string } | null
-    toProduct:     { id: string; description: string; sku: string } | null
-  }>
+  history: HistoryEvent[]
 }
 
 function SNLookupModal({ onClose }: { onClose: () => void }) {
@@ -568,10 +558,10 @@ ${stdProps}
                               <>
                                 {event.order && (
                                   <>
-                                    {event.order.orderNumber && (
+                                    {event.order.olmNumber && (
                                       <p>
                                         <span className="text-gray-400">OLM #:</span>{' '}
-                                        <span className="font-semibold font-mono text-gray-800">{event.order.orderNumber}</span>
+                                        <span className="font-semibold font-mono text-gray-800">OLM-{event.order.olmNumber}</span>
                                       </p>
                                     )}
                                     <p>
@@ -624,10 +614,10 @@ ${stdProps}
                               </>
                             ) : (event.eventType === 'ASSIGNED' || event.eventType === 'UNASSIGNED') && event.order ? (
                               <>
-                                {event.order.orderNumber && (
+                                {event.order.olmNumber && (
                                   <p>
                                     <span className="text-gray-400">OLM #:</span>{' '}
-                                    <span className="font-semibold font-mono text-gray-800">{event.order.orderNumber}</span>
+                                    <span className="font-semibold font-mono text-gray-800">OLM-{event.order.olmNumber}</span>
                                   </p>
                                 )}
                                 <p>
@@ -908,10 +898,10 @@ function SerialRow({ serial, index }: { serial: Serial; index: number }) {
                         </>
                       ) : (event.eventType === 'SALE' || event.eventType === 'ASSIGNED' || event.eventType === 'UNASSIGNED') && event.order ? (
                         <>
-                          {event.order.orderNumber && (
+                          {event.order.olmNumber && (
                             <p>
                               <span className="text-gray-400">OLM #:</span>{' '}
-                              <span className="font-semibold font-mono text-gray-800">{event.order.orderNumber}</span>
+                              <span className="font-semibold font-mono text-gray-800">OLM-{event.order.olmNumber}</span>
                             </p>
                           )}
                           <p>
