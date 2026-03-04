@@ -122,6 +122,8 @@ export async function POST(req: NextRequest) {
 // Amazon ASINs used as SKUs — skip these (not real seller-managed listings)
 const ASIN_AS_SKU_RE = /^B0[A-Z0-9]{8}$/
 
+const BATCH_SIZE = 200
+
 async function syncAmazon(jobId: string) {
   const listings = await prisma.sellerListing.findMany({
     select: {
@@ -141,48 +143,43 @@ async function syncAmazon(jobId: string) {
     data: { totalFound: total },
   })
 
-  let newCount = 0
   let processed = 0
 
-  for (const listing of filtered) {
-    const existing = await prisma.marketplaceListing.findFirst({
-      where: {
-        marketplace: 'amazon',
-        sellerSku: listing.sku,
-        accountId: listing.accountId,
-      },
+  // Process in batches — each batch runs parallel upserts inside a transaction
+  for (let i = 0; i < total; i += BATCH_SIZE) {
+    const batch = filtered.slice(i, i + BATCH_SIZE)
+
+    await prisma.$transaction(
+      batch.map(listing =>
+        prisma.marketplaceListing.upsert({
+          where: {
+            marketplace_sellerSku_accountId: {
+              marketplace: 'amazon',
+              sellerSku: listing.sku,
+              accountId: listing.accountId,
+            },
+          },
+          create: {
+            marketplace: 'amazon',
+            sellerSku: listing.sku,
+            accountId: listing.accountId,
+            title: listing.productTitle,
+            fulfillmentChannel: listing.fulfillmentChannel,
+          },
+          update: {
+            title: listing.productTitle,
+            fulfillmentChannel: listing.fulfillmentChannel,
+            lastSyncedAt: new Date(),
+          },
+        })
+      ),
+    )
+
+    processed += batch.length
+    await prisma.listingSyncJob.update({
+      where: { id: jobId },
+      data: { totalUpserted: processed },
     })
-
-    if (existing) {
-      await prisma.marketplaceListing.update({
-        where: { id: existing.id },
-        data: {
-          title: listing.productTitle,
-          fulfillmentChannel: listing.fulfillmentChannel,
-          lastSyncedAt: new Date(),
-        },
-      })
-    } else {
-      await prisma.marketplaceListing.create({
-        data: {
-          marketplace: 'amazon',
-          sellerSku: listing.sku,
-          accountId: listing.accountId,
-          title: listing.productTitle,
-          fulfillmentChannel: listing.fulfillmentChannel,
-        },
-      })
-      newCount++
-    }
-
-    processed++
-    // Update progress every 100 records
-    if (processed % 100 === 0 || processed === total) {
-      await prisma.listingSyncJob.update({
-        where: { id: jobId },
-        data: { totalUpserted: processed },
-      })
-    }
   }
 
   await prisma.listingSyncJob.update({
