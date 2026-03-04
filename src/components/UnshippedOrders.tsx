@@ -4588,7 +4588,7 @@ export default function UnshippedOrders() {
           onProcessed={() => { setBulkOrderInventories(null); setSelectedOrderIds(new Set()); setFetchKey(k => k + 1) }}
         />
       )}
-      {verifyOrder  && <VerifyOrderModal  order={verifyOrder}  onClose={() => setVerifyOrder(null)}  onVerified={() => { setVerifyOrder(null); setActiveTab('shipped') }} />}
+      {verifyOrder  && <VerifyOrderModal  order={verifyOrder}  onClose={() => setVerifyOrder(null)}  onVerified={() => { setVerifyOrder(null); setFetchKey(k => k + 1) }} />}
       {shipByItemData && (
         <ShipByItemModal
           order={shipByItemData.order}
@@ -5556,10 +5556,11 @@ export default function UnshippedOrders() {
                                 <Truck size={10} /> Manual
                               </button>
                             ) : (
-                              <span title="Assign serials to all items before manual shipping"
-                                className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-gray-100 text-gray-400 cursor-not-allowed">
-                                <Truck size={10} /> Manual
-                              </span>
+                              <button onClick={() => setVerifyOrder(order)}
+                                title="Assign serial numbers to items"
+                                className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-purple-500 text-white hover:bg-purple-600 transition-colors">
+                                <Hash size={10} /> Serialize
+                              </button>
                             )
                           })()}
                           <button onClick={() => handleUnprocess(order)} disabled={isUnprocessing} title="Unprocess — release inventory reservation"

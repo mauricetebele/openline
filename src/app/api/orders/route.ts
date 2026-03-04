@@ -95,11 +95,26 @@ export async function GET(req: NextRequest) {
       }),
     ])
 
-    // Compute requiresTransparency per order from SP-API's IsTransparency flag
-    // stored on each OrderItem during sync
+    // Batch-lookup isSerializable for all SKUs across all orders
+    const allSkus = Array.from(new Set(
+      orders.flatMap(o => o.items.map(i => i.sellerSku).filter((s): s is string => s != null))
+    ))
+    const serializableProducts = allSkus.length > 0
+      ? await prisma.product.findMany({
+          where: { sku: { in: allSkus }, isSerializable: true },
+          select: { sku: true },
+        })
+      : []
+    const serializableSkus = new Set(serializableProducts.map(p => p.sku))
+
+    // Compute requiresTransparency + isSerializable per order item
     const data = orders.map(order => ({
       ...order,
       requiresTransparency: order.items.some(item => item.isTransparency),
+      items: order.items.map(item => ({
+        ...item,
+        isSerializable: item.sellerSku ? serializableSkus.has(item.sellerSku) : false,
+      })),
     }))
 
     return NextResponse.json({

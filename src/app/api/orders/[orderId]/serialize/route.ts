@@ -34,8 +34,8 @@ export async function POST(
     include: { items: true, label: { select: { trackingNumber: true, carrier: true, serviceCode: true, shipmentCost: true } } },
   })
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
-  if (order.workflowStatus !== 'AWAITING_VERIFICATION') {
-    return NextResponse.json({ error: 'Order is not awaiting verification' }, { status: 409 })
+  if (order.workflowStatus !== 'AWAITING_VERIFICATION' && order.workflowStatus !== 'PROCESSING') {
+    return NextResponse.json({ error: 'Order must be in PROCESSING or AWAITING_VERIFICATION status' }, { status: 409 })
   }
 
   const { assignments }: { assignments: AssignmentInput[] } = await req.json()
@@ -168,15 +168,19 @@ export async function POST(
       }
     }
 
-    // Advance workflow to SHIPPED
-    await tx.order.update({
-      where: { id: params.orderId },
-      data:  { workflowStatus: 'SHIPPED' },
-    })
+    // Advance workflow to SHIPPED only from AWAITING_VERIFICATION
+    // From PROCESSING, stay in PROCESSING (serialization only, not shipping)
+    if (order.workflowStatus === 'AWAITING_VERIFICATION') {
+      await tx.order.update({
+        where: { id: params.orderId },
+        data:  { workflowStatus: 'SHIPPED' },
+      })
+    }
   })
 
   // ── BackMarket: push tracking + IMEI to BackMarket API (non-blocking) ──
-  if (isBM && label?.trackingNumber) {
+  // Only push when actually shipping (from AWAITING_VERIFICATION)
+  if (isBM && label?.trackingNumber && order.workflowStatus === 'AWAITING_VERIFICATION') {
     shipToBackMarket(order.amazonOrderId, order.items, label, serialsByItem).catch(err => {
       console.error('[serialize] BackMarket ship failed (non-blocking):', err)
     })
