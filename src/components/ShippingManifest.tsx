@@ -114,15 +114,19 @@ export default function ShippingManifest() {
   // Fetch on mount (today's orders)
   useEffect(() => { fetchOrders() }, [fetchOrders])
 
-  // After rows load, batch-fetch UPS tracking
+  // After rows load, batch-fetch UPS + FedEx tracking
   useEffect(() => {
     if (rows.length === 0) return
 
-    const upsTrackingNumbers = rows
+    const trackable = rows
       .map((r) => r.trackingNumber)
-      .filter((tn): tn is string => !!tn && detectCarrier(tn) === 'UPS')
+      .filter((tn): tn is string => {
+        if (!tn) return false
+        const c = detectCarrier(tn)
+        return c === 'UPS' || c === 'FEDEX'
+      })
 
-    const unique = Array.from(new Set(upsTrackingNumbers))
+    const unique = Array.from(new Set(trackable))
     if (unique.length === 0) return
 
     // Process in batches of 20
@@ -178,7 +182,7 @@ export default function ShippingManifest() {
       <div className="px-6 py-4 border-b bg-white dark:bg-gray-900 dark:border-gray-700 shrink-0">
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Live Shipping Manifest</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-          Track all shipped orders with live UPS tracking status.
+          Track all shipped orders with live UPS and FedEx tracking status.
         </p>
       </div>
 
@@ -265,7 +269,8 @@ export default function ShippingManifest() {
             </thead>
             <tbody>
               {paged.map((row, i) => {
-                const isUps = row.trackingNumber ? detectCarrier(row.trackingNumber) === 'UPS' : false
+                const carrier = row.trackingNumber ? detectCarrier(row.trackingNumber) : null
+                const isTrackable = carrier === 'UPS' || carrier === 'FEDEX'
                 const tLoading = row.trackingNumber ? trackingLoading.has(row.trackingNumber) : false
                 const tInfo = row.trackingNumber ? trackingMap[row.trackingNumber] : undefined
 
@@ -300,7 +305,7 @@ export default function ShippingManifest() {
                       )}
                     </td>
                     <td className="px-3 py-1.5">
-                      {isUps ? statusBadge(tInfo, tLoading) : <span className="text-gray-400">—</span>}
+                      {isTrackable ? statusBadge(tInfo, tLoading) : <span className="text-gray-400">—</span>}
                     </td>
                   </tr>
                 )

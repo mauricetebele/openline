@@ -15,7 +15,11 @@ const UPS_TRACK_URL  = 'https://onlinetools.ups.com/api/track/v1/details'
 const UPS_SHIP_URL   = 'https://onlinetools.ups.com/api/shipments/v1/ship'
 const UPS_RATE_URL   = 'https://onlinetools.ups.com/api/rating/v1/Rate'
 
+const FEDEX_AUTH_URL  = 'https://apis.fedex.com/oauth/token'
+const FEDEX_TRACK_URL = 'https://apis.fedex.com/track/v1/tracknumbers'
+
 let cachedToken: { token: string; expiresAt: number } | null = null
+let cachedFedexToken: { token: string; expiresAt: number } | null = null
 
 async function getUPSCredentials(): Promise<{ clientId: string; clientSecret: string; accountNumber: string | null }> {
   // Try DB first
@@ -63,6 +67,46 @@ async function getUPSToken(): Promise<string> {
 
   cachedToken = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1_000 }
   return cachedToken.token
+}
+
+// ─── FedEx Credentials & Token ────────────────────────────────────────────────
+
+async function getFedExCredentials(): Promise<{ clientId: string; clientSecret: string; accountNumber: string | null }> {
+  try {
+    const cred = await prisma.fedexCredential.findFirst({ where: { isActive: true } })
+    if (cred) {
+      return {
+        clientId:      decrypt(cred.clientIdEnc),
+        clientSecret:  decrypt(cred.clientSecretEnc),
+        accountNumber: cred.accountNumberEnc ? decrypt(cred.accountNumberEnc) : null,
+      }
+    }
+  } catch { /* fall through */ }
+
+  throw new Error('FedEx API credentials are not configured. Add them in Settings → FedEx API.')
+}
+
+async function getFedExToken(): Promise<string> {
+  const { clientId, clientSecret } = await getFedExCredentials()
+
+  if (cachedFedexToken && Date.now() < cachedFedexToken.expiresAt - 30_000) {
+    return cachedFedexToken.token
+  }
+
+  cachedFedexToken = null
+
+  const { data } = await axios.post<{ access_token: string; expires_in: number }>(
+    FEDEX_AUTH_URL,
+    new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: clientId,
+      client_secret: clientSecret,
+    }).toString(),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+  )
+
+  cachedFedexToken = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1_000 }
+  return cachedFedexToken.token
 }
 
 export type Carrier = 'UPS' | 'USPS' | 'FEDEX' | 'AMZL' | 'UNKNOWN'
@@ -134,7 +178,7 @@ export async function getCarrierStatus(tracking: string): Promise<TrackingResult
     throw new Error('USPS tracking status requires a USPS Web Tools account. Use the Track link to check on USPS.com.')
   }
   if (carrier === 'FEDEX') {
-    throw new Error('FedEx tracking status requires FedEx API credentials. Use the Track link to check on FedEx.com.')
+    return getFedExTrackingStatus(tracking)
   }
   if (carrier === 'UNKNOWN') {
     throw new Error(`Carrier could not be detected for tracking number "${tracking}". Use the Track link to look it up manually.`)
@@ -188,6 +232,69 @@ export async function getCarrierStatus(tracking: string): Promise<TrackingResult
 
   const deliveredAt       = delEntry ? parseUpsDate(delEntry.date, deliveryTimeStr) : null
   const estimatedDelivery = estEntry ? parseUpsDate(estEntry.date)                  : null
+
+  return { status, deliveredAt, estimatedDelivery }
+}
+
+// ─── FedEx Tracking ──────────────────────────────────────────────────────────
+
+async function getFedExTrackingStatus(tracking: string): Promise<TrackingResult> {
+  const token = await getFedExToken()
+
+  let data: unknown
+  try {
+    const res = await axios.post(
+      FEDEX_TRACK_URL,
+      {
+        includeDetailedScans: false,
+        trackingInfo: [
+          { trackingNumberInfo: { trackingNumber: tracking } },
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-locale': 'en_US',
+        },
+      },
+    )
+    data = res.data
+  } catch (e: unknown) {
+    const axiosErr = e as { response?: { status?: number; data?: { errors?: { code?: string; message?: string }[] } } }
+    const msg = axiosErr?.response?.data?.errors?.[0]?.message
+    throw new Error(msg ?? 'FedEx API request failed. Check your credentials and try again.')
+  }
+
+  interface FedExDatetime { dateTime?: string; type?: string }
+  interface FedExScanEvent { date?: string; derivedStatus?: string; eventDescription?: string }
+  interface FedExTrackResult {
+    latestStatusDetail?: { code?: string; derivedCode?: string; statusByLocale?: string; description?: string }
+    dateAndTimes?: FedExDatetime[]
+    scanEvents?: FedExScanEvent[]
+  }
+
+  const result = (data as {
+    output?: {
+      completeTrackResults?: {
+        trackResults?: FedExTrackResult[]
+      }[]
+    }
+  })?.output?.completeTrackResults?.[0]?.trackResults?.[0]
+
+  const status = result?.latestStatusDetail?.statusByLocale
+    ?? result?.latestStatusDetail?.description
+    ?? result?.scanEvents?.[0]?.derivedStatus
+  if (!status) throw new Error('FedEx returned a response but no status was found for this tracking number.')
+
+  const dates = result?.dateAndTimes ?? []
+
+  // ACTUAL_DELIVERY = delivered, ESTIMATED_DELIVERY = ETA
+  const delEntry = dates.find(d => d.type === 'ACTUAL_DELIVERY')
+  const estEntry = dates.find(d => d.type === 'ESTIMATED_DELIVERY')
+
+  const deliveredAt       = delEntry?.dateTime ? new Date(delEntry.dateTime) : null
+  const estimatedDelivery = estEntry?.dateTime ? new Date(estEntry.dateTime) : null
 
   return { status, deliveredAt, estimatedDelivery }
 }
