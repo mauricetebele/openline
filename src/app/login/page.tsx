@@ -51,8 +51,21 @@ export default function LoginPage() {
     <div className="min-h-screen bg-amazon-dark flex items-center justify-center p-4">
       <div className="card w-full max-w-sm p-8">
         <div className="mb-8 text-center flex flex-col items-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logos/olm-logo.svg" alt="Open Line Mobility" width={200} height={140} className="mb-2" />
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 200" fill="none" width={200} height={140} className="mb-2" role="img" aria-label="Open Line Mobility">
+            <defs>
+              <linearGradient id="lineGrad" x1="0" y1="1" x2="1" y2="0">
+                <stop offset="0%" stopColor="#1B5EA6"/>
+                <stop offset="100%" stopColor="#C1342C"/>
+              </linearGradient>
+            </defs>
+            <path d="M60 105 C100 120, 160 40, 210 55" stroke="url(#lineGrad)" strokeWidth="3.5" fill="none" strokeLinecap="round"/>
+            <circle cx="58" cy="104" r="10" stroke="#1B5EA6" strokeWidth="3.5" fill="none"/>
+            <circle cx="58" cy="104" r="3" fill="#1B5EA6"/>
+            <circle cx="212" cy="54" r="11" stroke="#C1342C" strokeWidth="3.5" fill="none"/>
+            <circle cx="212" cy="54" r="3.5" fill="#C1342C"/>
+            <text x="140" y="148" textAnchor="middle" fontFamily="Arial, Helvetica, sans-serif" fontWeight="700" fontSize="32" fill="#1B3A5C" letterSpacing="3">OPEN LINE</text>
+            <text x="140" y="175" textAnchor="middle" fontFamily="Arial, Helvetica, sans-serif" fontWeight="700" fontSize="22" fill="#C1342C" letterSpacing="6">MOBILITY</text>
+          </svg>
           <p className="text-gray-500 text-sm">Seller Management Platform</p>
         </div>
 

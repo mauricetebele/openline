@@ -5542,12 +5542,10 @@ export default function UnshippedOrders() {
                   </td>
                   {/* Status */}
                   <td className="px-3 py-1.5 whitespace-nowrap">
-                    {order.orderSource === 'wholesale' ? (
-                      <span className={clsx('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
-                        WORKFLOW_BADGE[order.workflowStatus] ?? 'bg-gray-100 text-gray-600 border border-gray-200')}>
-                        {WORKFLOW_LABEL[order.workflowStatus] ?? order.workflowStatus}
-                      </span>
-                    ) : statusBadge(order.orderStatus)}
+                    <span className={clsx('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
+                      WORKFLOW_BADGE[order.workflowStatus] ?? 'bg-gray-100 text-gray-600 border border-gray-200')}>
+                      {WORKFLOW_LABEL[order.workflowStatus] ?? order.workflowStatus}
+                    </span>
                   </td>
                   {/* Ship Method */}
                   <td className="px-3 py-1.5 whitespace-nowrap">
