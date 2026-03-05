@@ -477,7 +477,7 @@ export default function SerialSearchManager() {
 
           {/* Bulk actions bar — shown when rows are selected */}
           {someSelected && (
-            <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 space-y-2.5">
+            <div className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-indigo-700">
                   {selectedIds.size} selected
@@ -493,46 +493,54 @@ export default function SerialSearchManager() {
                   <X size={14} />
                 </button>
               </div>
-              {/* Bulk note */}
-              <div className="flex items-center gap-2">
-                <NotebookPen size={13} className="text-indigo-400 shrink-0" />
-                <input
-                  type="text"
-                  value={bulkNote}
-                  onChange={e => setBulkNote(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') applyBulkNote() }}
-                  placeholder="Note for all selected…"
-                  className="flex-1 text-xs border border-indigo-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
-                />
-                <button
-                  onClick={applyBulkNote}
-                  disabled={bulkSaving}
-                  className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
-                >
-                  <Check size={12} />
-                  {bulkSaving ? 'Saving…' : 'Apply Note'}
-                </button>
-              </div>
-              {/* Bulk bin location — only for IN_STOCK serials */}
-              <div className="flex items-center gap-2">
-                <MapPin size={13} className="text-indigo-400 shrink-0" />
-                <input
-                  type="text"
-                  value={bulkBin}
-                  onChange={e => setBulkBin(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') applyBulkBin() }}
-                  placeholder={selectedInStock.length > 0 ? 'Bin location (e.g. A1)…' : 'No IN_STOCK serials selected'}
-                  disabled={selectedInStock.length === 0}
-                  className="flex-1 text-xs border border-indigo-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white disabled:bg-gray-100 disabled:text-gray-400"
-                />
-                <button
-                  onClick={applyBulkBin}
-                  disabled={bulkBinSaving || selectedInStock.length === 0}
-                  className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
-                >
-                  <MapPin size={12} />
-                  {bulkBinSaving ? 'Saving…' : 'Set Bin'}
-                </button>
+              <div className="grid grid-cols-2 gap-3">
+                {/* Bulk note */}
+                <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
+                  <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide mb-2">Apply Note</p>
+                  <div className="flex items-center gap-2">
+                    <NotebookPen size={13} className="text-indigo-400 shrink-0" />
+                    <input
+                      type="text"
+                      value={bulkNote}
+                      onChange={e => setBulkNote(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') applyBulkNote() }}
+                      placeholder="Note for all selected…"
+                      className="flex-1 text-xs border border-indigo-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
+                    />
+                    <button
+                      onClick={applyBulkNote}
+                      disabled={bulkSaving}
+                      className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      <Check size={12} />
+                      {bulkSaving ? 'Saving…' : 'Apply'}
+                    </button>
+                  </div>
+                </div>
+                {/* Bulk bin location */}
+                <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
+                  <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide mb-2">Set Bin Location</p>
+                  <div className="flex items-center gap-2">
+                    <MapPin size={13} className="text-indigo-400 shrink-0" />
+                    <input
+                      type="text"
+                      value={bulkBin}
+                      onChange={e => setBulkBin(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') applyBulkBin() }}
+                      placeholder={selectedInStock.length > 0 ? 'Bin (e.g. A1)…' : 'No IN_STOCK selected'}
+                      disabled={selectedInStock.length === 0}
+                      className="flex-1 text-xs border border-indigo-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                    />
+                    <button
+                      onClick={applyBulkBin}
+                      disabled={bulkBinSaving || selectedInStock.length === 0}
+                      className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      <MapPin size={12} />
+                      {bulkBinSaving ? 'Saving…' : 'Set'}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
