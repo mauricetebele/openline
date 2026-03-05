@@ -106,6 +106,8 @@ export default function SerialSearchManager() {
   const [warehouses, setWarehouses] = useState<WarehouseWithLocations[]>([])
   const [filterWarehouseId, setFilterWarehouseId] = useState<string>('')
   const [filterLocationId, setFilterLocationId] = useState<string>('')
+  const [filterPo, setFilterPo] = useState('')
+  const [filterStatus, setFilterStatus] = useState<string>('')
 
   // Fetch warehouses for the location filter
   useEffect(() => {
@@ -158,8 +160,8 @@ export default function SerialSearchManager() {
 
   async function handleSearch() {
     const sns = parseSNs(input)
-    const isLocationSearch = !sns.length && (filterWarehouseId || filterLocationId)
-    if (!sns.length && !isLocationSearch) return
+    const hasFilter = filterWarehouseId || filterLocationId || filterPo.trim() || filterStatus
+    if (!sns.length && !hasFilter) return
     setLoading(true)
     setErr(null)
     setSearched(false)
@@ -172,6 +174,8 @@ export default function SerialSearchManager() {
       if (sns.length) params.set('serials', sns.join(','))
       if (filterLocationId) params.set('locationId', filterLocationId)
       else if (filterWarehouseId) params.set('warehouseId', filterWarehouseId)
+      if (filterPo.trim()) params.set('poNumber', filterPo.trim())
+      if (filterStatus) params.set('status', filterStatus)
       const res = await fetch(`/api/serial-search?${params}`)
       const data = await res.json()
       if (!res.ok) { setErr(data.error ?? 'Search failed'); return }
@@ -195,6 +199,10 @@ export default function SerialSearchManager() {
     setSelectedIds(new Set())
     setBulkNote('')
     setBulkBin('')
+    setFilterWarehouseId('')
+    setFilterLocationId('')
+    setFilterPo('')
+    setFilterStatus('')
     textareaRef.current?.focus()
   }
 
@@ -350,12 +358,11 @@ export default function SerialSearchManager() {
                 }
               }}
             />
-            {/* Location search — alternative to serial numbers */}
-            <div className="flex items-center gap-3 border-t border-gray-100 pt-3">
-              <MapPin size={14} className="text-gray-400 shrink-0" />
-              <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Or search by location:</span>
+            {/* Filters — alternative search methods */}
+            <div className="flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3">
+              <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Or filter by:</span>
               <select
-                className="input w-44 text-xs"
+                className="input w-40 text-xs"
                 value={filterWarehouseId}
                 onChange={e => { setFilterWarehouseId(e.target.value); setFilterLocationId('') }}
               >
@@ -365,7 +372,7 @@ export default function SerialSearchManager() {
                 ))}
               </select>
               <select
-                className="input w-44 text-xs"
+                className="input w-40 text-xs"
                 value={filterLocationId}
                 onChange={e => setFilterLocationId(e.target.value)}
                 disabled={!filterWarehouseId}
@@ -375,19 +382,38 @@ export default function SerialSearchManager() {
                   <option key={l.id} value={l.id}>{l.name}</option>
                 ))}
               </select>
-              {(filterWarehouseId || filterLocationId) && (
+              <input
+                type="text"
+                className="input w-32 text-xs"
+                placeholder="PO #"
+                value={filterPo}
+                onChange={e => setFilterPo(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSearch() }}
+              />
+              <select
+                className="input w-36 text-xs"
+                value={filterStatus}
+                onChange={e => setFilterStatus(e.target.value)}
+              >
+                <option value="">All Statuses</option>
+                <option value="IN_STOCK">In Stock</option>
+                <option value="SOLD">Sold</option>
+                <option value="RETURNED">Returned</option>
+                <option value="DAMAGED">Damaged</option>
+              </select>
+              {(filterWarehouseId || filterLocationId || filterPo || filterStatus) && (
                 <button
-                  onClick={() => { setFilterWarehouseId(''); setFilterLocationId('') }}
+                  onClick={() => { setFilterWarehouseId(''); setFilterLocationId(''); setFilterPo(''); setFilterStatus('') }}
                   className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
                 >
-                  <X size={12} /> Clear
+                  <X size={12} /> Clear filters
                 </button>
               )}
             </div>
 
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-400">
-                {count > 0 ? `${count} serial${count !== 1 ? 's' : ''} detected` : (filterWarehouseId ? 'Location selected — hit Search to find all serials there' : 'Paste serial numbers above or pick a location')}
+                {count > 0 ? `${count} serial${count !== 1 ? 's' : ''} detected` : ((filterWarehouseId || filterPo || filterStatus) ? 'Filters set — hit Search' : 'Paste serial numbers above or use filters')}
                 {count > 0 && <span className="ml-2 text-gray-300">·</span>}
                 {count > 0 && <span className="ml-2">⌘+Enter to search</span>}
               </span>
@@ -402,7 +428,7 @@ export default function SerialSearchManager() {
                 )}
                 <button
                   onClick={handleSearch}
-                  disabled={(count === 0 && !filterWarehouseId) || loading}
+                  disabled={(count === 0 && !filterWarehouseId && !filterPo.trim() && !filterStatus) || loading}
                   className="flex items-center gap-2 bg-amazon-blue text-white text-sm font-medium px-4 py-1.5 rounded-lg hover:opacity-90 disabled:opacity-50"
                 >
                   <Search size={14} />

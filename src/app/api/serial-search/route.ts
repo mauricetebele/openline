@@ -11,6 +11,8 @@ export async function GET(req: NextRequest) {
   const raw = req.nextUrl.searchParams.get('serials') ?? ''
   const locationId = req.nextUrl.searchParams.get('locationId')
   const warehouseId = req.nextUrl.searchParams.get('warehouseId')
+  const poNumber = req.nextUrl.searchParams.get('poNumber')
+  const status = req.nextUrl.searchParams.get('status')
 
   const requested = raw
     .split(/[\n,;]+/)
@@ -18,20 +20,29 @@ export async function GET(req: NextRequest) {
     .filter(Boolean)
     .filter((s, i, arr) => arr.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
 
-  const isLocationSearch = !requested.length && (locationId || warehouseId)
+  const hasFilter = locationId || warehouseId || poNumber || status
+  const isFilterSearch = !requested.length && hasFilter
 
-  if (requested.length === 0 && !isLocationSearch) return NextResponse.json({ found: [], notFound: [] })
+  if (requested.length === 0 && !isFilterSearch) return NextResponse.json({ found: [], notFound: [] })
   if (requested.length > 200) return NextResponse.json({ error: 'Maximum 200 serials per search' }, { status: 400 })
 
-  // Build where clause: serial search, location search, or both
+  // Build where clause: serial search, filter search, or both
   const where: Record<string, unknown> = {}
   if (requested.length) where.serialNumber = { in: requested, mode: 'insensitive' }
   if (locationId) where.locationId = locationId
   else if (warehouseId) where.location = { warehouseId }
+  if (status) where.status = status
+  if (poNumber) {
+    where.receiptLine = {
+      purchaseOrderLine: {
+        purchaseOrder: { poNumber: { equals: parseInt(poNumber, 10) || -1 } },
+      },
+    }
+  }
 
   const records = await prisma.inventorySerial.findMany({
     where,
-    ...(isLocationSearch ? { take: 500 } : {}),
+    ...(isFilterSearch ? { take: 500 } : {}),
     include: {
       product: { select: { sku: true, description: true } },
       location: {
