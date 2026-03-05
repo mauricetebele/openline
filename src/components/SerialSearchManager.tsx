@@ -108,9 +108,19 @@ export default function SerialSearchManager() {
   const [filterLocationId, setFilterLocationId] = useState<string>('')
   const [filterPo, setFilterPo] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('')
+  const [filterVendor, setFilterVendor] = useState<string>('')
+  const [filterSku, setFilterSku] = useState('')
+  const [vendors, setVendors] = useState<{ id: string; name: string }[]>([])
+
   const [copied, setCopied] = useState(false)
 
-  // Fetch warehouses for the location filter
+  // Fetch warehouses and vendors for filters
+  useEffect(() => {
+    fetch('/api/vendors')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.data) setVendors(d.data) })
+      .catch(() => {})
+  }, [])
   useEffect(() => {
     fetch('/api/warehouses')
       .then(r => r.ok ? r.json() : null)
@@ -161,7 +171,7 @@ export default function SerialSearchManager() {
 
   async function handleSearch() {
     const sns = parseSNs(input)
-    const hasFilter = filterWarehouseId || filterLocationId || filterPo.trim() || filterStatus
+    const hasFilter = filterWarehouseId || filterLocationId || filterPo.trim() || filterStatus || filterVendor || filterSku.trim()
     if (!sns.length && !hasFilter) return
     setLoading(true)
     setErr(null)
@@ -177,6 +187,8 @@ export default function SerialSearchManager() {
       else if (filterWarehouseId) params.set('warehouseId', filterWarehouseId)
       if (filterPo.trim()) params.set('poNumber', filterPo.trim())
       if (filterStatus) params.set('status', filterStatus)
+      if (filterVendor) params.set('vendorId', filterVendor)
+      if (filterSku.trim()) params.set('sku', filterSku.trim())
       const res = await fetch(`/api/serial-search?${params}`)
       const data = await res.json()
       if (!res.ok) { setErr(data.error ?? 'Search failed'); return }
@@ -204,6 +216,8 @@ export default function SerialSearchManager() {
     setFilterLocationId('')
     setFilterPo('')
     setFilterStatus('')
+    setFilterVendor('')
+    setFilterSku('')
     textareaRef.current?.focus()
   }
 
@@ -359,62 +373,69 @@ export default function SerialSearchManager() {
                 }
               }}
             />
-            {/* Filters — alternative search methods */}
-            <div className="flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3">
-              <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Or filter by:</span>
-              <select
-                className="input w-40 text-xs"
-                value={filterWarehouseId}
-                onChange={e => { setFilterWarehouseId(e.target.value); setFilterLocationId('') }}
-              >
-                <option value="">Warehouse…</option>
-                {warehouses.map(w => (
-                  <option key={w.id} value={w.id}>{w.name}</option>
-                ))}
-              </select>
-              <select
-                className="input w-40 text-xs"
-                value={filterLocationId}
-                onChange={e => setFilterLocationId(e.target.value)}
-                disabled={!filterWarehouseId}
-              >
-                <option value="">All Locations</option>
-                {(warehouses.find(w => w.id === filterWarehouseId)?.locations ?? []).map(l => (
-                  <option key={l.id} value={l.id}>{l.name}</option>
-                ))}
-              </select>
-              <input
-                type="text"
-                className="input w-32 text-xs"
-                placeholder="PO #"
-                value={filterPo}
-                onChange={e => setFilterPo(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleSearch() }}
-              />
-              <select
-                className="input w-36 text-xs"
-                value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value)}
-              >
-                <option value="">All Statuses</option>
-                <option value="IN_STOCK">In Stock</option>
-                <option value="SOLD">Sold</option>
-                <option value="RETURNED">Returned</option>
-                <option value="DAMAGED">Damaged</option>
-              </select>
-              {(filterWarehouseId || filterLocationId || filterPo || filterStatus) && (
-                <button
-                  onClick={() => { setFilterWarehouseId(''); setFilterLocationId(''); setFilterPo(''); setFilterStatus('') }}
-                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
-                >
-                  <X size={12} /> Clear filters
-                </button>
-              )}
+            {/* Filters */}
+            <div className="border-t border-gray-100 pt-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-500">Or filter by:</span>
+                {(filterWarehouseId || filterLocationId || filterPo || filterStatus || filterVendor || filterSku) && (
+                  <button
+                    onClick={() => { setFilterWarehouseId(''); setFilterLocationId(''); setFilterPo(''); setFilterStatus(''); setFilterVendor(''); setFilterSku('') }}
+                    className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+                  >
+                    <X size={12} /> Clear all filters
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">Warehouse</label>
+                  <select className="input w-full text-xs" value={filterWarehouseId} onChange={e => { setFilterWarehouseId(e.target.value); setFilterLocationId('') }}>
+                    <option value="">All</option>
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">Location</label>
+                  <select className="input w-full text-xs" value={filterLocationId} onChange={e => setFilterLocationId(e.target.value)} disabled={!filterWarehouseId}>
+                    <option value="">All</option>
+                    {(warehouses.find(w => w.id === filterWarehouseId)?.locations ?? []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">Vendor</label>
+                  <select className="input w-full text-xs" value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
+                    <option value="">All</option>
+                    {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">SKU</label>
+                  <input type="text" className="input w-full text-xs" placeholder="e.g. SKU-001" value={filterSku} onChange={e => setFilterSku(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSearch() }} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">PO #</label>
+                  <input type="text" className="input w-full text-xs" placeholder="e.g. 1042" value={filterPo} onChange={e => setFilterPo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSearch() }} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">Status</label>
+                  <select className="input w-full text-xs" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                    <option value="">All</option>
+                    <option value="IN_STOCK">In Stock</option>
+                    <option value="SOLD">Sold</option>
+                    <option value="RETURNED">Returned</option>
+                    <option value="DAMAGED">Damaged</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-400">
-                {count > 0 ? `${count} serial${count !== 1 ? 's' : ''} detected` : ((filterWarehouseId || filterPo || filterStatus) ? 'Filters set — hit Search' : 'Paste serial numbers above or use filters')}
+                {count > 0
+                  ? `${count} serial${count !== 1 ? 's' : ''} detected`
+                  : (filterWarehouseId || filterPo || filterStatus || filterVendor || filterSku)
+                    ? 'Filters set — hit Search'
+                    : 'Paste serial numbers above or use filters'}
                 {count > 0 && <span className="ml-2 text-gray-300">·</span>}
                 {count > 0 && <span className="ml-2">⌘+Enter to search</span>}
               </span>
@@ -429,7 +450,7 @@ export default function SerialSearchManager() {
                 )}
                 <button
                   onClick={handleSearch}
-                  disabled={(count === 0 && !filterWarehouseId && !filterPo.trim() && !filterStatus) || loading}
+                  disabled={(count === 0 && !filterWarehouseId && !filterPo.trim() && !filterStatus && !filterVendor && !filterSku.trim()) || loading}
                   className="flex items-center gap-2 bg-amazon-blue text-white text-sm font-medium px-4 py-1.5 rounded-lg hover:opacity-90 disabled:opacity-50"
                 >
                   <Search size={14} />
@@ -644,7 +665,6 @@ export default function SerialSearchManager() {
                       </td>
                       <td className="px-3 py-2.5 border-r border-gray-200">
                         <span className="font-mono text-xs text-gray-700">{r.sku}</span>
-                        {r.description && <p className="text-[11px] text-gray-400 truncate max-w-[220px]">{r.description}</p>}
                       </td>
                       <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap border-r border-gray-200">{r.vendor ?? '—'}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap border-r border-gray-200">{fmtEventType(r.lastEventType)}</td>

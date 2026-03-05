@@ -13,6 +13,8 @@ export async function GET(req: NextRequest) {
   const warehouseId = req.nextUrl.searchParams.get('warehouseId')
   const poNumber = req.nextUrl.searchParams.get('poNumber')
   const status = req.nextUrl.searchParams.get('status')
+  const vendorId = req.nextUrl.searchParams.get('vendorId')
+  const sku = req.nextUrl.searchParams.get('sku')
 
   const requested = raw
     .split(/[\n,;]+/)
@@ -20,7 +22,7 @@ export async function GET(req: NextRequest) {
     .filter(Boolean)
     .filter((s, i, arr) => arr.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
 
-  const hasFilter = locationId || warehouseId || poNumber || status
+  const hasFilter = locationId || warehouseId || poNumber || status || vendorId || sku
   const isFilterSearch = !requested.length && hasFilter
 
   if (requested.length === 0 && !isFilterSearch) return NextResponse.json({ found: [], notFound: [] })
@@ -32,10 +34,28 @@ export async function GET(req: NextRequest) {
   if (locationId) where.locationId = locationId
   else if (warehouseId) where.location = { warehouseId }
   if (status) where.status = status
+  if (sku) where.product = { sku: { contains: sku, mode: 'insensitive' } }
+  if (vendorId) {
+    where.receiptLine = {
+      ...((where.receiptLine as Record<string, unknown>) ?? {}),
+      purchaseOrderLine: {
+        ...((where.receiptLine as Record<string, unknown>)?.purchaseOrderLine as Record<string, unknown> ?? {}),
+        purchaseOrder: {
+          ...(((where.receiptLine as Record<string, unknown>)?.purchaseOrderLine as Record<string, unknown>)?.purchaseOrder as Record<string, unknown> ?? {}),
+          vendorId,
+        },
+      },
+    }
+  }
   if (poNumber) {
     where.receiptLine = {
+      ...((where.receiptLine as Record<string, unknown>) ?? {}),
       purchaseOrderLine: {
-        purchaseOrder: { poNumber: { equals: parseInt(poNumber, 10) || -1 } },
+        ...((where.receiptLine as Record<string, unknown>)?.purchaseOrderLine as Record<string, unknown> ?? {}),
+        purchaseOrder: {
+          ...(((where.receiptLine as Record<string, unknown>)?.purchaseOrderLine as Record<string, unknown>)?.purchaseOrder as Record<string, unknown> ?? {}),
+          poNumber: { equals: parseInt(poNumber, 10) || -1 },
+        },
       },
     }
   }
