@@ -553,11 +553,11 @@ export default function SerialSearchManager() {
           {/* Results table */}
           {found.length > 0 && (
             <div className="border border-gray-200 rounded-xl overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead className="bg-gray-50 border-b-2 border-gray-200">
                   <tr>
                     {/* Select-all checkbox */}
-                    <th className="pl-3 pr-1 py-2.5 w-8">
+                    <th className="pl-3 pr-1 py-2.5 w-8 border-r border-gray-200">
                       <input
                         type="checkbox"
                         checked={allSelected}
@@ -567,7 +567,7 @@ export default function SerialSearchManager() {
                     </th>
                     {/* Serial # header with copy button */}
                     <th
-                      className="px-3 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                      className="px-3 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap cursor-pointer select-none hover:bg-gray-100 transition-colors border-r border-gray-200"
                     >
                       <span className="inline-flex items-center gap-1.5">
                         <span className="inline-flex items-center gap-1" onClick={() => handleSort('serialNumber')}>
@@ -610,7 +610,7 @@ export default function SerialSearchManager() {
                       <th
                         key={col}
                         onClick={() => handleSort(col)}
-                        className="px-3 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                        className="px-3 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap cursor-pointer select-none hover:bg-gray-100 transition-colors border-r border-gray-200 last:border-r-0"
                       >
                         <span className="inline-flex items-center gap-1">
                           {label}
@@ -622,11 +622,11 @@ export default function SerialSearchManager() {
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-200">
                   {sortedFound.map(r => (
                     <tr key={r.serialNumber} className={clsx('hover:bg-gray-50', selectedIds.has(r.id) && 'bg-indigo-50/50')}>
                       {/* Row checkbox */}
-                      <td className="pl-3 pr-1 py-2.5">
+                      <td className="pl-3 pr-1 py-2.5 border-r border-gray-200">
                         <input
                           type="checkbox"
                           checked={selectedIds.has(r.id)}
@@ -634,7 +634,7 @@ export default function SerialSearchManager() {
                           className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                         />
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-2.5 border-r border-gray-200">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-xs font-semibold text-gray-900">{r.serialNumber}</span>
                           <span className={clsx('text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap', STATUS_COLOR[r.status] ?? 'bg-gray-100 text-gray-600')}>
@@ -642,19 +642,19 @@ export default function SerialSearchManager() {
                           </span>
                         </div>
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-2.5 border-r border-gray-200">
                         <span className="font-mono text-xs text-gray-700">{r.sku}</span>
                         {r.description && <p className="text-[11px] text-gray-400 truncate max-w-[220px]">{r.description}</p>}
                       </td>
-                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap">{r.vendor ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap">{fmtEventType(r.lastEventType)}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">{fmtDate(r.lastEventDate)}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap">{fmtEventType(r.lastMovementType)}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">{fmtDate(r.lastMovementDate)}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-700">{r.location ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-xs font-mono text-gray-500 whitespace-nowrap">{r.binLocation ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-xs font-mono text-gray-700 whitespace-nowrap">{r.poNumber ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap">
+                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap border-r border-gray-200">{r.vendor ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap border-r border-gray-200">{fmtEventType(r.lastEventType)}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap border-r border-gray-200">{fmtDate(r.lastEventDate)}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap border-r border-gray-200">{fmtEventType(r.lastMovementType)}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap border-r border-gray-200">{fmtDate(r.lastMovementDate)}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-700 border-r border-gray-200">{r.location ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs font-mono text-gray-500 whitespace-nowrap border-r border-gray-200">{r.binLocation ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs font-mono text-gray-700 whitespace-nowrap border-r border-gray-200">{r.poNumber ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap border-r border-gray-200">
                         {r.cost != null ? `$${r.cost.toFixed(2)}` : '—'}
                       </td>
                       {/* Note cell */}
