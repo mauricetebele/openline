@@ -24,6 +24,7 @@ export function middleware(req: NextRequest) {
     pathname === '/sw.js' ||
     pathname.startsWith('/workbox-') ||
     pathname.startsWith('/icons/') ||
+    pathname.startsWith('/logos/') ||
     pathname === '/apple-touch-icon.png'
   ) {
     return NextResponse.next()
