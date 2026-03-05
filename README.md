@@ -1,6 +1,6 @@
-# Amazon Refund Auditor — MVP
+# Open Line Mobility
 
-A full-stack web app for auditing Amazon Seller Central refunds via SP-API.
+Inventory management, order fulfillment, and marketplace operations platform.
 
 ## Architecture Overview
 

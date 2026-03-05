@@ -6,13 +6,13 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Refund Auditor — Amazon Seller Central',
-  description: 'Review and audit Amazon Seller Central refunds',
+  title: 'Open Line Mobility',
+  description: 'Inventory management, order fulfillment, and marketplace operations',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Open Line',
+    title: 'Open Line Mobility',
   },
   icons: {
     apple: '/apple-touch-icon.png',

@@ -1,7 +1,7 @@
 {
-  "name": "Open Line",
+  "name": "Open Line Mobility",
   "short_name": "Open Line",
-  "description": "Review and audit Amazon Seller Central refunds",
+  "description": "Inventory management, order fulfillment, and marketplace operations",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#131921",
