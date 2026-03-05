@@ -16,7 +16,7 @@ const UPS_SHIP_URL   = 'https://onlinetools.ups.com/api/shipments/v1/ship'
 const UPS_RATE_URL   = 'https://onlinetools.ups.com/api/rating/v1/Rate'
 
 const FEDEX_AUTH_URL  = 'https://apis.fedex.com/oauth/token'
-const FEDEX_TRACK_URL = 'https://apis.fedex.com/track/v1/tracknumbers'
+const FEDEX_TRACK_URL = 'https://apis.fedex.com/track/v1/trackingnumbers'
 
 let cachedToken: { token: string; expiresAt: number } | null = null
 let cachedFedexToken: { token: string; expiresAt: number } | null = null

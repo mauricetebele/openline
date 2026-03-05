@@ -12,7 +12,7 @@ import axios from 'axios'
 export const dynamic = 'force-dynamic'
 
 const FEDEX_AUTH_URL  = 'https://apis.fedex.com/oauth/token'
-const FEDEX_TRACK_URL = 'https://apis.fedex.com/track/v1/tracknumbers'
+const FEDEX_TRACK_URL = 'https://apis.fedex.com/track/v1/trackingnumbers'
 
 export async function GET(req: NextRequest) {
   const user = await getAuthUser()
