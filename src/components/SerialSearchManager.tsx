@@ -497,9 +497,11 @@ export default function SerialSearchManager() {
               <div className="grid grid-cols-2 gap-3">
                 {/* Bulk note */}
                 <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
-                  <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide mb-2">Apply Note</p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <NotebookPen size={18} className="text-indigo-400 shrink-0" />
+                    <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">Apply Note</p>
+                  </div>
                   <div className="flex items-center gap-2">
-                    <NotebookPen size={13} className="text-indigo-400 shrink-0" />
                     <input
                       type="text"
                       value={bulkNote}
@@ -520,9 +522,11 @@ export default function SerialSearchManager() {
                 </div>
                 {/* Bulk bin location */}
                 <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
-                  <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide mb-2">Set Bin Location</p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <MapPin size={18} className="text-indigo-400 shrink-0" />
+                    <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">Set Bin Location</p>
+                  </div>
                   <div className="flex items-center gap-2">
-                    <MapPin size={13} className="text-indigo-400 shrink-0" />
                     <input
                       type="text"
                       value={bulkBin}
