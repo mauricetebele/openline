@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin } from 'lucide-react'
+import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -108,6 +108,7 @@ export default function SerialSearchManager() {
   const [filterLocationId, setFilterLocationId] = useState<string>('')
   const [filterPo, setFilterPo] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('')
+  const [copied, setCopied] = useState(false)
 
   // Fetch warehouses for the location filter
   useEffect(() => {
@@ -560,8 +561,36 @@ export default function SerialSearchManager() {
                         className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                       />
                     </th>
+                    {/* Serial # header with copy button */}
+                    <th
+                      className="px-3 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1" onClick={() => handleSort('serialNumber')}>
+                          Serial #
+                          <span className={clsx('text-[10px]', sortCol === 'serialNumber' ? 'text-indigo-500' : 'text-gray-300')}>
+                            {sortCol === 'serialNumber' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                          </span>
+                        </span>
+                        <button
+                          title="Copy all serials"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const text = sortedFound.map(r => r.serialNumber).join('\n')
+                            navigator.clipboard.writeText(text)
+                            setCopied(true)
+                            setTimeout(() => setCopied(false), 1500)
+                          }}
+                          className={clsx(
+                            'p-0.5 rounded transition-colors',
+                            copied ? 'text-green-500' : 'text-gray-300 hover:text-indigo-500',
+                          )}
+                        >
+                          {copied ? <Check size={11} /> : <Copy size={11} />}
+                        </button>
+                      </span>
+                    </th>
                     {([
-                      ['serialNumber',  'Serial #'],
                       ['sku',           'SKU'],
                       ['vendor',        'Vendor'],
                       ['lastEventType',    'Last Event Type'],
