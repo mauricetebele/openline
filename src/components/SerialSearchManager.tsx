@@ -374,50 +374,52 @@ export default function SerialSearchManager() {
               }}
             />
             {/* Filters */}
-            <div className="border-t border-gray-100 pt-3 space-y-2.5">
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-2.5 mt-1">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-500">Or filter by:</span>
+                <span className="text-xs font-semibold text-blue-700 flex items-center gap-1.5">
+                  <Search size={13} /> Filters
+                </span>
                 {(filterWarehouseId || filterLocationId || filterPo || filterStatus || filterVendor || filterSku) && (
                   <button
                     onClick={() => { setFilterWarehouseId(''); setFilterLocationId(''); setFilterPo(''); setFilterStatus(''); setFilterVendor(''); setFilterSku('') }}
-                    className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+                    className="text-xs text-blue-400 hover:text-blue-600 flex items-center gap-1"
                   >
-                    <X size={12} /> Clear all filters
+                    <X size={12} /> Clear all
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">Warehouse</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">Warehouse</label>
                   <select className="input w-full text-xs" value={filterWarehouseId} onChange={e => { setFilterWarehouseId(e.target.value); setFilterLocationId('') }}>
                     <option value="">All</option>
                     {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">Location</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">Location</label>
                   <select className="input w-full text-xs" value={filterLocationId} onChange={e => setFilterLocationId(e.target.value)} disabled={!filterWarehouseId}>
                     <option value="">All</option>
                     {(warehouses.find(w => w.id === filterWarehouseId)?.locations ?? []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">Vendor</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">Vendor</label>
                   <select className="input w-full text-xs" value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
                     <option value="">All</option>
                     {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">SKU</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">SKU</label>
                   <input type="text" className="input w-full text-xs" placeholder="e.g. SKU-001" value={filterSku} onChange={e => setFilterSku(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSearch() }} />
                 </div>
                 <div>
-                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">PO #</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">PO #</label>
                   <input type="text" className="input w-full text-xs" placeholder="e.g. 1042" value={filterPo} onChange={e => setFilterPo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSearch() }} />
                 </div>
                 <div>
-                  <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1 block">Status</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">Status</label>
                   <select className="input w-full text-xs" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
                     <option value="">All</option>
                     <option value="IN_STOCK">In Stock</option>
