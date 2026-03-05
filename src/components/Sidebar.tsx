@@ -37,7 +37,7 @@ const NAV: NavItem[] = [
       { href: '/inventory/convert',     label: 'Convert SKU',     icon: Tag },
     ],
   },
-  { href: '/unshipped-orders', label: 'Unshipped Orders',icon: Package },
+  { href: '/unshipped-orders', label: 'Order Fulfillment',icon: Package },
   { href: '/cases',            label: 'Cases',           icon: FolderOpen },
   { href: '/vendor-rma',       label: 'Vendor Returns',  icon: PackageMinus },
   { href: '/serial-search',   label: 'Serial Search',   icon: Barcode },
