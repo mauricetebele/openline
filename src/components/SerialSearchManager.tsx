@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive } from 'lucide-react'
+import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive, Warehouse, LocateFixed, Building2, Tag, FileText, CircleDot } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -390,36 +390,36 @@ export default function SerialSearchManager() {
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">Warehouse</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Warehouse size={11} /> Warehouse</label>
                   <select className="input w-full text-xs" value={filterWarehouseId} onChange={e => { setFilterWarehouseId(e.target.value); setFilterLocationId('') }}>
                     <option value="">All</option>
                     {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">Location</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 flex items-center gap-1"><LocateFixed size={11} /> Location</label>
                   <select className="input w-full text-xs" value={filterLocationId} onChange={e => setFilterLocationId(e.target.value)} disabled={!filterWarehouseId}>
                     <option value="">All</option>
                     {(warehouses.find(w => w.id === filterWarehouseId)?.locations ?? []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">Vendor</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Building2 size={11} /> Vendor</label>
                   <select className="input w-full text-xs" value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
                     <option value="">All</option>
                     {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">SKU</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Tag size={11} /> SKU</label>
                   <input type="text" className="input w-full text-xs" placeholder="e.g. SKU-001" value={filterSku} onChange={e => setFilterSku(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSearch() }} />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">PO #</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 flex items-center gap-1"><FileText size={11} /> PO #</label>
                   <input type="text" className="input w-full text-xs" placeholder="e.g. 1042" value={filterPo} onChange={e => setFilterPo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSearch() }} />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 block">Status</label>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 flex items-center gap-1"><CircleDot size={11} /> Status</label>
                   <select className="input w-full text-xs" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
                     <option value="">All</option>
                     <option value="IN_STOCK">In Stock</option>
