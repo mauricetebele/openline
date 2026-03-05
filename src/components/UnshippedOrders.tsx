@@ -6042,7 +6042,7 @@ export default function UnshippedOrders() {
                         >
                           <FileText size={14} />
                         </button>
-                        {order.label && order.orderSource !== 'wholesale' && (Date.now() - new Date(order.label.createdAt).getTime() < 12 * 60 * 60 * 1000) && (
+                        {order.label && order.orderSource !== 'wholesale' && (Date.now() - new Date(order.label.createdAt).getTime() < 24 * 60 * 60 * 1000) && (
                           <button
                             onClick={() => handleVoidLabel(order)}
                             disabled={voidingId === order.id}
