@@ -116,6 +116,22 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const jobId     = searchParams.get('jobId')
   const accountId = searchParams.get('accountId')
+  const lastSync  = searchParams.get('lastSync')
+
+  // ?lastSync=true — return the most recent COMPLETED job per source
+  if (lastSync) {
+    const sources = ['amazon', 'backmarket'] as const
+    const result: Record<string, { completedAt: string; trigger: string; totalSynced: number } | null> = {}
+    for (const src of sources) {
+      const job = await prisma.orderSyncJob.findFirst({
+        where: { status: 'COMPLETED', source: src },
+        orderBy: { completedAt: 'desc' },
+        select: { completedAt: true, trigger: true, totalSynced: true },
+      })
+      result[src] = job ? { completedAt: job.completedAt!.toISOString(), trigger: job.trigger, totalSynced: job.totalSynced } : null
+    }
+    return NextResponse.json(result)
+  }
 
   // ?jobId= — poll a specific job
   if (jobId) {

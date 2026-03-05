@@ -4,7 +4,7 @@ import {
   Search, RefreshCcw, Package, X, AlertCircle, ChevronLeft, ChevronRight,
   Download, Link2, CheckCircle2, Truck, Settings, FlaskConical, ClipboardCheck,
   MapPin, Printer, RotateCcw, Hash, XCircle, ExternalLink, Phone, FileText, Eye,
-  AlertTriangle, Pencil, Tag, History, ChevronDown, ChevronUp, Ban, ShieldCheck, Trash2, ScanLine,
+  AlertTriangle, Pencil, Tag, History, ChevronDown, ChevronUp, Ban, ShieldCheck, Trash2, ScanLine, Clock,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { AmazonAccountDTO } from '@/types'
@@ -3777,6 +3777,8 @@ export default function UnshippedOrders() {
   const [ssEnriching, setSsEnriching]     = useState(false)
   const [ssEnrichResult, setSsEnrichResult] = useState<{ enriched: number; addresses: number } | null>(null)
   const [showSyncBar, setShowSyncBar]     = useState(false)
+  const [lastSyncInfo, setLastSyncInfo]   = useState<Record<string, { completedAt: string; trigger: string; totalSynced: number } | null>>({})
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const bmPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const syncBarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -3915,6 +3917,15 @@ export default function UnshippedOrders() {
 
   useEffect(() => { fetchPackagePresets() }, [])
 
+  // Fetch last sync timestamps per marketplace
+  const fetchLastSync = useCallback(() => {
+    fetch('/api/orders/sync?lastSync=true')
+      .then(r => r.ok ? r.json() : {})
+      .then(d => setLastSyncInfo(d))
+      .catch(() => {})
+  }, [])
+  useEffect(() => { fetchLastSync() }, [fetchLastSync])
+
   useEffect(() => {
     if (!selectedAccountId) return
     let cancelled = false
@@ -4027,6 +4038,7 @@ export default function UnshippedOrders() {
         if (amazonDone && bmDone) {
           setSyncing(false)
           setFetchKey(k => k + 1)
+          fetchLastSync()
           // Auto-trigger ShipStation enrichment after sync completes
           if (selectedAccountId && (syncSource === 'amazon' || syncSource === 'all')) {
             setSsEnriching(true)
@@ -5199,6 +5211,27 @@ export default function UnshippedOrders() {
           )
         })}
       </div>
+
+      {/* Last sync info */}
+      {(lastSyncInfo.amazon || lastSyncInfo.backmarket) && (
+        <div className="flex items-center gap-4 px-4 py-1 border-b bg-gray-50 text-[10px] text-gray-500">
+          <Clock size={11} className="text-gray-400 shrink-0" />
+          {lastSyncInfo.amazon && (
+            <span>
+              Amazon: <span className="font-medium text-gray-700">{new Date(lastSyncInfo.amazon.completedAt).toLocaleString()}</span>
+              {' '}<span className={lastSyncInfo.amazon.trigger === 'cron' ? 'text-blue-600' : 'text-amber-600'}>({lastSyncInfo.amazon.trigger === 'cron' ? 'Auto' : 'Manual'})</span>
+              {' '}<span className="text-gray-400">({lastSyncInfo.amazon.totalSynced} synced)</span>
+            </span>
+          )}
+          {lastSyncInfo.backmarket && (
+            <span>
+              Back Market: <span className="font-medium text-gray-700">{new Date(lastSyncInfo.backmarket.completedAt).toLocaleString()}</span>
+              {' '}<span className={lastSyncInfo.backmarket.trigger === 'cron' ? 'text-blue-600' : 'text-amber-600'}>({lastSyncInfo.backmarket.trigger === 'cron' ? 'Auto' : 'Manual'})</span>
+              {' '}<span className="text-gray-400">({lastSyncInfo.backmarket.totalSynced} synced)</span>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Label batch status bar */}
       {activeBatchId && (

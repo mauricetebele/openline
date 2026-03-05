@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
 
     try {
       const job = await prisma.orderSyncJob.create({
-        data: { accountId: account.id, status: 'PENDING' },
+        data: { accountId: account.id, status: 'PENDING', trigger: 'cron' },
       })
       await syncUnshippedOrders(account.id, job.id)
       results.push({ accountId: account.id, sellerId: account.sellerId, jobId: job.id })
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
     const bmAccountId = accounts[0].id // reuse first active Amazon account
     try {
       const bmJob = await prisma.orderSyncJob.create({
-        data: { accountId: bmAccountId, status: 'PENDING' },
+        data: { accountId: bmAccountId, status: 'PENDING', source: 'backmarket', trigger: 'cron' },
       })
       await syncBackMarketOrders(bmAccountId, bmJob.id)
       bmResult = { jobId: bmJob.id }
