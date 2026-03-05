@@ -7,10 +7,12 @@ import {
   AlertTriangle, Pencil, Tag, History, ChevronDown, ChevronUp, Ban, ShieldCheck, Trash2, ScanLine, Clock,
 } from 'lucide-react'
 import { clsx } from 'clsx'
+import { toast } from 'sonner'
 import { AmazonAccountDTO } from '@/types'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
 import PickListModal from '@/components/PickListModal'
 import ShipByItemModal from '@/components/ShipByItemModal'
+import { useQzTray } from '@/lib/use-qz-tray'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2416,13 +2418,14 @@ interface SSRate {
 interface LabelPanelProps {
   order: Order; ssAccount: SSAccount | null; onClose: () => void
   onLabelSaved?: () => void  // called after real label is saved to DB
+  qzPrint?: { connected: boolean; defaultPrinter: string | null; printPdf: (b64: string, printer?: string) => Promise<void> }
 }
 
 const FROM_ZIP_KEY  = 'ss_from_zip'
 const WH_KEY        = 'ss_warehouse_id'
 const TEST_MODE_KEY = 'ss_test_mode'
 
-function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps) {
+function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelPanelProps) {
   const [lookup, setLookup]         = useState<SSLookupResult>({ status: 'loading' })
   const [warehouses, setWarehouses] = useState<SSWarehouse[]>([])
   const [whLoading, setWhLoading]   = useState(false)
@@ -2672,6 +2675,11 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
             }
           }
 
+          // Auto-print via QZ Tray if connected (non-fatal)
+          if (qzPrint?.connected && qzPrint.defaultPrinter && (label.labelFormat ?? 'pdf') === 'pdf') {
+            try { await qzPrint.printPdf(label.labelData) } catch { /* non-fatal */ }
+          }
+
           // Notify parent so the unshipped list refreshes and order disappears
           onLabelSaved?.()
         } catch (e) {
@@ -2717,9 +2725,15 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
               <p className="text-xs font-medium text-gray-600 mb-0.5">Tracking Number</p>
               <p className="font-mono text-sm font-bold text-gray-900">{purchased.trackingNumber}</p>
             </div>
-            <button onClick={() => downloadLabelData(purchased.labelData, purchased.labelFormat, `label-${order.amazonOrderId}`)}
+            <button onClick={async () => {
+                if (qzPrint?.connected && qzPrint.defaultPrinter && purchased.labelFormat === 'pdf') {
+                  try { await qzPrint.printPdf(purchased.labelData); toast.success('Label sent to printer') } catch { downloadLabelData(purchased.labelData, purchased.labelFormat, `label-${order.amazonOrderId}`) }
+                } else {
+                  downloadLabelData(purchased.labelData, purchased.labelFormat, `label-${order.amazonOrderId}`)
+                }
+              }}
               className="w-full flex items-center justify-center gap-2 bg-green-600 text-white text-sm font-medium py-2 rounded-lg hover:bg-green-700">
-              <Download size={14} /> Download Label
+              {qzPrint?.connected && qzPrint.defaultPrinter ? <><Printer size={14} /> Print Label</> : <><Download size={14} /> Download Label</>}
             </button>
             <button onClick={() => { setPurchased(null); setRates(null) }} className="w-full text-xs text-gray-500 hover:text-gray-700 text-center">Buy another label</button>
           </div>
@@ -3626,102 +3640,324 @@ function BatchHistoryModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-// ─── LabelBatchStatusBar ──────────────────────────────────────────────────────
+// ─── Batch Gauge SVG ─────────────────────────────────────────────────────────
 
-function LabelBatchStatusBar({
-  batchId, onComplete, onDismiss,
-}: { batchId: string; onComplete: () => void; onDismiss: () => void }) {
-  const [data, setData] = useState<LabelBatchPollData | null>(null)
+function BatchGauge({ completed, total, failed }: { completed: number; total: number; failed: number }) {
+  const pct = total > 0 ? Math.min((completed + failed) / total, 1) : 0
+  const size = 200
+  const cx = size / 2, cy = size / 2 + 10
+  const r = 78
+  const startAngle = 135               // bottom-left
+  const endAngle = 405                  // bottom-right (270° arc)
+  const arcSpan = endAngle - startAngle // 270
+  const toRad = (d: number) => (d * Math.PI) / 180
+
+  // Background arc
+  const bgStart = { x: cx + r * Math.cos(toRad(startAngle)), y: cy + r * Math.sin(toRad(startAngle)) }
+  const bgEnd = { x: cx + r * Math.cos(toRad(endAngle)), y: cy + r * Math.sin(toRad(endAngle)) }
+  const bgPath = `M ${bgStart.x} ${bgStart.y} A ${r} ${r} 0 1 1 ${bgEnd.x} ${bgEnd.y}`
+
+  // Progress arc
+  const progAngle = startAngle + arcSpan * pct
+  const progEnd = { x: cx + r * Math.cos(toRad(progAngle)), y: cy + r * Math.sin(toRad(progAngle)) }
+  const largeArc = pct * arcSpan > 180 ? 1 : 0
+  const progPath = pct > 0 ? `M ${bgStart.x} ${bgStart.y} A ${r} ${r} 0 ${largeArc} 1 ${progEnd.x} ${progEnd.y}` : ''
+
+  // Needle
+  const needleAngle = startAngle + arcSpan * pct
+  const needleLen = r - 16
+  const needleTip = { x: cx + needleLen * Math.cos(toRad(needleAngle)), y: cy + needleLen * Math.sin(toRad(needleAngle)) }
+
+  const isDone = completed + failed >= total && total > 0
+  const hasErrors = failed > 0
+  const progressColor = isDone ? (hasErrors ? '#f59e0b' : '#22c55e') : '#6366f1'
+
+  return (
+    <div className="flex flex-col items-center">
+      <svg width={size} height={size * 0.65} viewBox={`0 0 ${size} ${size * 0.65}`}>
+        {/* Background track */}
+        <path d={bgPath} fill="none" stroke="#e5e7eb" strokeWidth={12} strokeLinecap="round" />
+        {/* Progress arc */}
+        {progPath && (
+          <path d={progPath} fill="none" stroke={progressColor} strokeWidth={12} strokeLinecap="round"
+            style={{ transition: 'stroke-dashoffset 0.5s ease, stroke 0.3s ease' }} />
+        )}
+        {/* Tick marks */}
+        {Array.from({ length: 11 }).map((_, i) => {
+          const angle = startAngle + (arcSpan / 10) * i
+          const inner = r + 8
+          const outer = r + 14
+          return (
+            <line key={i}
+              x1={cx + inner * Math.cos(toRad(angle))} y1={cy + inner * Math.sin(toRad(angle))}
+              x2={cx + outer * Math.cos(toRad(angle))} y2={cy + outer * Math.sin(toRad(angle))}
+              stroke="#d1d5db" strokeWidth={1.5} strokeLinecap="round" />
+          )
+        })}
+        {/* Needle */}
+        <line x1={cx} y1={cy} x2={needleTip.x} y2={needleTip.y}
+          stroke="#1f2937" strokeWidth={2.5} strokeLinecap="round"
+          style={{ transition: 'x2 0.5s ease, y2 0.5s ease' }} />
+        {/* Center cap */}
+        <circle cx={cx} cy={cy} r={5} fill="#374151" />
+      </svg>
+      <div className="text-center -mt-1">
+        <span className="text-3xl font-bold tabular-nums" style={{ color: progressColor }}>
+          {completed + failed}
+        </span>
+        <span className="text-lg text-gray-400 font-medium"> / {total}</span>
+      </div>
+      <p className="text-xs text-gray-500 mt-0.5">
+        {isDone
+          ? hasErrors ? `Done — ${failed} failed` : 'All labels created'
+          : 'Labels processed'}
+      </p>
+    </div>
+  )
+}
+
+// ─── LabelBatchModal ─────────────────────────────────────────────────────────
+
+interface LabelBatchModalProps {
+  orders: Order[]
+  batchEligible: string[]
+  skippedCount: number
+  existingBatchId?: string | null
+  onClose: () => void
+  onBatchCreated: (batchId: string) => void
+  onBatchComplete: () => void
+  qzPrint?: { connected: boolean; defaultPrinter: string | null; printMultiplePdfs: (b64s: string[], printer?: string) => Promise<void> }
+}
+
+function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId, onClose, onBatchCreated, onBatchComplete, qzPrint }: LabelBatchModalProps) {
+  // Phase: 'confirm' | 'processing' | 'done'
+  const [phase, setPhase] = useState<'confirm' | 'processing' | 'done'>(existingBatchId ? 'processing' : 'confirm')
+  const [isTest, setIsTest] = useState(false)
+  const [createErr, setCreateErr] = useState<string | null>(null)
+  const [batchId, setBatchId] = useState<string | null>(existingBatchId ?? null)
+  const [pollData, setPollData] = useState<LabelBatchPollData | null>(null)
   const [showFailed, setShowFailed] = useState(false)
+  const [printingAll, setPrintingAll] = useState(false)
 
-  useEffect(() => {
-    let stopped = false
-    let autoDismissTimer: ReturnType<typeof setTimeout> | null = null
-
-    function clearAutoDismiss() {
-      if (autoDismissTimer) { clearTimeout(autoDismissTimer); autoDismissTimer = null }
+  // Build shipping method breakdown from eligible orders
+  const methodBreakdown = useMemo(() => {
+    const groups: Record<string, { carrier: string; service: string; count: number; totalCost: number }> = {}
+    for (const id of batchEligible) {
+      const o = orders.find(x => x.id === id)
+      if (!o) continue
+      const carrier = o.presetRateCarrier ?? 'Unknown'
+      const service = o.presetRateService ?? 'Unknown'
+      const key = `${carrier}|${service}`
+      if (!groups[key]) groups[key] = { carrier, service, count: 0, totalCost: 0 }
+      groups[key].count++
+      groups[key].totalCost += parseFloat(o.presetRateAmount ?? '0')
     }
+    return Object.values(groups).sort((a, b) => b.count - a.count)
+  }, [batchEligible, orders])
+
+  const totalEstCost = methodBreakdown.reduce((s, m) => s + m.totalCost, 0)
+
+  // Confirm → create batch
+  async function handleConfirm() {
+    setCreateErr(null)
+    try {
+      const data = await apiPost<{ batchId: string; totalOrders: number; skipped: number }>(
+        '/api/orders/label-batch',
+        { orderIds: batchEligible, isTest },
+      )
+      setBatchId(data.batchId)
+      setPhase('processing')
+      onBatchCreated(data.batchId)
+    } catch (e) {
+      setCreateErr(e instanceof Error ? e.message : 'Failed to create batch')
+    }
+  }
+
+  // Poll batch progress
+  useEffect(() => {
+    if (phase !== 'processing' || !batchId) return
+    let stopped = false
 
     async function poll() {
       try {
         const res = await fetch(`/api/orders/label-batch/${batchId}`)
         if (!res.ok) return
         const batch: LabelBatchPollData = await res.json()
-        setData(batch)
-
+        setPollData(batch)
         if (batch.status === 'COMPLETED' || batch.status === 'FAILED') {
           stopped = true
-          if (batch.status === 'COMPLETED' && batch.failed === 0) {
-            onComplete()
-            autoDismissTimer = setTimeout(() => onDismiss(), 3000)
-          }
+          setPhase('done')
+          onBatchComplete()
         }
       } catch { /* transient */ }
     }
 
     poll()
-    const interval = setInterval(() => { if (!stopped) poll() }, 3000)
+    const interval = setInterval(() => { if (!stopped) poll() }, 2000)
+    return () => { stopped = true; clearInterval(interval) }
+  }, [phase, batchId])
 
-    return () => {
-      stopped = true
-      clearInterval(interval)
-      clearAutoDismiss()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batchId])
-
-  const isDone    = data?.status === 'COMPLETED' || data?.status === 'FAILED'
-  const hasErrors = (data?.failed ?? 0) > 0
-  const failedItems = data?.items.filter(i => i.status === 'FAILED') ?? []
-
-  const bannerCls = isDone
-    ? hasErrors
-      ? 'bg-amber-50 border-amber-300 text-amber-900'
-      : 'bg-green-50 border-green-200 text-green-800'
-    : 'bg-gray-50 border-gray-200 text-gray-700'
+  const completed = pollData?.completed ?? 0
+  const failed = pollData?.failed ?? 0
+  const total = pollData?.totalOrders ?? batchEligible.length
+  const failedItems = pollData?.items.filter(i => i.status === 'FAILED') ?? []
 
   return (
-    <div className={`flex flex-col border-b text-xs ${bannerCls}`}>
-      <div className="flex items-center justify-between gap-3 px-6 py-2">
-        <div className="flex items-center gap-2">
-          {!isDone && <RefreshCcw size={12} className="animate-spin shrink-0" />}
-          {isDone && hasErrors && <AlertTriangle size={12} className="shrink-0 text-amber-600" />}
-          {isDone && !hasErrors && <CheckCircle2 size={12} className="shrink-0 text-green-600" />}
-          <span>
-            <span className="font-semibold">Label Batch</span>
-            {data?.isTest && <span className="ml-1 text-[10px] bg-amber-200 text-amber-800 px-1 rounded">TEST</span>}
-            {' — '}
-            {data
-              ? `${data.completed}/${data.totalOrders} labels created`
-              : 'Starting…'
-            }
-          </span>
-          {hasErrors && (
-            <span className="text-red-600 font-medium">
-              · {data!.failed} failed
-              <button
-                type="button"
-                onClick={() => setShowFailed(v => !v)}
-                className="ml-1 underline text-red-500 hover:text-red-700"
-              >
-                {showFailed ? 'hide' : 'show'}
-              </button>
-            </span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b bg-gray-50">
+          <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+            <Tag size={14} className="text-indigo-600" />
+            {phase === 'confirm' ? 'Create Label Batch' : phase === 'processing' ? 'Purchasing Labels…' : 'Batch Complete'}
+          </h3>
+          {phase !== 'processing' && (
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
           )}
         </div>
-        <button type="button" onClick={onDismiss} className="shrink-0 text-gray-400 hover:text-gray-600">
-          <X size={13} />
-        </button>
-      </div>
-      {showFailed && failedItems.length > 0 && (
-        <div className="px-6 pb-2 space-y-0.5">
-          {failedItems.map(item => (
-            <p key={item.id} className="text-[10px] font-mono text-red-700">
-              {item.order.amazonOrderId}: {item.error}
+
+        {/* ── Confirm Phase ─────────────────────────────────────── */}
+        {phase === 'confirm' && (
+          <div className="px-5 py-4 space-y-4">
+            <p className="text-sm text-gray-700">
+              Purchase labels for{' '}
+              <strong className="text-indigo-700">{batchEligible.length} order{batchEligible.length !== 1 ? 's' : ''}</strong>.
+              The batch will process on the server — you can close the modal at any time.
             </p>
-          ))}
-        </div>
-      )}
+
+            {skippedCount > 0 && (
+              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">
+                <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                {skippedCount} order{skippedCount !== 1 ? 's' : ''} have no captured rate and will be skipped.
+              </div>
+            )}
+
+            {/* Shipping method breakdown */}
+            <div>
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">Shipping Method Breakdown</h4>
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500">
+                      <th className="text-left px-3 py-1.5 font-semibold">Carrier</th>
+                      <th className="text-left px-3 py-1.5 font-semibold">Service</th>
+                      <th className="text-right px-3 py-1.5 font-semibold">Labels</th>
+                      <th className="text-right px-3 py-1.5 font-semibold">Est. Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {methodBreakdown.map((m, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="px-3 py-1.5 font-medium text-gray-800">{m.carrier}</td>
+                        <td className="px-3 py-1.5 text-gray-600">{m.service}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-medium text-gray-800">{m.count}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-gray-600">${m.totalCost.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50 font-semibold text-gray-800">
+                      <td colSpan={2} className="px-3 py-1.5">Total</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{batchEligible.length}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">${totalEstCost.toFixed(2)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)}
+                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+              Create test labels (no charge)
+            </label>
+
+            {createErr && (
+              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+                <AlertCircle size={12} className="shrink-0 mt-0.5" />
+                {createErr}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={onClose}
+                className="px-3.5 py-2 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={handleConfirm}
+                className="px-3.5 py-2 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium flex items-center gap-1.5">
+                <Tag size={11} /> Confirm &amp; Purchase
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Processing Phase ──────────────────────────────────── */}
+        {phase === 'processing' && (
+          <div className="px-5 py-6">
+            <BatchGauge completed={completed} total={total} failed={failed} />
+            <p className="text-center text-xs text-gray-400 mt-3">
+              {pollData?.isTest && <span className="bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded font-semibold mr-1">TEST</span>}
+              Processing on the server… you can close this modal safely.
+            </p>
+          </div>
+        )}
+
+        {/* ── Done Phase ────────────────────────────────────────── */}
+        {phase === 'done' && (
+          <div className="px-5 py-5 space-y-4">
+            <BatchGauge completed={completed} total={total} failed={failed} />
+
+            {failed > 0 && (
+              <div className="space-y-1">
+                <button type="button" onClick={() => setShowFailed(v => !v)}
+                  className="text-xs text-red-600 font-medium underline hover:text-red-700">
+                  {showFailed ? 'Hide' : 'Show'} {failed} failed label{failed !== 1 ? 's' : ''}
+                </button>
+                {showFailed && (
+                  <div className="max-h-28 overflow-y-auto rounded-lg border border-red-200 bg-red-50 p-2 space-y-0.5">
+                    {failedItems.map(item => (
+                      <p key={item.id} className="text-[10px] font-mono text-red-700">
+                        {item.order.amazonOrderId}: {item.error}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-1">
+              {completed > 0 && qzPrint?.connected && qzPrint.defaultPrinter ? (
+                <button
+                  type="button" disabled={printingAll}
+                  onClick={async () => {
+                    if (!batchId) return
+                    setPrintingAll(true)
+                    try {
+                      const res = await fetch(`/api/orders/label-batch/${batchId}/labels`)
+                      if (!res.ok) { toast.error('Failed to fetch batch labels'); return }
+                      const { labels } = await res.json() as { labels: { orderId: string; labelData: string; labelFormat: string }[] }
+                      const pdfLabels = labels.filter(l => l.labelFormat === 'pdf').map(l => l.labelData)
+                      if (pdfLabels.length === 0) { toast.error('No PDF labels in batch'); return }
+                      await qzPrint.printMultiplePdfs(pdfLabels)
+                      toast.success(`${pdfLabels.length} labels sent to printer`)
+                    } catch { toast.error('Batch print failed') }
+                    finally { setPrintingAll(false) }
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                >
+                  {printingAll ? <RefreshCcw size={10} className="animate-spin" /> : <Printer size={12} />}
+                  Print All Labels
+                </button>
+              ) : <div />}
+              <button onClick={onClose}
+                className="px-3.5 py-2 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -3745,6 +3981,8 @@ const EMPTY_MESSAGES: Record<ActiveTab, { title: string; sub: string }> = {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function UnshippedOrders() {
+  const qz = useQzTray()
+
   const [accounts, setAccounts]                   = useState<AmazonAccountDTO[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState('')
   const [accountsError, setAccountsError]         = useState<string | null>(null)
@@ -3839,8 +4077,6 @@ export default function UnshippedOrders() {
   // Label batch state
   const [activeBatchId,    setActiveBatchId]    = useState<string | null>(null)
   const [showBatchConfirm, setShowBatchConfirm] = useState(false)
-  const [batchIsTest,      setBatchIsTest]      = useState(false)
-  const [batchCreateErr,   setBatchCreateErr]   = useState<string | null>(null)
   const [showBatchHistory, setShowBatchHistory] = useState(false)
 
   // Delete all orders state
@@ -4355,6 +4591,17 @@ export default function UnshippedOrders() {
       const res  = await fetch(`/api/orders/${orderId}/label`)
       if (!res.ok) { alert('No label found for this order'); return }
       const data = await res.json() as { labelData: string; labelFormat: string }
+
+      // Silent print via QZ Tray if connected, printer set, and format is PDF
+      if (qz.connected && qz.defaultPrinter && data.labelFormat === 'pdf') {
+        try {
+          await qz.printPdf(data.labelData)
+          toast.success('Label sent to printer')
+          return
+        } catch { /* fall through to browser */ }
+      }
+
+      // Fallback: open in browser
       const mime = data.labelFormat === 'pdf' ? 'application/pdf' : 'image/png'
       const blob = new Blob(
         [Uint8Array.from(atob(data.labelData), c => c.charCodeAt(0))],
@@ -4391,21 +4638,6 @@ export default function UnshippedOrders() {
       setFetchKey(k => k + 1) // refresh list — order will move to shipped tab
     } catch { setBmShipError('Failed to ship on BackMarket') }
     finally { setBmShippingId(null) }
-  }
-
-  async function handleCreateBatch() {
-    setBatchCreateErr(null)
-    try {
-      const data = await apiPost<{ batchId: string; totalOrders: number; skipped: number }>(
-        '/api/orders/label-batch',
-        { orderIds: batchEligible, isTest: batchIsTest },
-      )
-      setActiveBatchId(data.batchId)
-      setShowBatchConfirm(false)
-      setBatchIsTest(false)
-    } catch (e) {
-      setBatchCreateErr(e instanceof Error ? e.message : 'Failed to create batch')
-    }
   }
 
   async function handleBulkProcess() {
@@ -4758,67 +4990,23 @@ export default function UnshippedOrders() {
         />
       )}
       {labelOrder && <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setLabelOrder(null)} />}
-      {labelOrder && <LabelPanel order={labelOrder} ssAccount={ssAccount} onClose={() => setLabelOrder(null)} onLabelSaved={() => { setLabelOrder(null); setFetchKey(k => k + 1) }} />}
+      {labelOrder && <LabelPanel order={labelOrder} ssAccount={ssAccount} onClose={() => setLabelOrder(null)} onLabelSaved={() => { setLabelOrder(null); setFetchKey(k => k + 1) }} qzPrint={{ connected: qz.connected, defaultPrinter: qz.defaultPrinter, printPdf: qz.printPdf }} />}
 
       {/* Batch history modal */}
       {showBatchHistory && <BatchHistoryModal onClose={() => setShowBatchHistory(false)} />}
 
       {/* Batch label confirmation modal */}
       {showBatchConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
-            <div className="flex items-center justify-between px-5 py-3 border-b">
-              <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
-                <Tag size={14} className="text-indigo-600" /> Create Label Batch
-              </h3>
-              <button onClick={() => setShowBatchConfirm(false)} className="text-gray-400 hover:text-gray-600">
-                <X size={15} />
-              </button>
-            </div>
-            <div className="px-5 py-4 space-y-3">
-              <p className="text-sm text-gray-700">
-                Purchase labels for{' '}
-                <strong>{batchEligible.length} order{batchEligible.length !== 1 ? 's' : ''}</strong>{' '}
-                in the background. You can close your browser — the process will continue on the server.
-              </p>
-              {selectedOrderIds.size > batchEligible.length && (
-                <div className="flex items-start gap-2 p-2 rounded bg-amber-50 border border-amber-200 text-amber-800 text-xs">
-                  <AlertTriangle size={12} className="shrink-0 mt-0.5" />
-                  {selectedOrderIds.size - batchEligible.length} order{selectedOrderIds.size - batchEligible.length !== 1 ? 's' : ''} have no captured rate and will be skipped.
-                </div>
-              )}
-              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={batchIsTest}
-                  onChange={e => setBatchIsTest(e.target.checked)}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                Create test labels (no charge)
-              </label>
-              {batchCreateErr && (
-                <div className="flex items-start gap-2 p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs">
-                  <AlertCircle size={12} className="shrink-0 mt-0.5" />
-                  {batchCreateErr}
-                </div>
-              )}
-            </div>
-            <div className="px-5 py-3 border-t flex justify-end gap-2">
-              <button
-                onClick={() => setShowBatchConfirm(false)}
-                className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateBatch}
-                className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5"
-              >
-                <Tag size={11} /> Confirm Batch
-              </button>
-            </div>
-          </div>
-        </div>
+        <LabelBatchModal
+          orders={orders}
+          batchEligible={batchEligible}
+          skippedCount={selectedOrderIds.size - batchEligible.length}
+          existingBatchId={activeBatchId}
+          onClose={() => { setShowBatchConfirm(false); /* keep activeBatchId so mini indicator stays if still running */ }}
+          onBatchCreated={(id) => { setActiveBatchId(id) }}
+          onBatchComplete={() => { setFetchKey(k => k + 1); setSelectedOrderIds(new Set()) }}
+          qzPrint={{ connected: qz.connected, defaultPrinter: qz.defaultPrinter, printMultiplePdfs: qz.printMultiplePdfs }}
+        />
       )}
 
       {/* Error banners */}
@@ -4974,6 +5162,14 @@ export default function UnshippedOrders() {
         )}
 
         <div className="flex-1" />
+
+        {/* QZ Tray printer status */}
+        {qz.connected && qz.defaultPrinter && (
+          <span className="flex items-center gap-1.5 text-[10px] font-medium text-teal-700 bg-teal-50 border border-teal-200 px-2 py-1 rounded-full">
+            <Printer size={10} />
+            {qz.defaultPrinter}
+          </span>
+        )}
 
         {/* Sync status — tiny indicator in toolbar */}
         {syncing && <span className="text-[10px] text-gray-400 flex items-center gap-1"><RefreshCcw size={10} className="animate-spin" />Syncing…</span>}
@@ -5132,7 +5328,7 @@ export default function UnshippedOrders() {
             {/* Create label batch (unshipped tab) */}
             {activeTab === 'unshipped' && batchEligible.length > 0 && (
               <button
-                onClick={() => { setBatchCreateErr(null); setShowBatchConfirm(true) }}
+                onClick={() => setShowBatchConfirm(true)}
                 className="flex items-center gap-1 h-7 px-2.5 rounded bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition-colors"
               >
                 <Tag size={11} /> Label Batch ({batchEligible.length})
@@ -5233,13 +5429,14 @@ export default function UnshippedOrders() {
         </div>
       )}
 
-      {/* Label batch status bar */}
-      {activeBatchId && (
-        <LabelBatchStatusBar
-          batchId={activeBatchId}
-          onComplete={() => { setFetchKey(k => k + 1); setSelectedOrderIds(new Set()) }}
-          onDismiss={() => setActiveBatchId(null)}
-        />
+      {/* Label batch status — when modal is closed but batch is still active, show mini indicator */}
+      {activeBatchId && !showBatchConfirm && (
+        <div className="mx-4 mb-2 flex items-center gap-2 rounded-md bg-indigo-50 border border-indigo-200 px-3 py-2 text-xs text-indigo-800 cursor-pointer hover:bg-indigo-100 transition-colors"
+          onClick={() => setShowBatchConfirm(true)}>
+          <RefreshCcw size={12} className="animate-spin shrink-0 text-indigo-500" />
+          <span>Label batch in progress — <span className="font-semibold underline">click to view</span></span>
+          <button onClick={(e) => { e.stopPropagation(); setActiveBatchId(null); setFetchKey(k => k + 1); setSelectedOrderIds(new Set()) }} className="ml-auto text-indigo-400 hover:text-indigo-700"><X size={13} /></button>
+        </div>
       )}
 
       {voidSuccessMsg && (

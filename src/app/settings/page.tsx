@@ -5,7 +5,7 @@ import {
   CheckCircle, AlertTriangle, Clock, RefreshCw, FlaskConical,
   ExternalLink, Warehouse, Truck, Settings,
   ChevronRight, Trash2, RotateCcw, Plus, X,
-  Store, Upload, ImageIcon, Users, Shield,
+  Store, Upload, ImageIcon, Users, Shield, Printer,
 } from 'lucide-react'
 import AppShell from '@/components/AppShell'
 import WarehouseManager from '@/components/WarehouseManager'
@@ -71,7 +71,7 @@ interface AmazonAccount {
   createdAt: string
 }
 
-type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users'
+type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer'
 
 // ─── Amazon Accounts Section ──────────────────────────────────────────────────
 
@@ -1264,6 +1264,178 @@ function UsersSection() {
   )
 }
 
+// ─── Printer Settings Section ─────────────────────────────────────────────────
+
+function PrinterSettingsSection() {
+  const [connected, setConnected] = useState(false)
+  const [connecting, setConnecting] = useState(false)
+  const [printers, setPrinters] = useState<string[]>([])
+  const [selectedPrinter, setSelectedPrinter] = useState<string | null>(null)
+  const [savedPrinter, setSavedPrinter] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const qzRef = useRef<any>(null)
+
+  // Load saved default printer
+  useEffect(() => {
+    fetch('/api/store-settings').then(r => r.json()).then(d => {
+      if (d.defaultPrinter) { setSelectedPrinter(d.defaultPrinter); setSavedPrinter(d.defaultPrinter) }
+    }).catch(() => {})
+  }, [])
+
+  const getQz = useCallback(async () => {
+    if (qzRef.current) return qzRef.current
+    const mod = await import('qz-tray')
+    qzRef.current = mod.default ?? mod
+    return qzRef.current
+  }, [])
+
+  const doConnect = useCallback(async () => {
+    setConnecting(true)
+    try {
+      const qz = await getQz()
+      if (qz.websocket.isActive()) { setConnected(true); return }
+      qz.security.setCertificatePromise(() => Promise.resolve(''))
+      qz.security.setSignaturePromise(() => () => Promise.resolve(''))
+      await qz.websocket.connect()
+      setConnected(true)
+      const list = await qz.printers.find()
+      setPrinters(Array.isArray(list) ? list : [])
+    } catch { setConnected(false) }
+    finally { setConnecting(false) }
+  }, [getQz])
+
+  const doDisconnect = useCallback(async () => {
+    try {
+      const qz = await getQz()
+      if (qz.websocket.isActive()) await qz.websocket.disconnect()
+    } catch { /* ignore */ }
+    setConnected(false); setPrinters([])
+  }, [getQz])
+
+  const doRefresh = useCallback(async () => {
+    try {
+      const qz = await getQz()
+      const list = await qz.printers.find()
+      setPrinters(Array.isArray(list) ? list : [])
+    } catch { /* ignore */ }
+  }, [getQz])
+
+  const doSave = useCallback(async () => {
+    setSaving(true)
+    try {
+      await fetch('/api/store-settings', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultPrinter: selectedPrinter }),
+      })
+      setSavedPrinter(selectedPrinter)
+      toast.success('Default printer saved')
+    } catch { toast.error('Failed to save printer') }
+    finally { setSaving(false) }
+  }, [selectedPrinter])
+
+  const doTestPrint = useCallback(async () => {
+    if (!selectedPrinter) { toast.error('Select a printer first'); return }
+    setTesting(true)
+    try {
+      // Generate a simple 4×6 test label PDF using jsPDF
+      const { jsPDF } = await import('jspdf')
+      const doc = new jsPDF({ unit: 'in', format: [4, 6] })
+      doc.setFontSize(16)
+      doc.text('QZ Tray Test Print', 0.5, 1)
+      doc.setFontSize(11)
+      doc.text(`Printer: ${selectedPrinter}`, 0.5, 1.6)
+      doc.text(`Time: ${new Date().toLocaleString()}`, 0.5, 2.1)
+      doc.setFontSize(10)
+      doc.text('4 × 6 thermal label test', 0.5, 2.8)
+      doc.text('If you see this, QZ Tray is working!', 0.5, 3.3)
+      const b64 = doc.output('datauristring').split(',')[1]
+
+      const qz = await getQz()
+      const config = qz.configs.create(selectedPrinter, { scaleContent: false })
+      await qz.print(config, [{ type: 'pixel', format: 'pdf', flavor: 'base64', data: b64 }])
+      toast.success('Test page sent to printer')
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Print failed') }
+    finally { setTesting(false) }
+  }, [selectedPrinter, getQz])
+
+  // Try auto-connect on mount
+  useEffect(() => { doConnect() }, [doConnect])
+
+  return (
+    <div className="space-y-5">
+      {/* Connection status */}
+      <div className="flex items-center gap-3">
+        <span className={`inline-block h-2.5 w-2.5 rounded-full ${connected ? 'bg-green-500' : 'bg-red-400'}`} />
+        <span className="text-sm font-medium text-gray-700">
+          {connecting ? 'Connecting…' : connected ? 'Connected to QZ Tray' : 'Not connected'}
+        </span>
+        {connected ? (
+          <button onClick={doDisconnect} className="ml-auto text-xs text-gray-500 hover:text-red-600 underline">Disconnect</button>
+        ) : (
+          <button onClick={doConnect} disabled={connecting}
+            className="ml-auto text-xs font-medium text-teal-600 hover:text-teal-700 underline disabled:opacity-50">
+            {connecting ? 'Connecting…' : 'Retry'}
+          </button>
+        )}
+      </div>
+
+      {!connected && !connecting && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800 space-y-2">
+          <p className="font-semibold">QZ Tray is not running</p>
+          <p>Install QZ Tray from <a href="https://qz.io" target="_blank" rel="noreferrer" className="underline font-medium text-amber-900">qz.io</a> and make sure it is running before connecting.</p>
+          <p>QZ Tray bridges your browser to local printers over a secure WebSocket for silent 1-click printing.</p>
+        </div>
+      )}
+
+      {connected && (
+        <>
+          {/* Printer list */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Detected Printers</h4>
+              <button onClick={doRefresh} className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1">
+                <RefreshCw size={10} /> Refresh
+              </button>
+            </div>
+            {printers.length === 0 ? (
+              <p className="text-xs text-gray-400 py-2">No printers detected.</p>
+            ) : (
+              <div className="space-y-1">
+                {printers.map(p => (
+                  <label key={p} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm cursor-pointer transition-colors ${
+                    selectedPrinter === p ? 'border-teal-400 bg-teal-50' : 'border-gray-200 hover:border-gray-300'
+                  }`}>
+                    <input type="radio" name="printer" checked={selectedPrinter === p}
+                      onChange={() => setSelectedPrinter(p)}
+                      className="accent-teal-600" />
+                    <span className="truncate">{p}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 pt-2">
+            <button onClick={doTestPrint} disabled={testing || !selectedPrinter}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-teal-300 text-teal-700 bg-teal-50 hover:bg-teal-100 disabled:opacity-40 transition-colors">
+              {testing ? <RefreshCw size={11} className="animate-spin" /> : <Printer size={11} />}
+              Test Print
+            </button>
+            <button onClick={doSave} disabled={saving || selectedPrinter === savedPrinter}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-40 transition-colors">
+              {saving ? <RefreshCw size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+              Save Default
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Hub Cards ────────────────────────────────────────────────────────────────
 
 interface HubCard {
@@ -1347,6 +1519,14 @@ const HUB_GROUPS: HubGroup[] = [
         iconColor: 'text-rose-600',
         title: 'RMA Settings',
         description: 'Configure return reasons that appear when creating marketplace or customer RMAs.',
+      },
+      {
+        id: 'printer',
+        icon: Printer,
+        iconBg: 'bg-teal-50',
+        iconColor: 'text-teal-600',
+        title: 'Printer',
+        description: 'Connect to QZ Tray for 1-click silent printing of shipping labels to your thermal printer.',
       },
     ],
   },
@@ -1454,6 +1634,7 @@ function SettingsContent() {
             {activeSection === 'rma-settings'   && <RMASettingsSection />}
             {activeSection === 'store-settings' && <StoreSettingsSection />}
             {activeSection === 'users'          && <UsersSection />}
+            {activeSection === 'printer'        && <PrinterSettingsSection />}
           </div>
         )}
 

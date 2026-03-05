@@ -27,6 +27,7 @@ export async function GET() {
       thankYouMsg: 'Thank you for shopping with us!',
       primaryColor: '#14284B',
       accentColor: '#007ACC',
+      defaultPrinter: null,
     })
   }
 
@@ -38,7 +39,7 @@ export async function PUT(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { storeName, logoBase64, phone, email, addressLine, city, state, zip, thankYouMsg, primaryColor, accentColor } = body
+  const { storeName, logoBase64, phone, email, addressLine, city, state, zip, thankYouMsg, primaryColor, accentColor, defaultPrinter } = body
 
   // Validate logo size
   if (logoBase64 && typeof logoBase64 === 'string' && logoBase64.length > MAX_LOGO_BYTES) {
@@ -60,6 +61,7 @@ export async function PUT(req: NextRequest) {
       thankYouMsg: thankYouMsg ?? 'Thank you for shopping with us!',
       primaryColor: primaryColor ?? '#14284B',
       accentColor: accentColor ?? '#007ACC',
+      defaultPrinter: defaultPrinter ?? null,
     },
     update: {
       ...(storeName !== undefined && { storeName }),
@@ -73,6 +75,7 @@ export async function PUT(req: NextRequest) {
       ...(thankYouMsg !== undefined && { thankYouMsg }),
       ...(primaryColor !== undefined && { primaryColor }),
       ...(accentColor !== undefined && { accentColor }),
+      ...(defaultPrinter !== undefined && { defaultPrinter }),
     },
   })
 

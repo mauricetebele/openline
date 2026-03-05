@@ -1545,6 +1545,7 @@ model StoreSettings {
   thankYouMsg    String   @default("Thank you for shopping with us!")
   primaryColor   String   @default("#14284B")
   accentColor    String   @default("#007ACC")
+  defaultPrinter String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
