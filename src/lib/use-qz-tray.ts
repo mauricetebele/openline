@@ -5,13 +5,19 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 type QZ = any
 
 let qzModule: QZ | null = null
+let qzLoadFailed = false
 
 async function getQz(): Promise<QZ> {
   if (qzModule) return qzModule
-  // Dynamic import — SSR-safe (qz-tray reads `window`/`WebSocket`)
-  const mod = await import('qz-tray')
-  qzModule = mod.default ?? mod
-  return qzModule
+  if (qzLoadFailed) throw new Error('qz-tray module failed to load')
+  try {
+    const mod = await import('qz-tray')
+    qzModule = mod.default ?? mod
+    return qzModule
+  } catch (e) {
+    qzLoadFailed = true
+    throw e
+  }
 }
 
 export interface UseQzTrayReturn {
@@ -27,13 +33,16 @@ export interface UseQzTrayReturn {
   setDefaultPrinter: (name: string | null) => void
 }
 
-export function useQzTray(): UseQzTrayReturn {
+/**
+ * @param autoConnect — if true, attempts WebSocket connection on mount (use on Settings page).
+ *                      Defaults to false to avoid slow multi-port scanning on every page load.
+ */
+export function useQzTray({ autoConnect = false }: { autoConnect?: boolean } = {}): UseQzTrayReturn {
   const [connected, setConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [printers, setPrinters] = useState<string[]>([])
   const [defaultPrinter, setDefaultPrinterState] = useState<string | null>(null)
   const mountedRef = useRef(true)
-  const connectAttemptedRef = useRef(false)
 
   // Load saved default printer from store settings on mount
   useEffect(() => {
@@ -48,11 +57,13 @@ export function useQzTray(): UseQzTrayReturn {
     setConnecting(true)
     try {
       const qz = await getQz()
-      if (qz.websocket.isActive()) { setConnected(true); return }
-      // Skip certificate signing for unsigned (personal-use) QZ Tray installs
+      if (qz.websocket.isActive()) {
+        if (mountedRef.current) setConnected(true)
+        return
+      }
       qz.security.setCertificatePromise(() => Promise.resolve(''))
       qz.security.setSignaturePromise(() => () => Promise.resolve(''))
-      await qz.websocket.connect()
+      await qz.websocket.connect({ retries: 0 })
       if (mountedRef.current) setConnected(true)
     } catch {
       if (mountedRef.current) setConnected(false)
@@ -99,19 +110,22 @@ export function useQzTray(): UseQzTrayReturn {
     setDefaultPrinterState(name)
   }, [])
 
-  // Auto-connect on mount, auto-disconnect on unmount
+  // Only auto-connect if explicitly requested (Settings page)
   useEffect(() => {
     mountedRef.current = true
-    if (!connectAttemptedRef.current) {
-      connectAttemptedRef.current = true
-      connect()
+    // Quick-check: if qz-tray module is already loaded and active, just set connected
+    if (qzModule) {
+      try {
+        if (qzModule.websocket.isActive()) setConnected(true)
+      } catch { /* ignore */ }
     }
-    return () => {
-      mountedRef.current = false
-    }
-    // Only run on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { mountedRef.current = false }
   }, [])
+
+  useEffect(() => {
+    if (autoConnect) connect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoConnect])
 
   // Auto-refresh printers when connected
   useEffect(() => {
