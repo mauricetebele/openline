@@ -9,17 +9,29 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const raw = req.nextUrl.searchParams.get('serials') ?? ''
+  const locationId = req.nextUrl.searchParams.get('locationId')
+  const warehouseId = req.nextUrl.searchParams.get('warehouseId')
+
   const requested = raw
     .split(/[\n,;]+/)
     .map(s => s.trim())
     .filter(Boolean)
     .filter((s, i, arr) => arr.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
 
-  if (requested.length === 0) return NextResponse.json({ found: [], notFound: [] })
+  const isLocationSearch = !requested.length && (locationId || warehouseId)
+
+  if (requested.length === 0 && !isLocationSearch) return NextResponse.json({ found: [], notFound: [] })
   if (requested.length > 200) return NextResponse.json({ error: 'Maximum 200 serials per search' }, { status: 400 })
 
+  // Build where clause: serial search, location search, or both
+  const where: Record<string, unknown> = {}
+  if (requested.length) where.serialNumber = { in: requested, mode: 'insensitive' }
+  if (locationId) where.locationId = locationId
+  else if (warehouseId) where.location = { warehouseId }
+
   const records = await prisma.inventorySerial.findMany({
-    where: { serialNumber: { in: requested, mode: 'insensitive' } },
+    where,
+    ...(isLocationSearch ? { take: 500 } : {}),
     include: {
       product: { select: { sku: true, description: true } },
       location: {
@@ -46,7 +58,9 @@ export async function GET(req: NextRequest) {
   })
 
   const foundSerials = new Set(records.map(r => r.serialNumber.toLowerCase()))
-  const notFound = requested.filter(s => !foundSerials.has(s.toLowerCase()))
+  const notFound = requested.length
+    ? requested.filter(s => !foundSerials.has(s.toLowerCase()))
+    : []
 
   const found = records.map(r => {
     const pol = r.receiptLine?.purchaseOrderLine

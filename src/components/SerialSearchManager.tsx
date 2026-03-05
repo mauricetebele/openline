@@ -158,7 +158,8 @@ export default function SerialSearchManager() {
 
   async function handleSearch() {
     const sns = parseSNs(input)
-    if (sns.length === 0) return
+    const isLocationSearch = !sns.length && (filterWarehouseId || filterLocationId)
+    if (!sns.length && !isLocationSearch) return
     setLoading(true)
     setErr(null)
     setSearched(false)
@@ -167,11 +168,15 @@ export default function SerialSearchManager() {
     setBulkNote('')
     setBulkBin('')
     try {
-      const res = await fetch(`/api/serial-search?serials=${encodeURIComponent(sns.join(','))}`)
+      const params = new URLSearchParams()
+      if (sns.length) params.set('serials', sns.join(','))
+      if (filterLocationId) params.set('locationId', filterLocationId)
+      else if (filterWarehouseId) params.set('warehouseId', filterWarehouseId)
+      const res = await fetch(`/api/serial-search?${params}`)
       const data = await res.json()
       if (!res.ok) { setErr(data.error ?? 'Search failed'); return }
       setFound(data.found)
-      setNotFound(data.notFound)
+      setNotFound(data.notFound ?? [])
       setSearched(true)
     } catch {
       setErr('Network error — please try again')
@@ -278,14 +283,7 @@ export default function SerialSearchManager() {
     }
   }
 
-  // Apply location filter
-  const filteredFound = found.filter(r => {
-    if (filterWarehouseId && r.warehouseId !== filterWarehouseId) return false
-    if (filterLocationId && r.locationId !== filterLocationId) return false
-    return true
-  })
-
-  const sortedFound = sortCol === null ? filteredFound : [...filteredFound].sort((a, b) => {
+  const sortedFound = sortCol === null ? found : [...found].sort((a, b) => {
     let av: string | number | null = null
     let bv: string | number | null = null
     if (sortCol === 'serialNumber')   { av = a.serialNumber;   bv = b.serialNumber }
@@ -352,9 +350,44 @@ export default function SerialSearchManager() {
                 }
               }}
             />
+            {/* Location search — alternative to serial numbers */}
+            <div className="flex items-center gap-3 border-t border-gray-100 pt-3">
+              <MapPin size={14} className="text-gray-400 shrink-0" />
+              <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Or search by location:</span>
+              <select
+                className="input w-44 text-xs"
+                value={filterWarehouseId}
+                onChange={e => { setFilterWarehouseId(e.target.value); setFilterLocationId('') }}
+              >
+                <option value="">Warehouse…</option>
+                {warehouses.map(w => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+              <select
+                className="input w-44 text-xs"
+                value={filterLocationId}
+                onChange={e => setFilterLocationId(e.target.value)}
+                disabled={!filterWarehouseId}
+              >
+                <option value="">All Locations</option>
+                {(warehouses.find(w => w.id === filterWarehouseId)?.locations ?? []).map(l => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+              {(filterWarehouseId || filterLocationId) && (
+                <button
+                  onClick={() => { setFilterWarehouseId(''); setFilterLocationId('') }}
+                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+                >
+                  <X size={12} /> Clear
+                </button>
+              )}
+            </div>
+
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-400">
-                {count > 0 ? `${count} serial${count !== 1 ? 's' : ''} detected` : 'Paste or type serial numbers above'}
+                {count > 0 ? `${count} serial${count !== 1 ? 's' : ''} detected` : (filterWarehouseId ? 'Location selected — hit Search to find all serials there' : 'Paste serial numbers above or pick a location')}
                 {count > 0 && <span className="ml-2 text-gray-300">·</span>}
                 {count > 0 && <span className="ml-2">⌘+Enter to search</span>}
               </span>
@@ -369,7 +402,7 @@ export default function SerialSearchManager() {
                 )}
                 <button
                   onClick={handleSearch}
-                  disabled={count === 0 || loading}
+                  disabled={(count === 0 && !filterWarehouseId) || loading}
                   className="flex items-center gap-2 bg-amazon-blue text-white text-sm font-medium px-4 py-1.5 rounded-lg hover:opacity-90 disabled:opacity-50"
                 >
                   <Search size={14} />
@@ -378,52 +411,6 @@ export default function SerialSearchManager() {
               </div>
             </div>
           </div>
-
-          {/* Location filter — shown after search results exist */}
-          {searched && found.length > 0 && warehouses.length > 0 && (
-            <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3">
-              <MapPin size={14} className="text-gray-400 shrink-0" />
-              <span className="text-xs font-medium text-gray-500">Filter by location:</span>
-              <select
-                className="input w-44 text-xs"
-                value={filterWarehouseId}
-                onChange={e => { setFilterWarehouseId(e.target.value); setFilterLocationId('') }}
-              >
-                <option value="">All Warehouses</option>
-                {warehouses.map(w => (
-                  <option key={w.id} value={w.id}>{w.name}</option>
-                ))}
-              </select>
-              <select
-                className="input w-44 text-xs"
-                value={filterLocationId}
-                onChange={e => setFilterLocationId(e.target.value)}
-              >
-                <option value="">All Locations</option>
-                {(filterWarehouseId
-                  ? warehouses.find(w => w.id === filterWarehouseId)?.locations ?? []
-                  : warehouses.flatMap(w => w.locations.map(l => ({ ...l, whName: w.name })))
-                ).map((l: { id: string; name: string; whName?: string }) => (
-                  <option key={l.id} value={l.id}>
-                    {'whName' in l ? `${l.whName} / ${l.name}` : l.name}
-                  </option>
-                ))}
-              </select>
-              {(filterWarehouseId || filterLocationId) && (
-                <button
-                  onClick={() => { setFilterWarehouseId(''); setFilterLocationId('') }}
-                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
-                >
-                  <X size={12} /> Clear filter
-                </button>
-              )}
-              {(filterWarehouseId || filterLocationId) && (
-                <span className="text-xs text-gray-400 ml-auto">
-                  Showing {filteredFound.length} of {found.length}
-                </span>
-              )}
-            </div>
-          )}
 
           {/* Error */}
           {err && (
