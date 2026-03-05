@@ -246,10 +246,6 @@ export default function SerialSearchManager() {
     }
   }
 
-  function handleNoteKeyDown(e: React.KeyboardEvent, id: string) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNote(id) }
-    if (e.key === 'Escape') { cancelNoteRef.current = true; setEditingId(null) }
-  }
 
   async function applyBulkNote() {
     if (selectedIds.size === 0) return
@@ -571,6 +567,52 @@ export default function SerialSearchManager() {
             </div>
           )}
 
+          {/* Floating note editor */}
+          {editingId && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => { cancelNoteRef.current = true; setEditingId(null) }}>
+              <div
+                className="bg-white rounded-xl shadow-xl border border-gray-200 p-4 w-96 space-y-3"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-2">
+                  <NotebookPen size={16} className="text-indigo-500" />
+                  <p className="text-sm font-semibold text-gray-800">Edit Note</p>
+                  <span className="text-[10px] text-gray-400 font-mono ml-auto">
+                    {found.find(r => r.id === editingId)?.serialNumber}
+                  </span>
+                </div>
+                <input
+                  autoFocus
+                  type="text"
+                  value={editingNote}
+                  onChange={e => setEditingNote(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNote(editingId) }
+                    if (e.key === 'Escape') { cancelNoteRef.current = true; setEditingId(null) }
+                  }}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
+                  placeholder="Add a note…"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => { cancelNoteRef.current = true; setEditingId(null) }}
+                    className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => saveNote(editingId)}
+                    disabled={savingId === editingId}
+                    className="text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <Check size={12} />
+                    {savingId === editingId ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Results table */}
           {found.length > 0 && (
             <div className="border border-gray-200 rounded-xl overflow-x-auto">
@@ -678,44 +720,22 @@ export default function SerialSearchManager() {
                         {r.cost != null ? `$${r.cost.toFixed(2)}` : '—'}
                       </td>
                       {/* Note cell */}
-                      <td className="px-3 py-2.5 min-w-[200px]">
-                        {editingId === r.id ? (
-                          <div className="flex items-center gap-1">
-                            <input
-                              autoFocus
-                              type="text"
-                              value={editingNote}
-                              onChange={e => setEditingNote(e.target.value)}
-                              onKeyDown={e => handleNoteKeyDown(e, r.id)}
-                              onBlur={() => saveNote(r.id)}
-                              className="flex-1 text-xs border border-indigo-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400 min-w-0"
-                              placeholder="Add a note…"
-                            />
-                            <button
-                              onMouseDown={e => { e.preventDefault(); saveNote(r.id) }}
-                              disabled={savingId === r.id}
-                              className="p-1 text-indigo-600 hover:text-indigo-800 shrink-0"
-                            >
-                              <Check size={13} />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => startEdit(r)}
-                            className="group flex items-center gap-1.5 text-left w-full"
-                          >
-                            {r.note ? (
-                              <>
-                                <span className="text-xs text-gray-700 leading-tight">{r.note}</span>
-                                <Pencil size={10} className="shrink-0 text-gray-300 group-hover:text-gray-500 transition-colors" />
-                              </>
-                            ) : (
-                              <span className="text-[11px] text-gray-300 group-hover:text-indigo-500 transition-colors flex items-center gap-1">
-                                <Pencil size={10} /> Add note
-                              </span>
-                            )}
-                          </button>
-                        )}
+                      <td className="px-3 py-2.5 max-w-[180px] relative">
+                        <button
+                          onClick={() => startEdit(r)}
+                          className="group flex items-center gap-1.5 text-left w-full"
+                        >
+                          {r.note ? (
+                            <>
+                              <span className="text-xs text-gray-700 leading-tight truncate">{r.note}</span>
+                              <Pencil size={10} className="shrink-0 text-gray-300 group-hover:text-gray-500 transition-colors" />
+                            </>
+                          ) : (
+                            <span className="text-[11px] text-gray-300 group-hover:text-indigo-500 transition-colors flex items-center gap-1">
+                              <Pencil size={10} /> Add note
+                            </span>
+                          )}
+                        </button>
                       </td>
                     </tr>
                   ))}
