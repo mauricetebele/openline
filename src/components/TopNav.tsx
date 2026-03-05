@@ -48,7 +48,15 @@ const NAV: NavItem[] = [
       { href: '/inventory/events',    label: 'Transaction History', icon: History },
     ],
   },
-  { href: '/unshipped-orders', label: 'Fulfillment', icon: Package },
+  {
+    group: true,
+    label: 'Fulfillment',
+    icon: Package,
+    children: [
+      { href: '/unshipped-orders',    label: 'Order Fulfillment', icon: Package },
+      { href: '/shipping-manifest',   label: 'Manifest',          icon: ClipboardList },
+    ],
+  },
   { href: '/cases',            label: 'Cases',       icon: FolderOpen },
   { href: '/serial-search',    label: 'Serial Search',    icon: Barcode },
   {
