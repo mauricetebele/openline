@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -17,10 +17,18 @@ interface SerialResult {
   lastMovementType: string | null
   lastMovementDate: string | null
   location: string | null
+  locationId: string | null
+  warehouseId: string | null
   binLocation: string | null
   poNumber: string | null
   cost: number | null
   note: string | null
+}
+
+interface WarehouseWithLocations {
+  id: string
+  name: string
+  locations: { id: string; name: string }[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -93,6 +101,19 @@ export default function SerialSearchManager() {
   const [notFound, setNotFound] = useState<string[]>([])
   const [searched, setSearched] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Location filter state
+  const [warehouses, setWarehouses] = useState<WarehouseWithLocations[]>([])
+  const [filterWarehouseId, setFilterWarehouseId] = useState<string>('')
+  const [filterLocationId, setFilterLocationId] = useState<string>('')
+
+  // Fetch warehouses for the location filter
+  useEffect(() => {
+    fetch('/api/warehouses')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.data) setWarehouses(d.data) })
+      .catch(() => {})
+  }, [])
 
   // Inline note editing state
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -257,7 +278,14 @@ export default function SerialSearchManager() {
     }
   }
 
-  const sortedFound = sortCol === null ? found : [...found].sort((a, b) => {
+  // Apply location filter
+  const filteredFound = found.filter(r => {
+    if (filterWarehouseId && r.warehouseId !== filterWarehouseId) return false
+    if (filterLocationId && r.locationId !== filterLocationId) return false
+    return true
+  })
+
+  const sortedFound = sortCol === null ? filteredFound : [...filteredFound].sort((a, b) => {
     let av: string | number | null = null
     let bv: string | number | null = null
     if (sortCol === 'serialNumber')   { av = a.serialNumber;   bv = b.serialNumber }
@@ -350,6 +378,52 @@ export default function SerialSearchManager() {
               </div>
             </div>
           </div>
+
+          {/* Location filter — shown after search results exist */}
+          {searched && found.length > 0 && warehouses.length > 0 && (
+            <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3">
+              <MapPin size={14} className="text-gray-400 shrink-0" />
+              <span className="text-xs font-medium text-gray-500">Filter by location:</span>
+              <select
+                className="input w-44 text-xs"
+                value={filterWarehouseId}
+                onChange={e => { setFilterWarehouseId(e.target.value); setFilterLocationId('') }}
+              >
+                <option value="">All Warehouses</option>
+                {warehouses.map(w => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+              <select
+                className="input w-44 text-xs"
+                value={filterLocationId}
+                onChange={e => setFilterLocationId(e.target.value)}
+              >
+                <option value="">All Locations</option>
+                {(filterWarehouseId
+                  ? warehouses.find(w => w.id === filterWarehouseId)?.locations ?? []
+                  : warehouses.flatMap(w => w.locations.map(l => ({ ...l, whName: w.name })))
+                ).map((l: { id: string; name: string; whName?: string }) => (
+                  <option key={l.id} value={l.id}>
+                    {'whName' in l ? `${l.whName} / ${l.name}` : l.name}
+                  </option>
+                ))}
+              </select>
+              {(filterWarehouseId || filterLocationId) && (
+                <button
+                  onClick={() => { setFilterWarehouseId(''); setFilterLocationId('') }}
+                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+                >
+                  <X size={12} /> Clear filter
+                </button>
+              )}
+              {(filterWarehouseId || filterLocationId) && (
+                <span className="text-xs text-gray-400 ml-auto">
+                  Showing {filteredFound.length} of {found.length}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Error */}
           {err && (

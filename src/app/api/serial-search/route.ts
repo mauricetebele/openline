@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       location: {
         select: {
           name: true,
-          warehouse: { select: { name: true } },
+          warehouse: { select: { id: true, name: true } },
         },
       },
       receiptLine: {
@@ -65,6 +65,8 @@ export async function GET(req: NextRequest) {
       lastMovementType: lastMovement?.eventType ?? null,
       lastMovementDate: lastMovement?.createdAt ?? null,
       location:      r.location ? `${r.location.warehouse.name} / ${r.location.name}` : null,
+      locationId:    r.locationId,
+      warehouseId:   r.location?.warehouse?.id ?? null,
       poNumber:      po ? String(po.poNumber) : null,
       cost:          pol?.unitCost != null ? Number(pol.unitCost) : null,
       note:          r.note ?? null,
