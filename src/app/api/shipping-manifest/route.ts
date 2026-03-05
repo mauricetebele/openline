@@ -1,6 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
+import { detectCarrier } from '@/lib/ups-tracking'
+
+const CARRIER_DISPLAY: Record<string, string> = {
+  UPS: 'UPS',
+  USPS: 'USPS',
+  FEDEX: 'FedEx',
+  AMZL: 'Amazon Logistics',
+}
+
+/** Resolve a human-readable carrier name from raw fields + tracking number */
+function resolveCarrier(rawCarrier: string | null, tracking: string | null): string | null {
+  // If we already have a clean carrier name (not a generic placeholder), use it
+  if (rawCarrier && !/buy.shipping|amazon_buy/i.test(rawCarrier)) return rawCarrier
+
+  // Detect from tracking number
+  if (tracking) {
+    const detected = detectCarrier(tracking)
+    if (detected !== 'UNKNOWN') return CARRIER_DISPLAY[detected] ?? detected
+  }
+
+  return rawCarrier
+}
 
 export async function GET(req: NextRequest) {
   const user = await getAuthUser()
@@ -48,15 +70,19 @@ export async function GET(req: NextRequest) {
     ],
   })
 
-  const rows = orders.map((o) => ({
-    id: o.id,
-    olmNumber: o.olmNumber,
-    amazonOrderId: o.amazonOrderId,
-    carrier: o.label?.carrier || o.shipCarrier || null,
-    serviceCode: o.label?.serviceCode || o.shipmentServiceLevel || null,
-    shipDate: o.label?.createdAt || o.shippedAt || null,
-    trackingNumber: o.label?.trackingNumber || o.shipTracking || null,
-  }))
+  const rows = orders.map((o) => {
+    const tracking = o.label?.trackingNumber || o.shipTracking || null
+    const rawCarrier = o.label?.carrier || o.shipCarrier || null
+    return {
+      id: o.id,
+      olmNumber: o.olmNumber,
+      amazonOrderId: o.amazonOrderId,
+      carrier: resolveCarrier(rawCarrier, tracking),
+      serviceCode: o.label?.serviceCode || o.shipmentServiceLevel || null,
+      shipDate: o.label?.createdAt || o.shippedAt || null,
+      trackingNumber: tracking,
+    }
+  })
 
   return NextResponse.json(rows)
 }
