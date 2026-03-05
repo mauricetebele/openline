@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy } from 'lucide-react'
+import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -523,7 +523,7 @@ export default function SerialSearchManager() {
                 {/* Bulk bin location */}
                 <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
                   <div className="flex items-center gap-2 mb-2">
-                    <MapPin size={18} className="text-indigo-400 shrink-0" />
+                    <Archive size={18} className="text-indigo-400 shrink-0" />
                     <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">Set Bin Location</p>
                   </div>
                   <div className="flex items-center gap-2">
