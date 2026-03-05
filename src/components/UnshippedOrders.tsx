@@ -5280,8 +5280,8 @@ export default function UnshippedOrders() {
       )}
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full text-xs">
+      <div className="flex-1 overflow-auto dark:bg-gray-900">
+        <table className="w-full text-xs dark:text-gray-200">
           <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
             <tr>
               <th className="px-3 py-2.5 text-center w-8">
@@ -5405,14 +5405,14 @@ export default function UnshippedOrders() {
               const hasCancelRequest = order.isBuyerRequestedCancel
               return (
                 <tr key={order.id} className={clsx(
-                  'border-b border-gray-200 last:border-0 transition-colors align-middle',
+                  'border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors align-middle',
                   hasCancelRequest
-                    ? 'bg-amber-50 hover:bg-amber-100/60'
+                    ? 'bg-amber-50 hover:bg-amber-100/60 dark:bg-amber-900/30 dark:hover:bg-amber-900/50'
                     : (order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null
-                      ? 'bg-yellow-50/70 hover:bg-yellow-100/50'
+                      ? 'bg-yellow-50/70 hover:bg-yellow-100/50 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30'
                       : rowIdx % 2 === 0
-                        ? 'bg-white hover:bg-blue-50/50'
-                        : 'bg-gray-50 hover:bg-blue-50/50',
+                        ? 'bg-white hover:bg-blue-50/50 dark:bg-gray-900 dark:hover:bg-gray-800/70'
+                        : 'bg-gray-50 hover:bg-blue-50/50 dark:bg-gray-800/50 dark:hover:bg-gray-800/70',
                 )}>
                   {/* Checkbox */}
                   <td className="px-3 py-1.5 text-center w-8">
