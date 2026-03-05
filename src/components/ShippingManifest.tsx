@@ -64,9 +64,16 @@ function statusBadge(info: TrackingResult | undefined, loading: boolean) {
       </span>
     )
   }
-  if (s.includes('in transit') || s.includes('on the way') || s.includes('picked up')) {
+  if (s.includes('in transit') || s.includes('on the way') || s.includes('picked up') || s.includes('label created')) {
     return (
       <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
+        {info.status}
+      </span>
+    )
+  }
+  if (s.includes('cancel')) {
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700 border border-red-200">
         {info.status}
       </span>
     )
