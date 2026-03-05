@@ -541,6 +541,20 @@ model UpsCredential {
   @@map("ups_credentials")
 }
 
+// ─── FedEx Credentials ───────────────────────────────────────────────────────
+
+model FedexCredential {
+  id               String   @id @default(cuid())
+  clientIdEnc      String
+  clientSecretEnc  String
+  accountNumberEnc String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("fedex_credentials")
+}
+
 model BackMarketCredential {
   id         String   @id @default(cuid())
   apiKeyEnc  String
