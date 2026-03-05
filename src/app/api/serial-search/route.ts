@@ -33,7 +33,8 @@ export async function GET(req: NextRequest) {
   if (requested.length) where.serialNumber = { in: requested, mode: 'insensitive' }
   if (locationId) where.locationId = locationId
   else if (warehouseId) where.location = { warehouseId }
-  if (status) where.status = status
+  if (status === 'IN_STOCK') where.status = 'IN_STOCK'
+  else if (status === 'OUT_OF_STOCK') where.status = { not: 'IN_STOCK' }
   if (sku) where.product = { sku: { contains: sku, mode: 'insensitive' } }
   if (vendorId) {
     where.receiptLine = {

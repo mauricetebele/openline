@@ -421,9 +421,7 @@ export default function SerialSearchManager() {
                   <select className="input w-full text-xs" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
                     <option value="">All</option>
                     <option value="IN_STOCK">In Stock</option>
-                    <option value="SOLD">Sold</option>
-                    <option value="RETURNED">Returned</option>
-                    <option value="DAMAGED">Damaged</option>
+                    <option value="OUT_OF_STOCK">Out of Stock</option>
                   </select>
                 </div>
               </div>
