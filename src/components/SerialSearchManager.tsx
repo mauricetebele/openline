@@ -615,27 +615,28 @@ export default function SerialSearchManager() {
 
           {/* Results table */}
           {found.length > 0 && (
-            <div className="border border-gray-200 rounded-xl overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse">
-                <thead className="bg-gray-50 border-b-2 border-gray-200">
-                  <tr>
+            <div className="rounded-xl overflow-hidden shadow-sm border border-gray-200/80">
+              <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="bg-gradient-to-r from-gray-800 to-gray-900">
                     {/* Select-all checkbox */}
-                    <th className="pl-3 pr-1 py-2.5 w-8 border-r border-gray-200">
+                    <th className="pl-3 pr-1 py-3 w-8">
                       <input
                         type="checkbox"
                         checked={allSelected}
                         onChange={toggleAll}
-                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        className="rounded border-gray-500 bg-gray-700 text-indigo-400 focus:ring-indigo-500"
                       />
                     </th>
                     {/* Serial # header with copy button */}
                     <th
-                      className="px-3 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap cursor-pointer select-none hover:bg-gray-100 transition-colors border-r border-gray-200"
+                      className="px-3 py-3 text-[11px] font-semibold text-gray-300 uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-white transition-colors"
                     >
                       <span className="inline-flex items-center gap-1.5">
                         <span className="inline-flex items-center gap-1" onClick={() => handleSort('serialNumber')}>
                           Serial #
-                          <span className={clsx('text-[10px]', sortCol === 'serialNumber' ? 'text-indigo-500' : 'text-gray-300')}>
+                          <span className={clsx('text-[10px]', sortCol === 'serialNumber' ? 'text-indigo-400' : 'text-gray-500')}>
                             {sortCol === 'serialNumber' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
                           </span>
                         </span>
@@ -650,7 +651,7 @@ export default function SerialSearchManager() {
                           }}
                           className={clsx(
                             'p-0.5 rounded transition-colors',
-                            copied ? 'text-green-500' : 'text-gray-300 hover:text-indigo-500',
+                            copied ? 'text-green-400' : 'text-gray-500 hover:text-indigo-400',
                           )}
                         >
                           {copied ? <Check size={11} /> : <Copy size={11} />}
@@ -660,11 +661,11 @@ export default function SerialSearchManager() {
                     {([
                       ['sku',           'SKU'],
                       ['vendor',        'Vendor'],
-                      ['lastEventType',    'Last Event Type'],
-                      ['lastEventDate',   'Date of Last Event'],
+                      ['lastEventType',    'Last Event'],
+                      ['lastEventDate',   'Event Date'],
                       ['lastMovementType', 'Last Movement'],
-                      ['lastMovementDate', 'Date of Last Movement'],
-                      ['location',         'Current Location'],
+                      ['lastMovementDate', 'Movement Date'],
+                      ['location',         'Location'],
                       ['binLocation',   'Bin'],
                       ['poNumber',      'PO #'],
                       ['cost',          'Cost'],
@@ -673,11 +674,11 @@ export default function SerialSearchManager() {
                       <th
                         key={col}
                         onClick={() => handleSort(col)}
-                        className="px-3 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap cursor-pointer select-none hover:bg-gray-100 transition-colors border-r border-gray-200 last:border-r-0"
+                        className="px-3 py-3 text-[11px] font-semibold text-gray-300 uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-white transition-colors"
                       >
                         <span className="inline-flex items-center gap-1">
                           {label}
-                          <span className={clsx('text-[10px]', sortCol === col ? 'text-indigo-500' : 'text-gray-300')}>
+                          <span className={clsx('text-[10px]', sortCol === col ? 'text-indigo-400' : 'text-gray-500')}>
                             {sortCol === col ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
                           </span>
                         </span>
@@ -685,11 +686,21 @@ export default function SerialSearchManager() {
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {sortedFound.map(r => (
-                    <tr key={r.serialNumber} className={clsx('hover:bg-gray-50', selectedIds.has(r.id) && 'bg-indigo-50/50')}>
+                <tbody>
+                  {sortedFound.map((r, i) => (
+                    <tr
+                      key={r.serialNumber}
+                      className={clsx(
+                        'border-b border-gray-100 last:border-0 transition-all duration-150',
+                        selectedIds.has(r.id)
+                          ? 'bg-indigo-50 hover:bg-indigo-100/80'
+                          : i % 2 === 0
+                            ? 'bg-white hover:bg-blue-50/60'
+                            : 'bg-gray-50/50 hover:bg-blue-50/60',
+                      )}
+                    >
                       {/* Row checkbox */}
-                      <td className="pl-3 pr-1 py-2.5 border-r border-gray-200">
+                      <td className="pl-3 pr-1 py-2.5">
                         <input
                           type="checkbox"
                           checked={selectedIds.has(r.id)}
@@ -697,38 +708,38 @@ export default function SerialSearchManager() {
                           className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                         />
                       </td>
-                      <td className="px-3 py-2.5 border-r border-gray-200">
+                      <td className="px-3 py-2.5">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-xs font-semibold text-gray-900">{r.serialNumber}</span>
-                          <span className={clsx('text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap', STATUS_COLOR[r.status] ?? 'bg-gray-100 text-gray-600')}>
+                          <span className={clsx('text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap', STATUS_COLOR[r.status] ?? 'bg-gray-100 text-gray-600')}>
                             {r.status.replace('_', ' ')}
                           </span>
                         </div>
                       </td>
-                      <td className="px-3 py-2.5 border-r border-gray-200">
+                      <td className="px-3 py-2.5">
                         <span className="font-mono text-xs text-gray-700">{r.sku}</span>
                       </td>
-                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap border-r border-gray-200">{r.vendor ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap border-r border-gray-200">{fmtEventType(r.lastEventType)}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap border-r border-gray-200">{fmtDate(r.lastEventDate)}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap border-r border-gray-200">{fmtEventType(r.lastMovementType)}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap border-r border-gray-200">{fmtDate(r.lastMovementDate)}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-700 border-r border-gray-200">{r.location ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-xs font-mono text-gray-500 whitespace-nowrap border-r border-gray-200">{r.binLocation ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-xs font-mono text-gray-700 whitespace-nowrap border-r border-gray-200">{r.poNumber ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap border-r border-gray-200">
-                        {r.cost != null ? `$${r.cost.toFixed(2)}` : '—'}
+                      <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{r.vendor ?? <span className="text-gray-300">—</span>}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{fmtEventType(r.lastEventType)}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(r.lastEventDate)}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{fmtEventType(r.lastMovementType)}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(r.lastMovementDate)}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{r.location ?? <span className="text-gray-300">—</span>}</td>
+                      <td className="px-3 py-2.5 text-xs font-mono text-gray-500 whitespace-nowrap">{r.binLocation ?? <span className="text-gray-300">—</span>}</td>
+                      <td className="px-3 py-2.5 text-xs font-mono text-gray-600 whitespace-nowrap">{r.poNumber ?? <span className="text-gray-300">—</span>}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">
+                        {r.cost != null ? `$${r.cost.toFixed(2)}` : <span className="text-gray-300">—</span>}
                       </td>
                       {/* Note cell */}
-                      <td className="px-3 py-2.5 max-w-[180px] relative">
+                      <td className="px-3 py-2.5 max-w-[180px]">
                         <button
                           onClick={() => startEdit(r)}
                           className="group flex items-center gap-1.5 text-left w-full"
                         >
                           {r.note ? (
                             <>
-                              <span className="text-xs text-gray-700 leading-tight truncate">{r.note}</span>
-                              <Pencil size={10} className="shrink-0 text-gray-300 group-hover:text-gray-500 transition-colors" />
+                              <span className="text-xs text-gray-600 leading-tight truncate">{r.note}</span>
+                              <Pencil size={10} className="shrink-0 text-gray-300 group-hover:text-indigo-500 transition-colors" />
                             </>
                           ) : (
                             <span className="text-[11px] text-gray-300 group-hover:text-indigo-500 transition-colors flex items-center gap-1">
@@ -741,6 +752,7 @@ export default function SerialSearchManager() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
