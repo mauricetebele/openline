@@ -1437,15 +1437,36 @@ function PrinterSettingsSection() {
     try {
       const qz = await getQz()
       console.log('[QZ] websocket active:', qz.websocket.isActive())
-      const list = await qz.printers.find()
-      console.log('[QZ] printers.find() returned:', list)
+
+      // Use a timeout — qz.printers.find() can hang indefinitely on some setups
+      const findWithTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
+        Promise.race([promise, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`Timed out after ${ms / 1000}s`)), ms))])
+
+      // Try finding all printers first
+      let list: string[] = []
+      try {
+        console.log('[QZ] Calling printers.find()...')
+        list = await findWithTimeout(qz.printers.find(), 10_000)
+        console.log('[QZ] printers.find() returned:', list)
+      } catch (e) {
+        console.warn('[QZ] printers.find() failed/timed out, trying getDefault()...', e)
+        // Fallback: try getting just the default printer
+        try {
+          const defaultP = await findWithTimeout(qz.printers.getDefault(), 10_000)
+          console.log('[QZ] printers.getDefault() returned:', defaultP)
+          if (defaultP) list = [defaultP]
+        } catch (e2) {
+          console.error('[QZ] printers.getDefault() also failed:', e2)
+        }
+      }
+
       setPrinters(Array.isArray(list) ? list : [])
       if (!list || (Array.isArray(list) && list.length === 0)) {
-        setPrinterError('QZ Tray returned 0 printers. Make sure your printer is on and installed in Windows Settings > Printers & Scanners.')
+        setPrinterError('QZ Tray could not detect printers. Try restarting QZ Tray (right-click tray icon > Exit, then relaunch).')
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
-      console.error('[QZ] printers.find() error:', e)
+      console.error('[QZ] printer detection error:', e)
       setPrinterError(`Printer detection failed: ${msg}`)
     }
   }, [getQz])
