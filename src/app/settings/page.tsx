@@ -1552,7 +1552,19 @@ function PrinterSettingsSection() {
               </div>
             )}
             {printers.length === 0 ? (
-              <p className="text-xs text-gray-400 py-2">No printers detected. Click Refresh to retry.</p>
+              <div className="space-y-2 py-2">
+                <p className="text-xs text-gray-400">No printers auto-detected. Click Refresh to retry, or enter your printer name manually.</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. BIXOLON SRP-770III"
+                    value={selectedPrinter ?? ''}
+                    onChange={(e) => setSelectedPrinter(e.target.value)}
+                    className="flex-1 h-8 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400">Enter the exact printer name as shown in Windows Settings &gt; Printers &amp; Scanners.</p>
+              </div>
             ) : (
               <div className="space-y-1">
                 {printers.map(p => (
