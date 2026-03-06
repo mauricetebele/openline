@@ -1501,9 +1501,11 @@ function PrinterSettingsSection() {
       const b64 = btoa(Array.from(new Uint8Array(pdfBytes), b => String.fromCharCode(b)).join(''))
 
       const qz = await getQz()
-      const config = qz.configs.create(selectedPrinter, { scaleContent: false })
+      // Log QZ Tray version info for debugging
+      try { console.log('[QZ] Tray version:', qz.websocket.getVersion?.() ?? 'unknown') } catch { /* ignore */ }
+      const config = qz.configs.create(selectedPrinter)
       console.log('[QZ] Sending test print to:', selectedPrinter)
-      await qz.print(config, [{ type: 'pixel', format: 'pdf', flavor: 'base64', data: b64 }])
+      await qz.print(config, [{ type: 'pdf', data: b64, flavor: 'base64' }])
       toast.success('Test page sent to printer')
     } catch (e) {
       console.error('[QZ] Test print error:', e)

@@ -95,8 +95,8 @@ export function useQzTray({ autoConnect = false }: { autoConnect?: boolean } = {
     const printer = printerName ?? defaultPrinter
     if (!printer) throw new Error('No printer selected')
     const qz = await getQz()
-    const config = qz.configs.create(printer, { scaleContent: false })
-    const data = [{ type: 'pixel', format: 'pdf', flavor: 'base64', data: base64 }]
+    const config = qz.configs.create(printer)
+    const data = [{ type: 'pdf', data: base64, flavor: 'base64' }]
     await qz.print(config, data)
   }, [defaultPrinter])
 
