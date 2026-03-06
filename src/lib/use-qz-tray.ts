@@ -93,12 +93,43 @@ export function useQzTray({ autoConnect = false }: { autoConnect?: boolean } = {
 
   const printPdf = useCallback(async (base64: string, printerName?: string) => {
     const printer = printerName ?? defaultPrinter
-    if (!printer) throw new Error('No printer selected')
-    const qz = await getQz()
-    const config = qz.configs.create(printer)
-    const data = [{ type: 'pdf', data: base64, flavor: 'base64' }]
-    await qz.print(config, data)
-  }, [defaultPrinter])
+
+    // Try QZ Tray first with a 10s timeout
+    if (connected && printer) {
+      try {
+        const qz = await getQz()
+        const config = qz.configs.create(printer)
+        const data = [{ type: 'pdf', data: base64, flavor: 'base64' }]
+        await Promise.race([
+          qz.print(config, data),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('QZ_TIMEOUT')), 10_000)),
+        ])
+        return
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : ''
+        if (msg !== 'QZ_TIMEOUT') throw e
+        console.warn('[QZ] Print timed out, falling back to browser print dialog')
+      }
+    }
+
+    // Fallback: open PDF in iframe and trigger browser print dialog
+    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
+    const blob = new Blob([bytes], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = 'none'
+    iframe.src = url
+    document.body.appendChild(iframe)
+    iframe.onload = () => {
+      iframe.contentWindow?.print()
+      setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(url) }, 60_000)
+    }
+  }, [defaultPrinter, connected])
 
   const printMultiplePdfs = useCallback(async (base64s: string[], printerName?: string) => {
     for (const b64 of base64s) {
