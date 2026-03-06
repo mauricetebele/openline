@@ -1497,13 +1497,18 @@ function PrinterSettingsSection() {
       doc.setFontSize(10)
       doc.text('4 × 6 thermal label test', 0.5, 2.8)
       doc.text('If you see this, QZ Tray is working!', 0.5, 3.3)
-      const b64 = doc.output('datauristring').split(',')[1]
+      const pdfBytes = doc.output('arraybuffer') as ArrayBuffer
+      const b64 = btoa(Array.from(new Uint8Array(pdfBytes), b => String.fromCharCode(b)).join(''))
 
       const qz = await getQz()
       const config = qz.configs.create(selectedPrinter, { scaleContent: false })
+      console.log('[QZ] Sending test print to:', selectedPrinter)
       await qz.print(config, [{ type: 'pixel', format: 'pdf', flavor: 'base64', data: b64 }])
       toast.success('Test page sent to printer')
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Print failed') }
+    } catch (e) {
+      console.error('[QZ] Test print error:', e)
+      toast.error(e instanceof Error ? e.message : 'Print failed')
+    }
     finally { setTesting(false) }
   }, [selectedPrinter, getQz])
 
