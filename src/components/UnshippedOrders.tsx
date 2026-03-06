@@ -14,6 +14,37 @@ import PickListModal from '@/components/PickListModal'
 import ShipByItemModal from '@/components/ShipByItemModal'
 import { useQzTray } from '@/lib/use-qz-tray'
 
+// ─── Scanner confirmation tone (Web Audio API) ──────────────────────────────
+let _audioCtx: AudioContext | null = null
+function playTone(success: boolean) {
+  try {
+    if (!_audioCtx) _audioCtx = new AudioContext()
+    const ctx = _audioCtx
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    if (success) {
+      // Two-tone ascending chime
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(880, ctx.currentTime)        // A5
+      osc.frequency.setValueAtTime(1174.66, ctx.currentTime + 0.1) // D6
+      gain.gain.setValueAtTime(0.18, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25)
+      osc.start(ctx.currentTime)
+      osc.stop(ctx.currentTime + 0.25)
+    } else {
+      // Low buzz for failure
+      osc.type = 'square'
+      osc.frequency.setValueAtTime(220, ctx.currentTime)
+      gain.gain.setValueAtTime(0.12, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
+      osc.start(ctx.currentTime)
+      osc.stop(ctx.currentTime + 0.3)
+    }
+  } catch { /* AudioContext not available */ }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ActiveTab = 'pending' | 'unshipped' | 'awaiting' | 'shipped' | 'cancelled'
@@ -795,16 +826,16 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order.id])
 
-  const validateSerial = useCallback((key: string, sn: string, sku: string) => {
+  const validateSerial = useCallback((key: string, sn: string, sku: string, immediate = false) => {
     if (!sn.trim()) {
       setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, valid: null, message: '', checking: false } }))
       return
     }
     // Mark as checking
     setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, checking: true, valid: null, message: '' } }))
-    // Debounce
+    // Debounce (skip if immediate — e.g. scanner Enter)
     if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key])
-    debounceRefs.current[key] = setTimeout(async () => {
+    const doValidate = async () => {
       try {
         const res = await fetch(`/api/serials/validate?sn=${encodeURIComponent(sn.trim())}&sku=${encodeURIComponent(sku)}`)
         const data: { valid: boolean; reason?: string; detail?: string; location?: string } = await res.json()
@@ -812,10 +843,13 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
           ...prev,
           [key]: { value: sn, valid: data.valid, message: data.valid ? (data.location ?? '✓ Valid') : (data.detail ?? 'Invalid'), checking: false },
         }))
+        if (immediate) playTone(data.valid)
       } catch {
         setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], checking: false, valid: false, message: 'Validation error' } }))
+        if (immediate) playTone(false)
       }
-    }, 350)
+    }
+    if (immediate) { doValidate() } else { debounceRefs.current[key] = setTimeout(doValidate, 350) }
   }, [])
 
   const needsSerials = status?.items.some(i => i.isSerializable) ?? false
@@ -948,9 +982,16 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                             <span className="text-xs text-gray-400 w-4 shrink-0">#{i + 1}</span>
                             <input
                               type="text"
-                              placeholder="Enter serial number…"
+                              placeholder="Scan or enter serial…"
                               value={state.value}
                               onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '')}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  const val = (e.target as HTMLInputElement).value
+                                  if (val.trim()) validateSerial(key, val, item.sellerSku ?? '', true)
+                                }
+                              }}
                               className={clsx(
                                 'flex-1 h-8 rounded border px-2 text-xs font-mono focus:outline-none focus:ring-1',
                                 state.valid === true  ? 'border-green-400 bg-green-50 focus:ring-green-400' :
@@ -1200,14 +1241,14 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order.id])
 
-  const validateSerial = useCallback((key: string, sn: string, sku: string) => {
+  const validateSerial = useCallback((key: string, sn: string, sku: string, immediate = false) => {
     if (!sn.trim()) {
       setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, valid: null, message: '', checking: false, serialId: undefined } }))
       return
     }
     setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, checking: true, valid: null, message: '', serialId: undefined } }))
     if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key])
-    debounceRefs.current[key] = setTimeout(async () => {
+    const doValidate = async () => {
       try {
         const res = await fetch(`/api/serials/validate?sn=${encodeURIComponent(sn.trim())}&sku=${encodeURIComponent(sku)}`)
         const data: { valid: boolean; reason?: string; detail?: string; location?: string; serialId?: string } = await res.json()
@@ -1221,10 +1262,13 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
             serialId: data.valid ? data.serialId : undefined,
           },
         }))
+        if (immediate) playTone(data.valid)
       } catch {
         setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], checking: false, valid: false, message: 'Validation error', serialId: undefined } }))
+        if (immediate) playTone(false)
       }
-    }, 350)
+    }
+    if (immediate) { doValidate() } else { debounceRefs.current[key] = setTimeout(doValidate, 350) }
   }, [])
 
   const needsSerials = serializableItems.length > 0
@@ -1340,9 +1384,16 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
                             <span className="text-xs text-gray-400 w-4 shrink-0">#{i + 1}</span>
                             <input
                               type="text"
-                              placeholder="Enter serial number…"
+                              placeholder="Scan or enter serial…"
                               value={state.value}
                               onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '')}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  const val = (e.target as HTMLInputElement).value
+                                  if (val.trim()) validateSerial(key, val, item.sellerSku ?? '', true)
+                                }
+                              }}
                               className={clsx(
                                 'flex-1 h-8 rounded border px-2 text-xs font-mono focus:outline-none focus:ring-1',
                                 state.valid === true  ? 'border-green-400 bg-green-50 focus:ring-green-400' :
