@@ -4032,7 +4032,7 @@ const EMPTY_MESSAGES: Record<ActiveTab, { title: string; sub: string }> = {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function UnshippedOrders() {
-  const qz = useQzTray()
+  const qz = useQzTray({ autoConnect: true })
 
   const [accounts, setAccounts]                   = useState<AmazonAccountDTO[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState('')
