@@ -5053,9 +5053,9 @@ export default function UnshippedOrders() {
           batchEligible={batchEligible}
           skippedCount={selectedOrderIds.size - batchEligible.length}
           existingBatchId={activeBatchId}
-          onClose={() => { setShowBatchConfirm(false); /* keep activeBatchId so mini indicator stays if still running */ }}
+          onClose={() => { setShowBatchConfirm(false); setActiveBatchId(null) }}
           onBatchCreated={(id) => { setActiveBatchId(id) }}
-          onBatchComplete={() => { setFetchKey(k => k + 1); setSelectedOrderIds(new Set()) }}
+          onBatchComplete={() => { setFetchKey(k => k + 1); setSelectedOrderIds(new Set()); setActiveBatchId(null) }}
           qzPrint={{ connected: qz.connected, defaultPrinter: qz.defaultPrinter, printMultiplePdfs: qz.printMultiplePdfs }}
         />
       )}
