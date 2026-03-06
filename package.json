@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "postinstall": "node scripts/patch-qz-tray.js",
-    "build": "prisma generate && next build",
+    "build": "node scripts/patch-qz-tray.js && prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "db:push": "prisma db push",
