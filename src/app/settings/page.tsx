@@ -1416,8 +1416,6 @@ function PrinterSettingsSection() {
         await qz.websocket.connect()
       }
       setConnected(true)
-      const list = await qz.printers.find()
-      setPrinters(Array.isArray(list) ? list : [])
     } catch { setConnected(false) }
     finally { setConnecting(false) }
   }, [getQz])
