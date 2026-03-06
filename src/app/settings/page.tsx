@@ -1410,10 +1410,11 @@ function PrinterSettingsSection() {
     setConnecting(true)
     try {
       const qz = await getQz()
-      if (qz.websocket.isActive()) { setConnected(true); return }
-      qz.security.setCertificatePromise(() => Promise.resolve(''))
-      qz.security.setSignaturePromise(() => () => Promise.resolve(''))
-      await qz.websocket.connect()
+      if (!qz.websocket.isActive()) {
+        qz.security.setCertificatePromise(() => Promise.resolve(''))
+        qz.security.setSignaturePromise(() => () => Promise.resolve(''))
+        await qz.websocket.connect()
+      }
       setConnected(true)
       const list = await qz.printers.find()
       setPrinters(Array.isArray(list) ? list : [])
