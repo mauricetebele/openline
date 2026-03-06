@@ -1430,12 +1430,24 @@ function PrinterSettingsSection() {
     setConnected(false); setPrinters([])
   }, [getQz])
 
+  const [printerError, setPrinterError] = useState<string | null>(null)
+
   const doRefresh = useCallback(async () => {
+    setPrinterError(null)
     try {
       const qz = await getQz()
+      console.log('[QZ] websocket active:', qz.websocket.isActive())
       const list = await qz.printers.find()
+      console.log('[QZ] printers.find() returned:', list)
       setPrinters(Array.isArray(list) ? list : [])
-    } catch { /* ignore */ }
+      if (!list || (Array.isArray(list) && list.length === 0)) {
+        setPrinterError('QZ Tray returned 0 printers. Make sure your printer is on and installed in Windows Settings > Printers & Scanners.')
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[QZ] printers.find() error:', e)
+      setPrinterError(`Printer detection failed: ${msg}`)
+    }
   }, [getQz])
 
   const doSave = useCallback(async () => {
@@ -1515,8 +1527,13 @@ function PrinterSettingsSection() {
                 <RefreshCw size={10} /> Refresh
               </button>
             </div>
+            {printerError && (
+              <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700 mb-2">
+                {printerError}
+              </div>
+            )}
             {printers.length === 0 ? (
-              <p className="text-xs text-gray-400 py-2">No printers detected.</p>
+              <p className="text-xs text-gray-400 py-2">No printers detected. Click Refresh to retry.</p>
             ) : (
               <div className="space-y-1">
                 {printers.map(p => (
