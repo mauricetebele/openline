@@ -95,15 +95,6 @@ export function useQzTray({ autoConnect = false }: { autoConnect?: boolean } = {
     const printer = printerName ?? defaultPrinter
     if (!printer) throw new Error('No printer selected')
     const qz = await getQz()
-    // Ensure semver is populated — the version handshake can fail silently
-    // with empty certificates, leaving connection.semver undefined and crashing print()
-    try {
-      const ver = await qz.api.getVersion()
-      if (ver && !qz.websocket?.connection?.semver) {
-        const semver = ver.toLowerCase().replace(/-rc\./g, '-rc').split(/[+.-]/g).map((s: string) => parseInt(s) || 0)
-        if (qz.websocket?.connection) qz.websocket.connection.semver = semver
-      }
-    } catch { /* ignore — print may still work */ }
     const config = qz.configs.create(printer)
     const data = [{ type: 'pdf', data: base64, flavor: 'base64' }]
     await qz.print(config, data)

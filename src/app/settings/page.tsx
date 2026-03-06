@@ -1501,16 +1501,6 @@ function PrinterSettingsSection() {
       const b64 = btoa(Array.from(new Uint8Array(pdfBytes), b => String.fromCharCode(b)).join(''))
 
       const qz = await getQz()
-      // Ensure semver is populated — version handshake can fail silently with empty certs
-      try {
-        const ver = await qz.api.getVersion()
-        console.log('[QZ] Tray version:', ver)
-        if (ver && !qz.websocket?.connection?.semver) {
-          const semver = ver.toLowerCase().replace(/-rc\./g, '-rc').split(/[+.-]/g).map((s: string) => parseInt(s) || 0)
-          if (qz.websocket?.connection) qz.websocket.connection.semver = semver
-          console.log('[QZ] Manually set semver:', semver)
-        }
-      } catch (e) { console.warn('[QZ] Could not get version:', e) }
       const config = qz.configs.create(selectedPrinter)
       console.log('[QZ] Sending test print to:', selectedPrinter)
       await qz.print(config, [{ type: 'pdf', data: b64, flavor: 'base64' }])
