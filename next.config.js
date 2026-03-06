@@ -12,10 +12,12 @@ const nextConfig = {
     serverComponentsExternalPackages: ['@prisma/client', 'firebase-admin', 'xlsx'],
   },
   webpack: (config) => {
-    // jsPDF optionally requires these for SVG/HTML rendering — we don't use them,
-    // so stub them out to prevent "module not found" build errors.
+    const path = require('path')
     config.resolve.alias = {
       ...config.resolve.alias,
+      // Use vendored qz-tray with semver crash fix
+      'qz-tray':   path.resolve(__dirname, 'src/lib/qz-tray-patched.js'),
+      // jsPDF optional deps — not used
       canvg:       false,
       html2canvas: false,
       dompurify:   false,
