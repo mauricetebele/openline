@@ -37,16 +37,14 @@ export async function GET(req: NextRequest) {
       case 'delivered':
         where.carrierStatus = { contains: 'delivered', mode: 'insensitive' }
         break
-      case 'in_transit':
-        where.carrierStatus = { contains: 'transit', mode: 'insensitive' }
-        break
-      case 'exception':
-        where.OR = [
-          ...(where.OR ?? []),
-          { carrierStatus: { contains: 'exception', mode: 'insensitive' } },
-          { carrierStatus: { contains: 'delay', mode: 'insensitive' } },
+      case 'in_transit': {
+        const transitConditions: Prisma.MFNReturnWhereInput[] = [
+          { carrierStatus: { contains: 'transit', mode: 'insensitive' } },
+          { carrierStatus: { contains: 'on the way', mode: 'insensitive' } },
+          { carrierStatus: { contains: 'we have your package', mode: 'insensitive' } },
+          { carrierStatus: { contains: 'dropped off', mode: 'insensitive' } },
+          { carrierStatus: { contains: 'out for delivery', mode: 'insensitive' } },
         ]
-        // If search was also set, we need AND logic
         if (search) {
           const searchConditions = [
             { orderId: { contains: search, mode: 'insensitive' as const } },
@@ -55,22 +53,39 @@ export async function GET(req: NextRequest) {
             { sku: { contains: search, mode: 'insensitive' as const } },
             { title: { contains: search, mode: 'insensitive' as const } },
           ]
-          const statusConditions = [
-            { carrierStatus: { contains: 'exception', mode: 'insensitive' as const } },
-            { carrierStatus: { contains: 'delay', mode: 'insensitive' as const } },
+          delete where.OR
+          where.AND = [
+            { OR: searchConditions },
+            { OR: transitConditions },
+          ]
+        } else {
+          where.OR = transitConditions
+        }
+        break
+      }
+      case 'exception': {
+        const exceptionConditions: Prisma.MFNReturnWhereInput[] = [
+          { carrierStatus: { contains: 'exception', mode: 'insensitive' } },
+          { carrierStatus: { contains: 'delay', mode: 'insensitive' } },
+        ]
+        if (search) {
+          const searchConditions = [
+            { orderId: { contains: search, mode: 'insensitive' as const } },
+            { rmaId: { contains: search, mode: 'insensitive' as const } },
+            { asin: { contains: search, mode: 'insensitive' as const } },
+            { sku: { contains: search, mode: 'insensitive' as const } },
+            { title: { contains: search, mode: 'insensitive' as const } },
           ]
           delete where.OR
           where.AND = [
             { OR: searchConditions },
-            { OR: statusConditions },
+            { OR: exceptionConditions },
           ]
         } else {
-          where.OR = [
-            { carrierStatus: { contains: 'exception', mode: 'insensitive' } },
-            { carrierStatus: { contains: 'delay', mode: 'insensitive' } },
-          ]
+          where.OR = exceptionConditions
         }
         break
+      }
       case 'not_tracked':
         where.carrierStatus = null
         where.trackingNumber = { not: null }

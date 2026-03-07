@@ -59,9 +59,10 @@ function trackingUrl(tracking: string): string {
 function StatusBadge({ status }: { status: string | null }) {
   if (!status) return <span className="text-gray-400 text-xs">-</span>
   const s = status.toLowerCase()
+  const isTransit = s.includes('transit') || s.includes('on the way') || s.includes('we have your package') || s.includes('dropped off') || s.includes('out for delivery')
   const cls = s.includes('delivered')
     ? 'badge-green'
-    : s.includes('transit') || s.includes('on the way')
+    : isTransit
     ? 'badge-blue'
     : s.includes('exception') || s.includes('delay')
     ? 'badge-orange'
