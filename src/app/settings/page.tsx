@@ -71,7 +71,7 @@ interface AmazonAccount {
   createdAt: string
 }
 
-type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'fedex' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer' | 'sickw'
+type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'ups-buy-shipping' | 'fedex' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer' | 'sickw'
 
 // ─── Amazon Accounts Section ──────────────────────────────────────────────────
 
@@ -641,6 +641,192 @@ function UpsCredentialsSection() {
           <li>Select the <strong>Track API</strong>, <strong>Shipping API</strong>, and <strong>Rating API</strong> products</li>
           <li>Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> from your app</li>
           <li>Find your <strong>Account Number</strong> (6-character shipper number) in UPS.com → My UPS → Account Summary</li>
+        </ol>
+      </div>
+    </div>
+  )
+}
+
+// ─── UPS Buy Shipping Section ─────────────────────────────────────────────────
+
+function UpsBuyShippingSection() {
+  const [configured, setConfigured] = useState(false)
+  const [maskedAccountNumber, setMaskedAccountNumber] = useState<string | null>(null)
+  const [maskedUsername, setMaskedUsername] = useState<string | null>(null)
+  const [lastLinkedAt, setLastLinkedAt] = useState<string | null>(null)
+  const [accountNumber, setAccountNumber] = useState('')
+  const [accountZip, setAccountZip] = useState('')
+  const [shipFromCity, setShipFromCity] = useState('')
+  const [shipFromZip, setShipFromZip] = useState('')
+  const [country, setCountry] = useState('US')
+  const [upsUsername, setUpsUsername] = useState('')
+  const [upsPassword, setUpsPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [linking, setLinking] = useState(false)
+
+  useEffect(() => { fetchStatus() }, [])
+
+  async function fetchStatus() {
+    const res = await fetch('/api/ups/buy-shipping-credentials')
+    if (res.ok) {
+      const data = await res.json()
+      setConfigured(data.configured ?? false)
+      setMaskedAccountNumber(data.maskedAccountNumber ?? null)
+      setMaskedUsername(data.maskedUsername ?? null)
+      setLastLinkedAt(data.lastLinkedAt ?? null)
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const res = await fetch('/api/ups/buy-shipping-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountNumber: accountNumber.trim(),
+          accountZip: accountZip.trim(),
+          shipFromCity: shipFromCity.trim(),
+          shipFromZip: shipFromZip.trim(),
+          country: country.trim(),
+          upsUsername: upsUsername.trim(),
+          upsPassword: upsPassword.trim(),
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('UPS Buy Shipping credentials saved!')
+      setAccountNumber('')
+      setAccountZip('')
+      setShipFromCity('')
+      setShipFromZip('')
+      setCountry('US')
+      setUpsUsername('')
+      setUpsPassword('')
+      fetchStatus()
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleLink() {
+    setLinking(true)
+    try {
+      const res = await fetch('/api/ups/buy-shipping-credentials/link', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(data.message)
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    } finally {
+      setLinking(false)
+    }
+  }
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      {configured && (
+        <div className="card p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <CheckCircle size={16} className="text-green-500 shrink-0" />
+              <div>
+                <p className="font-semibold text-sm">UPS Buy Shipping Credentials Saved</p>
+                <p className="text-xs text-gray-400">
+                  Account #: <span className="font-mono">{maskedAccountNumber}</span>
+                  {maskedUsername && <> · Username: <span className="font-mono">{maskedUsername}</span></>}
+                  {lastLinkedAt && ` · Last linked ${new Date(lastLinkedAt).toLocaleDateString()}`}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleLink}
+              disabled={linking}
+              className="btn-primary text-xs px-3 py-1.5 shrink-0"
+            >
+              <ExternalLink size={12} className={linking ? 'animate-spin' : ''} />
+              {linking ? 'Opening…' : 'Link Account'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="card p-6">
+        <div className="flex items-start gap-4 mb-5">
+          <div className="rounded-xl p-3 bg-amber-50">
+            <Truck size={20} className="text-amber-600" />
+          </div>
+          <div>
+            <p className="font-semibold">{configured ? 'Update Buy Shipping Credentials' : 'Connect UPS Buy Shipping'}</p>
+            <p className="text-sm text-gray-500 mt-1">
+              These credentials are used by the Playwright script to link your UPS carrier account
+              to Amazon Buy Shipping via Seller Central. Run <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">npm run link-ups</code> after saving.
+            </p>
+          </div>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">UPS Account Number</label>
+              <input className="input font-mono" placeholder="12AB34"
+                value={accountNumber} onChange={e => setAccountNumber(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">Account Zip Code</label>
+              <input className="input font-mono" placeholder="10001"
+                value={accountZip} onChange={e => setAccountZip(e.target.value)} required />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">Ship-From City</label>
+              <input className="input" placeholder="New York"
+                value={shipFromCity} onChange={e => setShipFromCity(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">Ship-From Zip Code</label>
+              <input className="input font-mono" placeholder="10001"
+                value={shipFromZip} onChange={e => setShipFromZip(e.target.value)} required />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">Country</label>
+              <input className="input" placeholder="US"
+                value={country} onChange={e => setCountry(e.target.value)} required />
+            </div>
+          </div>
+          <hr className="border-gray-200" />
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">UPS.com Login</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">UPS Username / Email</label>
+              <input className="input font-mono" placeholder="user@example.com"
+                value={upsUsername} onChange={e => setUpsUsername(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">UPS Password</label>
+              <input className="input font-mono" type="password" placeholder="••••••••"
+                value={upsPassword} onChange={e => setUpsPassword(e.target.value)} required />
+            </div>
+          </div>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            <RefreshCw size={14} className={saving ? 'animate-spin' : ''} />
+            {saving ? 'Saving…' : configured ? 'Update Credentials' : 'Save Credentials'}
+          </button>
+        </form>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm">
+        <p className="font-semibold text-amber-800 mb-2">How to Link UPS to Amazon Buy Shipping</p>
+        <ol className="list-decimal list-inside space-y-1.5 text-amber-700 text-xs">
+          <li>Fill in your UPS account details and UPS.com login credentials above, then click Save</li>
+          <li>Run <code className="bg-amber-100 px-1 py-0.5 rounded">npm run link-ups</code> from the project root</li>
+          <li>A browser window will open — log in to Amazon Seller Central if prompted</li>
+          <li>The script will automatically navigate to Carrier Preferences and link your UPS account</li>
+          <li>Once complete, UPS rates will appear in Amazon Buy Shipping</li>
         </ol>
       </div>
     </div>
@@ -1758,6 +1944,14 @@ const HUB_GROUPS: HubGroup[] = [
         description: 'Store your UPS developer credentials to enable live tracking status lookups on MFN Returns without leaving the app.',
       },
       {
+        id: 'ups-buy-shipping',
+        icon: Truck,
+        iconBg: 'bg-amber-50',
+        iconColor: 'text-amber-600',
+        title: 'UPS Buy Shipping',
+        description: 'Link your UPS carrier account to Amazon Buy Shipping for discounted label rates via Seller Central.',
+      },
+      {
         id: 'fedex',
         icon: Package,
         iconBg: 'bg-purple-50',
@@ -1912,6 +2106,7 @@ function SettingsContent() {
             {activeSection === 'shipstation'    && <ShipStationSection />}
             {activeSection === 'warehouses'     && <WarehouseManager />}
             {activeSection === 'ups'            && <UpsCredentialsSection />}
+            {activeSection === 'ups-buy-shipping' && <UpsBuyShippingSection />}
             {activeSection === 'fedex'          && <FedexCredentialsSection />}
             {activeSection === 'sickw'          && <SickwCredentialsSection />}
             {activeSection === 'backmarket'     && <BackMarketSection />}

@@ -651,6 +651,23 @@ model UpsCredential {
   @@map("ups_credentials")
 }
 
+model UpsBuyShippingCredential {
+  id               String    @id @default(cuid())
+  accountNumberEnc String
+  accountZipEnc    String
+  shipFromCityEnc  String
+  shipFromZipEnc   String
+  countryEnc       String
+  upsUsernameEnc   String
+  upsPasswordEnc   String
+  isActive         Boolean   @default(true)
+  lastLinkedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@map("ups_buy_shipping_credentials")
+}
+
 // ─── FedEx Credentials ───────────────────────────────────────────────────────
 
 model FedexCredential {
