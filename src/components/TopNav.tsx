@@ -15,6 +15,7 @@ import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
 import { useAuth } from '@/context/AuthContext'
 import OrderSearchDropdown from './OrderSearchDropdown'
+import SerialQuickLookup from './SerialQuickLookup'
 
 type NavLeaf  = { href: string; label: string; icon: React.ElementType }
 type NavGroup = { group: true; label: string; icon: React.ElementType; children: NavLeaf[] }
@@ -247,13 +248,13 @@ export default function TopNav() {
 
   return (
     <header className="sticky top-0 z-30 bg-amazon-dark text-white shadow-md">
-      {/* Main bar */}
-      <div className="flex items-center gap-2 px-4 h-14">
+      {/* Row 1: Logo, search boxes, controls */}
+      <div className="flex items-center gap-2 px-4 h-12 border-b border-white/5">
 
         {/* Logo */}
         <Link href="/" className="flex items-center mr-4 shrink-0">
           {storeLogo ? (
-            <img src={storeLogo} alt="Logo" className="h-8 w-auto object-contain" />
+            <img src={storeLogo} alt="Logo" className="h-7 w-auto object-contain" />
           ) : (
             <div className="flex flex-col leading-tight">
               <span className="text-amazon-orange font-bold text-sm leading-none">Open Line</span>
@@ -262,30 +263,11 @@ export default function TopNav() {
           )}
         </Link>
 
-        {/* Desktop nav wrapper — takes remaining space, clips overflow */}
-        <div className="hidden lg:flex flex-1 min-w-0 relative items-center">
-          <nav className="flex items-center gap-1 overflow-x-auto no-scrollbar pr-6">
-            {mainItems.map((item) => {
-              if ('divider' in item) return null
-              if ('group' in item) return (
-                <GroupItem key={item.label} item={item} isActive={isActive} onNavigate={() => setMobileOpen(false)} />
-              )
-              return renderFlatLink(item)
-            })}
+        <div className="flex-1" />
 
-            {/* Wholesale divider */}
-            {divider && (
-              <>
-                <div className="w-px h-5 bg-white/20 mx-1 shrink-0" />
-                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest px-1 shrink-0">
-                  {divider.label}
-                </span>
-                {wholesaleItems.map(item => renderFlatLink(item))}
-              </>
-            )}
-          </nav>
-          {/* Fade-out to indicate more items to the right */}
-          <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-amazon-dark to-transparent" />
+        {/* Global serial lookup — desktop */}
+        <div className="hidden lg:block shrink-0">
+          <SerialQuickLookup />
         </div>
 
         {/* Global order search — desktop */}
@@ -334,11 +316,38 @@ export default function TopNav() {
         </button>
       </div>
 
+      {/* Row 2: Desktop navigation links */}
+      <nav className="hidden lg:flex items-center gap-0.5 px-4 h-10 overflow-x-auto scrollbar-hide">
+        {mainItems.map((item) => {
+          if ('divider' in item) return null
+          if ('group' in item) {
+            return (
+              <GroupItem
+                key={item.label}
+                item={item}
+                isActive={isActive}
+                onNavigate={() => {}}
+              />
+            )
+          }
+          return renderFlatLink(item)
+        })}
+
+        {divider && (
+          <>
+            <div className="w-px h-5 bg-white/10 mx-1.5 shrink-0" />
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-1 shrink-0">{divider.label}</span>
+            {wholesaleItems.map(item => renderFlatLink(item))}
+          </>
+        )}
+      </nav>
+
       {/* Mobile dropdown menu */}
       {mobileOpen && (
         <nav className="lg:hidden bg-gray-900 border-t border-white/10 px-3 py-3 space-y-1 max-h-[80vh] overflow-y-auto">
-          {/* Mobile order search */}
-          <div className="pb-2 mb-1 border-b border-white/10">
+          {/* Mobile serial lookup & order search */}
+          <div className="pb-2 mb-1 border-b border-white/10 space-y-2">
+            <SerialQuickLookup mobile />
             <OrderSearchDropdown mobile />
           </div>
           {mainItems.map((item) => {
