@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
       Value: weight.value,
       Unit:  WEIGHT_UNIT_MAP[weight.unit] ?? 'oz',
     },
-    ShipDate: shipDate ? `${shipDate}T12:00:00Z` : new Date().toISOString(),
+    ShipDate: shipDate ? `${shipDate}T12:00:00` : new Date().toISOString(),
     ShippingServiceOptions: {
       DeliveryExperience: CONFIRMATION_MAP[confirmation ?? 'none'] ?? 'DeliveryConfirmationWithoutSignature',
       CarrierWillPickUp: false,

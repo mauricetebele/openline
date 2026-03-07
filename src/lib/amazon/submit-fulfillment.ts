@@ -32,6 +32,7 @@ function buildFulfillmentXml(
   trackingNumber: string,
   carrier: string,
   items: FulfillmentItem[],
+  shipDate?: string | null,
 ): string {
   const itemsXml = items
     .map(item => {
@@ -62,7 +63,7 @@ function buildFulfillmentXml(
     <MessageID>1</MessageID>
     <OrderFulfillment>
       <AmazonOrderID>${escapeXml(amazonOrderId)}</AmazonOrderID>
-      <FulfillmentDate>${new Date().toISOString()}</FulfillmentDate>
+      <FulfillmentDate>${shipDate ? `${shipDate}T12:00:00` : new Date().toISOString()}</FulfillmentDate>
       <FulfillmentData>
         <CarrierCode>${escapeXml(carrier)}</CarrierCode>
         <ShipperTrackingNumber>${escapeXml(trackingNumber)}</ShipperTrackingNumber>
@@ -81,6 +82,7 @@ export async function submitFulfillmentWithTransparency(
   orderId: string,
   trackingNumber: string,
   carrier: string,
+  shipDate?: string | null,
 ): Promise<{ feedId: string } | null> {
   // Load order with items and account info
   const order = await prisma.order.findUnique({
@@ -126,6 +128,7 @@ export async function submitFulfillmentWithTransparency(
     trackingNumber,
     amazonCarrier,
     fulfillmentItems,
+    shipDate ?? order.presetShipDate,
   )
 
   // Step 1: Create feed document
