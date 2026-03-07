@@ -7,7 +7,7 @@ import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { syncMfnReturns } from '@/lib/amazon/mfn-returns'
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -17,9 +17,17 @@ export async function POST() {
     return NextResponse.json({ error: 'No active Amazon account found' }, { status: 400 })
   }
 
-  // Default: last 30 days
-  const endDate = new Date()
-  const startDate = new Date(endDate.getTime() - 30 * 86_400_000)
+  // Accept optional startDate / endDate from body, default to last 30 days
+  let startDate: Date
+  let endDate: Date
+  try {
+    const body = await req.json().catch(() => ({}))
+    endDate = body.endDate ? new Date(body.endDate) : new Date()
+    startDate = body.startDate ? new Date(body.startDate) : new Date(endDate.getTime() - 30 * 86_400_000)
+  } catch {
+    endDate = new Date()
+    startDate = new Date(endDate.getTime() - 30 * 86_400_000)
+  }
 
   // Create sync job
   const job = await prisma.mFNReturnSyncJob.create({

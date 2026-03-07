@@ -26,6 +26,7 @@ interface MFNReturnRow {
   deliveredAt: string | null
   estimatedDelivery: string | null
   trackingUpdatedAt: string | null
+  refundedAmount: number | null
   expectedSerial: string | null
 }
 
@@ -79,6 +80,10 @@ export default function MFNReturnsManager() {
   const [syncJob, setSyncJob] = useState<SyncJob | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Sync date range
+  const [syncStart, setSyncStart] = useState('')
+  const [syncEnd, setSyncEnd] = useState('')
+
   // Tracking refresh state
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
 
@@ -117,10 +122,27 @@ export default function MFNReturnsManager() {
   }
 
   // ── Sync ──────────────────────────────────────────────────────────────────
-  async function triggerSync() {
+  async function triggerSync(daysBack?: number) {
     setSyncing(true)
     try {
-      const res = await fetch('/api/returns/sync', { method: 'POST' })
+      let startDate: string | undefined
+      let endDate: string | undefined
+
+      if (daysBack != null) {
+        const end = new Date()
+        const start = new Date(end.getTime() - daysBack * 86_400_000)
+        startDate = start.toISOString()
+        endDate = end.toISOString()
+      } else if (syncStart && syncEnd) {
+        startDate = new Date(syncStart).toISOString()
+        endDate = new Date(syncEnd + 'T23:59:59').toISOString()
+      }
+
+      const res = await fetch('/api/returns/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate, endDate }),
+      })
       if (!res.ok) throw new Error('Sync request failed')
       const job: SyncJob = await res.json()
       setSyncJob({ ...job, status: 'RUNNING' })
@@ -192,14 +214,55 @@ export default function MFNReturnsManager() {
     <div className="flex flex-col h-full">
       {/* Header bar */}
       <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
-        <button
-          onClick={triggerSync}
-          disabled={syncing}
-          className="btn-primary flex items-center gap-2 text-sm"
-        >
-          <RefreshCcw size={14} className={clsx(syncing && 'animate-spin')} />
-          {syncing ? 'Syncing...' : 'Sync Returns'}
-        </button>
+        {/* Quick sync buttons */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => triggerSync(1)}
+            disabled={syncing}
+            className="btn-secondary text-xs px-2.5 py-1.5"
+          >
+            Last 1 Day
+          </button>
+          <button
+            onClick={() => triggerSync(7)}
+            disabled={syncing}
+            className="btn-secondary text-xs px-2.5 py-1.5"
+          >
+            Last 7 Days
+          </button>
+          <button
+            onClick={() => triggerSync(30)}
+            disabled={syncing}
+            className="btn-secondary text-xs px-2.5 py-1.5"
+          >
+            Last 30 Days
+          </button>
+        </div>
+
+        {/* Custom date range */}
+        <div className="flex items-center gap-1.5">
+          <input
+            type="date"
+            value={syncStart}
+            onChange={(e) => setSyncStart(e.target.value)}
+            className="input text-xs px-2 py-1.5 w-32"
+          />
+          <span className="text-gray-400 text-xs">to</span>
+          <input
+            type="date"
+            value={syncEnd}
+            onChange={(e) => setSyncEnd(e.target.value)}
+            className="input text-xs px-2 py-1.5 w-32"
+          />
+          <button
+            onClick={() => triggerSync()}
+            disabled={syncing || !syncStart || !syncEnd}
+            className="btn-primary flex items-center gap-1.5 text-xs px-3 py-1.5"
+          >
+            <RefreshCcw size={12} className={clsx(syncing && 'animate-spin')} />
+            {syncing ? 'Syncing...' : 'Sync Range'}
+          </button>
+        </div>
 
         {syncJob && (
           <span className="text-xs text-gray-500">
@@ -233,6 +296,7 @@ export default function MFNReturnsManager() {
               <th className="px-4 py-2">Product Title</th>
               <th className="px-4 py-2">ASIN</th>
               <th className="px-4 py-2">Price</th>
+              <th className="px-4 py-2">Refunded</th>
               <th className="px-4 py-2">RMA #</th>
               <th className="px-4 py-2">Return Tracking #</th>
               <th className="px-4 py-2">Expected Serial</th>
@@ -244,14 +308,14 @@ export default function MFNReturnsManager() {
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {loading && returns.length === 0 ? (
               <tr>
-                <td colSpan={10} className="text-center py-12 text-gray-400">
+                <td colSpan={11} className="text-center py-12 text-gray-400">
                   <Loader2 className="mx-auto animate-spin mb-2" size={20} />
                   Loading...
                 </td>
               </tr>
             ) : returns.length === 0 ? (
               <tr>
-                <td colSpan={10} className="text-center py-12 text-gray-400">
+                <td colSpan={11} className="text-center py-12 text-gray-400">
                   No MFN returns found. Click &quot;Sync Returns&quot; to pull from Amazon.
                 </td>
               </tr>
@@ -276,6 +340,13 @@ export default function MFNReturnsManager() {
                       : r.returnValue != null
                       ? `$${r.returnValue.toFixed(2)}`
                       : '-'}
+                  </td>
+
+                  {/* Refunded */}
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {r.refundedAmount != null
+                      ? <span className="text-red-600 font-medium">${r.refundedAmount.toFixed(2)}</span>
+                      : <span className="text-gray-400">-</span>}
                   </td>
 
                   {/* RMA */}

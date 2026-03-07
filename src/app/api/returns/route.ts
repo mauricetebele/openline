@@ -103,6 +103,7 @@ export async function GET(req: NextRequest) {
       deliveredAt: ret.deliveredAt,
       estimatedDelivery: ret.estimatedDelivery,
       trackingUpdatedAt: ret.trackingUpdatedAt,
+      refundedAmount: ret.refundedAmount ? Number(ret.refundedAmount) : null,
       expectedSerial,
     }
   })
