@@ -4100,6 +4100,8 @@ export default function UnshippedOrders() {
   // Unprocess / cancel / reinstate state
   const [unprocessingId, setUnprocessingId]       = useState<string | null>(null)
   const [cancellingId, setCancellingId]           = useState<string | null>(null)
+  const [bulkCancelling, setBulkCancelling]       = useState(false)
+  const [bulkCancelResult, setBulkCancelResult]   = useState<{ cancelled: number; total: number; errors: string[] } | null>(null)
   const [reinstatingId, setReinstatingId]         = useState<string | null>(null)
   const [voidingId, setVoidingId]                 = useState<string | null>(null)
   const [voidSuccessMsg, setVoidSuccessMsg]       = useState<string | null>(null)
@@ -4618,6 +4620,39 @@ export default function UnshippedOrders() {
       setFetchKey(k => k + 1)
     } catch (e) { alert(e instanceof Error ? e.message : 'Failed to cancel order') }
     finally { setCancellingId(null) }
+  }
+
+  async function handleBulkCancel() {
+    const ids = [...selectedOrderIds].filter(id => {
+      const o = orders.find(x => x.id === id)
+      return o && o.orderSource !== 'wholesale' && (o.workflowStatus === 'PENDING' || o.workflowStatus === 'PROCESSING')
+    })
+    if (ids.length === 0) return
+    const hasProcessed = ids.some(id => orders.find(x => x.id === id)?.workflowStatus === 'PROCESSING')
+    const msg = hasProcessed
+      ? `Cancel ${ids.length} order${ids.length !== 1 ? 's' : ''}? This will release reserved inventory and cannot be undone.`
+      : `Cancel ${ids.length} order${ids.length !== 1 ? 's' : ''}? This cannot be undone.`
+    if (!confirm(msg)) return
+    setBulkCancelling(true)
+    setBulkCancelResult(null)
+    try {
+      const res = await apiPost('/api/orders/bulk-cancel', { orderIds: ids })
+      const data = res as { succeeded: number; failed: number; results: { orderId: string; success: boolean; error?: string }[] }
+      const errors = data.results
+        .filter(r => !r.success)
+        .map(r => {
+          const o = orders.find(x => x.id === r.orderId)
+          const label = o?.olmNumber != null ? `OLM-${o.olmNumber}` : o?.amazonOrderId ?? r.orderId
+          return `${label}: ${r.error}`
+        })
+      setBulkCancelResult({ cancelled: data.succeeded, total: ids.length, errors })
+      setSelectedOrderIds(new Set())
+      setFetchKey(k => k + 1)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Bulk cancel failed')
+    } finally {
+      setBulkCancelling(false)
+    }
   }
 
   async function handleReinstate(order: Order) {
@@ -5186,6 +5221,36 @@ export default function UnshippedOrders() {
         </div>
       )}
 
+      {/* Bulk cancel result banner */}
+      {bulkCancelResult !== null && (
+        <div className={clsx(
+          'flex items-start justify-between gap-3 px-6 py-2 border-b text-xs',
+          bulkCancelResult.errors.length > 0
+            ? 'bg-amber-50 border-amber-300 text-amber-900'
+            : 'bg-green-50 border-green-200 text-green-800',
+        )}>
+          <div className="flex items-start gap-2">
+            {bulkCancelResult.errors.length === 0
+              ? <CheckCircle2 size={13} className="shrink-0 mt-0.5 text-green-600" />
+              : <AlertTriangle size={13} className="shrink-0 mt-0.5 text-amber-600" />
+            }
+            <div>
+              <span className="font-semibold">
+                {bulkCancelResult.cancelled} of {bulkCancelResult.total} order{bulkCancelResult.total !== 1 ? 's' : ''} cancelled
+              </span>
+              {bulkCancelResult.errors.length > 0 && (
+                <div className="mt-1 space-y-0.5">
+                  {bulkCancelResult.errors.map((e, i) => (
+                    <p key={i} className="text-[10px] font-mono text-amber-800">{e}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <button onClick={() => setBulkCancelResult(null)} className="shrink-0 mt-0.5"><X size={13} /></button>
+        </div>
+      )}
+
       {/* Due-out counter */}
       {dueCount > 0 && (
         <div className="flex items-center gap-2 px-6 py-2 border-b bg-red-50 border-red-200">
@@ -5386,6 +5451,25 @@ export default function UnshippedOrders() {
                 {bulkProcessing
                   ? <><RefreshCcw size={11} className="animate-spin" /> Loading…</>
                   : <><ClipboardCheck size={11} /> Process ({selectedOrderIds.size})</>
+                }
+              </button>
+            )}
+
+            {/* Bulk cancel (pending + unshipped tabs) */}
+            {(activeTab === 'pending' || activeTab === 'unshipped') && selectedOrderIds.size > 0 && (
+              <button
+                onClick={handleBulkCancel}
+                disabled={bulkCancelling}
+                className={clsx(
+                  'flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
+                  bulkCancelling
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-red-600 text-white hover:bg-red-700',
+                )}
+              >
+                {bulkCancelling
+                  ? <><RefreshCcw size={11} className="animate-spin" /> Cancelling…</>
+                  : <><XCircle size={11} /> Cancel ({selectedOrderIds.size})</>
                 }
               </button>
             )}
