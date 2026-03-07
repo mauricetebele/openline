@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
   const status = req.nextUrl.searchParams.get('status')
   const vendorId = req.nextUrl.searchParams.get('vendorId')
   const sku = req.nextUrl.searchParams.get('sku')
+  const grade = req.nextUrl.searchParams.get('grade')
 
   const requested = raw
     .split(/[\n,;]+/)
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
     .filter(Boolean)
     .filter((s, i, arr) => arr.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
 
-  const hasFilter = locationId || warehouseId || poNumber || status || vendorId || sku
+  const hasFilter = locationId || warehouseId || poNumber || status || vendorId || sku || grade
   const isFilterSearch = !requested.length && hasFilter
 
   if (requested.length === 0 && !isFilterSearch) return NextResponse.json({ found: [], notFound: [] })
@@ -36,6 +37,7 @@ export async function GET(req: NextRequest) {
   if (status === 'IN_STOCK') where.status = 'IN_STOCK'
   else if (status === 'OUT_OF_STOCK') where.status = { not: 'IN_STOCK' }
   if (sku) where.product = { sku: { contains: sku, mode: 'insensitive' } }
+  if (grade) where.grade = { grade }
   if (vendorId) {
     where.receiptLine = {
       ...((where.receiptLine as Record<string, unknown>) ?? {}),

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive, Warehouse, LocateFixed, Building2, Tag, FileText, CircleDot, Printer } from 'lucide-react'
+import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive, Warehouse, LocateFixed, Building2, Tag, FileText, CircleDot, Printer, Star } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import JsBarcode from 'jsbarcode'
 import { clsx } from 'clsx'
@@ -114,7 +114,9 @@ export default function SerialSearchManager() {
   const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterVendor, setFilterVendor] = useState<string>('')
   const [filterSku, setFilterSku] = useState('')
+  const [filterGrade, setFilterGrade] = useState<string>('')
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([])
+  const [grades, setGrades] = useState<string[]>([])
 
   const [copied, setCopied] = useState(false)
 
@@ -129,6 +131,12 @@ export default function SerialSearchManager() {
     fetch('/api/warehouses')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.data) setWarehouses(d.data) })
+      .catch(() => {})
+  }, [])
+  useEffect(() => {
+    fetch('/api/grades')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.data) setGrades(d.data) })
       .catch(() => {})
   }, [])
 
@@ -175,7 +183,7 @@ export default function SerialSearchManager() {
 
   async function handleSearch() {
     const sns = parseSNs(input)
-    const hasFilter = filterWarehouseId || filterLocationId || filterPo.trim() || filterStatus || filterVendor || filterSku.trim()
+    const hasFilter = filterWarehouseId || filterLocationId || filterPo.trim() || filterStatus || filterVendor || filterSku.trim() || filterGrade
     if (!sns.length && !hasFilter) return
     setLoading(true)
     setErr(null)
@@ -193,6 +201,7 @@ export default function SerialSearchManager() {
       if (filterStatus) params.set('status', filterStatus)
       if (filterVendor) params.set('vendorId', filterVendor)
       if (filterSku.trim()) params.set('sku', filterSku.trim())
+      if (filterGrade) params.set('grade', filterGrade)
       const res = await fetch(`/api/serial-search?${params}`)
       const data = await res.json()
       if (!res.ok) { setErr(data.error ?? 'Search failed'); return }
@@ -222,6 +231,7 @@ export default function SerialSearchManager() {
     setFilterStatus('')
     setFilterVendor('')
     setFilterSku('')
+    setFilterGrade('')
     textareaRef.current?.focus()
   }
 
@@ -451,9 +461,9 @@ export default function SerialSearchManager() {
                 <span className="text-xs font-semibold text-blue-700 flex items-center gap-1.5">
                   <Search size={13} /> Filters
                 </span>
-                {(filterWarehouseId || filterLocationId || filterPo || filterStatus || filterVendor || filterSku) && (
+                {(filterWarehouseId || filterLocationId || filterPo || filterStatus || filterVendor || filterSku || filterGrade) && (
                   <button
-                    onClick={() => { setFilterWarehouseId(''); setFilterLocationId(''); setFilterPo(''); setFilterStatus(''); setFilterVendor(''); setFilterSku('') }}
+                    onClick={() => { setFilterWarehouseId(''); setFilterLocationId(''); setFilterPo(''); setFilterStatus(''); setFilterVendor(''); setFilterSku(''); setFilterGrade('') }}
                     className="text-xs text-blue-400 hover:text-blue-600 flex items-center gap-1"
                   >
                     <X size={12} /> Clear all
@@ -498,6 +508,13 @@ export default function SerialSearchManager() {
                     <option value="OUT_OF_STOCK">Out of Stock</option>
                   </select>
                 </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Star size={11} /> Grade</label>
+                  <select className="input w-full text-xs" value={filterGrade} onChange={e => setFilterGrade(e.target.value)}>
+                    <option value="">All</option>
+                    {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -505,7 +522,7 @@ export default function SerialSearchManager() {
               <span className="text-xs text-gray-400">
                 {count > 0
                   ? `${count} serial${count !== 1 ? 's' : ''} detected`
-                  : (filterWarehouseId || filterPo || filterStatus || filterVendor || filterSku)
+                  : (filterWarehouseId || filterPo || filterStatus || filterVendor || filterSku || filterGrade)
                     ? 'Filters set — hit Search'
                     : 'Paste serial numbers above or use filters'}
                 {count > 0 && <span className="ml-2 text-gray-300">·</span>}
@@ -522,7 +539,7 @@ export default function SerialSearchManager() {
                 )}
                 <button
                   onClick={handleSearch}
-                  disabled={(count === 0 && !filterWarehouseId && !filterPo.trim() && !filterStatus && !filterVendor && !filterSku.trim()) || loading}
+                  disabled={(count === 0 && !filterWarehouseId && !filterPo.trim() && !filterStatus && !filterVendor && !filterSku.trim() && !filterGrade) || loading}
                   className="flex items-center gap-2 bg-amazon-blue text-white text-sm font-medium px-4 py-1.5 rounded-lg hover:opacity-90 disabled:opacity-50"
                 >
                   <Search size={14} />
