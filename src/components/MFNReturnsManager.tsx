@@ -373,7 +373,6 @@ export default function MFNReturnsManager() {
             ['', 'All'],
             ['delivered', 'Delivered'],
             ['in_transit', 'In Transit'],
-            ['exception', 'Exception'],
             ['not_shipped', 'Not Yet Shipped'],
           ] as const).map(([value, label]) => (
             <button

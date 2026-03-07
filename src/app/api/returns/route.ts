@@ -44,6 +44,8 @@ export async function GET(req: NextRequest) {
           { carrierStatus: { contains: 'we have your package', mode: 'insensitive' } },
           { carrierStatus: { contains: 'dropped off', mode: 'insensitive' } },
           { carrierStatus: { contains: 'out for delivery', mode: 'insensitive' } },
+          { carrierStatus: { contains: 'exception', mode: 'insensitive' } },
+          { carrierStatus: { contains: 'delay', mode: 'insensitive' } },
         ]
         if (search) {
           const searchConditions = [
@@ -60,29 +62,6 @@ export async function GET(req: NextRequest) {
           ]
         } else {
           where.OR = transitConditions
-        }
-        break
-      }
-      case 'exception': {
-        const exceptionConditions: Prisma.MFNReturnWhereInput[] = [
-          { carrierStatus: { contains: 'exception', mode: 'insensitive' } },
-          { carrierStatus: { contains: 'delay', mode: 'insensitive' } },
-        ]
-        if (search) {
-          const searchConditions = [
-            { orderId: { contains: search, mode: 'insensitive' as const } },
-            { rmaId: { contains: search, mode: 'insensitive' as const } },
-            { asin: { contains: search, mode: 'insensitive' as const } },
-            { sku: { contains: search, mode: 'insensitive' as const } },
-            { title: { contains: search, mode: 'insensitive' as const } },
-          ]
-          delete where.OR
-          where.AND = [
-            { OR: searchConditions },
-            { OR: exceptionConditions },
-          ]
-        } else {
-          where.OR = exceptionConditions
         }
         break
       }
