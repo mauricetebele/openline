@@ -182,7 +182,10 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
       const serial = escapeXml(result.serialNumber)
       const sku    = escapeXml(result.product.sku)
       const grade  = result.grade ? escapeXml(result.grade.grade) : ''
-      const topLine = grade ? `${sku}  [${grade}]` : sku
+      const timestamp = new Date().toLocaleString('en-US', {
+        month: '2-digit', day: '2-digit', year: '2-digit',
+        hour: 'numeric', minute: '2-digit', hour12: true,
+      })
 
       const labelNames = [
         ...dymoLabelNames,
@@ -253,10 +256,10 @@ ${stdProps}
 <IsVertical>False</IsVertical>
 <LineTextSpan>
 <TextSpan>
-<Text>${topLine}</Text>
+<Text>${sku}</Text>
 <FontInfo>
 <FontName>Arial</FontName>
-<FontSize>10</FontSize>
+<FontSize>9</FontSize>
 <IsBold>True</IsBold>
 <IsItalic>False</IsItalic>
 <IsUnderline>False</IsUnderline>
@@ -266,10 +269,42 @@ ${stdProps}
 </LineTextSpan>
 </FormattedText>
 <ObjectLayout>
-<DYMOPoint><X>0.12</X><Y>0.07</Y></DYMOPoint>
-<Size><Width>1.9</Width><Height>0.3</Height></Size>
+<DYMOPoint><X>0.12</X><Y>${grade ? '0.04' : '0.06'}</Y></DYMOPoint>
+<Size><Width>1.9</Width><Height>${grade ? '0.2' : '0.22'}</Height></Size>
 </ObjectLayout>
-</TextObject>
+</TextObject>${grade ? `
+<TextObject>
+<Name>GRADE</Name>
+${stdBrushes}
+${stdProps}
+<HorizontalAlignment>Left</HorizontalAlignment>
+<VerticalAlignment>Middle</VerticalAlignment>
+<FitMode>ShrinkToFit</FitMode>
+<IsVertical>False</IsVertical>
+<FormattedText>
+<FitMode>ShrinkToFit</FitMode>
+<HorizontalAlignment>Left</HorizontalAlignment>
+<VerticalAlignment>Middle</VerticalAlignment>
+<IsVertical>False</IsVertical>
+<LineTextSpan>
+<TextSpan>
+<Text>${grade}</Text>
+<FontInfo>
+<FontName>Arial</FontName>
+<FontSize>9</FontSize>
+<IsBold>True</IsBold>
+<IsItalic>False</IsItalic>
+<IsUnderline>False</IsUnderline>
+<FontBrush>${brush('1','0','0','0')}</FontBrush>
+</FontInfo>
+</TextSpan>
+</LineTextSpan>
+</FormattedText>
+<ObjectLayout>
+<DYMOPoint><X>0.12</X><Y>0.22</Y></DYMOPoint>
+<Size><Width>1.9</Width><Height>0.18</Height></Size>
+</ObjectLayout>
+</TextObject>` : ''}
 <BarcodeObject>
 <Name>BARCODE</Name>
 ${stdBrushes}
@@ -283,10 +318,42 @@ ${stdProps}
 <Size>Medium</Size>
 <TextPosition>Bottom</TextPosition>
 <ObjectLayout>
-<DYMOPoint><X>0.12</X><Y>0.4</Y></DYMOPoint>
-<Size><Width>1.9</Width><Height>0.65</Height></Size>
+<DYMOPoint><X>0.12</X><Y>${grade ? '0.38' : '0.28'}</Y></DYMOPoint>
+<Size><Width>1.9</Width><Height>${grade ? '0.55' : '0.6'}</Height></Size>
 </ObjectLayout>
 </BarcodeObject>
+<TextObject>
+<Name>TIMESTAMP</Name>
+${stdBrushes}
+${stdProps}
+<HorizontalAlignment>Right</HorizontalAlignment>
+<VerticalAlignment>Middle</VerticalAlignment>
+<FitMode>ShrinkToFit</FitMode>
+<IsVertical>False</IsVertical>
+<FormattedText>
+<FitMode>ShrinkToFit</FitMode>
+<HorizontalAlignment>Right</HorizontalAlignment>
+<VerticalAlignment>Middle</VerticalAlignment>
+<IsVertical>False</IsVertical>
+<LineTextSpan>
+<TextSpan>
+<Text>${timestamp}</Text>
+<FontInfo>
+<FontName>Arial</FontName>
+<FontSize>6</FontSize>
+<IsBold>False</IsBold>
+<IsItalic>False</IsItalic>
+<IsUnderline>False</IsUnderline>
+<FontBrush>${brush('1','0','0','0')}</FontBrush>
+</FontInfo>
+</TextSpan>
+</LineTextSpan>
+</FormattedText>
+<ObjectLayout>
+<DYMOPoint><X>0.12</X><Y>${grade ? '0.95' : '0.92'}</Y></DYMOPoint>
+<Size><Width>1.9</Width><Height>0.15</Height></Size>
+</ObjectLayout>
+</TextObject>
 </LabelObjects>
 </DynamicLayoutManager>
 </DYMOLabel>
@@ -672,18 +739,24 @@ ${stdProps}
           {/* Label preview */}
           {result && (
             <div className="flex items-start gap-4">
-              <div className="border border-gray-300 rounded-md bg-white p-3 shadow-sm" style={{ width: 220, minHeight: 90 }}>
-                <p className="text-[10px] font-bold text-gray-800 leading-tight truncate" title={result.product.sku + (result.grade ? ` [${result.grade.grade}]` : '')}>
-                  {result.product.sku}{result.grade ? `  [${result.grade.grade}]` : ''}
+              <div className="border border-gray-300 rounded-md bg-white p-3 shadow-sm" style={{ width: 220, minHeight: 100 }}>
+                <p className="text-[10px] font-bold text-gray-800 leading-tight truncate" title={result.product.sku}>
+                  {result.product.sku}
                 </p>
+                {result.grade && (
+                  <p className="text-[9px] font-bold text-gray-700 leading-tight mt-0.5">{result.grade.grade}</p>
+                )}
                 {/* Barcode visual */}
-                <div className="mt-1.5 h-10 w-full rounded-sm overflow-hidden bg-white flex items-center justify-center"
+                <div className="mt-1.5 h-9 w-full rounded-sm overflow-hidden bg-white flex items-center justify-center"
                   style={{
                     backgroundImage: `repeating-linear-gradient(90deg, #000 0px, #000 1px, transparent 1px, transparent 3px, #000 3px, #000 5px, transparent 5px, transparent 6px, #000 6px, #000 7px, transparent 7px, transparent 10px)`,
                     backgroundSize: '10px 100%',
                   }}
                 />
-                <p className="text-[9px] font-mono text-gray-700 text-center mt-1 tracking-wider">{result.serialNumber}</p>
+                <p className="text-[9px] font-mono text-gray-700 text-center mt-0.5 tracking-wider">{result.serialNumber}</p>
+                <p className="text-[7px] text-gray-400 text-right mt-1">
+                  {new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true })}
+                </p>
               </div>
               <div className="flex flex-col gap-1.5 pt-1">
                 <button
