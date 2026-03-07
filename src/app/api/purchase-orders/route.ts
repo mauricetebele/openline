@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const orders = await prisma.purchaseOrder.findMany({
     where: status ? { status: status as 'OPEN' | 'RECEIVED' | 'CANCELLED' } : {},
     include: {
-      vendor: { select: { id: true, name: true } },
+      vendor: { select: { id: true, vendorNumber: true, name: true } },
       lines: {
         include: {
           product: { select: { id: true, description: true, sku: true, isSerializable: true } },
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
         },
       },
       include: {
-        vendor: { select: { id: true, name: true } },
+        vendor: { select: { id: true, vendorNumber: true, name: true } },
         lines: {
           include: {
             product: { select: { id: true, description: true, sku: true, isSerializable: true } },

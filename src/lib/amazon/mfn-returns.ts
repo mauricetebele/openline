@@ -2,18 +2,7 @@
  * MFN Returns sync — downloads the GET_FLAT_FILE_RETURNS_DATA_BY_RETURN_DATE
  * report from SP-API, parses the TSV, and upserts rows into mfn_returns.
  *
- * Amazon's return flat file columns (tab-separated, US marketplace 2025):
- *   Order ID | Order date | Return request date | Return request status |
- *   Amazon RMA ID | Merchant RMA ID | Label type | Label cost | Currency code |
- *   Return carrier | Tracking ID | Label to be paid by | A-to-Z Claim | Is prime |
- *   ASIN | Merchant SKU | Item Name | Return quantity | Return Reason | In policy |
- *   Return type | Resolution | Invoice number | Return delivery date | Order Amount |
- *   Order quantity | SafeT fields... | Refunded Amount | Order Item ID
- *
- * Key fields:
- *   - Tracking ID      = return-shipment tracking number
- *   - Amazon RMA ID    = Amazon's RMA identifier (IS included in this report)
- *   - Refunded Amount  = actual amount refunded to the buyer
+ * Same request→poll→download→parse pattern as fba-returns.ts.
  */
 import axios from 'axios'
 import { gunzip } from 'zlib'
@@ -55,11 +44,12 @@ function parseDate(raw: string): Date | null {
 }
 
 function parseDecimal(raw: string): number | null {
-  const n = parseFloat(raw.replace(/[^0-9.-]/g, ''))
+  if (!raw) return null
+  const n = parseFloat(raw)
   return isNaN(n) ? null : n
 }
 
-export async function syncMFNReturns(
+export async function syncMfnReturns(
   accountId: string,
   jobId: string,
   startDate: Date,
@@ -86,10 +76,10 @@ export async function syncMFNReturns(
       break
     }
     if (report.processingStatus === 'FATAL' || report.processingStatus === 'CANCELLED') {
-      throw new Error(`Returns report ended with status: ${report.processingStatus}`)
+      throw new Error(`MFN returns report ended with status: ${report.processingStatus}`)
     }
   }
-  if (!reportDocumentId) throw new Error('Returns report did not complete within the polling window')
+  if (!reportDocumentId) throw new Error('MFN returns report did not complete within the polling window')
 
   // ── 3. Download ────────────────────────────────────────────────────────────
   const docMeta = await client.get<GetReportDocumentResponse>(
@@ -99,9 +89,7 @@ export async function syncMFNReturns(
   let buffer = Buffer.from(response.data)
   if (docMeta.compressionAlgorithm === 'GZIP') buffer = await gunzipAsync(buffer)
 
-  // Strip UTF-8 BOM (\uFEFF) — Amazon places it at the very start of the file,
-  // which corrupts the first column header ("Return date" → "\uFEFFReturn date")
-  // and prevents the name lookup from matching.
+  // Strip UTF-8 BOM
   const tsvText = buffer.toString('utf-8').replace(/^\uFEFF/, '')
 
   // ── 4. Parse TSV ───────────────────────────────────────────────────────────
@@ -122,57 +110,69 @@ export async function syncMFNReturns(
     const orderId = col(row, headers, 'order id', 'order-id', 'orderid')
     if (!orderId) continue
 
-    // Column name variants across marketplaces / report versions.
-    // Primary names match the actual US marketplace flat-file format as of 2025:
-    //   Order ID | Order date | Return request date | Return request status |
-    //   Amazon RMA ID | Merchant RMA ID | Label type | Label cost | Currency code |
-    //   Return carrier | Tracking ID | ... | ASIN | Merchant SKU | Item Name |
-    //   Return quantity | Return Reason | ... | Refunded Amount | Order Item ID
-    const orderDate       = parseDate(col(row, headers, 'order date', 'order-date'))
-    const returnDate      = parseDate(col(row, headers, 'return request date', 'return date', 'return-date'))
-    const title           = col(row, headers, 'item name', 'item-name', 'title', 'product name') || null
-    const asin            = col(row, headers, 'asin') || null
-    const sku             = col(row, headers, 'merchant sku', 'merchant-sku', 'sku', 'seller-sku') || null
-    const qtyRaw          = col(row, headers, 'return quantity', 'quantity', 'qty')
-    const quantity        = qtyRaw ? (parseInt(qtyRaw, 10) || null) : null
-    const returnReason    = col(row, headers, 'return reason', 'return-reason', 'reason') || null
-    const returnStatus    = col(row, headers, 'return request status', 'return status', 'status') || null
-    // "Tracking ID" is the return-shipment tracking number in the current report format.
-    // "LPN" was used in the legacy flat-file format.
-    const trackingNumber  = col(row, headers, 'tracking id', 'lpn', 'tracking number',
-                                              'return tracking number', 'carrier tracking number') || null
-    // Amazon RMA ID is included in the current flat-file format (column "Amazon RMA ID").
-    const rmaId           = col(row, headers, 'amazon rma id', 'merchant rma id',
-                                              'rma id', 'rma number', 'rma-id', 'rma') || null
-    // "Refunded Amount" = actual amount refunded; fall back to "Order Amount" or legacy names.
-    const labelAmountRaw  = col(row, headers, 'refunded amount', 'refund amount', 'order amount',
-                                              'label cost', 'label amount', 'return value', 'item price', 'amount')
-    const returnValue     = parseDecimal(labelAmountRaw)
-    const currency        = col(row, headers, 'currency code', 'currency') || 'USD'
+    const orderDate           = parseDate(col(row, headers, 'order-date', 'order date'))
+    const rmaId               = col(row, headers, 'amazon-rma-id', 'rma-id', 'rma id', 'return-authorization-id') || null
+    const trackingNumber      = col(row, headers, 'tracking-id', 'tracking id', 'label-tracking-id') || null
+    const returnValueRaw      = col(row, headers, 'return-value', 'item-price', 'product-price')
+    const returnValue         = parseDecimal(returnValueRaw)
+    const currency            = col(row, headers, 'currency-code', 'currency') || 'USD'
+    const returnDate          = parseDate(col(row, headers, 'return-request-date', 'return-date', 'return date'))
+    const asin                = col(row, headers, 'asin') || null
+    const sku                 = col(row, headers, 'sku', 'seller-sku', 'merchant-sku') || null
+    const title               = col(row, headers, 'product-name', 'product name', 'item-name', 'title') || null
+    const qtyRaw              = col(row, headers, 'quantity', 'return quantity', 'qty')
+    const quantity            = qtyRaw ? (parseInt(qtyRaw, 10) || null) : null
+    const returnReason        = col(row, headers, 'return-reason', 'return reason', 'detailed-return-reason') || null
+    const returnStatus        = col(row, headers, 'return-request-status', 'return-status', 'status') || null
+    const resolution          = col(row, headers, 'resolution', 'return-resolution') || null
+    const inPolicy            = col(row, headers, 'in-policy', 'in policy') || null
+    const isPrime             = col(row, headers, 'is-prime', 'is prime') || null
+    const aToZClaim           = col(row, headers, 'a-to-z-claim', 'a-to-z guarantee claim') || null
+    const returnType          = col(row, headers, 'return-type', 'return type') || null
+    const labelType           = col(row, headers, 'label-type', 'label type') || null
+    const labelCostRaw        = col(row, headers, 'label-cost', 'label cost')
+    const labelCost           = parseDecimal(labelCostRaw)
+    const labelPaidBy         = col(row, headers, 'label-paid-by', 'cost-of-label-paid-by') || null
+    const returnCarrier       = col(row, headers, 'return-carrier', 'carrier') || null
+    const merchantRmaId       = col(row, headers, 'merchant-rma-id', 'merchant rma id') || null
+    const returnDeliveryDate  = parseDate(col(row, headers, 'return-delivery-date', 'return delivery date'))
+    const orderAmountRaw      = col(row, headers, 'order-amount', 'order amount')
+    const orderAmount         = parseDecimal(orderAmountRaw)
+    const orderQtyRaw         = col(row, headers, 'order-quantity', 'order quantity')
+    const orderQuantity       = orderQtyRaw ? (parseInt(orderQtyRaw, 10) || null) : null
+    const refundedAmountRaw   = col(row, headers, 'refunded-amount', 'refunded amount')
+    const refundedAmount      = parseDecimal(refundedAmountRaw)
+    const safetClaimId        = col(row, headers, 'safet-claim-id', 'safet claim id') || null
+    const safetClaimState     = col(row, headers, 'safet-claim-state', 'safet claim state') || null
+    const safetActionReason   = col(row, headers, 'safet-action-reason', 'safet action reason') || null
+    const safetClaimCreatedAt = parseDate(col(row, headers, 'safet-claim-creation-date', 'safet claim creation date'))
+    const safetReimbursementRaw = col(row, headers, 'safet-reimbursement-amount', 'safet reimbursement amount')
+    const safetReimbursement  = parseDecimal(safetReimbursementRaw)
+    const invoiceNumber       = col(row, headers, 'invoice-number', 'invoice number') || null
+    const orderItemId         = col(row, headers, 'order-item-id', 'order item id') || null
 
-    // Deduplication key: accountId + orderId + (trackingNumber or sku or returnDate ISO)
-    const dedupeKey = trackingNumber ?? sku ?? returnDate?.toISOString() ?? 'unknown'
-
+    // Find existing row by accountId + orderId + rmaId (or orderId + asin if no RMA)
     const existing = await prisma.mFNReturn.findFirst({
-      where: { accountId, orderId, trackingNumber: trackingNumber ?? undefined },
+      where: rmaId
+        ? { accountId, orderId, rmaId }
+        : { accountId, orderId, asin: asin ?? undefined },
+      select: { id: true },
     })
 
+    const data = {
+      orderDate, rmaId, trackingNumber, returnValue, currency, returnDate,
+      asin, sku, title, quantity, returnReason, returnStatus, resolution,
+      inPolicy, isPrime, aToZClaim, returnType, labelType, labelCost,
+      labelPaidBy, returnCarrier, merchantRmaId, returnDeliveryDate,
+      orderAmount, orderQuantity, refundedAmount,
+      safetClaimId, safetClaimState, safetActionReason, safetClaimCreatedAt,
+      safetReimbursement, invoiceNumber, orderItemId,
+    }
+
     if (existing) {
-      await prisma.mFNReturn.update({
-        where: { id: existing.id },
-        data: {
-          orderDate, rmaId, trackingNumber, returnValue, currency, returnDate,
-          asin, sku, title, quantity, returnReason, returnStatus,
-        },
-      })
+      await prisma.mFNReturn.update({ where: { id: existing.id }, data })
     } else {
-      await prisma.mFNReturn.create({
-        data: {
-          accountId, orderId, orderDate, rmaId, trackingNumber,
-          returnValue, currency, returnDate,
-          asin, sku, title, quantity, returnReason, returnStatus,
-        },
-      })
+      await prisma.mFNReturn.create({ data: { accountId, orderId, ...data } })
     }
     totalUpserted++
 
@@ -183,8 +183,6 @@ export async function syncMFNReturns(
         data: { totalFound, totalUpserted },
       })
     }
-
-    void dedupeKey // suppress unused warning
   }
 
   // ── 5. Finalize ────────────────────────────────────────────────────────────

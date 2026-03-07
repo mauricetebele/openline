@@ -17,10 +17,10 @@ interface VendorRMA {
   id: string; rmaNumber: string; status: RMAStatus
   vendorApprovalNumber: string | null; carrier: string | null; trackingNumber: string | null
   notes: string | null; createdAt: string; updatedAt: string
-  vendor: { id: string; name: string }
+  vendor: { id: string; vendorNumber: number; name: string }
   items: VendorRMAItem[]
 }
-interface Vendor { id: string; name: string }
+interface Vendor { id: string; vendorNumber: number; name: string }
 interface Product { id: string; sku: string; description: string; isSerializable: boolean }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -590,7 +590,7 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
       {/* Vendor */}
       <div className="mb-5">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Vendor</p>
-        <p className="text-sm text-gray-900 font-medium">{rma.vendor.name}</p>
+        <p className="text-sm text-gray-900 font-medium">V-{rma.vendor.vendorNumber} — {rma.vendor.name}</p>
         <p className="text-xs text-gray-400 mt-0.5">Created {fmt(rma.createdAt)}</p>
       </div>
 
@@ -942,7 +942,7 @@ function CreatePanel({ vendors, onCreate, onClose }: {
             onChange={e => setVendorId(e.target.value)}
           >
             <option value="">Select vendor…</option>
-            {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+            {vendors.map(v => <option key={v.id} value={v.id}>V-{v.vendorNumber} — {v.name}</option>)}
           </select>
         </div>
         <div>
@@ -1082,7 +1082,7 @@ export default function VendorRMAManager() {
                 className="hover:bg-gray-50 cursor-pointer transition-colors"
               >
                 <td className="px-4 py-3 font-mono text-sm text-amazon-orange font-semibold">{rma.rmaNumber}</td>
-                <td className="px-4 py-3 text-sm text-gray-900">{rma.vendor.name}</td>
+                <td className="px-4 py-3 text-sm text-gray-900">V-{rma.vendor.vendorNumber} — {rma.vendor.name}</td>
                 <td className="px-4 py-3 text-sm text-gray-600 text-center">{rma.items.reduce((s, i) => s + i.quantity, 0)}</td>
                 <td className="px-4 py-3">
                   <span className={clsx('px-2 py-0.5 rounded-full text-xs font-medium', STATUS_COLOR[rma.status])}>

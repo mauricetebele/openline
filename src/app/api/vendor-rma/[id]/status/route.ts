@@ -41,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       ...(trackingNumber && { trackingNumber: trackingNumber.trim() }),
     },
     include: {
-      vendor: { select: { id: true, name: true } },
+      vendor: { select: { id: true, vendorNumber: true, name: true } },
       items: {
         orderBy: { createdAt: 'asc' },
         include: {

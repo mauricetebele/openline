@@ -13,7 +13,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   const rma = await prisma.vendorRMA.findUnique({
     where: { id: params.id },
     include: {
-      vendor: { select: { id: true, name: true } },
+      vendor: { select: { id: true, vendorNumber: true, name: true } },
       items: {
         orderBy: { createdAt: 'asc' },
         include: {
@@ -44,7 +44,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       ...(trackingNumber !== undefined && { trackingNumber: trackingNumber?.trim() || null }),
     },
     include: {
-      vendor: { select: { id: true, name: true } },
+      vendor: { select: { id: true, vendorNumber: true, name: true } },
       items: {
         orderBy: { createdAt: 'asc' },
         include: {

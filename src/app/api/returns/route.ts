@@ -1,4 +1,11 @@
+/**
+ * GET /api/returns
+ *
+ * Paginated list of MFN returns with search, enriched with Order data
+ * (product title, ASIN, price, expected serial number).
+ */
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 
@@ -7,75 +14,106 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { searchParams } = req.nextUrl
-  const accountId       = searchParams.get('accountId')
-  const search          = searchParams.get('search')?.trim()
-  const page            = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10))
-  const limit           = Math.min(1000, parseInt(searchParams.get('limit') ?? '50', 10))
-  const trackingFilter  = searchParams.get('trackingFilter') ?? 'all'
-  const returnDateFrom  = searchParams.get('returnDateFrom')
-  const returnDateTo    = searchParams.get('returnDateTo')
-  const sortDir         = searchParams.get('sortDir') === 'asc' ? 'asc' : 'desc'
+  const page = Math.max(1, Number(searchParams.get('page') ?? '1'))
+  const pageSize = Math.min(100, Math.max(1, Number(searchParams.get('limit') ?? '25')))
+  const skip = (page - 1) * pageSize
 
-  // Build AND array so search OR and tracking OR never clobber each other
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const andClauses: Record<string, any>[] = []
+  const where: Prisma.MFNReturnWhereInput = {}
 
-  if (accountId) andClauses.push({ accountId })
-
+  const search = searchParams.get('search')?.trim()
   if (search) {
-    andClauses.push({
-      OR: [
-        { orderId:        { contains: search, mode: 'insensitive' } },
-        { trackingNumber: { contains: search, mode: 'insensitive' } },
-        { rmaId:          { contains: search, mode: 'insensitive' } },
-        { title:          { contains: search, mode: 'insensitive' } },
-        { sku:            { contains: search, mode: 'insensitive' } },
-      ],
-    })
+    where.OR = [
+      { orderId: { contains: search, mode: 'insensitive' } },
+      { rmaId: { contains: search, mode: 'insensitive' } },
+      { asin: { contains: search, mode: 'insensitive' } },
+      { sku: { contains: search, mode: 'insensitive' } },
+      { title: { contains: search, mode: 'insensitive' } },
+    ]
   }
-
-  // Tracking status filter
-  if (trackingFilter === 'delivered') {
-    andClauses.push({ deliveredAt: { not: null } })
-  } else if (trackingFilter === 'in_transit') {
-    andClauses.push({ estimatedDelivery: { not: null } })
-    andClauses.push({ deliveredAt: null })
-  } else if (trackingFilter === 'not_checked') {
-    andClauses.push({ trackingNumber: { not: null } })
-    andClauses.push({
-      OR: [
-        { carrierStatus: null },
-        { carrierStatus: 'Unable to fetch status' },
-      ],
-    })
-  } else if (trackingFilter === 'no_tracking') {
-    andClauses.push({ trackingNumber: null })
-  }
-
-  // Return date range filter
-  if (returnDateFrom || returnDateTo) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const dateClause: Record<string, any> = {}
-    if (returnDateFrom) dateClause.gte = new Date(returnDateFrom)
-    if (returnDateTo) {
-      const to = new Date(returnDateTo)
-      to.setHours(23, 59, 59, 999)
-      dateClause.lte = to
-    }
-    andClauses.push({ returnDate: dateClause })
-  }
-
-  const where = andClauses.length > 0 ? { AND: andClauses } : {}
 
   const [returns, total] = await Promise.all([
     prisma.mFNReturn.findMany({
       where,
-      orderBy: { returnDate: sortDir },
-      skip: (page - 1) * limit,
-      take: limit,
+      orderBy: { returnDate: 'desc' },
+      skip,
+      take: pageSize,
     }),
     prisma.mFNReturn.count({ where }),
   ])
 
-  return NextResponse.json({ data: returns, total, page, limit })
+  // Collect unique Amazon order IDs to enrich from internal Orders
+  const orderIds = Array.from(new Set(returns.map((r) => r.orderId)))
+
+  // Fetch matching internal orders with items + serial assignments
+  const orders = orderIds.length > 0
+    ? await prisma.order.findMany({
+        where: { amazonOrderId: { in: orderIds } },
+        include: {
+          items: {
+            include: {
+              serialAssignments: {
+                include: { inventorySerial: { select: { serialNumber: true } } },
+              },
+            },
+          },
+        },
+      })
+    : []
+
+  const orderMap = new Map(orders.map((o) => [o.amazonOrderId, o]))
+
+  const enriched = returns.map((ret) => {
+    const order = orderMap.get(ret.orderId)
+
+    // Find matching item by ASIN or SKU
+    const matchingItem = order?.items.find(
+      (item) =>
+        (ret.asin && item.asin === ret.asin) ||
+        (ret.sku && item.sellerSku === ret.sku),
+    ) ?? order?.items[0]
+
+    // Expected serial: only when the matching item had exactly 1 unit ordered
+    let expectedSerial: string | null = null
+    if (matchingItem && matchingItem.quantityOrdered === 1) {
+      const assignment = matchingItem.serialAssignments[0]
+      if (assignment) {
+        expectedSerial = assignment.inventorySerial.serialNumber
+      }
+    }
+
+    return {
+      id: ret.id,
+      orderId: ret.orderId,
+      orderDate: ret.orderDate,
+      rmaId: ret.rmaId,
+      trackingNumber: ret.trackingNumber,
+      returnDate: ret.returnDate,
+      returnValue: ret.returnValue ? Number(ret.returnValue) : null,
+      currency: ret.currency,
+      asin: matchingItem?.asin ?? ret.asin,
+      sku: ret.sku,
+      title: matchingItem?.title ?? ret.title,
+      itemPrice: matchingItem?.itemPrice ? Number(matchingItem.itemPrice) : null,
+      quantity: ret.quantity,
+      returnReason: ret.returnReason,
+      returnStatus: ret.returnStatus,
+      resolution: ret.resolution,
+      returnCarrier: ret.returnCarrier,
+      carrierStatus: ret.carrierStatus,
+      deliveredAt: ret.deliveredAt,
+      estimatedDelivery: ret.estimatedDelivery,
+      trackingUpdatedAt: ret.trackingUpdatedAt,
+      expectedSerial,
+    }
+  })
+
+  return NextResponse.json({
+    data: enriched,
+    pagination: {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize),
+    },
+  })
 }

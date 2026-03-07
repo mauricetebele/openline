@@ -67,8 +67,8 @@ const NAV: NavItem[] = [
     children: [
       { href: '/refunds',            label: 'Refunds',            icon: RefreshCcw },
       { href: '/fba-refunds',       label: 'FBA Refunds',        icon: RefreshCcw },
-      { href: '/shipping-templates', label: 'Shipping Templates', icon: Truck },
       { href: '/returns',            label: 'MFN Returns',        icon: RotateCcw },
+      { href: '/shipping-templates', label: 'Shipping Templates', icon: Truck },
       { href: '/return-label',       label: 'Return Label',       icon: Printer },
       { href: '/active-listings',    label: 'Active Listings',    icon: List },
       { href: '/pricing-rules',      label: 'Pricing Rules',      icon: Tag },

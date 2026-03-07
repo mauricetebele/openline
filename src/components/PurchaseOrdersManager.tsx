@@ -7,7 +7,7 @@ import SpreadsheetReceiveModal from './SpreadsheetReceiveModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Vendor  { id: string; name: string }
+interface Vendor  { id: string; vendorNumber: number; name: string }
 interface Product { id: string; description: string; sku: string; isSerializable: boolean }
 interface Grade   { id: string; grade: string }
 
@@ -442,7 +442,7 @@ function POPanel({
                 className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
               >
                 <option value="">Select vendor…</option>
-                {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                {vendors.map(v => <option key={v.id} value={v.id}>V-{v.vendorNumber} — {v.name}</option>)}
               </select>
             </div>
             <div>
@@ -802,7 +802,7 @@ function PORow({
             #{po.poNumber}
           </div>
         </td>
-        <td className="px-4 py-3 text-gray-700">{po.vendor.name}</td>
+        <td className="px-4 py-3 text-gray-700">V-{po.vendor.vendorNumber} — {po.vendor.name}</td>
         <td className="px-4 py-3 text-gray-500 text-sm">
           {new Date(po.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
         </td>

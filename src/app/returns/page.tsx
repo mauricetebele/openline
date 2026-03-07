@@ -1,18 +1,21 @@
-export const dynamic = 'force-dynamic'
 import AppShell from '@/components/AppShell'
 import MFNReturnsManager from '@/components/MFNReturnsManager'
+
+export const dynamic = 'force-dynamic'
 
 export default function ReturnsPage() {
   return (
     <AppShell>
-      <div className="flex flex-col h-full overflow-hidden">
-        <div className="px-6 py-4 border-b bg-white shrink-0">
-          <h1 className="text-xl font-bold text-gray-900">MFN Returns</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Import and track your Merchant Fulfilled returns from Amazon Seller Central.
+      <div className="h-screen flex flex-col">
+        <div className="px-6 py-4 border-b bg-white dark:bg-gray-900 dark:border-gray-700">
+          <h1 className="text-xl font-semibold">MFN Returns</h1>
+          <p className="text-gray-500 text-sm mt-0.5">
+            Track merchant-fulfilled returns synced from Amazon SP-API.
           </p>
         </div>
-        <MFNReturnsManager />
+        <div className="flex-1 overflow-hidden">
+          <MFNReturnsManager />
+        </div>
       </div>
     </AppShell>
   )

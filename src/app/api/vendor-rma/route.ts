@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     where,
     orderBy: { createdAt: 'desc' },
     include: {
-      vendor: { select: { id: true, name: true } },
+      vendor: { select: { id: true, vendorNumber: true, name: true } },
       items: { select: { quantity: true } },
     },
   })
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
   const rma = await prisma.vendorRMA.create({
     data: { rmaNumber, vendorId, notes: notes?.trim() || null },
     include: {
-      vendor: { select: { id: true, name: true } },
+      vendor: { select: { id: true, vendorNumber: true, name: true } },
       items: { include: { product: true, serials: true } },
     },
   })

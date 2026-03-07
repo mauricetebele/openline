@@ -9,16 +9,17 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const search = searchParams.get('search')?.trim()
 
-  const where = search
-    ? {
-        OR: [
-          { name:    { contains: search, mode: 'insensitive' as const } },
-          { contact: { contains: search, mode: 'insensitive' as const } },
-          { email:   { contains: search, mode: 'insensitive' as const } },
-          { phone:   { contains: search, mode: 'insensitive' as const } },
-        ],
-      }
-    : {}
+  const orClauses: Record<string, unknown>[] = [
+    { name:    { contains: search, mode: 'insensitive' as const } },
+    { contact: { contains: search, mode: 'insensitive' as const } },
+    { email:   { contains: search, mode: 'insensitive' as const } },
+    { phone:   { contains: search, mode: 'insensitive' as const } },
+  ]
+  if (search && /^\d+$/.test(search)) {
+    orClauses.push({ vendorNumber: { equals: parseInt(search, 10) } })
+  }
+
+  const where = search ? { OR: orClauses } : {}
 
   const vendors = await prisma.vendor.findMany({
     where,

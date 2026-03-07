@@ -6,6 +6,7 @@ import { Plus, Search, Pencil, Trash2, X, AlertCircle, Building2, Mail, Phone, U
 
 interface Vendor {
   id: string
+  vendorNumber: number
   name: string
   contact: string | null
   phone: string | null
@@ -338,6 +339,7 @@ export default function VendorsManager() {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Vendor ID</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Vendor Name</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Contact</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone</th>
@@ -348,6 +350,7 @@ export default function VendorsManager() {
             <tbody className="divide-y divide-gray-100">
               {vendors.map((vendor) => (
                 <tr key={vendor.id} className="hover:bg-gray-50 group">
+                  <td className="px-4 py-3 font-mono text-sm text-amazon-blue font-semibold">V-{vendor.vendorNumber}</td>
                   <td className="px-4 py-3 font-medium text-gray-900">{vendor.name}</td>
                   <td className="px-4 py-3 text-gray-600">{vendor.contact ?? <span className="text-gray-300">—</span>}</td>
                   <td className="px-4 py-3 text-gray-600">{vendor.phone ?? <span className="text-gray-300">—</span>}</td>

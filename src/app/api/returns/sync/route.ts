@@ -1,75 +1,68 @@
+/**
+ * POST /api/returns/sync  — trigger MFN returns sync
+ * GET  /api/returns/sync?jobId=xxx — poll sync job status
+ */
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { syncMFNReturns } from '@/lib/amazon/mfn-returns'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { requireAdmin } from '@/lib/auth-helpers'
+import { syncMfnReturns } from '@/lib/amazon/mfn-returns'
 
-// Allow up to 5 minutes for Amazon report generation + parsing
-export const maxDuration = 300
+export async function POST() {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-const schema = z.object({
-  accountId: z.string().min(1),
-  startDate: z.string().datetime(),
-  endDate:   z.string().datetime(),
-})
+  // Find the active Amazon account
+  const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
+  if (!account) {
+    return NextResponse.json({ error: 'No active Amazon account found' }, { status: 400 })
+  }
+
+  // Default: last 30 days
+  const endDate = new Date()
+  const startDate = new Date(endDate.getTime() - 30 * 86_400_000)
+
+  // Create sync job
+  const job = await prisma.mFNReturnSyncJob.create({
+    data: {
+      accountId: account.id,
+      startDate,
+      endDate,
+      status: 'IN_PROGRESS',
+    },
+  })
+
+  // Run sync in the background (don't await)
+  syncMfnReturns(account.id, job.id, startDate, endDate).catch(async (err) => {
+    console.error('[MFN Returns Sync] failed:', err)
+    await prisma.mFNReturnSyncJob.update({
+      where: { id: job.id },
+      data: { status: 'FAILED', errorMessage: String(err?.message ?? err), completedAt: new Date() },
+    }).catch(() => {})
+  })
+
+  return NextResponse.json({
+    id: job.id,
+    status: 'IN_PROGRESS',
+    totalFound: 0,
+    totalUpserted: 0,
+  })
+}
 
 export async function GET(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const jobId = req.nextUrl.searchParams.get('jobId')
-  if (!jobId) return NextResponse.json({ error: 'Missing jobId' }, { status: 400 })
+  if (!jobId) return NextResponse.json({ error: 'jobId required' }, { status: 400 })
 
   const job = await prisma.mFNReturnSyncJob.findUnique({ where: { id: jobId } })
   if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
-  return NextResponse.json(job)
-}
-
-export async function POST(req: NextRequest) {
-  try {
-    const user = await getAuthUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    const adminErr = requireAdmin(user)
-    if (adminErr) return adminErr
-
-    const body = await req.json()
-    const parsed = schema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid request', issues: parsed.error.issues }, { status: 400 })
-    }
-
-    const { accountId, startDate, endDate } = parsed.data
-
-    const account = await prisma.amazonAccount.findUnique({ where: { id: accountId, isActive: true } })
-    if (!account) return NextResponse.json({ error: 'Amazon account not found or inactive' }, { status: 404 })
-
-    const start = new Date(startDate)
-    const end   = new Date(Math.min(new Date(endDate).getTime(), Date.now() - 5 * 60_000))
-    if (start >= end) return NextResponse.json({ error: 'startDate must be before endDate' }, { status: 400 })
-
-    const job = await prisma.mFNReturnSyncJob.create({
-      data: { accountId, startDate: start, endDate: end, status: 'IN_PROGRESS' },
-    })
-
-    // Run within the request so Vercel keeps the function alive
-    try {
-      await syncMFNReturns(accountId, job.id, start, end)
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      console.error('[MFNReturnSync] Job failed:', message)
-      await prisma.mFNReturnSyncJob.update({
-        where: { id: job.id },
-        data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
-      })
-      return NextResponse.json({ jobId: job.id, status: 'FAILED', error: message }, { status: 200 })
-    }
-
-    const completed = await prisma.mFNReturnSyncJob.findUnique({ where: { id: job.id } })
-    return NextResponse.json({ jobId: job.id, status: 'COMPLETED', ...completed })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    return NextResponse.json({ error: message }, { status: 500 })
-  }
+  return NextResponse.json({
+    id: job.id,
+    status: job.status === 'IN_PROGRESS' ? 'RUNNING' : job.status,
+    totalFound: job.totalFound,
+    totalUpserted: job.totalUpserted,
+    errorMessage: job.errorMessage,
+  })
 }

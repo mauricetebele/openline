@@ -1,723 +1,368 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
-import { Search, RefreshCw, RotateCcw, AlertCircle, X, ExternalLink, Loader2, Info, ChevronUp, ChevronDown } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { format } from 'date-fns'
+import { Search, RefreshCcw, ExternalLink, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { trackingUrl, detectCarrier } from '@/lib/ups-tracking'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface AmazonAccount { id: string; sellerId: string; marketplaceName: string }
-
-interface MFNReturn {
+interface MFNReturnRow {
   id: string
   orderId: string
   orderDate: string | null
   rmaId: string | null
   trackingNumber: string | null
-  returnValue: string | null
-  currency: string
   returnDate: string | null
-  title: string | null
+  returnValue: number | null
+  currency: string
   asin: string | null
   sku: string | null
+  title: string | null
+  itemPrice: number | null
   quantity: number | null
   returnReason: string | null
   returnStatus: string | null
+  resolution: string | null
+  returnCarrier: string | null
   carrierStatus: string | null
   deliveredAt: string | null
   estimatedDelivery: string | null
   trackingUpdatedAt: string | null
+  expectedSerial: string | null
+}
+
+interface Pagination {
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
 }
 
 interface SyncJob {
   id: string
-  status: 'IN_PROGRESS' | 'COMPLETED' | 'FAILED'
+  status: 'RUNNING' | 'COMPLETED' | 'FAILED'
   totalFound: number
   totalUpserted: number
   errorMessage: string | null
-  startedAt: string
-  completedAt: string | null
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmtDate(iso: string | null) {
-  if (!iso) return null
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+function trackingUrl(tracking: string): string {
+  const t = tracking.trim().toUpperCase()
+  if (/^TBA\d{12,}$/.test(t)) return `https://www.amazon.com/progress-tracker/package/ref=ppx_yo_dt_b_track_package?_encoding=UTF8&itemId=&orderId=${tracking}`
+  if (t.startsWith('1Z') && t.length === 18) return `https://www.ups.com/track?tracknum=${tracking}`
+  if (/^\d{9}$/.test(t) || /^\d{18}$/.test(t)) return `https://www.ups.com/track?tracknum=${tracking}`
+  if (/^9[2-5]\d{18,}$/.test(t) || /^[0-9]{20,22}$/.test(t)) return `https://tools.usps.com/go/TrackConfirmAction?qtc_tLabels1=${tracking}`
+  if (/^\d{12}$/.test(t) || /^\d{15}$/.test(t)) return `https://www.fedex.com/fedextrack/?trknbr=${tracking}`
+  return `https://www.google.com/search?q=${encodeURIComponent(tracking + ' tracking')}`
 }
 
-function orderAgeDays(orderDate: string | null): number | null {
-  if (!orderDate) return null
-  const diff = Date.now() - new Date(orderDate).getTime()
-  return Math.floor(diff / 86_400_000)
+function StatusBadge({ status }: { status: string | null }) {
+  if (!status) return <span className="text-gray-400 text-xs">-</span>
+  const s = status.toLowerCase()
+  const cls = s.includes('delivered')
+    ? 'badge-green'
+    : s.includes('transit') || s.includes('on the way')
+    ? 'badge-blue'
+    : s.includes('exception') || s.includes('delay')
+    ? 'badge-orange'
+    : 'badge-gray'
+  return <span className={cls}>{status}</span>
 }
-
-function AgeChip({ days }: { days: number | null }) {
-  if (days === null) return <span className="text-gray-300">—</span>
-  const color =
-    days > 365 ? 'bg-red-100 text-red-700' :
-    days > 180 ? 'bg-amber-100 text-amber-700' :
-    days > 90  ? 'bg-yellow-100 text-yellow-700' :
-                 'bg-gray-100 text-gray-600'
-  return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${color}`}>
-      {days}d
-    </span>
-  )
-}
-
-function ErrorBanner({ msg, onClose }: { msg: string; onClose: () => void }) {
-  return (
-    <div className="flex items-center gap-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700 mb-4">
-      <AlertCircle size={14} className="shrink-0" />
-      <span className="flex-1">{msg}</span>
-      <button type="button" onClick={onClose} className="shrink-0 hover:text-red-900"><X size={14} /></button>
-    </div>
-  )
-}
-
-// ─── Sync Panel ───────────────────────────────────────────────────────────────
-
-function SyncPanel({
-  accounts,
-  onSynced,
-  onClose,
-}: {
-  accounts: AmazonAccount[]
-  onSynced: () => void
-  onClose: () => void
-}) {
-  const today      = new Date().toISOString().slice(0, 10)
-  const ninetyAgo  = new Date(Date.now() - 90 * 86400_000).toISOString().slice(0, 10)
-
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
-  const [startDate, setStartDate] = useState(ninetyAgo)
-  const [endDate,   setEndDate]   = useState(today)
-  const [job,       setJob]       = useState<SyncJob | null>(null)
-  const [polling,   setPolling]   = useState(false)
-  const [err,       setErr]       = useState('')
-
-  async function handleSync() {
-    setErr('')
-    if (!accountId) { setErr('Select an Amazon account'); return }
-
-    setPolling(true)
-    setJob({ status: 'IN_PROGRESS', totalFound: 0, totalUpserted: 0 } as SyncJob)
-
-    try {
-      const res = await fetch('/api/returns/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountId,
-          startDate: new Date(startDate).toISOString(),
-          endDate:   new Date(endDate).toISOString(),
-        }),
-      })
-      const data = await res.json()
-
-      if (data.status === 'FAILED' || data.error) {
-        setErr(data.error ?? data.errorMessage ?? 'Sync failed')
-        setJob(data.jobId ? data : null)
-      } else {
-        setJob(data)
-        onSynced()
-      }
-    } catch (fetchErr) {
-      setErr('Network error — the import may still be running. Try refreshing the page.')
-    } finally {
-      setPolling(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-40 flex">
-      <div className="flex-1 bg-black/30" onClick={!polling ? onClose : undefined} />
-      <div className="w-[420px] bg-white shadow-xl flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
-          <h2 className="text-sm font-semibold text-gray-900">Import MFN Returns</h2>
-          {!polling && (
-            <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
-              <X size={16} />
-            </button>
-          )}
-        </div>
-
-        <div className="flex-1 px-5 py-5 space-y-4">
-          {err && <ErrorBanner msg={err} onClose={() => setErr('')} />}
-
-          {job?.status === 'COMPLETED' ? (
-            <div className="rounded-lg bg-green-50 border border-green-200 p-4 text-sm text-green-800">
-              <p className="font-semibold mb-1">Import complete</p>
-              <p>{job.totalUpserted} returns imported ({job.totalFound} found in report)</p>
-            </div>
-          ) : job?.status === 'IN_PROGRESS' ? (
-            <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
-              <div className="flex items-center gap-2 text-sm text-blue-800 mb-3">
-                <Loader2 size={14} className="animate-spin" />
-                <span>Requesting report from Amazon…</span>
-              </div>
-              <p className="text-xs text-blue-600">
-                Amazon takes up to 5 minutes to generate the returns report.
-                This panel will update automatically.
-              </p>
-              {job.totalFound > 0 && (
-                <p className="mt-2 text-xs text-blue-700 font-medium">
-                  Processing: {job.totalUpserted} / {job.totalFound}
-                </p>
-              )}
-            </div>
-          ) : (
-            <>
-              {/* Account */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Amazon Account <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
-                  className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                >
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.marketplaceName} — {a.sellerId}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Date range */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">From</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">To</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    max={today}
-                    className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                  />
-                </div>
-              </div>
-
-              <p className="text-xs text-gray-400">
-                Amazon generates a flat-file returns report for the selected date range.
-                Larger date ranges may take longer.
-              </p>
-            </>
-          )}
-        </div>
-
-        <div className="flex gap-2 justify-end px-5 py-4 border-t shrink-0">
-          {job?.status === 'COMPLETED' ? (
-            <button type="button" onClick={onClose}
-              className="h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90">
-              Done
-            </button>
-          ) : (
-            <>
-              <button type="button" onClick={onClose} disabled={polling}
-                className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40">
-                Cancel
-              </button>
-              <button type="button" onClick={handleSync} disabled={polling}
-                className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-60">
-                {polling ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                {polling ? 'Importing…' : 'Start Import'}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Tracking Cell ────────────────────────────────────────────────────────────
-
-function TrackingCell({ ret, onRefreshed }: { ret: MFNReturn; onRefreshed: () => void }) {
-  const [refreshing, setRefreshing] = useState(false)
-  const [fetchErr, setFetchErr]     = useState('')
-
-  if (!ret.trackingNumber) return <span className="text-gray-300">—</span>
-
-  const carrier = detectCarrier(ret.trackingNumber)
-  const url = trackingUrl(ret.trackingNumber)
-
-  // Treat stale failure strings stored in the DB the same as no status
-  const hasRealStatus = ret.carrierStatus &&
-    ret.carrierStatus !== 'Unable to fetch status'
-
-  async function handleRefresh() {
-    setRefreshing(true)
-    setFetchErr('')
-    try {
-      const res = await fetch(`/api/returns/${ret.id}/refresh-tracking`, { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) {
-        setFetchErr(data.error ?? 'Could not fetch status')
-      } else {
-        onRefreshed()
-      }
-    } catch {
-      setFetchErr('Network error — please try again')
-    } finally {
-      setRefreshing(false)
-    }
-  }
-
-  return (
-    <div className="space-y-0.5">
-      <div className="flex items-center gap-1">
-        <span className="font-mono text-xs text-gray-700">{ret.trackingNumber}</span>
-        <span className="text-[10px] text-gray-400 font-medium">{carrier}</span>
-        <a href={url} target="_blank" rel="noopener noreferrer"
-          className="text-gray-400 hover:text-amazon-blue" title={`Track on ${carrier}`}>
-          <ExternalLink size={11} />
-        </a>
-      </div>
-
-      {fetchErr ? (
-        <div className="flex items-start gap-1 max-w-[220px]">
-          <AlertCircle size={10} className="text-red-400 mt-0.5 shrink-0" />
-          <span className="text-[10px] text-red-500 leading-snug">{fetchErr}</span>
-          <button type="button" onClick={() => setFetchErr('')}
-            className="text-gray-300 hover:text-gray-500 shrink-0 ml-auto">
-            <X size={10} />
-          </button>
-        </div>
-      ) : hasRealStatus ? (
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-1">
-            <span className="text-[11px] text-gray-500">
-              {ret.carrierStatus === 'Shipment Ready for UPS' ? 'Not Yet Shipped' : ret.carrierStatus}
-            </span>
-            <button type="button" onClick={handleRefresh} disabled={refreshing}
-              className="text-gray-300 hover:text-gray-500 disabled:opacity-40" title="Refresh status">
-              <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />
-            </button>
-          </div>
-          {ret.deliveredAt && (
-            <span className="text-[10px] text-green-600 font-medium">
-              Delivered {fmtDate(ret.deliveredAt)}
-            </span>
-          )}
-          {!ret.deliveredAt && ret.estimatedDelivery && (
-            <span className="text-[10px] text-blue-500">
-              Est. {fmtDate(ret.estimatedDelivery)}
-            </span>
-          )}
-        </div>
-      ) : (
-        <button type="button" onClick={handleRefresh} disabled={refreshing}
-          className="flex items-center gap-1 text-[11px] text-amazon-blue hover:underline disabled:opacity-40">
-          {refreshing ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
-          {refreshing ? 'Checking…' : 'Check status'}
-        </button>
-      )}
-    </div>
-  )
-}
-
-// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function MFNReturnsManager() {
-  const [returns, setReturns]         = useState<MFNReturn[]>([])
-  const [accounts, setAccounts]       = useState<AmazonAccount[]>([])
-  const [total, setTotal]             = useState(0)
-  const [page, setPage]               = useState(1)
-  const [loading, setLoading]         = useState(true)
-  const [err, setErr]                 = useState('')
-  const [search, setSearch]           = useState('')
-  const [showSync, setShowSync]       = useState(false)
-  const [autoRefreshing, setAutoRefreshing]   = useState(false)
-  const [autoRefreshDone, setAutoRefreshDone] = useState(0)
-  const [autoRefreshTotal, setAutoRefreshTotal] = useState(0)
-  const [trackingFilter, setTrackingFilter] = useState('all')
-  const [returnDateFrom, setReturnDateFrom] = useState('')
-  const [returnDateTo, setReturnDateTo]     = useState('')
-  const [sortDir, setSortDir]               = useState<'desc' | 'asc'>('desc')
-  const [scheduledToday, setScheduledToday] = useState<number | null>(null)
-  const [deliveredToday, setDeliveredToday] = useState<number | null>(null)
-  const LIMIT = 50
+  const [returns, setReturns] = useState<MFNReturnRow[]>([])
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 25, total: 0, totalPages: 1 })
+  const [loading, setLoading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [fetchKey, setFetchKey] = useState(0)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setErr('')
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: String(LIMIT) })
-      if (search.trim()) params.set('search', search.trim())
-      if (trackingFilter !== 'all') params.set('trackingFilter', trackingFilter)
-      if (returnDateFrom) params.set('returnDateFrom', returnDateFrom)
-      if (returnDateTo)   params.set('returnDateTo', returnDateTo)
-      params.set('sortDir', sortDir)
-      const res = await fetch(`/api/returns?${params}`)
-      if (!res.ok) throw new Error('Failed to load')
-      const data = await res.json()
-      setReturns(data.data)
-      setTotal(data.total)
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Failed to load')
-    } finally {
-      setLoading(false)
-    }
-  }, [page, search, trackingFilter, returnDateFrom, returnDateTo, sortDir])
+  // Sync state
+  const [syncing, setSyncing] = useState(false)
+  const [syncJob, setSyncJob] = useState<SyncJob | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  useEffect(() => {
-    fetch('/api/accounts')
-      .then((r) => r.json())
-      .then((d) => setAccounts(d.data ?? d ?? []))
-      .catch(() => {})
-  }, [])
+  // Tracking refresh state
+  const [refreshingId, setRefreshingId] = useState<string | null>(null)
 
-  // Count returns with a UPS estimated delivery of today (not yet delivered)
-  useEffect(() => {
-    fetch('/api/returns/scheduled-today')
-      .then((r) => r.ok ? r.json() : { count: 0, deliveredToday: 0 })
-      .then((d) => { setScheduledToday(d.count ?? 0); setDeliveredToday(d.deliveredToday ?? 0) })
-      .catch(() => { setScheduledToday(0); setDeliveredToday(0) })
-  }, [])
-
-  useEffect(() => {
-    const t = setTimeout(load, search ? 300 : 0)
-    return () => clearTimeout(t)
-  }, [load, search])
-
-  // Auto-refresh tracking — runs once on mount.
-  // Fetches up to 1000 records that have a tracking number but no status yet
-  // (across ALL pages, not just the current one), then sweeps them in sequence.
+  // ── Fetch returns ─────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
 
-    async function sweep() {
-      // Fetch stale records independently of current page / filters
-      let staleIds: string[] = []
-      try {
-        const res = await fetch('/api/returns?trackingFilter=not_checked&limit=1000')
-        if (!res.ok || cancelled) return
-        const data = await res.json()
-        staleIds = (data.data as { id: string }[]).map((r) => r.id)
-      } catch {
-        return
-      }
+    const params = new URLSearchParams()
+    params.set('page', String(pagination.page))
+    params.set('limit', '25')
+    if (search) params.set('search', search)
 
-      if (staleIds.length === 0 || cancelled) return
+    fetch(`/api/returns?${params}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`${res.status}`)
+        return res.json()
+      })
+      .then((data) => {
+        if (cancelled) return
+        setReturns(data.data)
+        setPagination(data.pagination)
+      })
+      .catch((err) => {
+        if (!cancelled) console.error('[MFNReturns] fetch failed:', err)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
 
-      setAutoRefreshing(true)
-      setAutoRefreshDone(0)
-      setAutoRefreshTotal(staleIds.length)
-
-      let done = 0
-      for (const id of staleIds) {
-        if (cancelled) break
-        try {
-          await fetch(`/api/returns/${id}/refresh-tracking`, { method: 'POST' })
-          done++
-          if (!cancelled) setAutoRefreshDone(done)
-        } catch {
-          // ignore individual failures — UPS creds not set, non-UPS carrier, etc.
-        }
-      }
-
-      if (!cancelled) {
-        setAutoRefreshing(false)
-        if (done > 0) load() // reload visible page to show updated statuses
-      }
-    }
-
-    sweep()
     return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagination.page, search, fetchKey])
+
+  function goToPage(p: number) {
+    setPagination((prev) => ({ ...prev, page: p }))
+  }
+
+  // ── Sync ──────────────────────────────────────────────────────────────────
+  async function triggerSync() {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/returns/sync', { method: 'POST' })
+      if (!res.ok) throw new Error('Sync request failed')
+      const job: SyncJob = await res.json()
+      setSyncJob({ ...job, status: 'RUNNING' })
+      startPolling(job.id)
+    } catch (err) {
+      console.error('[MFNReturns] sync error:', err)
+      setSyncing(false)
+    }
+  }
+
+  function startPolling(jobId: string) {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/returns/sync?jobId=${jobId}`)
+        if (!res.ok) return
+        const job: SyncJob = await res.json()
+        setSyncJob(job)
+        if (job.status === 'COMPLETED' || job.status === 'FAILED') {
+          clearInterval(pollRef.current!)
+          pollRef.current = null
+          setSyncing(false)
+          if (job.status === 'COMPLETED') setFetchKey((k) => k + 1)
+        }
+      } catch { /* transient */ }
+    }, 3_000)
+  }
+
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [])
 
-  const totalPages = Math.ceil(total / LIMIT)
+  // ── Tracking refresh ──────────────────────────────────────────────────────
+  async function refreshTracking(id: string) {
+    setRefreshingId(id)
+    try {
+      const res = await fetch(`/api/returns/${id}/tracking`, { method: 'POST' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        alert(body.error ?? 'Tracking refresh failed')
+        return
+      }
+      const updated = await res.json()
+      setReturns((prev) =>
+        prev.map((r) =>
+          r.id === id
+            ? { ...r, carrierStatus: updated.carrierStatus, deliveredAt: updated.deliveredAt, estimatedDelivery: updated.estimatedDelivery, trackingUpdatedAt: updated.trackingUpdatedAt }
+            : r,
+        ),
+      )
+    } catch {
+      alert('Tracking refresh failed')
+    } finally {
+      setRefreshingId(null)
+    }
+  }
+
+  // ── Search with debounce ──────────────────────────────────────────────────
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function handleSearch(val: string) {
+    if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    searchTimeout.current = setTimeout(() => {
+      setSearch(val)
+      setPagination((prev) => ({ ...prev, page: 1 }))
+    }, 300)
+  }
 
   return (
-    <div className="flex-1 overflow-auto px-6 py-4">
-      {/* Today's delivery indicators */}
-      {(scheduledToday !== null || deliveredToday !== null) && (scheduledToday! > 0 || deliveredToday! > 0) && (
-        <div className="flex flex-wrap gap-3 mb-4">
-          {scheduledToday !== null && scheduledToday > 0 && (
-            <div className="flex items-center gap-2.5 rounded-lg bg-amber-50 border border-amber-200 px-4 py-2.5">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-400 text-white text-xs font-bold">
-                {scheduledToday}
-              </span>
-              <span className="text-sm font-medium text-amber-800">
-                {scheduledToday === 1
-                  ? '1 return scheduled for UPS delivery today'
-                  : `${scheduledToday} returns scheduled for UPS delivery today`}
-              </span>
-            </div>
-          )}
-          {deliveredToday !== null && deliveredToday > 0 && (
-            <div className="flex items-center gap-2.5 rounded-lg bg-green-50 border border-green-200 px-4 py-2.5">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-500 text-white text-xs font-bold">
-                {deliveredToday}
-              </span>
-              <span className="text-sm font-medium text-green-800">
-                {deliveredToday === 1
-                  ? '1 return delivered today'
-                  : `${deliveredToday} returns delivered today`}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="relative">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-            autoComplete="off"
-            placeholder="Search order ID, SKU, tracking…"
-            className="h-9 w-64 rounded-md border border-gray-300 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-          />
-        </div>
-
-        {/* Tracking status filter */}
-        <select
-          value={trackingFilter}
-          onChange={(e) => { setTrackingFilter(e.target.value); setPage(1) }}
-          className="h-9 rounded-md border border-gray-300 px-2 pr-7 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+    <div className="flex flex-col h-full">
+      {/* Header bar */}
+      <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
+        <button
+          onClick={triggerSync}
+          disabled={syncing}
+          className="btn-primary flex items-center gap-2 text-sm"
         >
-          <option value="all">All Tracking</option>
-          <option value="delivered">Delivered</option>
-          <option value="in_transit">In Transit</option>
-          <option value="not_checked">Not Checked Yet</option>
-          <option value="no_tracking">No Tracking #</option>
-        </select>
+          <RefreshCcw size={14} className={clsx(syncing && 'animate-spin')} />
+          {syncing ? 'Syncing...' : 'Sync Returns'}
+        </button>
 
-        {/* Return date range */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs text-gray-500 whitespace-nowrap">Return date:</span>
-          <input
-            type="date"
-            value={returnDateFrom}
-            onChange={(e) => { setReturnDateFrom(e.target.value); setPage(1) }}
-            className="h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-          />
-          <span className="text-xs text-gray-400">–</span>
-          <input
-            type="date"
-            value={returnDateTo}
-            onChange={(e) => { setReturnDateTo(e.target.value); setPage(1) }}
-            className="h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-          />
-          {(returnDateFrom || returnDateTo) && (
-            <button
-              type="button"
-              onClick={() => { setReturnDateFrom(''); setReturnDateTo(''); setPage(1) }}
-              className="text-gray-400 hover:text-gray-600"
-              title="Clear date filter"
-            >
-              <X size={13} />
-            </button>
-          )}
-        </div>
-
-        <div className="flex-1" />
-
-        {autoRefreshing && (
-          <span className="flex items-center gap-1.5 text-xs text-gray-400">
-            <Loader2 size={12} className="animate-spin" />
-            Refreshing tracking ({autoRefreshDone}/{autoRefreshTotal})…
+        {syncJob && (
+          <span className="text-xs text-gray-500">
+            {syncJob.status === 'RUNNING'
+              ? `Syncing... ${syncJob.totalUpserted} rows`
+              : syncJob.status === 'COMPLETED'
+              ? `Done - ${syncJob.totalUpserted} of ${syncJob.totalFound} synced`
+              : `Failed: ${syncJob.errorMessage ?? 'Unknown error'}`}
           </span>
         )}
 
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
-          (search || trackingFilter !== 'all' || returnDateFrom || returnDateTo)
-            ? 'bg-amazon-blue/10 text-amazon-blue ring-1 ring-amazon-blue/30'
-            : 'bg-gray-100 text-gray-600'
-        }`}>
-          {total.toLocaleString()} {(search || trackingFilter !== 'all' || returnDateFrom || returnDateTo) ? 'filtered' : ''} return{total !== 1 ? 's' : ''}
-        </span>
+        <div className="flex-1" />
 
-        <button
-          type="button"
-          onClick={() => setShowSync(true)}
-          className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"
-        >
-          <RefreshCw size={14} />
-          Import from Amazon
-        </button>
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search order ID, RMA, ASIN..."
+            onChange={(e) => handleSearch(e.target.value)}
+            className="input pl-9 w-64 text-sm"
+          />
+        </div>
       </div>
 
-      {err && <ErrorBanner msg={err} onClose={() => setErr('')} />}
+      {/* Table */}
+      <div className="flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-gray-100 dark:bg-gray-800 z-10">
+            <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-4 py-2">Amazon Order ID</th>
+              <th className="px-4 py-2">Product Title</th>
+              <th className="px-4 py-2">ASIN</th>
+              <th className="px-4 py-2">Price</th>
+              <th className="px-4 py-2">RMA #</th>
+              <th className="px-4 py-2">Return Tracking #</th>
+              <th className="px-4 py-2">Expected Serial</th>
+              <th className="px-4 py-2">Find My</th>
+              <th className="px-4 py-2">Return Date</th>
+              <th className="px-4 py-2">UPS Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {loading && returns.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="text-center py-12 text-gray-400">
+                  <Loader2 className="mx-auto animate-spin mb-2" size={20} />
+                  Loading...
+                </td>
+              </tr>
+            ) : returns.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="text-center py-12 text-gray-400">
+                  No MFN returns found. Click &quot;Sync Returns&quot; to pull from Amazon.
+                </td>
+              </tr>
+            ) : (
+              returns.map((r) => (
+                <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                  {/* Order ID */}
+                  <td className="px-4 py-2 font-mono text-xs whitespace-nowrap">{r.orderId}</td>
 
-      {loading ? (
-        <div className="py-20 text-center text-sm text-gray-400">Loading…</div>
-      ) : returns.length === 0 ? (
-        <div className="py-20 text-center">
-          <RotateCcw size={36} className="mx-auto text-gray-200 mb-3" />
-          <p className="text-sm font-medium text-gray-400">
-            {search ? 'No returns match your search' : 'No returns imported yet'}
-          </p>
-          {!search && (
-            <button type="button" onClick={() => setShowSync(true)}
-              className="mt-3 text-sm text-amazon-blue hover:underline">
-              Import returns from Amazon
-            </button>
-          )}
-        </div>
-      ) : (
-        <>
-          <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="bg-gray-800 border-b-2 border-gray-700">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wide whitespace-nowrap">Order ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wide whitespace-nowrap">Order Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wide whitespace-nowrap">Order Age</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wide whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => { setSortDir(d => d === 'desc' ? 'asc' : 'desc'); setPage(1) }}
-                      className="flex items-center gap-1 hover:text-white transition-colors"
-                    >
-                      Return Request Date
-                      {sortDir === 'desc' ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
-                    </button>
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wide whitespace-nowrap">
-                    <span className="flex items-center gap-1">
-                      RMA #
-                      <span title="Amazon does not include RMA numbers in the flat-file report. They are only visible in Seller Central's Manage Returns UI.">
-                        <Info size={10} className="text-gray-500 cursor-help" />
-                      </span>
-                    </span>
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wide whitespace-nowrap">Return Tracking</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wide whitespace-nowrap">Item</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wide whitespace-nowrap">SKU</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-300 uppercase tracking-wide whitespace-nowrap">Qty</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-300 uppercase tracking-wide whitespace-nowrap">Value</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wide whitespace-nowrap">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {returns.map((ret, rowIdx) => (
-                  <tr key={ret.id} className={rowIdx % 2 === 0 ? 'bg-white hover:bg-blue-50/50' : 'bg-gray-50 hover:bg-blue-50/50'}>
-                    <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">
+                  {/* Title */}
+                  <td className="px-4 py-2 max-w-[200px] truncate" title={r.title ?? ''}>
+                    {r.title ?? <span className="text-gray-400">-</span>}
+                  </td>
+
+                  {/* ASIN */}
+                  <td className="px-4 py-2 font-mono text-xs">{r.asin ?? '-'}</td>
+
+                  {/* Price */}
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {r.itemPrice != null
+                      ? `$${r.itemPrice.toFixed(2)}`
+                      : r.returnValue != null
+                      ? `$${r.returnValue.toFixed(2)}`
+                      : '-'}
+                  </td>
+
+                  {/* RMA */}
+                  <td className="px-4 py-2 font-mono text-xs">{r.rmaId ?? '-'}</td>
+
+                  {/* Tracking */}
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {r.trackingNumber ? (
                       <a
-                        href={`https://sellercentral.amazon.com/orders-v3/order/${ret.orderId}`}
+                        href={trackingUrl(r.trackingNumber)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-amazon-blue hover:underline"
+                        className="text-blue-600 hover:underline inline-flex items-center gap-1 text-xs font-mono"
                       >
-                        {ret.orderId}
+                        {r.trackingNumber}
+                        <ExternalLink size={10} />
                       </a>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
-                      {fmtDate(ret.orderDate) ?? <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <AgeChip days={orderAgeDays(ret.orderDate)} />
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
-                      {fmtDate(ret.returnDate) ?? <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                      {ret.rmaId ?? <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <TrackingCell ret={ret} onRefreshed={load} />
-                    </td>
-                    <td className="px-4 py-3 max-w-[200px]">
-                      {ret.title ? (
-                        <p className="text-xs text-gray-700 truncate" title={ret.title}>{ret.title}</p>
-                      ) : (
-                        <span className="text-gray-400 text-xs">{ret.asin ?? '—'}</span>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </td>
+
+                  {/* Expected Serial */}
+                  <td className="px-4 py-2 font-mono text-xs">
+                    {r.expectedSerial ?? <span className="text-gray-400">-</span>}
+                  </td>
+
+                  {/* Find My (placeholder) */}
+                  <td className="px-4 py-2 text-gray-400 text-xs">-</td>
+
+                  {/* Return Date */}
+                  <td className="px-4 py-2 whitespace-nowrap text-xs">
+                    {r.returnDate ? format(new Date(r.returnDate), 'MMM d, yyyy') : '-'}
+                  </td>
+
+                  {/* UPS Status */}
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={r.carrierStatus} />
+                      {r.trackingNumber && (
+                        <button
+                          onClick={() => refreshTracking(r.id)}
+                          disabled={refreshingId === r.id}
+                          className="text-gray-400 hover:text-gray-600 transition-colors"
+                          title="Refresh tracking status"
+                        >
+                          {refreshingId === r.id ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <RefreshCcw size={12} />
+                          )}
+                        </button>
                       )}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600 whitespace-nowrap">
-                      {ret.sku ?? <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-center text-xs text-gray-700 whitespace-nowrap">
-                      {ret.quantity ?? <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-900 whitespace-nowrap">
-                      {ret.returnValue != null
-                        ? `$${parseFloat(ret.returnValue).toFixed(2)}`
-                        : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      {ret.returnStatus ? (
-                        <span className={clsx(
-                          'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap',
-                          ret.returnStatus.toUpperCase().includes('REIMBURSE')
-                            ? 'bg-green-100 text-green-700'
-                            : ret.returnStatus.toUpperCase().includes('RETURN')
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-gray-100 text-gray-600',
-                        )}>
-                          {ret.returnStatus}
-                        </span>
-                      ) : <span className="text-gray-300">—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4 text-sm text-gray-500">
-              <span>{(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, total)} of {total}</span>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="h-8 px-3 rounded border border-gray-300 text-xs hover:bg-gray-50 disabled:opacity-40">
-                  Previous
-                </button>
-                <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="h-8 px-3 rounded border border-gray-300 text-xs hover:bg-gray-50 disabled:opacity-40">
-                  Next
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {showSync && accounts.length > 0 && (
-        <SyncPanel
-          accounts={accounts}
-          onSynced={() => { setShowSync(false); load() }}
-          onClose={() => setShowSync(false)}
-        />
-      )}
-
-      {showSync && accounts.length === 0 && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
-            <p className="text-sm font-medium text-gray-900 mb-2">No Amazon account connected</p>
-            <p className="text-xs text-gray-500 mb-4">
-              Connect your Amazon Seller account first from the Connect Amazon page.
-            </p>
-            <button type="button" onClick={() => setShowSync(false)}
-              className="h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium w-full">
-              OK
+      {/* Pagination */}
+      {pagination.totalPages > 1 && (
+        <div className="flex items-center justify-between px-6 py-3 border-t bg-gray-50 dark:bg-gray-800 dark:border-gray-700 text-sm">
+          <span className="text-gray-500">
+            Showing {(pagination.page - 1) * pagination.pageSize + 1}–
+            {Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total}
+          </span>
+          <div className="flex gap-1">
+            <button
+              onClick={() => goToPage(pagination.page - 1)}
+              disabled={pagination.page <= 1}
+              className="btn-secondary text-xs px-3 py-1"
+            >
+              Prev
+            </button>
+            <button
+              onClick={() => goToPage(pagination.page + 1)}
+              disabled={pagination.page >= pagination.totalPages}
+              className="btn-secondary text-xs px-3 py-1"
+            >
+              Next
             </button>
           </div>
         </div>
       )}
-
     </div>
   )
 }

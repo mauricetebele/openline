@@ -128,6 +128,7 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
     price: number | null
     minPrice: number | null
     maxPrice: number | null
+    fnsku: string | null
   }
 
   const parsed: ParsedListing[] = []
@@ -154,7 +155,9 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
     const conditionRaw = col(row, 'item-condition')
     const condition = conditionRaw ? (CONDITION_MAP[conditionRaw] ?? conditionRaw) : null
 
-    parsed.push({ sku, asin, productTitle, condition, fulfillmentChannel, shippingTemplate, listingStatus, quantity, price, minPrice, maxPrice })
+    const fnsku = col(row, 'fulfillment-channel-sku') || null
+
+    parsed.push({ sku, asin, productTitle, condition, fulfillmentChannel, shippingTemplate, listingStatus, quantity, price, minPrice, maxPrice, fnsku })
   }
 
   const totalFound = rows.length
@@ -171,7 +174,7 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
     for (const listing of batch) {
       const offset = values.length
       placeholders.push(
-        `(gen_random_uuid(), $${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14})`,
+        `(gen_random_uuid(), $${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14}, $${offset + 15})`,
       )
       values.push(
         accountId,             // 1  accountId
@@ -188,11 +191,12 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
         listing.maxPrice,      // 12
         now,                   // 13 lastSyncedAt
         now,                   // 14 updatedAt
+        listing.fnsku,         // 15 fnsku
       )
     }
 
     const sql = `
-      INSERT INTO seller_listings (id, "accountId", sku, asin, "productTitle", condition, "fulfillmentChannel", "shippingTemplate", "listingStatus", quantity, price, "minPrice", "maxPrice", "lastSyncedAt", "updatedAt")
+      INSERT INTO seller_listings (id, "accountId", sku, asin, "productTitle", condition, "fulfillmentChannel", "shippingTemplate", "listingStatus", quantity, price, "minPrice", "maxPrice", "lastSyncedAt", "updatedAt", fnsku)
       VALUES ${placeholders.join(', ')}
       ON CONFLICT ("accountId", sku) DO UPDATE SET
         asin = EXCLUDED.asin,
@@ -206,7 +210,8 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
         "minPrice" = EXCLUDED."minPrice",
         "maxPrice" = EXCLUDED."maxPrice",
         "lastSyncedAt" = EXCLUDED."lastSyncedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
+        "updatedAt" = EXCLUDED."updatedAt",
+        fnsku = EXCLUDED.fnsku
     `
 
     await prisma.$executeRawUnsafe(sql, ...values)

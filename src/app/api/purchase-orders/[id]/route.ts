@@ -82,7 +82,7 @@ export async function PUT(
         },
       },
       include: {
-        vendor: { select: { id: true, name: true } },
+        vendor: { select: { id: true, vendorNumber: true, name: true } },
         lines: {
           include: {
             product: {
