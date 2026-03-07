@@ -94,7 +94,11 @@ export async function GET(req: NextRequest) {
       sku: ret.sku,
       title: matchingItem?.title ?? ret.title,
       itemPrice: matchingItem?.itemPrice ? Number(matchingItem.itemPrice) : null,
-      orderAmount: ret.orderAmount ? Number(ret.orderAmount) : null,
+      orderAmount: ret.orderAmount
+        ? (ret.orderQuantity && ret.orderQuantity > 1
+          ? Number(ret.orderAmount) / ret.orderQuantity
+          : Number(ret.orderAmount))
+        : null,
       quantity: ret.quantity,
       returnReason: ret.returnReason,
       returnStatus: ret.returnStatus,
