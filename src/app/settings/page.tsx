@@ -1500,30 +1500,8 @@ function PrinterSettingsSection() {
       const pdfBytes = doc.output('arraybuffer') as ArrayBuffer
       const b64 = btoa(Array.from(new Uint8Array(pdfBytes), b => String.fromCharCode(b)).join(''))
 
-      // Try QZ Tray with timeout, fall back to browser print dialog
-      let printed = false
-      if (connected) {
-        try {
-          const qz = await getQz()
-          const config = qz.configs.create(selectedPrinter)
-          console.log('[QZ] Sending test print to:', selectedPrinter)
-          await Promise.race([
-            qz.print(config, [{ type: 'pdf', data: b64, flavor: 'base64' }]),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('QZ_TIMEOUT')), 10_000)),
-          ])
-          toast.success('Test page sent to printer')
-          printed = true
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : ''
-          if (msg !== 'QZ_TIMEOUT') {
-            console.error('[QZ] Test print error:', e)
-          } else {
-            console.warn('[QZ] Test print timed out, falling back to browser print')
-          }
-        }
-      }
-      if (!printed) {
-        // Fallback: browser print dialog
+      // Browser print dialog
+      {
         const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
         const blob = new Blob([bytes], { type: 'application/pdf' })
         const url = URL.createObjectURL(blob)
@@ -1542,7 +1520,7 @@ function PrinterSettingsSection() {
       toast.error(e instanceof Error ? e.message : 'Print failed')
     }
     finally { setTesting(false) }
-  }, [selectedPrinter, getQz])
+  }, [selectedPrinter])
 
   // Try auto-connect on mount
   useEffect(() => { doConnect() }, [doConnect])
