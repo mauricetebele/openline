@@ -157,7 +157,7 @@ function GroupItem({ item, isActive, onNavigate }: {
               <Link
                 key={child.href}
                 href={child.href}
-                onClick={() => { setOpen(false); onNavigate() }}
+                onClick={(e) => { if (!e.metaKey && !e.ctrlKey) { setOpen(false); onNavigate() } }}
                 className={clsx(
                   'flex items-center gap-2.5 px-3 py-2 text-sm transition-colors',
                   active
@@ -232,7 +232,7 @@ export default function TopNav() {
       <Link
         key={item.href}
         href={item.href}
-        onClick={() => setMobileOpen(false)}
+        onClick={(e) => { if (!e.metaKey && !e.ctrlKey) setMobileOpen(false) }}
         className={clsx(
           'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap',
           active
@@ -359,7 +359,7 @@ export default function TopNav() {
                   {item.children.map(child => {
                     const active = isActive(child.href)
                     return (
-                      <Link key={child.href} href={child.href} onClick={() => setMobileOpen(false)}
+                      <Link key={child.href} href={child.href} onClick={(e) => { if (!e.metaKey && !e.ctrlKey) setMobileOpen(false) }}
                         className={clsx(
                           'flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
                           active ? 'bg-amazon-blue text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white',
@@ -374,7 +374,7 @@ export default function TopNav() {
             }
             const active = isActive(item.href)
             return (
-              <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)}
+              <Link key={item.href} href={item.href} onClick={(e) => { if (!e.metaKey && !e.ctrlKey) setMobileOpen(false) }}
                 className={clsx(
                   'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                   active ? 'bg-amazon-blue text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white',
@@ -393,7 +393,7 @@ export default function TopNav() {
               {wholesaleItems.map(item => {
                 const active = isActive(item.href)
                 return (
-                  <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)}
+                  <Link key={item.href} href={item.href} onClick={(e) => { if (!e.metaKey && !e.ctrlKey) setMobileOpen(false) }}
                     className={clsx(
                       'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                       active ? 'bg-amazon-blue text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white',
@@ -408,7 +408,7 @@ export default function TopNav() {
 
           {/* Settings link in mobile */}
           <div className="border-t border-white/10 pt-2 mt-1">
-            <Link href="/settings" onClick={() => setMobileOpen(false)}
+            <Link href="/settings" onClick={(e) => { if (!e.metaKey && !e.ctrlKey) setMobileOpen(false) }}
               className={clsx(
                 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                 isActive('/settings') ? 'bg-amazon-blue text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white',
