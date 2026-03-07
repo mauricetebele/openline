@@ -31,6 +31,56 @@ export async function GET(req: NextRequest) {
     ]
   }
 
+  const statusFilter = searchParams.get('trackingStatus')
+  if (statusFilter) {
+    switch (statusFilter) {
+      case 'delivered':
+        where.carrierStatus = { contains: 'delivered', mode: 'insensitive' }
+        break
+      case 'in_transit':
+        where.carrierStatus = { contains: 'transit', mode: 'insensitive' }
+        break
+      case 'exception':
+        where.OR = [
+          ...(where.OR ?? []),
+          { carrierStatus: { contains: 'exception', mode: 'insensitive' } },
+          { carrierStatus: { contains: 'delay', mode: 'insensitive' } },
+        ]
+        // If search was also set, we need AND logic
+        if (search) {
+          const searchConditions = [
+            { orderId: { contains: search, mode: 'insensitive' as const } },
+            { rmaId: { contains: search, mode: 'insensitive' as const } },
+            { asin: { contains: search, mode: 'insensitive' as const } },
+            { sku: { contains: search, mode: 'insensitive' as const } },
+            { title: { contains: search, mode: 'insensitive' as const } },
+          ]
+          const statusConditions = [
+            { carrierStatus: { contains: 'exception', mode: 'insensitive' as const } },
+            { carrierStatus: { contains: 'delay', mode: 'insensitive' as const } },
+          ]
+          delete where.OR
+          where.AND = [
+            { OR: searchConditions },
+            { OR: statusConditions },
+          ]
+        } else {
+          where.OR = [
+            { carrierStatus: { contains: 'exception', mode: 'insensitive' } },
+            { carrierStatus: { contains: 'delay', mode: 'insensitive' } },
+          ]
+        }
+        break
+      case 'not_tracked':
+        where.carrierStatus = null
+        where.trackingNumber = { not: null }
+        break
+      case 'no_tracking':
+        where.trackingNumber = null
+        break
+    }
+  }
+
   const [returns, total] = await Promise.all([
     prisma.mFNReturn.findMany({
       where,

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { format } from 'date-fns'
-import { Search, RefreshCcw, ExternalLink, Loader2 } from 'lucide-react'
+import { Search, RefreshCcw, ExternalLink, Loader2, Filter } from 'lucide-react'
 import { clsx } from 'clsx'
 
 interface MFNReturnRow {
@@ -76,6 +76,7 @@ export default function MFNReturnsManager() {
   const [pageSize, setPageSize] = useState(25)
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  const [trackingStatus, setTrackingStatus] = useState('')
   const [fetchKey, setFetchKey] = useState(0)
 
   // Sync state
@@ -102,6 +103,7 @@ export default function MFNReturnsManager() {
     params.set('page', String(pagination.page))
     params.set('limit', String(pageSize))
     if (search) params.set('search', search)
+    if (trackingStatus) params.set('trackingStatus', trackingStatus)
 
     fetch(`/api/returns?${params}`)
       .then(async (res) => {
@@ -121,7 +123,7 @@ export default function MFNReturnsManager() {
       })
 
     return () => { cancelled = true }
-  }, [pagination.page, pageSize, search, fetchKey])
+  }, [pagination.page, pageSize, search, trackingStatus, fetchKey])
 
   function goToPage(p: number) {
     setPagination((prev) => ({ ...prev, page: p }))
@@ -361,6 +363,35 @@ export default function MFNReturnsManager() {
           )}
         </div>
 
+        {/* Status filter */}
+        <div className="flex items-center gap-1">
+          <Filter size={12} className="text-gray-400 mr-1" />
+          {([
+            ['', 'All'],
+            ['delivered', 'Delivered'],
+            ['in_transit', 'In Transit'],
+            ['exception', 'Exception'],
+            ['not_tracked', 'Pending'],
+            ['no_tracking', 'No Tracking #'],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => {
+                setTrackingStatus(value)
+                setPagination((prev) => ({ ...prev, page: 1 }))
+              }}
+              className={clsx(
+                'text-xs px-2.5 py-1 rounded-full border transition-colors',
+                trackingStatus === value
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
@@ -481,7 +512,14 @@ export default function MFNReturnsManager() {
                   {/* UPS Status */}
                   <td className="px-4 py-2 whitespace-nowrap">
                     <div className="flex items-center gap-2">
-                      <StatusBadge status={r.carrierStatus} />
+                      <div className="flex flex-col">
+                        <StatusBadge status={r.carrierStatus} />
+                        {r.deliveredAt && (
+                          <span className="text-[10px] text-gray-400 mt-0.5">
+                            {format(new Date(r.deliveredAt), 'MMM d, yyyy')}
+                          </span>
+                        )}
+                      </div>
                       {r.trackingNumber && (
                         <button
                           onClick={() => refreshTracking(r.id)}
