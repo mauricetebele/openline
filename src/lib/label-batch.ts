@@ -98,6 +98,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
         // ── V2 path: buy from captured rate ID ──────────────────────────────
         const label = await ssClient.createLabelV2FromRate(order.presetRateId, {
           testLabel: batch.isTest,
+          shipDate: order.presetShipDate,
         })
         trackingNumber = label.trackingNumber
         labelData      = label.labelData

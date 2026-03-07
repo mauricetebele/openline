@@ -414,7 +414,7 @@ export class ShipStationClient {
    */
   async createLabelV2FromRate(
     rateId: string,
-    opts?: { testLabel?: boolean },
+    opts?: { testLabel?: boolean; shipDate?: string | null },
   ): Promise<SSLabel> {
     const res = await fetch(`https://api.shipstation.com/v2/labels/rates/${encodeURIComponent(rateId)}`, {
       method: 'POST',
@@ -425,6 +425,7 @@ export class ShipStationClient {
         label_format:        'pdf',
         label_download_type: 'url',
         test_label:          opts?.testLabel ?? false,
+        ...(opts?.shipDate ? { ship_date: `${opts.shipDate}T12:00:00` } : {}),
       }),
     })
     const json = await res.json()

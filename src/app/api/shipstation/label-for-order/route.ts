@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
 
     // Amazon Buy Shipping labels must go through the V2 API using the rate_id
     if (body.rateId) {
-      const label = await client.createLabelV2FromRate(body.rateId, { testLabel: false })
+      const label = await client.createLabelV2FromRate(body.rateId, { testLabel: false, shipDate: body.shipDate })
       return NextResponse.json(label)
     }
 
