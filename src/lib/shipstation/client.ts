@@ -175,6 +175,7 @@ export interface V2Rate {
 export interface V2RatesRequest {
   rate_options: { carrier_ids?: string[] }
   shipment: {
+    ship_date?: string            // ISO 8601 date, e.g. '2026-03-10T00:00:00Z'
     ship_to: V2Address
     ship_from: V2Address
     packages: {

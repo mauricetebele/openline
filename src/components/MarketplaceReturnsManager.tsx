@@ -1,6 +1,6 @@
 'use client'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, X, Search, CheckCircle2, RotateCcw, Package, ChevronDown } from 'lucide-react'
+import { Plus, X, Search, CheckCircle2, RotateCcw, Package, ChevronDown, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -115,6 +115,7 @@ export default function MarketplaceReturnsManager() {
   const [selectedOrder, setSelectedOrder] = useState<OrderSearchResult | null>(null)
   const [showReceiveModal, setShowReceiveModal] = useState(false)
   const [receiveRmaId, setReceiveRmaId] = useState<string | null>(null)
+  const [deletingRmaId, setDeletingRmaId] = useState<string | null>(null)
 
   // ─── Fetch RMA List ───────────────────────────────────────────────────────
   const fetchRmas = useCallback(async () => {
@@ -149,6 +150,21 @@ export default function MarketplaceReturnsManager() {
     setShowReceiveModal(false)
     setReceiveRmaId(null)
     fetchRmas()
+  }
+
+  async function handleDeleteRma(rmaId: string) {
+    try {
+      const res = await fetch(`/api/marketplace-rma/${rmaId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({ error: 'Delete failed' }))
+        alert(json.error ?? 'Failed to delete return')
+        return
+      }
+      setDeletingRmaId(null)
+      fetchRmas()
+    } catch {
+      alert('Failed to delete return')
+    }
   }
 
   return (
@@ -320,12 +336,39 @@ export default function MarketplaceReturnsManager() {
                             </tbody>
                           </table>
                           {rma.status === 'OPEN' && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleRowClick(rma) }}
-                              className="mt-3 text-xs font-medium text-amazon-blue hover:underline"
-                            >
-                              Receive Returns
-                            </button>
+                            <div className="mt-3 flex items-center gap-3">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleRowClick(rma) }}
+                                className="text-xs font-medium text-amazon-blue hover:underline"
+                              >
+                                Receive Returns
+                              </button>
+                              {deletingRmaId === rma.id ? (
+                                <span className="inline-flex items-center gap-1.5 text-xs">
+                                  <span className="text-red-600 font-medium">Delete this return?</span>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteRma(rma.id) }}
+                                    className="text-xs font-semibold text-red-600 hover:text-red-800"
+                                  >
+                                    Yes
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setDeletingRmaId(null) }}
+                                    className="text-xs font-semibold text-gray-500 hover:text-gray-700"
+                                  >
+                                    No
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setDeletingRmaId(rma.id) }}
+                                  className="text-xs font-medium text-red-500 hover:text-red-700 inline-flex items-center gap-0.5"
+                                  title="Delete this return"
+                                >
+                                  <Trash2 size={11} /> Delete
+                                </button>
+                              )}
+                            </div>
                           )}
                         </td>
                       </tr>

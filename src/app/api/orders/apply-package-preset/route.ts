@@ -24,6 +24,7 @@ const bodySchema = z.object({
   presetId:  z.string().min(1),
   orderIds:  z.array(z.string().min(1)).min(1),
   accountId: z.string().min(1),
+  shipDate:  z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 })
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request', issues: parsed.error.issues }, { status: 400 })
   }
 
-  const { presetId, orderIds, accountId } = parsed.data
+  const { presetId, orderIds, accountId, shipDate } = parsed.data
 
   const preset = await prisma.packagePreset.findUnique({ where: { id: presetId } })
   if (!preset) return NextResponse.json({ error: 'Package preset not found' }, { status: 404 })
@@ -180,6 +181,7 @@ export async function POST(req: NextRequest) {
               const v2Payload: V2RatesRequest = {
                 rate_options: { carrier_ids: [ssAccount.amazonCarrierId] },
                 shipment: {
+                  ...(shipDate ? { ship_date: `${shipDate}T00:00:00Z` } : {}),
                   ship_from: {
                     name:           from.name,
                     phone:          from.phone || '555-555-5555',
@@ -295,6 +297,7 @@ export async function POST(req: NextRequest) {
                 presetRateId:        rateId,
                 presetRateError:     null,
                 presetRateCheckedAt: new Date(),
+                presetShipDate:      shipDate ?? null,
               },
             })
 

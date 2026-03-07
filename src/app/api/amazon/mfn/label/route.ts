@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
     confirmation,
     shippingServiceId,
     shippingServiceOfferId,
+    shipDate,
   } = body
 
   if (!accountId || !amazonOrderId || !shippingServiceId || !shippingServiceOfferId) {
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
       Value: weight.value,
       Unit:  WEIGHT_UNIT_MAP[weight.unit] ?? 'oz',
     },
-    ShipDate: new Date().toISOString(),
+    ShipDate: shipDate ? `${shipDate}T00:00:00Z` : new Date().toISOString(),
     ShippingServiceOptions: {
       DeliveryExperience: CONFIRMATION_MAP[confirmation ?? 'none'] ?? 'DeliveryConfirmationWithoutSignature',
       CarrierWillPickUp: false,

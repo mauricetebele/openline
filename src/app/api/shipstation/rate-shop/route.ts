@@ -37,6 +37,7 @@ interface RateShopPayload {
   amazonOrderId?: string
   orderItems?: OrderItem[]
   orderSource?: string  // 'amazon' | 'backmarket' — controls which carriers to query
+  shipDate?: string     // YYYY-MM-DD — future ship date for rate shopping
 }
 
 /** 'ounces' → 'ounce', 'pounds' → 'pound', 'inches' → 'inch', etc. (V2 uses singular units) */
@@ -119,6 +120,7 @@ export async function POST(req: NextRequest) {
       const v2Payload: V2RatesRequest = {
         rate_options: { carrier_ids: [amazonV2CarrierId] },
         shipment: {
+          ...(body.shipDate ? { ship_date: `${body.shipDate}T00:00:00Z` } : {}),
           ship_from: {
             name:            body.fromName,
             phone:           body.fromPhone || '555-555-5555',

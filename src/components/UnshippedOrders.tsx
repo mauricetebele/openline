@@ -86,6 +86,7 @@ interface Order {
   presetRateId: string | null
   presetRateError: string | null
   presetRateCheckedAt: string | null
+  presetShipDate: string | null
   appliedPresetId: string | null
   ssOrderId: number | null
   requiresTransparency?: boolean
@@ -2485,6 +2486,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
   const [weight, setWeight]         = useState<Weight>(DEFAULT_WT)
   const [fromZip, setFromZip]       = useState<string>('')
   const [confirmation, setConfirmation] = useState<string>('none')
+  const [labelShipDate, setLabelShipDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   // Hydrate from localStorage after mount (avoids SSR/client mismatch)
   useEffect(() => {
@@ -2612,6 +2614,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
           amazonOrderId: order.amazonOrderId,
           orderSource: order.orderSource ?? 'amazon',
           orderItems: order.items.map(item => ({ orderItemId: item.orderItemId, title: item.title, quantity: item.quantityOrdered })),
+          shipDate: labelShipDate,
         })
       setRates(Array.isArray(data.rates) ? data.rates : [])
       if (data.amazonServices?.length) setAmazonServices(data.amazonServices)
@@ -2688,7 +2691,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
       const label = await apiPost<{ trackingNumber: string; labelData: string; labelFormat: string; shipmentCost?: number }>(
         '/api/shipstation/label-for-order', {
           orderId: lookup.ssOrderId, carrierCode: rate.carrierCode, serviceCode: rate.serviceCode,
-          packageCode: 'package', confirmation, shipDate: new Date().toISOString().slice(0, 10),
+          packageCode: 'package', confirmation, shipDate: labelShipDate,
           weight: { value: weight.value, units: weight.unit },
           dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
           testLabel: testMode,
@@ -2874,6 +2877,12 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
                 <select value={confirmation} onChange={e => { setConfirmation(e.target.value); setRates(null) }} className="h-8 rounded border border-gray-300 px-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF9900]">
                   <option value="none">None</option><option value="delivery">Delivery</option><option value="signature">Signature</option><option value="adult_signature">Adult Signature</option>
                 </select>
+              </div>
+              <div className="flex flex-col gap-1 shrink-0">
+                <label className="text-xs font-medium text-gray-600">Ship Date</label>
+                <input type="date" value={labelShipDate} onChange={e => { setLabelShipDate(e.target.value); setRates(null) }}
+                  min={new Date().toISOString().slice(0, 10)}
+                  className="h-8 rounded border border-gray-300 px-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF9900]" />
               </div>
             </div>
           </section>
@@ -4115,6 +4124,7 @@ export default function UnshippedOrders() {
   const [applyPkgResult, setApplyPkgResult]                   = useState<{ applied: number; total: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
   const [showPackagePresetModal, setShowPackagePresetModal]   = useState(false)
   const [selectedPresetId, setSelectedPresetId] = useState('')
+  const [presetShipDate, setPresetShipDate]     = useState(() => new Date().toISOString().slice(0, 10))
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set())
   const [applyingPreset, setApplyingPreset]       = useState(false)
   const [ratingOrderIds, setRatingOrderIds]       = useState<Set<string>>(new Set())
@@ -4755,7 +4765,7 @@ export default function UnshippedOrders() {
       const res = await fetch('/api/orders/apply-preset', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ presetId: selectedPresetId, orderIds: ids, accountId: selectedAccountId }),
+        body:    JSON.stringify({ presetId: selectedPresetId, orderIds: ids, accountId: selectedAccountId, shipDate: presetShipDate }),
       })
 
       // Non-streaming error response (setup failures before stream starts)
@@ -4854,7 +4864,7 @@ export default function UnshippedOrders() {
       const res = await fetch('/api/orders/apply-package-preset', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ presetId: selectedPackagePresetId, orderIds: ids, accountId: selectedAccountId }),
+        body:    JSON.stringify({ presetId: selectedPackagePresetId, orderIds: ids, accountId: selectedAccountId, shipDate: presetShipDate }),
       })
 
       if (!res.ok || res.headers.get('content-type')?.includes('application/json')) {
@@ -5308,6 +5318,10 @@ export default function UnshippedOrders() {
                   {presets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               )}
+              <input type="date" value={presetShipDate} onChange={e => setPresetShipDate(e.target.value)}
+                min={new Date().toISOString().slice(0, 10)}
+                className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+                title="Ship date (carrier pickup date)" />
               <button onClick={applyPreset}
                 disabled={applyingPreset || selectedOrderIds.size === 0 || !selectedPresetId || !selectedAccountId}
                 className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',

@@ -143,7 +143,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
           serviceCode:  preset.serviceCode,
           packageCode:  preset.packageCode ?? undefined,
           confirmation: (preset.confirmation as SSLabelPayload['confirmation']) ?? undefined,
-          shipDate:     new Date().toISOString().slice(0, 10),
+          shipDate:     order.presetShipDate ?? new Date().toISOString().slice(0, 10),
           weight: {
             value: preset.weightValue,
             units: preset.weightUnit as 'ounces' | 'pounds' | 'grams' | 'kilograms',
