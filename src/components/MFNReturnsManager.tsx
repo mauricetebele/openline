@@ -323,7 +323,16 @@ export default function MFNReturnsManager() {
               returns.map((r) => (
                 <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                   {/* Order ID */}
-                  <td className="px-4 py-2 font-mono text-xs whitespace-nowrap">{r.orderId}</td>
+                  <td className="px-4 py-2 font-mono text-xs whitespace-nowrap">
+                    <a
+                      href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      {r.orderId}
+                    </a>
+                  </td>
 
                   {/* Title */}
                   <td className="px-4 py-2 max-w-[200px] truncate" title={r.title ?? ''}>
