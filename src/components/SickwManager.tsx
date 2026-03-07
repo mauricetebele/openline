@@ -68,6 +68,76 @@ const ALL_SERVICES = SERVICE_CATALOG.flatMap(c =>
   c.services.map(s => ({ ...s, category: c.label }))
 )
 
+// ─── Result parser ───────────────────────────────────────────────────────────
+
+interface ResultField {
+  label: string
+  value: string
+  color: 'green' | 'red' | 'orange' | null
+}
+
+/** Parse the SICKW HTML result string into structured fields */
+function parseSickwResult(raw: string): ResultField[] {
+  // Split on <br> tags
+  const lines = raw.split(/<br\s*\/?>/).map(l => l.trim()).filter(Boolean)
+  return lines.map(line => {
+    // Extract font color if present
+    const colorMatch = line.match(/<font\s+color="(green|red|orange)">(.*?)<\/font>/i)
+    // Strip all HTML tags for the value
+    const stripped = line.replace(/<[^>]*>/g, '').trim()
+    const colonIdx = stripped.indexOf(':')
+    if (colonIdx === -1) return { label: '', value: stripped, color: null }
+
+    const label = stripped.slice(0, colonIdx).trim()
+    const value = stripped.slice(colonIdx + 1).trim()
+    const color = colorMatch ? (colorMatch[1].toLowerCase() as 'green' | 'red' | 'orange') : null
+    return { label, value, color }
+  }).filter(f => f.label || f.value)
+}
+
+function colorClass(color: 'green' | 'red' | 'orange' | null) {
+  if (color === 'green') return 'text-green-600 font-semibold'
+  if (color === 'red') return 'text-red-600 font-semibold'
+  if (color === 'orange') return 'text-amber-500 font-semibold'
+  return 'text-gray-900'
+}
+
+/** Render parsed SICKW result as a formatted card */
+function SickwResultCard({ data }: { data: Record<string, unknown> }) {
+  const resultStr = typeof data.result === 'string' ? data.result : ''
+  const fields = resultStr ? parseSickwResult(resultStr) : []
+  const balance = data.balance != null ? String(data.balance) : null
+  const price = data.price != null ? String(data.price) : null
+
+  if (fields.length === 0) {
+    // Fallback to raw JSON if we can't parse
+    return (
+      <pre className="text-xs bg-gray-50 rounded-lg p-4 overflow-auto max-h-80 whitespace-pre-wrap font-mono">
+        {JSON.stringify(data, null, 2)}
+      </pre>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2">
+        {fields.map((f, i) => (
+          <div key={i} className="flex items-baseline gap-2 text-sm">
+            <span className="text-gray-500 min-w-[180px] shrink-0 text-xs font-medium">{f.label}</span>
+            <span className={`text-sm ${colorClass(f.color)}`}>{f.value || '—'}</span>
+          </div>
+        ))}
+      </div>
+      {(balance || price) && (
+        <div className="flex gap-4 pt-2 border-t text-xs text-gray-400">
+          {price && <span>Cost: <span className="font-mono text-gray-600">${price}</span></span>}
+          {balance && <span>Balance: <span className="font-mono text-gray-600">${balance}</span></span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface CheckRecord {
@@ -226,7 +296,7 @@ export default function SickwManager() {
         <div className={`card p-5 max-w-3xl border-l-4 ${
           lastResult.status === 'success' ? 'border-l-green-500' : 'border-l-red-500'
         }`}>
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-4">
             {lastResult.status === 'success'
               ? <CheckCircle size={16} className="text-green-500" />
               : <XCircle size={16} className="text-red-500" />}
@@ -234,9 +304,7 @@ export default function SickwManager() {
               {lastResult.status === 'success' ? 'Check Successful' : 'Check Failed'}
             </span>
           </div>
-          <pre className="text-xs bg-gray-50 rounded-lg p-4 overflow-auto max-h-80 whitespace-pre-wrap font-mono">
-            {JSON.stringify(lastResult.data, null, 2)}
-          </pre>
+          <SickwResultCard data={lastResult.data} />
         </div>
       )}
 
@@ -326,13 +394,11 @@ export default function SickwManager() {
             {expandedId && (() => {
               const c = checks.find(x => x.id === expandedId)
               if (!c?.result) return null
-              let parsed: unknown
-              try { parsed = JSON.parse(c.result) } catch { parsed = c.result }
+              let parsed: Record<string, unknown>
+              try { parsed = JSON.parse(c.result) } catch { parsed = { raw: c.result } }
               return (
-                <div className="px-4 py-3 border-t bg-gray-50">
-                  <pre className="text-xs font-mono whitespace-pre-wrap overflow-auto max-h-60">
-                    {typeof parsed === 'string' ? parsed : JSON.stringify(parsed, null, 2)}
-                  </pre>
+                <div className="px-5 py-4 border-t bg-gray-50">
+                  <SickwResultCard data={parsed} />
                 </div>
               )
             })()}
