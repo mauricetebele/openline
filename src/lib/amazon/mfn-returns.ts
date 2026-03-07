@@ -116,49 +116,49 @@ export async function syncMfnReturns(
   for (const row of rows) {
     totalFound++
 
-    const orderId = col(row, headers, 'order id', 'order-id', 'orderid')
+    const orderId = col(row, headers, 'order_id', 'order id', 'order-id', 'orderid')
     if (!orderId) continue
 
-    const orderDate           = parseDate(col(row, headers, 'order-date', 'order date'))
-    const rmaId               = col(row, headers, 'amazon-rma-id', 'rma-id', 'rma id', 'return-authorization-id') || null
-    const trackingNumber      = col(row, headers, 'tracking-id', 'tracking id', 'label-tracking-id') || null
-    const returnValueRaw      = col(row, headers, 'return-value', 'item-price', 'product-price')
+    const orderDate           = parseDate(col(row, headers, 'order_date', 'order-date', 'order date'))
+    const rmaId               = col(row, headers, 'amazon_rma_id', 'amazon-rma-id', 'rma-id', 'rma id') || null
+    const trackingNumber      = col(row, headers, 'tracking_id', 'tracking-id', 'tracking id') || null
+    const returnValueRaw      = col(row, headers, 'refund_amount', 'return-value', 'item-price')
     const returnValue         = parseDecimal(returnValueRaw)
-    const currency            = col(row, headers, 'currency-code', 'currency') || 'USD'
-    const returnDate          = parseDate(col(row, headers, 'return-request-date', 'return-date', 'return date'))
+    const currency            = col(row, headers, 'currency_code', 'currency-code', 'currency') || 'USD'
+    const returnDate          = parseDate(col(row, headers, 'return_request_date', 'return-request-date', 'return-date', 'return date'))
     const asin                = col(row, headers, 'asin') || null
-    const sku                 = col(row, headers, 'sku', 'seller-sku', 'merchant-sku') || null
-    const title               = col(row, headers, 'product-name', 'product name', 'item-name', 'title') || null
-    const qtyRaw              = col(row, headers, 'quantity', 'return quantity', 'qty')
+    const sku                 = col(row, headers, 'merchant_sku', 'merchant-sku', 'sku', 'seller-sku') || null
+    const title               = col(row, headers, 'item_name', 'item-name', 'product-name', 'product name', 'title') || null
+    const qtyRaw              = col(row, headers, 'return_quantity', 'return-quantity', 'quantity', 'qty')
     const quantity            = qtyRaw ? (parseInt(qtyRaw, 10) || null) : null
-    const returnReason        = col(row, headers, 'return-reason', 'return reason', 'detailed-return-reason') || null
-    const returnStatus        = col(row, headers, 'return-request-status', 'return-status', 'status') || null
+    const returnReason        = col(row, headers, 'return_reason_code', 'return-reason-code', 'return-reason', 'return reason') || null
+    const returnStatus        = col(row, headers, 'return_request_status', 'return-request-status', 'return-status', 'status') || null
     const resolution          = col(row, headers, 'resolution', 'return-resolution') || null
-    const inPolicy            = col(row, headers, 'in-policy', 'in policy') || null
-    const isPrime             = col(row, headers, 'is-prime', 'is prime') || null
-    const aToZClaim           = col(row, headers, 'a-to-z-claim', 'a-to-z guarantee claim') || null
-    const returnType          = col(row, headers, 'return-type', 'return type') || null
-    const labelType           = col(row, headers, 'label-type', 'label type') || null
-    const labelCostRaw        = col(row, headers, 'label-cost', 'label cost')
+    const inPolicy            = col(row, headers, 'in_policy', 'in-policy', 'in policy') || null
+    const isPrime             = col(row, headers, 'is_prime', 'is-prime', 'is prime') || null
+    const aToZClaim           = col(row, headers, 'a_to_z_claim', 'a-to-z-claim', 'a-to-z guarantee claim') || null
+    const returnType          = col(row, headers, 'return_type', 'return-type', 'return type') || null
+    const labelType           = col(row, headers, 'label_type', 'label-type', 'label type') || null
+    const labelCostRaw        = col(row, headers, 'label_cost', 'label-cost', 'label cost')
     const labelCost           = parseDecimal(labelCostRaw)
-    const labelPaidBy         = col(row, headers, 'label-paid-by', 'cost-of-label-paid-by') || null
-    const returnCarrier       = col(row, headers, 'return-carrier', 'carrier') || null
-    const merchantRmaId       = col(row, headers, 'merchant-rma-id', 'merchant rma id') || null
-    const returnDeliveryDate  = parseDate(col(row, headers, 'return-delivery-date', 'return delivery date'))
-    const orderAmountRaw      = col(row, headers, 'order-amount', 'order amount')
+    const labelPaidBy         = col(row, headers, 'label_to_be_paid_by', 'label-paid-by', 'cost-of-label-paid-by') || null
+    const returnCarrier       = col(row, headers, 'return_carrier', 'return-carrier', 'carrier') || null
+    const merchantRmaId       = col(row, headers, 'merchant_rma_id', 'merchant-rma-id', 'merchant rma id') || null
+    const returnDeliveryDate  = parseDate(col(row, headers, 'return_delivery_date', 'return-delivery-date', 'return delivery date'))
+    const orderAmountRaw      = col(row, headers, 'order_amount', 'order-amount', 'order amount')
     const orderAmount         = parseDecimal(orderAmountRaw)
-    const orderQtyRaw         = col(row, headers, 'order-quantity', 'order quantity')
+    const orderQtyRaw         = col(row, headers, 'order_quantity', 'order-quantity', 'order quantity')
     const orderQuantity       = orderQtyRaw ? (parseInt(orderQtyRaw, 10) || null) : null
-    const refundedAmountRaw   = col(row, headers, 'refunded-amount', 'refunded amount')
+    const refundedAmountRaw   = col(row, headers, 'refund_amount', 'refunded-amount', 'refunded amount')
     const refundedAmount      = parseDecimal(refundedAmountRaw)
-    const safetClaimId        = col(row, headers, 'safet-claim-id', 'safet claim id') || null
-    const safetClaimState     = col(row, headers, 'safet-claim-state', 'safet claim state') || null
-    const safetActionReason   = col(row, headers, 'safet-action-reason', 'safet action reason') || null
-    const safetClaimCreatedAt = parseDate(col(row, headers, 'safet-claim-creation-date', 'safet claim creation date'))
-    const safetReimbursementRaw = col(row, headers, 'safet-reimbursement-amount', 'safet reimbursement amount')
+    const safetClaimId        = col(row, headers, 'safet_claim_id', 'safet-claim-id', 'safet claim id') || null
+    const safetClaimState     = col(row, headers, 'safet_claim_state', 'safet-claim-state', 'safet claim state') || null
+    const safetActionReason   = col(row, headers, 'safet_action_reason', 'safet-action-reason', 'safet action reason') || null
+    const safetClaimCreatedAt = parseDate(col(row, headers, 'safet_claim_creation_date', 'safet-claim-creation-date', 'safet claim creation date'))
+    const safetReimbursementRaw = col(row, headers, 'safet_reimbursement_amount', 'safet-reimbursement-amount', 'safet reimbursement amount')
     const safetReimbursement  = parseDecimal(safetReimbursementRaw)
-    const invoiceNumber       = col(row, headers, 'invoice-number', 'invoice number') || null
-    const orderItemId         = col(row, headers, 'order-item-id', 'order item id') || null
+    const invoiceNumber       = col(row, headers, 'invoice_number', 'invoice-number', 'invoice number') || null
+    const orderItemId         = col(row, headers, 'order_item_id', 'order-item-id', 'order item id') || null
 
     // Find existing row by accountId + orderId + rmaId (or orderId + asin if no RMA)
     const existing = await prisma.mFNReturn.findFirst({
