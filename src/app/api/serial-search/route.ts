@@ -66,6 +66,7 @@ export async function GET(req: NextRequest) {
     ...(isFilterSearch ? { take: 500 } : {}),
     include: {
       product: { select: { sku: true, description: true } },
+      grade: { select: { grade: true } },
       location: {
         select: {
           name: true,
@@ -115,6 +116,7 @@ export async function GET(req: NextRequest) {
       warehouseId:   r.location?.warehouse?.id ?? null,
       poNumber:      po ? String(po.poNumber) : null,
       cost:          pol?.unitCost != null ? Number(pol.unitCost) : null,
+      grade:         r.grade?.grade ?? null,
       note:          r.note ?? null,
       binLocation:   r.binLocation ?? null,
     }

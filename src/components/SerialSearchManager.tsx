@@ -1,6 +1,8 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive, Warehouse, LocateFixed, Building2, Tag, FileText, CircleDot } from 'lucide-react'
+import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive, Warehouse, LocateFixed, Building2, Tag, FileText, CircleDot, Printer } from 'lucide-react'
+import { jsPDF } from 'jspdf'
+import JsBarcode from 'jsbarcode'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -22,6 +24,7 @@ interface SerialResult {
   binLocation: string | null
   poNumber: string | null
   cost: number | null
+  grade: string | null
   note: string | null
 }
 
@@ -59,11 +62,12 @@ function parseSNs(raw: string) {
 }
 
 function exportCSV(found: SerialResult[], notFound: string[]) {
-  const headers = ['Serial #', 'Status', 'SKU', 'Description', 'Vendor', 'Last Event Type', 'Date of Last Event', 'Last Movement', 'Date of Last Movement', 'Current Location', 'Bin', 'PO #', 'Cost', 'Note']
+  const headers = ['Serial #', 'Status', 'SKU', 'Grade', 'Description', 'Vendor', 'Last Event Type', 'Date of Last Event', 'Last Movement', 'Date of Last Movement', 'Current Location', 'Bin', 'PO #', 'Cost', 'Note']
   const rows = found.map(r => [
     r.serialNumber,
     r.status.replace('_', ' '),
     r.sku,
+    r.grade ?? '',
     r.description,
     r.vendor ?? '',
     fmtEventType(r.lastEventType),
@@ -76,7 +80,7 @@ function exportCSV(found: SerialResult[], notFound: string[]) {
     r.cost != null ? r.cost.toFixed(2) : '',
     r.note ?? '',
   ])
-  notFound.forEach(sn => rows.push([sn, 'NOT FOUND', '', '', '', '', '', '', '', '', '', '', '', '']))
+  notFound.forEach(sn => rows.push([sn, 'NOT FOUND', '', '', '', '', '', '', '', '', '', '', '', '', '']))
 
   const csv = [headers, ...rows]
     .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -293,6 +297,77 @@ export default function SerialSearchManager() {
     }
   }
 
+  function printBulkLabels() {
+    const selected = sortedFound.filter(r => selectedIds.has(r.id))
+    if (selected.length === 0) return
+
+    const W = 2.25 * 72 // label width in points
+    const H = 1.25 * 72 // label height in points
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: [H, W] })
+    const margin = 4
+    const maxTextW = W - margin * 2
+    const timestamp = new Date().toLocaleString('en-US', {
+      month: '2-digit', day: '2-digit', year: '2-digit',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    })
+
+    selected.forEach((r, idx) => {
+      if (idx > 0) doc.addPage([H, W], 'landscape')
+
+      // SKU line (bold, auto-shrink to fit)
+      doc.setFont('helvetica', 'bold')
+      let skuSize = 10
+      doc.setFontSize(skuSize)
+      while (skuSize > 5 && doc.getTextWidth(r.sku) > maxTextW) {
+        skuSize -= 0.5
+        doc.setFontSize(skuSize)
+      }
+      doc.text(r.sku, margin, 12)
+
+      // Grade line (bold, only if exists)
+      let yAfterGrade = 12
+      if (r.grade) {
+        yAfterGrade = 22
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9)
+        doc.text(r.grade, margin, yAfterGrade)
+      }
+
+      // Barcode — 4x resolution for crisp output
+      const scale = 4
+      const canvas = document.createElement('canvas')
+      JsBarcode(canvas, r.serialNumber, {
+        format: 'CODE128',
+        width: 2 * scale,
+        height: 40 * scale,
+        displayValue: false,
+        margin: 0,
+      })
+      const barcodeY = yAfterGrade + 6
+      const barcodeImg = canvas.toDataURL('image/png')
+      const barcodeW = W - margin * 2
+      const barcodeH = 42
+      doc.addImage(barcodeImg, 'PNG', margin, barcodeY, barcodeW, barcodeH)
+
+      // Serial number (vector text)
+      doc.setFont('courier', 'normal')
+      doc.setFontSize(8)
+      doc.text(r.serialNumber, W / 2, barcodeY + barcodeH + 8, { align: 'center' })
+
+      // Timestamp
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(6)
+      doc.text(timestamp, W - margin, H - 4, { align: 'right' })
+    })
+
+    const pdfBlob = doc.output('blob')
+    const url = URL.createObjectURL(pdfBlob)
+    const printWindow = window.open(url, '_blank')
+    if (printWindow) {
+      printWindow.onload = () => { printWindow.print() }
+    }
+  }
+
   function handleSort(col: string) {
     if (sortCol === col) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -308,6 +383,7 @@ export default function SerialSearchManager() {
     if (sortCol === 'serialNumber')   { av = a.serialNumber;   bv = b.serialNumber }
     if (sortCol === 'status')         { av = a.status;         bv = b.status }
     if (sortCol === 'sku')            { av = a.sku;            bv = b.sku }
+    if (sortCol === 'grade')          { av = a.grade;          bv = b.grade }
     if (sortCol === 'vendor')         { av = a.vendor;         bv = b.vendor }
     if (sortCol === 'lastEventType')    { av = a.lastEventType;    bv = b.lastEventType }
     if (sortCol === 'lastEventDate')   { av = a.lastEventDate;   bv = b.lastEventDate }
@@ -503,13 +579,22 @@ export default function SerialSearchManager() {
                     <span className="font-normal text-indigo-500 ml-1">({selectedInStock.length} in stock)</span>
                   )}
                 </span>
-                <button
-                  onClick={() => setSelectedIds(new Set())}
-                  className="text-indigo-400 hover:text-indigo-600"
-                  title="Clear selection"
-                >
-                  <X size={14} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={printBulkLabels}
+                    className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700"
+                  >
+                    <Printer size={12} />
+                    Print Label{selectedIds.size !== 1 ? 's' : ''} ({selectedIds.size})
+                  </button>
+                  <button
+                    onClick={() => setSelectedIds(new Set())}
+                    className="text-indigo-400 hover:text-indigo-600"
+                    title="Clear selection"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {/* Bulk note */}
@@ -660,6 +745,7 @@ export default function SerialSearchManager() {
                     </th>
                     {([
                       ['sku',           'SKU'],
+                      ['grade',         'Grade'],
                       ['vendor',        'Vendor'],
                       ['lastEventType',    'Last Event'],
                       ['lastEventDate',   'Event Date'],
@@ -719,6 +805,7 @@ export default function SerialSearchManager() {
                       <td className="px-3 py-2.5">
                         <span className="font-mono text-xs text-gray-700">{r.sku}</span>
                       </td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{r.grade ? <span className="font-semibold">{r.grade}</span> : <span className="text-gray-300">—</span>}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{r.vendor ?? <span className="text-gray-300">—</span>}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{fmtEventType(r.lastEventType)}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(r.lastEventDate)}</td>
