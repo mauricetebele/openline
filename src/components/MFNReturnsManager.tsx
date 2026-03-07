@@ -17,6 +17,7 @@ interface MFNReturnRow {
   sku: string | null
   title: string | null
   itemPrice: number | null
+  orderAmount: number | null
   quantity: number | null
   returnReason: string | null
   returnStatus: string | null
@@ -348,6 +349,8 @@ export default function MFNReturnsManager() {
                       ? `$${r.itemPrice.toFixed(2)}`
                       : r.returnValue != null
                       ? `$${r.returnValue.toFixed(2)}`
+                      : r.orderAmount != null
+                      ? `$${r.orderAmount.toFixed(2)}`
                       : '-'}
                   </td>
 
