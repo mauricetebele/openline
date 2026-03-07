@@ -86,6 +86,9 @@ export async function GET(req: NextRequest) {
         }
         break
       }
+      case 'not_shipped':
+        where.carrierStatus = { contains: 'ready for ups', mode: 'insensitive' }
+        break
       case 'not_tracked':
         where.carrierStatus = null
         where.trackingNumber = { not: null }

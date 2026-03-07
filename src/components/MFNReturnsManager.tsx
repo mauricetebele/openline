@@ -64,6 +64,8 @@ function StatusBadge({ status }: { status: string | null }) {
     ? 'badge-green'
     : isTransit
     ? 'badge-blue'
+    : s.includes('ready for ups')
+    ? 'badge-orange'
     : s.includes('exception') || s.includes('delay')
     ? 'badge-orange'
     : 'badge-gray'
@@ -372,6 +374,7 @@ export default function MFNReturnsManager() {
             ['delivered', 'Delivered'],
             ['in_transit', 'In Transit'],
             ['exception', 'Exception'],
+            ['not_shipped', 'Not Yet Shipped'],
             ['not_tracked', 'Pending'],
             ['no_tracking', 'No Tracking #'],
           ] as const).map(([value, label]) => (
