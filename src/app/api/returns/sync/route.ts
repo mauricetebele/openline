@@ -3,9 +3,12 @@
  * GET  /api/returns/sync?jobId=xxx — poll sync job status
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { syncMfnReturns } from '@/lib/amazon/mfn-returns'
+
+export const maxDuration = 300
 
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
@@ -39,14 +42,17 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Run sync in the background (don't await)
-  syncMfnReturns(account.id, job.id, startDate, endDate).catch(async (err) => {
-    console.error('[MFN Returns Sync] failed:', err)
-    await prisma.mFNReturnSyncJob.update({
-      where: { id: job.id },
-      data: { status: 'FAILED', errorMessage: String(err?.message ?? err), completedAt: new Date() },
-    }).catch(() => {})
-  })
+  // Use waitUntil so Vercel keeps the function alive after the response
+  waitUntil(
+    syncMfnReturns(account.id, job.id, startDate, endDate).catch(async (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[MFN Returns Sync] failed:', message)
+      await prisma.mFNReturnSyncJob.update({
+        where: { id: job.id },
+        data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
+      }).catch(() => {})
+    }),
+  )
 
   return NextResponse.json({
     id: job.id,
