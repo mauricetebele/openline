@@ -16,6 +16,7 @@ export async function GET(
         include: {
           product:  { select: { id: true, description: true, sku: true } },
           location: { include: { warehouse: { select: { id: true, name: true } } } },
+          serials:  { select: { id: true, serialNumber: true, status: true, grade: { select: { grade: true } } }, orderBy: { serialNumber: 'asc' } },
         },
       },
     },

@@ -43,12 +43,20 @@ interface FormLine {
   grades: Grade[]
 }
 
+interface ReceiptSerial {
+  id: string
+  serialNumber: string
+  status: string
+  grade: { grade: string } | null
+}
+
 interface ReceiptLine {
   id: string
   productId: string
   product: { description: string; sku: string }
   qtyReceived: number
   location: { name: string; warehouse: { name: string } }
+  serials: ReceiptSerial[]
 }
 
 interface Receipt {
@@ -703,6 +711,53 @@ function POPanel({
 
 // ─── Receipt History ───────────────────────────────────────────────────────────
 
+function ReceiptLineRow({ rl }: { rl: ReceiptLine }) {
+  const [showSerials, setShowSerials] = useState(false)
+  const hasSerials = rl.serials.length > 0
+
+  return (
+    <>
+      <tr
+        className={clsx(hasSerials && 'cursor-pointer hover:bg-gray-50')}
+        onClick={() => hasSerials && setShowSerials(v => !v)}
+      >
+        <td className="px-3 py-1.5 text-gray-700">
+          <span className="inline-flex items-center gap-1.5">
+            {hasSerials && (
+              <ChevronDown size={10} className={clsx('text-gray-400 transition-transform shrink-0', showSerials && 'rotate-180')} />
+            )}
+            {rl.product.description} <span className="font-mono text-gray-400">({rl.product.sku})</span>
+          </span>
+        </td>
+        <td className="px-3 py-1.5 text-gray-500">{rl.location.warehouse.name} / {rl.location.name}</td>
+        <td className="px-3 py-1.5 text-right font-semibold text-gray-800">{rl.qtyReceived}</td>
+      </tr>
+      {showSerials && (
+        <tr>
+          <td colSpan={3} className="px-3 pb-2 pt-0">
+            <div className="ml-4 bg-gray-50 border border-gray-200 rounded-lg p-2.5">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                Serials ({rl.serials.length})
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {rl.serials.map(s => (
+                  <span
+                    key={s.id}
+                    className="inline-flex items-center gap-1 font-mono text-[11px] bg-white border border-gray-200 rounded px-2 py-0.5 text-gray-700"
+                  >
+                    {s.serialNumber}
+                    {s.grade && <span className="text-[9px] font-semibold text-indigo-500">{s.grade.grade}</span>}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
 function ReceiptHistory({ poId }: { poId: string }) {
   const [receipts, setReceipts] = useState<Receipt[]>([])
   const [loading,  setLoading]  = useState(true)
@@ -719,10 +774,13 @@ function ReceiptHistory({ poId }: { poId: string }) {
   if (err)     return <p className="text-xs text-red-500 py-2">{err}</p>
   if (receipts.length === 0) return <p className="text-xs text-gray-400 py-2 italic">No receipts recorded yet</p>
 
+  const totalSerials = receipts.reduce((sum, r) => sum + r.lines.reduce((s, l) => s + l.serials.length, 0), 0)
+
   return (
     <div className="mt-4 space-y-3">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
         <Clock size={11} /> Receipt History
+        {totalSerials > 0 && <span className="font-normal text-gray-400">· {totalSerials} serial{totalSerials !== 1 ? 's' : ''}</span>}
       </p>
       {receipts.map(r => (
         <div key={r.id} className="rounded-md border border-gray-200 bg-white overflow-hidden">
@@ -743,11 +801,7 @@ function ReceiptHistory({ poId }: { poId: string }) {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {r.lines.map(rl => (
-                <tr key={rl.id}>
-                  <td className="px-3 py-1.5 text-gray-700">{rl.product.description} <span className="font-mono text-gray-400">({rl.product.sku})</span></td>
-                  <td className="px-3 py-1.5 text-gray-500">{rl.location.warehouse.name} / {rl.location.name}</td>
-                  <td className="px-3 py-1.5 text-right font-semibold text-gray-800">{rl.qtyReceived}</td>
-                </tr>
+                <ReceiptLineRow key={rl.id} rl={rl} />
               ))}
             </tbody>
           </table>
