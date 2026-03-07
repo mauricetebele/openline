@@ -735,21 +735,27 @@ function ReceiptLineRow({ rl }: { rl: ReceiptLine }) {
       {showSerials && (
         <tr>
           <td colSpan={3} className="px-3 pb-2 pt-0">
-            <div className="ml-4 bg-gray-50 border border-gray-200 rounded-lg p-2.5">
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                Serials ({rl.serials.length})
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {rl.serials.map(s => (
-                  <span
-                    key={s.id}
-                    className="inline-flex items-center gap-1 font-mono text-[11px] bg-white border border-gray-200 rounded px-2 py-0.5 text-gray-700"
-                  >
-                    {s.serialNumber}
-                    {s.grade && <span className="text-[9px] font-semibold text-indigo-500">{s.grade.grade}</span>}
-                  </span>
-                ))}
-              </div>
+            <div className="ml-4 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-100 text-gray-500">
+                    <th className="text-left px-3 py-1.5 font-medium w-8">#</th>
+                    <th className="text-left px-3 py-1.5 font-medium">Serial Number</th>
+                    <th className="text-left px-3 py-1.5 font-medium">Grade</th>
+                    <th className="text-left px-3 py-1.5 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {rl.serials.map((s, i) => (
+                    <tr key={s.id} className="bg-white">
+                      <td className="px-3 py-1 text-gray-400">{i + 1}</td>
+                      <td className="px-3 py-1 font-mono text-gray-700">{s.serialNumber}</td>
+                      <td className="px-3 py-1 text-gray-600">{s.grade ? <span className="font-semibold text-indigo-600">{s.grade.grade}</span> : <span className="text-gray-300">—</span>}</td>
+                      <td className="px-3 py-1 text-gray-500">{s.status.replace('_', ' ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </td>
         </tr>
