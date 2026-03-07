@@ -175,7 +175,7 @@ export interface V2Rate {
 export interface V2RatesRequest {
   rate_options: { carrier_ids?: string[] }
   shipment: {
-    ship_date?: string            // ISO 8601 date, e.g. '2026-03-10T12:00:00Z'
+    ship_date?: string            // YYYY-MM-DD, e.g. '2026-03-10'
     ship_to: V2Address
     ship_from: V2Address
     packages: {
@@ -425,7 +425,7 @@ export class ShipStationClient {
         label_format:        'pdf',
         label_download_type: 'url',
         test_label:          opts?.testLabel ?? false,
-        ...(opts?.shipDate ? { ship_date: `${opts.shipDate}T12:00:00` } : {}),
+        ...(opts?.shipDate ? { ship_date: opts.shipDate } : {}),
       }),
     })
     const json = await res.json()

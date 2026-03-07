@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
       const v2Payload: V2RatesRequest = {
         rate_options: { carrier_ids: [amazonV2CarrierId] },
         shipment: {
-          ...(body.shipDate ? { ship_date: `${body.shipDate}T12:00:00Z` } : {}),
+          ...(body.shipDate ? { ship_date: `${body.shipDate}` } : {}),
           ship_from: {
             name:            body.fromName,
             phone:           body.fromPhone || '555-555-5555',
