@@ -70,8 +70,10 @@ function StatusBadge({ status }: { status: string | null }) {
 }
 
 export default function MFNReturnsManager() {
+  const PAGE_SIZE_OPTIONS = [25, 50, 100, 250, 500] as const
   const [returns, setReturns] = useState<MFNReturnRow[]>([])
   const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 25, total: 0, totalPages: 1 })
+  const [pageSize, setPageSize] = useState(25)
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [fetchKey, setFetchKey] = useState(0)
@@ -87,6 +89,9 @@ export default function MFNReturnsManager() {
 
   // Tracking refresh state
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
+  const [bulkTracking, setBulkTracking] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0, failed: 0 })
+  const bulkCancelledRef = useRef(false)
 
   // ── Fetch returns ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -95,7 +100,7 @@ export default function MFNReturnsManager() {
 
     const params = new URLSearchParams()
     params.set('page', String(pagination.page))
-    params.set('limit', '25')
+    params.set('limit', String(pageSize))
     if (search) params.set('search', search)
 
     fetch(`/api/returns?${params}`)
@@ -116,7 +121,7 @@ export default function MFNReturnsManager() {
       })
 
     return () => { cancelled = true }
-  }, [pagination.page, search, fetchKey])
+  }, [pagination.page, pageSize, search, fetchKey])
 
   function goToPage(p: number) {
     setPagination((prev) => ({ ...prev, page: p }))
@@ -201,6 +206,57 @@ export default function MFNReturnsManager() {
     }
   }
 
+  // ── Bulk tracking refresh ────────────────────────────────────────────────
+  async function refreshAllTracking() {
+    const trackable = returns.filter((r) => r.trackingNumber)
+    if (trackable.length === 0) return
+
+    bulkCancelledRef.current = false
+    setBulkTracking(true)
+    setBulkProgress({ done: 0, total: trackable.length, failed: 0 })
+
+    const CONCURRENCY = 3
+    let done = 0
+    let failed = 0
+
+    async function processOne(r: MFNReturnRow) {
+      if (bulkCancelledRef.current) return
+      try {
+        const res = await fetch(`/api/returns/${r.id}/tracking`, { method: 'POST' })
+        if (res.ok) {
+          const updated = await res.json()
+          setReturns((prev) =>
+            prev.map((row) =>
+              row.id === r.id
+                ? { ...row, carrierStatus: updated.carrierStatus, deliveredAt: updated.deliveredAt, estimatedDelivery: updated.estimatedDelivery, trackingUpdatedAt: updated.trackingUpdatedAt }
+                : row,
+            ),
+          )
+        } else {
+          failed++
+        }
+      } catch {
+        failed++
+      }
+      done++
+      setBulkProgress({ done, total: trackable.length, failed })
+    }
+
+    // Process in batches of CONCURRENCY
+    for (let i = 0; i < trackable.length; i += CONCURRENCY) {
+      if (bulkCancelledRef.current) break
+      const batch = trackable.slice(i, i + CONCURRENCY)
+      await Promise.all(batch.map(processOne))
+    }
+
+    setBulkTracking(false)
+  }
+
+  function cancelBulkTracking() {
+    bulkCancelledRef.current = true
+    setBulkTracking(false)
+  }
+
   // ── Search with debounce ──────────────────────────────────────────────────
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   function handleSearch(val: string) {
@@ -276,6 +332,34 @@ export default function MFNReturnsManager() {
         )}
 
         <div className="flex-1" />
+
+        {/* Track All button */}
+        <div className="flex items-center gap-2">
+          {bulkTracking ? (
+            <>
+              <span className="text-xs text-gray-500">
+                Tracking {bulkProgress.done}/{bulkProgress.total}
+                {bulkProgress.failed > 0 && <span className="text-red-500 ml-1">({bulkProgress.failed} failed)</span>}
+              </span>
+              <button
+                onClick={cancelBulkTracking}
+                className="btn-secondary text-xs px-2.5 py-1.5 text-red-600"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={refreshAllTracking}
+              disabled={syncing || returns.filter((r) => r.trackingNumber).length === 0}
+              className="btn-secondary flex items-center gap-1.5 text-xs px-3 py-1.5"
+              title="Refresh tracking status for all visible returns"
+            >
+              <RefreshCcw size={12} />
+              Track All
+            </button>
+          )}
+        </div>
 
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -401,8 +485,8 @@ export default function MFNReturnsManager() {
                       {r.trackingNumber && (
                         <button
                           onClick={() => refreshTracking(r.id)}
-                          disabled={refreshingId === r.id}
-                          className="text-gray-400 hover:text-gray-600 transition-colors"
+                          disabled={refreshingId === r.id || bulkTracking}
+                          className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-30"
                           title="Refresh tracking status"
                         >
                           {refreshingId === r.id ? (
@@ -422,13 +506,38 @@ export default function MFNReturnsManager() {
       </div>
 
       {/* Pagination */}
-      {pagination.totalPages > 1 && (
-        <div className="flex items-center justify-between px-6 py-3 border-t bg-gray-50 dark:bg-gray-800 dark:border-gray-700 text-sm">
+      <div className="flex items-center justify-between px-6 py-3 border-t bg-gray-50 dark:bg-gray-800 dark:border-gray-700 text-sm">
+        <div className="flex items-center gap-3">
           <span className="text-gray-500">
-            Showing {(pagination.page - 1) * pagination.pageSize + 1}–
-            {Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total}
+            {pagination.total > 0
+              ? `Showing ${(pagination.page - 1) * pagination.pageSize + 1}–${Math.min(pagination.page * pagination.pageSize, pagination.total)} of ${pagination.total}`
+              : 'No results'}
           </span>
-          <div className="flex gap-1">
+          <div className="flex items-center gap-1.5">
+            <label className="text-gray-500 text-xs">Rows:</label>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value))
+                setPagination((prev) => ({ ...prev, page: 1 }))
+              }}
+              className="input text-xs px-2 py-1 w-20"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {pagination.totalPages > 1 && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => goToPage(1)}
+              disabled={pagination.page <= 1}
+              className="btn-secondary text-xs px-2 py-1"
+            >
+              First
+            </button>
             <button
               onClick={() => goToPage(pagination.page - 1)}
               disabled={pagination.page <= 1}
@@ -436,6 +545,9 @@ export default function MFNReturnsManager() {
             >
               Prev
             </button>
+            <span className="text-gray-500 text-xs">
+              Page {pagination.page} of {pagination.totalPages}
+            </span>
             <button
               onClick={() => goToPage(pagination.page + 1)}
               disabled={pagination.page >= pagination.totalPages}
@@ -443,9 +555,16 @@ export default function MFNReturnsManager() {
             >
               Next
             </button>
+            <button
+              onClick={() => goToPage(pagination.totalPages)}
+              disabled={pagination.page >= pagination.totalPages}
+              className="btn-secondary text-xs px-2 py-1"
+            >
+              Last
+            </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
