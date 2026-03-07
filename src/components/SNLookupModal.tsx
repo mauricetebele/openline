@@ -86,38 +86,48 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
     const H = 1.25 * 72  // points
     const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: [H, W] })
 
-    const margin = 6
+    const margin = 4
+    const maxTextW = W - margin * 2
 
-    // SKU line (bold)
+    // SKU line (bold) — shrink font to fit
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(10)
-    doc.text(result.product.sku, margin, 14)
+    let skuSize = 10
+    while (skuSize > 5 && doc.getTextWidth(result.product.sku) > maxTextW) {
+      skuSize -= 0.5
+      doc.setFontSize(skuSize)
+    }
+    doc.setFontSize(skuSize)
+    doc.text(result.product.sku, margin, 12)
 
     // Grade line (bold, only if exists)
-    let yAfterGrade = 14
+    let yAfterGrade = 12
     if (result.grade) {
-      yAfterGrade = 24
+      yAfterGrade = 22
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(9)
       doc.text(result.grade.grade, margin, yAfterGrade)
     }
 
-    // Barcode
+    // Barcode — render at 4x resolution for crisp PDF output
+    const scale = 4
     const canvas = document.createElement('canvas')
     JsBarcode(canvas, result.serialNumber, {
       format: 'CODE128',
-      width: 1.5,
-      height: 36,
-      displayValue: true,
-      fontSize: 10,
-      font: 'monospace',
+      width: 2 * scale,
+      height: 40 * scale,
+      displayValue: false,
       margin: 0,
     })
     const barcodeY = yAfterGrade + 6
     const barcodeImg = canvas.toDataURL('image/png')
     const barcodeW = W - margin * 2
-    const barcodeH = 50
+    const barcodeH = 42
     doc.addImage(barcodeImg, 'PNG', margin, barcodeY, barcodeW, barcodeH)
+
+    // Serial number text below barcode (rendered as vector text, not bitmap)
+    doc.setFont('courier', 'normal')
+    doc.setFontSize(8)
+    doc.text(result.serialNumber, W / 2, barcodeY + barcodeH + 8, { align: 'center' })
 
     // Timestamp (small, right-aligned at bottom)
     const timestamp = new Date().toLocaleString('en-US', {
