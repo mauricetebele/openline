@@ -28,10 +28,16 @@ interface GetReportDocumentResponse {
   compressionAlgorithm?: string
 }
 
+/** Normalize a header: lowercase + collapse all separators (spaces, hyphens, underscores) to a single space */
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[-_\s]+/g, ' ').trim()
+}
+
 /** Try several possible column header spellings. Returns '' when not found. */
 function col(row: string[], headers: string[], ...names: string[]): string {
   for (const name of names) {
-    const idx = headers.indexOf(name.toLowerCase())
+    const target = norm(name)
+    const idx = headers.findIndex((h) => norm(h) === target)
     if (idx >= 0) return row[idx]?.trim() ?? ''
   }
   return ''
