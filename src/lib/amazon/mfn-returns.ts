@@ -96,6 +96,15 @@ export async function syncMfnReturns(
   const lines = tsvText.split('\n')
   const headers = lines[0]?.split('\t').map((h) => h.trim().toLowerCase()) ?? []
 
+  // Log headers + first data row for debugging column mapping
+  console.log('[MFN Returns] TSV headers:', JSON.stringify(headers))
+  if (lines.length > 1) {
+    const firstRow = lines[1]?.split('\t')
+    const sample: Record<string, string> = {}
+    headers.forEach((h, i) => { sample[h] = firstRow?.[i]?.trim() ?? '' })
+    console.log('[MFN Returns] Sample row:', JSON.stringify(sample))
+  }
+
   const rows = lines
     .slice(1)
     .filter((line) => line.trim())
