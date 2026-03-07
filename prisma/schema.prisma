@@ -56,6 +56,9 @@ model AmazonAccount {
   orderSyncJobs     OrderSyncJob[]
   mfnReturns        MFNReturn[]
   mfnReturnSyncJobs MFNReturnSyncJob[]
+  fbaRefunds        FbaRefund[]
+  fbaReturns        FbaReturn[]
+  fbaReimbursements FbaReimbursement[]
 
   @@unique([sellerId, marketplaceId])
   @@map("amazon_accounts")
@@ -116,6 +119,111 @@ model Refund {
   @@index([fulfillmentType])
   @@index([accountId])
   @@map("refunds")
+}
+
+enum FbaValidationStatus {
+  UNVALIDATED
+  VALIDATED
+  MANUAL_REVIEW
+}
+
+// ─── FBA Refunds (standalone, no review workflow) ────────────────────────────
+
+model FbaRefund {
+  id                String        @id @default(cuid())
+  accountId         String
+  account           AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  orderId           String        // Amazon order ID
+  adjustmentId      String        // OrderAdjustmentItemId — unique per refund line
+  sku               String?
+  fnsku             String?       // Fulfillment Network SKU
+  asin              String?
+  title             String?
+  refundAmount      Decimal       @db.Decimal(12, 2)
+  currency          String        @default("USD")
+  refundQty         Int           @default(1)
+  refundDate        DateTime
+  originalOrderDate DateTime?     // Joined from Orders table
+  marketplaceId     String
+
+  rawPayload        Json
+
+  validationStatus  FbaValidationStatus @default(UNVALIDATED)
+  validatedAt       DateTime?
+  validationReason  String?
+  validationSource  String?
+
+  importedAt        DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@unique([accountId, orderId, adjustmentId])
+  @@index([refundDate])
+  @@index([accountId])
+  @@index([validationStatus])
+  @@map("fba_refunds")
+}
+
+// ─── FBA Returns (Customer Returns Report) ───────────────────────────────────
+
+model FbaReturn {
+  id                  String        @id @default(cuid())
+  accountId           String
+  account             AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  orderId             String
+  sku                 String        @default("") // non-null for composite unique dedup
+  fnsku               String?
+  asin                String?
+  title               String?
+  quantity            Int?
+  returnDate          DateTime?
+  status              String?       // e.g. "Unit returned to inventory"
+  statusChangeDate    DateTime?
+  detailedDisposition String?       // e.g. "SELLABLE", "DAMAGED"
+  fulfillmentCenterId String?
+  lpn                 String?       // License Plate Number
+
+  importedAt          DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@unique([accountId, orderId, sku])
+  @@index([orderId])
+  @@index([accountId])
+  @@map("fba_returns")
+}
+
+// ─── FBA Reimbursements ──────────────────────────────────────────────────────
+
+model FbaReimbursement {
+  id                          String        @id @default(cuid())
+  accountId                   String
+  account                     AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  reimbursementId             String        // Amazon's reimbursement-id
+  orderId                     String?       // amazon-order-id (may be empty for some types)
+  caseId                      String?
+  reason                      String?       // e.g. "CUSTOMER_RETURN", "Damaged_Warehouse"
+  sku                         String        @default("") // non-null for composite unique dedup
+  fnsku                       String?
+  asin                        String?
+  title                       String?
+  condition                   String?
+  currencyUnit                String?       @default("USD")
+  amountPerUnit               Decimal?      @db.Decimal(12, 2)
+  amountTotal                 Decimal?      @db.Decimal(12, 2)
+  quantityReimbursedCash      Int?
+  quantityReimbursedInventory Int?
+  quantityReimbursedTotal     Int?
+  approvalDate                DateTime?
+
+  importedAt                  DateTime      @default(now())
+  updatedAt                   DateTime      @updatedAt
+
+  @@unique([accountId, reimbursementId, sku])
+  @@index([orderId])
+  @@index([accountId])
+  @@map("fba_reimbursements")
 }
 
 // ─── Reviews ──────────────────────────────────────────────────────────────────
@@ -224,6 +332,8 @@ model SellerListing {
   fulfillmentChannel String   @default("MFN") // MFN = merchant fulfilled, FBA = fulfilled by Amazon
   minPrice           Decimal? @db.Decimal(12, 2)
   maxPrice           Decimal? @db.Decimal(12, 2)
+
+  fnsku              String?   // Fulfillment Network SKU (from fulfillment-channel-sku TSV column)
 
   sold24h            Int       @default(0)
   sold3d             Int       @default(0)
@@ -655,13 +765,14 @@ model LabelBatchItem {
 // ─── Vendors ──────────────────────────────────────────────────────────────────
 
 model Vendor {
-  id        String   @id @default(cuid())
-  name      String
-  contact   String?
-  phone     String?
-  email     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  vendorNumber Int      @unique @default(autoincrement())
+  name         String
+  contact      String?
+  phone        String?
+  email        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   purchaseOrders PurchaseOrder[]
   vendorRMAs     VendorRMA[]
@@ -830,6 +941,27 @@ model MFNReturn {
   quantity          Int?
   returnReason      String?
   returnStatus      String?
+  resolution        String?    // "Refund", "Replacement", etc.
+  inPolicy          String?    // "yes"/"no" — within Amazon return window
+  isPrime           String?    // "yes"/"no"
+  aToZClaim         String?    // A-to-Z Guarantee claim value
+  returnType        String?    // Return type classification
+  labelType         String?    // Prepaid, seller-provided, etc.
+  labelCost         Decimal?   @db.Decimal(12, 2)
+  labelPaidBy       String?    // "Amazon" or "Seller"
+  returnCarrier     String?    // UPS, USPS, FedEx, etc.
+  merchantRmaId     String?    // Seller's own RMA ID
+  returnDeliveryDate DateTime? // When the return was physically delivered back
+  orderAmount       Decimal?   @db.Decimal(12, 2)
+  orderQuantity     Int?
+  refundedAmount    Decimal?   @db.Decimal(12, 2)
+  safetClaimId      String?
+  safetClaimState   String?
+  safetActionReason String?
+  safetClaimCreatedAt DateTime?
+  safetReimbursement Decimal?  @db.Decimal(12, 2)
+  invoiceNumber     String?
+  orderItemId       String?
   // Live carrier tracking status (fetched on demand)
   carrierStatus     String?
   deliveredAt       DateTime? // Actual delivery date from carrier (set when status = Delivered)
@@ -1036,6 +1168,7 @@ enum SerialEventType {
   NOTE_ADDED
   MANUAL_ADD
   MANUAL_REMOVE
+  MIGRATION
   MP_RMA_RETURN
 }
 
@@ -1564,4 +1697,31 @@ model StoreSettings {
   updatedAt      DateTime @updatedAt
 
   @@map("store_settings")
+}
+
+// ─── SICKW IMEI Check ────────────────────────────────────────────────────────
+
+model SickwCredential {
+  id        String   @id @default(cuid())
+  apiKeyEnc String   // AES-256-GCM encrypted via src/lib/crypto.ts
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sickw_credentials")
+}
+
+model SickwCheck {
+  id          String   @id @default(cuid())
+  imei        String
+  serviceId   Int
+  serviceName String
+  status      String   // "success" | "error"
+  result      String?  @db.Text // Full JSON response
+  cost        Decimal? @db.Decimal(8, 4)
+  createdAt   DateTime @default(now())
+
+  @@index([imei])
+  @@index([createdAt])
+  @@map("sickw_checks")
 }

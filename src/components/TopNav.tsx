@@ -7,9 +7,9 @@ import {
   ClipboardList, LogOut, ChevronDown,
   Truck, Tag, Tags, Package, Boxes, Building2, RotateCcw, ShoppingCart,
   LayoutGrid, RefreshCcw, PackageMinus, Barcode, List,
-  Store, Users, FileText, BarChart2, Cpu, Printer,
+  Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, Search, ArrowRightLeft, Menu, X, Settings, History,
-  Moon, Sun, FolderOpen, Undo2,
+  Moon, Sun, FolderOpen, Undo2, Upload,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -46,6 +46,7 @@ const NAV: NavItem[] = [
       { href: '/inventory/move',      label: 'Move Inventory', icon: ArrowRightLeft },
       { href: '/inventory/convert',   label: 'Convert SKU',    icon: Tag },
       { href: '/inventory/events',    label: 'Transaction History', icon: History },
+      { href: '/inventory/migrate',   label: 'Migration Tool',      icon: Upload },
     ],
   },
   {
@@ -65,11 +66,13 @@ const NAV: NavItem[] = [
     icon: Cpu,
     children: [
       { href: '/refunds',            label: 'Refunds',            icon: RefreshCcw },
+      { href: '/fba-refunds',       label: 'FBA Refunds',        icon: RefreshCcw },
       { href: '/shipping-templates', label: 'Shipping Templates', icon: Truck },
       { href: '/returns',            label: 'MFN Returns',        icon: RotateCcw },
       { href: '/return-label',       label: 'Return Label',       icon: Printer },
       { href: '/active-listings',    label: 'Active Listings',    icon: List },
       { href: '/pricing-rules',      label: 'Pricing Rules',      icon: Tag },
+      { href: '/sickw',             label: 'SICKW',              icon: Smartphone },
       { href: '/audit',              label: 'Audit Log',          icon: ClipboardList },
     ],
   },

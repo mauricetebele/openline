@@ -5,7 +5,7 @@ import {
   CheckCircle, AlertTriangle, Clock, RefreshCw, FlaskConical,
   ExternalLink, Warehouse, Truck, Settings,
   ChevronRight, Trash2, RotateCcw, Plus, X,
-  Store, Upload, ImageIcon, Users, Shield, Printer, Package,
+  Store, Upload, ImageIcon, Users, Shield, Printer, Package, Smartphone,
 } from 'lucide-react'
 import AppShell from '@/components/AppShell'
 import WarehouseManager from '@/components/WarehouseManager'
@@ -71,7 +71,7 @@ interface AmazonAccount {
   createdAt: string
 }
 
-type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'fedex' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer'
+type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'fedex' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer' | 'sickw'
 
 // ─── Amazon Accounts Section ──────────────────────────────────────────────────
 
@@ -757,6 +757,93 @@ function FedexCredentialsSection() {
           <li>Copy the <strong>API Key</strong> (Client ID) and <strong>Secret Key</strong> (Client Secret)</li>
           <li>Your <strong>Account Number</strong> is found in your FedEx account profile (9-digit number)</li>
         </ol>
+      </div>
+    </div>
+  )
+}
+
+// ─── SICKW Credentials Section ──────────────────────────────────────────────
+
+function SickwCredentialsSection() {
+  const [configured, setConfigured] = useState(false)
+  const [maskedKey, setMaskedKey] = useState<string | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+  const [apiKey, setApiKey] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { fetchStatus() }, [])
+
+  async function fetchStatus() {
+    const res = await fetch('/api/sickw/credentials')
+    if (res.ok) {
+      const data = await res.json()
+      setConfigured(data.configured ?? false)
+      setMaskedKey(data.maskedKey ?? null)
+      setUpdatedAt(data.updatedAt ?? null)
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const res = await fetch('/api/sickw/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: apiKey.trim() }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('SICKW API key saved!')
+      setApiKey('')
+      fetchStatus()
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      {configured && (
+        <div className="card p-5">
+          <div className="flex items-center gap-3">
+            <CheckCircle size={16} className="text-green-500 shrink-0" />
+            <div>
+              <p className="font-semibold text-sm">SICKW API Connected</p>
+              <p className="text-xs text-gray-400">
+                API Key: <span className="font-mono">{maskedKey}</span>
+                {updatedAt && ` · Updated ${new Date(updatedAt).toLocaleDateString()}`}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="card p-6">
+        <div className="flex items-start gap-4 mb-5">
+          <div className="rounded-xl p-3 bg-cyan-50">
+            <Smartphone size={20} className="text-cyan-600" />
+          </div>
+          <div>
+            <p className="font-semibold">{configured ? 'Update SICKW API Key' : 'Connect SICKW API'}</p>
+            <p className="text-sm text-gray-500 mt-1">
+              SICKW provides IMEI checking services (iCloud, carrier, blacklist, Knox, etc.).
+              Get your API key from <a href="https://sickw.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">sickw.com</a>.
+            </p>
+          </div>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="label">API Key</label>
+            <input className="input font-mono" type="password" placeholder="Your SICKW API key"
+              value={apiKey} onChange={e => setApiKey(e.target.value)} required />
+          </div>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            <RefreshCw size={14} className={saving ? 'animate-spin' : ''} />
+            {saving ? 'Saving…' : configured ? 'Update API Key' : 'Save API Key'}
+          </button>
+        </form>
       </div>
     </div>
   )
@@ -1678,6 +1765,14 @@ const HUB_GROUPS: HubGroup[] = [
         title: 'FedEx API',
         description: 'Store your FedEx developer credentials to enable live tracking status for FedEx shipments on the Shipping Manifest.',
       },
+      {
+        id: 'sickw',
+        icon: Smartphone,
+        iconBg: 'bg-cyan-50',
+        iconColor: 'text-cyan-600',
+        title: 'SICKW',
+        description: 'Store your SICKW API key to run IMEI checks (iCloud, carrier, blacklist, Knox, etc.) from the SICKW tool page.',
+      },
     ],
   },
   {
@@ -1818,6 +1913,7 @@ function SettingsContent() {
             {activeSection === 'warehouses'     && <WarehouseManager />}
             {activeSection === 'ups'            && <UpsCredentialsSection />}
             {activeSection === 'fedex'          && <FedexCredentialsSection />}
+            {activeSection === 'sickw'          && <SickwCredentialsSection />}
             {activeSection === 'backmarket'     && <BackMarketSection />}
             {activeSection === 'rma-settings'   && <RMASettingsSection />}
             {activeSection === 'store-settings' && <StoreSettingsSection />}
