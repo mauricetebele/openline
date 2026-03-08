@@ -60,3 +60,20 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json(entry, { status: 201 })
 }
+
+export async function PATCH(req: NextRequest) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json()
+  const { id, vendorInvoiceNo } = body as { id: string; vendorInvoiceNo?: string }
+
+  if (!id) return NextResponse.json({ error: 'Entry ID is required' }, { status: 400 })
+
+  const entry = await prisma.vendorLedgerEntry.update({
+    where: { id },
+    data: { vendorInvoiceNo: vendorInvoiceNo?.trim() || null },
+  })
+
+  return NextResponse.json(entry)
+}

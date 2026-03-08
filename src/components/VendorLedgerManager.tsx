@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { AlertCircle, X, ChevronDown, ChevronUp, DollarSign, Plus, Upload, Eye, FileText } from 'lucide-react'
+import { AlertCircle, X, ChevronDown, ChevronUp, DollarSign, Plus, Upload, Eye, FileText, Pencil, Check } from 'lucide-react'
 import { clsx } from 'clsx'
 
 interface Vendor { id: string; vendorNumber: number; name: string }
@@ -18,6 +18,7 @@ interface LedgerEntry {
   type: 'DEBIT' | 'CREDIT'
   amount: string
   description: string | null
+  vendorInvoiceNo: string | null
   purchaseOrder: { id: string; poNumber: number } | null
   adjustments: Adjustment[]
   fileBase64: string | null
@@ -55,6 +56,10 @@ export default function VendorLedgerManager() {
   const [payFileBase64, setPayFileBase64] = useState<string | null>(null)
   const [payFilename, setPayFilename] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Inline invoice # editing
+  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
+  const [editingInvoiceVal, setEditingInvoiceVal] = useState('')
 
   useEffect(() => {
     fetch('/api/vendors')
@@ -151,6 +156,21 @@ export default function VendorLedgerManager() {
       setErr(e.message)
     } finally {
       setPaySaving(false)
+    }
+  }
+
+  async function saveInvoiceNo(entryId: string) {
+    try {
+      const res = await fetch('/api/vendor-ledger', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: entryId, vendorInvoiceNo: editingInvoiceVal }),
+      })
+      if (!res.ok) throw new Error('Failed to update')
+      setEditingInvoiceId(null)
+      load()
+    } catch (e: any) {
+      setErr(e.message)
     }
   }
 
@@ -340,6 +360,7 @@ export default function VendorLedgerManager() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Vendor</th>
                 )}
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Invoice #</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">PO #</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Amount</th>
@@ -378,6 +399,36 @@ export default function VendorLedgerManager() {
                           {row.type}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-gray-500" onClick={(e) => e.stopPropagation()}>
+                        {editingInvoiceId === row.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              value={editingInvoiceVal}
+                              onChange={(e) => setEditingInvoiceVal(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') saveInvoiceNo(row.id); if (e.key === 'Escape') setEditingInvoiceId(null) }}
+                              className="h-7 w-28 rounded border border-gray-300 px-2 text-xs"
+                              autoFocus
+                            />
+                            <button type="button" onClick={() => saveInvoiceNo(row.id)} className="text-green-600 hover:text-green-800">
+                              <Check size={13} />
+                            </button>
+                            <button type="button" onClick={() => setEditingInvoiceId(null)} className="text-gray-400 hover:text-gray-600">
+                              <X size={13} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setEditingInvoiceId(row.id); setEditingInvoiceVal(row.vendorInvoiceNo || '') }}
+                            className="flex items-center gap-1 text-xs hover:text-gray-900 group/inv"
+                            title="Click to edit"
+                          >
+                            {row.vendorInvoiceNo || <span className="text-gray-300">—</span>}
+                            <Pencil size={11} className="opacity-0 group-hover/inv:opacity-100 text-gray-400" />
+                          </button>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-gray-700">
                         <div className="flex items-center gap-1.5">
                           {row.description || '—'}
@@ -410,7 +461,7 @@ export default function VendorLedgerManager() {
                     </tr>
                     {isExpanded && (
                       <tr key={`${row.id}-adj`}>
-                        <td colSpan={vendorId ? 6 : 7} className="px-0 py-0">
+                        <td colSpan={vendorId ? 7 : 8} className="px-0 py-0">
                           <div className="bg-gray-50 border-t border-gray-100 px-10 py-3">
                             <p className="text-xs font-semibold text-gray-500 mb-1.5">Adjustments</p>
                             <div className="space-y-1">

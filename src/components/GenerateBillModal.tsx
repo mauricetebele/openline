@@ -43,6 +43,7 @@ function ErrorBanner({ msg, onClose }: { msg: string; onClose: () => void }) {
 
 export default function GenerateBillModal({ po, onClose, onSuccess }: GenerateBillModalProps) {
   const [adjustments, setAdjustments] = useState<Adjustment[]>([])
+  const [vendorInvoiceNo, setVendorInvoiceNo] = useState('')
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -87,6 +88,7 @@ export default function GenerateBillModal({ po, onClose, onSuccess }: GenerateBi
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          vendorInvoiceNo: vendorInvoiceNo.trim() || undefined,
           description: description.trim() || undefined,
           adjustments: adjustments.map((a) => ({
             label: a.label.trim(),
@@ -216,16 +218,28 @@ export default function GenerateBillModal({ po, onClose, onSuccess }: GenerateBi
             ))}
           </div>
 
-          {/* Description */}
-          <div>
-            <label className="text-sm font-semibold text-gray-700">Description (optional)</label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Invoice #12345"
-              className="w-full border rounded-lg px-3 py-1.5 text-sm mt-1"
-            />
+          {/* Vendor Invoice # and Description */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-semibold text-gray-700">Vendor Invoice #</label>
+              <input
+                type="text"
+                value={vendorInvoiceNo}
+                onChange={(e) => setVendorInvoiceNo(e.target.value)}
+                placeholder="e.g. INV-12345"
+                className="w-full border rounded-lg px-3 py-1.5 text-sm mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-semibold text-gray-700">Description (optional)</label>
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="e.g. March order"
+                className="w-full border rounded-lg px-3 py-1.5 text-sm mt-1"
+              />
+            </div>
           </div>
 
           {/* Summary */}

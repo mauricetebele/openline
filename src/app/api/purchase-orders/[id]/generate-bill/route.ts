@@ -11,8 +11,9 @@ export async function POST(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { description, adjustments } = body as {
+  const { description, vendorInvoiceNo, adjustments } = body as {
     description?: string
+    vendorInvoiceNo?: string
     adjustments?: { label: string; amount: number }[]
   }
 
@@ -53,6 +54,7 @@ export async function POST(
       type: 'DEBIT',
       amount: finalAmount,
       description: description?.trim() || `PO #${(po as any).poNumber} bill`,
+      vendorInvoiceNo: vendorInvoiceNo?.trim() || null,
       purchaseOrderId: po.id,
       adjustments: adjustments?.length
         ? {
