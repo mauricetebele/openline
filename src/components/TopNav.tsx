@@ -9,7 +9,7 @@ import {
   LayoutGrid, RefreshCcw, PackageMinus, Barcode, List,
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, Search, ArrowRightLeft, Menu, X, Settings, History,
-  Moon, Sun, FolderOpen, Undo2, Upload,
+  Moon, Sun, FolderOpen, Undo2, Upload, BookOpen,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -32,6 +32,7 @@ const NAV: NavItem[] = [
     children: [
       { href: '/vendors',         label: 'Vendors',         icon: Building2 },
       { href: '/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
+      { href: '/vendor-ledger',  label: 'Vendor Ledger',   icon: BookOpen },
       { href: '/vendor-rma',            label: 'Vendor Returns',  icon: PackageMinus },
       { href: '/marketplace-returns',  label: 'MP Returns',      icon: Undo2 },
     ],
