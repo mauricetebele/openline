@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
       purchaseOrder: { select: { id: true, poNumber: true } },
       adjustments: true,
     },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { createdAt: 'desc' },
   })
 
   return NextResponse.json({ data: entries })

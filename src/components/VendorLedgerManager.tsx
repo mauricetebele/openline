@@ -90,13 +90,16 @@ export default function VendorLedgerManager() {
     .reduce((s, e) => s + parseFloat(e.amount), 0)
   const netBalance = totalDebits - totalCredits
 
-  // Running balance
+  // Running balance — compute oldest-first, then reverse back to newest-first for display
+  const chronological = [...entries].reverse()
   let runningBalance = 0
-  const rows = entries.map((e) => {
+  const balanceMap = new Map<string, number>()
+  for (const e of chronological) {
     if (e.type === 'DEBIT') runningBalance += parseFloat(e.amount)
     else runningBalance -= parseFloat(e.amount)
-    return { ...e, balance: runningBalance }
-  })
+    balanceMap.set(e.id, runningBalance)
+  }
+  const rows = entries.map((e) => ({ ...e, balance: balanceMap.get(e.id) ?? 0 }))
 
   function openForm(type: 'CREDIT' | 'DEBIT') {
     setPayType(type)
