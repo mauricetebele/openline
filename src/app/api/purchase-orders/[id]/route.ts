@@ -50,7 +50,7 @@ export async function PUT(
   }
 
   const body = await req.json()
-  const { vendorId, date, notes, status, lines } = body
+  const { vendorId, date, notes, status, lines, vendorInvoiceBase64, vendorInvoiceFilename } = body
 
   if (!vendorId) return NextResponse.json({ error: 'Vendor is required' }, { status: 400 })
   if (!date)     return NextResponse.json({ error: 'Date is required' }, { status: 400 })
@@ -72,6 +72,8 @@ export async function PUT(
         date: new Date(date),
         notes: notes?.trim() || null,
         status: status ?? 'OPEN',
+        ...(vendorInvoiceBase64 !== undefined ? { vendorInvoiceBase64: vendorInvoiceBase64 || null } : {}),
+        ...(vendorInvoiceFilename !== undefined ? { vendorInvoiceFilename: vendorInvoiceFilename || null } : {}),
         lines: {
           create: lines.map((l: { productId: string; qty: number; unitCost: number; gradeId?: string | null }) => ({
             productId: l.productId,

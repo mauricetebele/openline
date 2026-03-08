@@ -1,9 +1,10 @@
 'use client'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Plus, Pencil, Trash2, X, AlertCircle, ShoppingCart, ChevronDown, ChevronUp, PackageCheck, Clock, Upload, Search, Download } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, AlertCircle, ShoppingCart, ChevronDown, ChevronUp, PackageCheck, Clock, Upload, Search, Download, FileUp, Eye, Receipt } from 'lucide-react'
 import { clsx } from 'clsx'
 import ReceiveModal from './ReceiveModal'
 import SpreadsheetReceiveModal from './SpreadsheetReceiveModal'
+import GenerateBillModal from './GenerateBillModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,8 +29,11 @@ interface PurchaseOrder {
   date: string
   notes: string | null
   status: 'OPEN' | 'RECEIVED' | 'CANCELLED'
+  vendorInvoiceBase64: string | null
+  vendorInvoiceFilename: string | null
   createdAt: string
   lines: POLine[]
+  ledgerEntry: { id: string } | null
 }
 
 interface FormLine {
@@ -144,6 +148,29 @@ function POPanel({
   const [status,   setStatus]     = useState<'OPEN' | 'RECEIVED' | 'CANCELLED'>(editing?.status ?? 'OPEN')
   const [saving,   setSaving]     = useState(false)
   const [err,      setErr]        = useState('')
+
+  // ── Invoice state ──────────────────────────────────────────────────────
+  const [invoiceBase64,   setInvoiceBase64]   = useState<string | null>(editing?.vendorInvoiceBase64 ?? null)
+  const [invoiceFilename, setInvoiceFilename] = useState<string | null>(editing?.vendorInvoiceFilename ?? null)
+  const invoiceRef = useRef<HTMLInputElement>(null)
+
+  function handleInvoiceFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { setErr('Invoice file must be under 5 MB'); return }
+    if (!file.type.match(/^(application\/pdf|image\/(png|jpe?g|webp|gif))$/)) {
+      setErr('Invoice must be a PDF or image (PNG, JPG, WebP, GIF)'); return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setInvoiceBase64(reader.result)
+        setInvoiceFilename(file.name)
+      }
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
 
   // ── Line items state ──────────────────────────────────────────────────────
   const [lines, setLines] = useState<FormLine[]>([])
@@ -397,6 +424,8 @@ function POPanel({
       const payload = {
         vendorId, date, notes: notes.trim() || null,
         status: isEdit ? status : 'OPEN',
+        vendorInvoiceBase64: invoiceBase64,
+        vendorInvoiceFilename: invoiceFilename,
         lines: lines.map(l => ({
           productId: l.productId,
           qty: Number(l.qty),
@@ -500,6 +529,48 @@ function POPanel({
               autoComplete="off"
               placeholder="Optional notes…"
               className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue resize-none"
+            />
+          </div>
+
+          {/* Vendor Invoice */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Vendor Invoice</label>
+            {invoiceBase64 ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-600 truncate flex-1">{invoiceFilename ?? 'Invoice attached'}</span>
+                <button
+                  type="button"
+                  onClick={() => window.open(invoiceBase64!, '_blank')}
+                  className="flex items-center gap-1 h-7 px-2 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200"
+                >
+                  <Eye size={12} /> View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setInvoiceBase64(null); setInvoiceFilename(null) }}
+                  className="flex items-center gap-1 h-7 px-2 rounded text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200"
+                >
+                  <Trash2 size={12} /> Remove
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => invoiceRef.current?.click()}
+                  className="flex items-center gap-1.5 h-8 px-3 rounded-md border border-dashed border-gray-300 text-xs text-gray-500 hover:border-gray-400 hover:text-gray-700 hover:bg-gray-50"
+                >
+                  <FileUp size={13} /> Upload PDF or Image
+                </button>
+                <span className="text-[10px] text-gray-400">Max 5 MB</span>
+              </div>
+            )}
+            <input
+              ref={invoiceRef}
+              type="file"
+              accept=".pdf,image/png,image/jpeg,image/webp,image/gif"
+              className="hidden"
+              onChange={handleInvoiceFile}
             />
           </div>
 
@@ -825,12 +896,14 @@ function PORow({
   onDeleted,
   onReceive,
   onSpreadsheetReceive,
+  onGenerateBill,
 }: {
   po: PurchaseOrder
   onEdit: (po: PurchaseOrder) => void
   onDeleted: () => void
   onReceive: (po: PurchaseOrder) => void
   onSpreadsheetReceive: (po: PurchaseOrder) => void
+  onGenerateBill: (po: PurchaseOrder) => void
 }) {
   const [expanded,      setExpanded]      = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
@@ -885,6 +958,20 @@ function PORow({
             </div>
           ) : (
             <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+              {po.ledgerEntry ? (
+                <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-600">
+                  <Receipt size={12} /> Billed
+                </span>
+              ) : po.status !== 'CANCELLED' ? (
+                <button
+                  type="button"
+                  onClick={() => onGenerateBill(po)}
+                  title="Generate bill for vendor ledger"
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200"
+                >
+                  <Receipt size={12} /> Bill
+                </button>
+              ) : null}
               {po.status !== 'CANCELLED' && po.status !== 'RECEIVED' && (
                 <>
                   <button
@@ -963,6 +1050,36 @@ function PORow({
                 </tfoot>
               </table>
 
+              {/* Download Spreadsheet */}
+              <div className="mt-4 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    window.open(`/api/purchase-orders/${po.id}/export-csv`, '_blank')
+                  }}
+                  className="flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200"
+                >
+                  <Download size={13} /> Download Spreadsheet
+                </button>
+              </div>
+
+              {/* Vendor Invoice */}
+              {po.vendorInvoiceBase64 && (
+                <div className="mt-4 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); window.open(po.vendorInvoiceBase64!, '_blank') }}
+                    className="flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200"
+                  >
+                    <Eye size={13} /> View Invoice
+                  </button>
+                  {po.vendorInvoiceFilename && (
+                    <span className="text-xs text-gray-400">{po.vendorInvoiceFilename}</span>
+                  )}
+                </div>
+              )}
+
               {/* Receipt history */}
               <ReceiptHistory poId={po.id} />
             </div>
@@ -984,6 +1101,7 @@ export default function PurchaseOrdersManager() {
   const [panel,    setPanel]    = useState<'create' | PurchaseOrder | null>(null)
   const [receiving, setReceiving] = useState<PurchaseOrder | null>(null)
   const [spreadsheetReceiving, setSpreadsheetReceiving] = useState<PurchaseOrder | null>(null)
+  const [billing, setBilling] = useState<PurchaseOrder | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
 
   const load = useCallback(async () => {
@@ -1091,6 +1209,7 @@ export default function PurchaseOrdersManager() {
                   onDeleted={load}
                   onReceive={p => setReceiving(p)}
                   onSpreadsheetReceive={p => setSpreadsheetReceiving(p)}
+                  onGenerateBill={p => setBilling(p)}
                 />
               ))}
             </tbody>
@@ -1132,6 +1251,14 @@ export default function PurchaseOrdersManager() {
           po={spreadsheetReceiving}
           onReceived={() => { setSpreadsheetReceiving(null); load() }}
           onClose={() => setSpreadsheetReceiving(null)}
+        />
+      )}
+
+      {billing !== null && (
+        <GenerateBillModal
+          po={billing}
+          onClose={() => setBilling(null)}
+          onSuccess={() => { setBilling(null); load() }}
         />
       )}
     </div>

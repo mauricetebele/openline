@@ -7,7 +7,7 @@ import {
   Truck, Tag, Package, Boxes, Building2, RotateCcw, ShoppingCart, Warehouse,
   LayoutGrid, X, RefreshCcw, PackageMinus, Barcode, List,
   Store, Users, FileText, BarChart2, Cpu, Ship,
-  Plus, Search, ArrowRightLeft, FolderOpen,
+  Plus, Search, ArrowRightLeft, FolderOpen, BookOpen,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAuth } from '@/context/AuthContext'
@@ -24,6 +24,7 @@ const NAV: NavItem[] = [
   { href: '/products',         label: 'Products',        icon: Boxes },
   { href: '/vendors',          label: 'Vendors',         icon: Building2 },
   { href: '/purchase-orders',  label: 'Purchase Orders', icon: ShoppingCart },
+  { href: '/vendor-ledger',   label: 'Vendor Ledger',   icon: BookOpen },
   { href: '/warehouses',       label: 'Warehouses',      icon: Warehouse },
   {
     group: true,

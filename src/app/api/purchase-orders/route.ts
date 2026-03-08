@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { createdAt: 'asc' },
       },
+      ledgerEntry: { select: { id: true } },
     },
     orderBy: { poNumber: 'desc' },
   })
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { vendorId, date, notes, lines } = body
+  const { vendorId, date, notes, lines, vendorInvoiceBase64, vendorInvoiceFilename } = body
 
   if (!vendorId) return NextResponse.json({ error: 'Vendor is required' }, { status: 400 })
   if (!date)     return NextResponse.json({ error: 'Date is required' }, { status: 400 })
@@ -59,6 +60,8 @@ export async function POST(req: NextRequest) {
         vendorId,
         date: new Date(date),
         notes: notes?.trim() || null,
+        ...(vendorInvoiceBase64 !== undefined ? { vendorInvoiceBase64: vendorInvoiceBase64 || null } : {}),
+        ...(vendorInvoiceFilename !== undefined ? { vendorInvoiceFilename: vendorInvoiceFilename || null } : {}),
         lines: {
           create: lines.map((l: { productId: string; qty: number; unitCost: number; gradeId?: string | null }) => ({
             productId: l.productId,

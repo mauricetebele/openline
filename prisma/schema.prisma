@@ -794,6 +794,7 @@ model Vendor {
 
   purchaseOrders PurchaseOrder[]
   vendorRMAs     VendorRMA[]
+  ledgerEntries  VendorLedgerEntry[]
 
   @@map("vendors")
 }
@@ -909,12 +910,15 @@ model PurchaseOrder {
   date      DateTime
   notes     String?
   status    POStatus @default(OPEN)
+  vendorInvoiceBase64   String?  @db.Text
+  vendorInvoiceFilename String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   lines         PurchaseOrderLine[]
   receipts      POReceipt[]
   serialHistory SerialHistory[]
+  ledgerEntry   VendorLedgerEntry?
 
   @@index([vendorId])
   @@map("purchase_orders")
@@ -938,6 +942,42 @@ model PurchaseOrderLine {
   @@index([productId])
   @@index([gradeId])
   @@map("purchase_order_lines")
+}
+
+// ─── Vendor Ledger ───────────────────────────────────────────────────────────
+
+enum LedgerEntryType {
+  DEBIT
+  CREDIT
+}
+
+model VendorLedgerEntry {
+  id              String          @id @default(cuid())
+  vendorId        String
+  vendor          Vendor          @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  type            LedgerEntryType
+  amount          Decimal         @db.Decimal(12, 2)
+  description     String?
+  purchaseOrderId String?         @unique
+  purchaseOrder   PurchaseOrder?  @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  fileBase64      String?         @db.Text
+  fileFilename    String?
+  createdAt       DateTime        @default(now())
+  adjustments     VendorLedgerAdjustment[]
+
+  @@index([vendorId])
+  @@map("vendor_ledger_entries")
+}
+
+model VendorLedgerAdjustment {
+  id      String            @id @default(cuid())
+  entryId String
+  entry   VendorLedgerEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  label   String
+  amount  Decimal           @db.Decimal(12, 2)
+
+  @@index([entryId])
+  @@map("vendor_ledger_adjustments")
 }
 
 // ─── MFN Returns ─────────────────────────────────────────────────────────────
