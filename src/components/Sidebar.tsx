@@ -7,7 +7,7 @@ import {
   Truck, Tag, Package, Boxes, Building2, RotateCcw, ShoppingCart, Warehouse,
   LayoutGrid, X, RefreshCcw, PackageMinus, Barcode, List,
   Store, Users, FileText, BarChart2, Cpu, Ship,
-  Plus, Search, ArrowRightLeft, FolderOpen, BookOpen,
+  Plus, Search, ArrowRightLeft, FolderOpen, BookOpen, DollarSign,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAuth } from '@/context/AuthContext'
@@ -55,6 +55,7 @@ const NAV: NavItem[] = [
       { href: '/active-listings',    label: 'Active Listings',   icon: List },
       { href: '/pricing-rules',      label: 'Pricing Rules',     icon: Tag },
       { href: '/audit',              label: 'Audit Log',         icon: ClipboardList },
+      { href: '/shipping-cost',      label: 'Shipping Cost',     icon: DollarSign },
     ],
   },
   { divider: true, label: 'Wholesale' },
@@ -64,7 +65,7 @@ const NAV: NavItem[] = [
   { href: '/wholesale/aging',     label: 'Aging Report',  icon: BarChart2 },
 ]
 
-const AMAZON_TOOL_HREFS    = ['/refunds', '/shipping-templates', '/returns', '/active-listings', '/pricing-rules', '/audit']
+const AMAZON_TOOL_HREFS    = ['/refunds', '/shipping-templates', '/returns', '/active-listings', '/pricing-rules', '/audit', '/shipping-cost']
 const INVENTORY_HREFS      = ['/inventory']
 
 interface SidebarProps {

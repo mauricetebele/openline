@@ -9,7 +9,7 @@ import {
   LayoutGrid, RefreshCcw, PackageMinus, Barcode, List,
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, Search, ArrowRightLeft, Menu, X, Settings, History,
-  Moon, Sun, FolderOpen, Undo2, Upload, BookOpen,
+  Moon, Sun, FolderOpen, Undo2, Upload, BookOpen, DollarSign,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -76,6 +76,7 @@ const NAV: NavItem[] = [
       { href: '/pricing-rules',      label: 'Pricing Rules',      icon: Tag },
       { href: '/sickw',             label: 'SICKW',              icon: Smartphone },
       { href: '/audit',              label: 'Audit Log',          icon: ClipboardList },
+      { href: '/shipping-cost',      label: 'Shipping Cost',      icon: DollarSign },
     ],
   },
   {
