@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
           .map(r => ({
             serviceName:  r.service_type || r.service_code,
             serviceCode:  r.service_code,
-            carrierCode:  r.carrier_code,
+            carrierCode:  r.carrier_friendly_name || r.carrier_code,
             carrierName,
             shipmentCost: r.shipping_amount?.amount ?? 0,
             otherCost:    r.other_amount?.amount ?? 0,

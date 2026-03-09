@@ -253,7 +253,7 @@ export async function POST(req: NextRequest) {
               }
 
               rateAmount  = match.shipping_amount.amount + match.other_amount.amount
-              rateCarrier = match.carrier_code
+              rateCarrier = match.carrier_friendly_name || match.carrier_code
               rateService = match.service_type || match.service_code
               rateId      = match.rate_id
 

@@ -237,7 +237,7 @@ export async function POST(req: NextRequest) {
               }
 
               rateAmount  = cheapest.shipping_amount.amount + cheapest.other_amount.amount
-              rateCarrier = cheapest.carrier_code
+              rateCarrier = cheapest.carrier_friendly_name || cheapest.carrier_code
               rateService = cheapest.service_type || cheapest.service_code
               rateId      = cheapest.rate_id
 
