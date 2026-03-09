@@ -5601,16 +5601,17 @@ export default function UnshippedOrders() {
             )}
 
             {/* Create label batch (unshipped tab) */}
-            {activeTab === 'unshipped' && batchEligible.length > 0 && (
+            {activeTab === 'unshipped' && selectedOrderIds.size > 0 && (
               <button
                 onClick={() => setShowBatchConfirm(true)}
-                disabled={applyingPreset || applyingPackagePreset}
+                disabled={applyingPreset || applyingPackagePreset || batchEligible.length === 0}
+                title={batchEligible.length === 0 ? 'All selected orders need a shopped rate first' : undefined}
                 className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
-                  applyingPreset || applyingPackagePreset
+                  applyingPreset || applyingPackagePreset || batchEligible.length === 0
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     : 'bg-indigo-600 text-white hover:bg-indigo-700')}
               >
-                <Tag size={11} /> Label Batch ({batchEligible.length})
+                <Tag size={11} /> Label Batch ({batchEligible.length}/{selectedOrderIds.size})
               </button>
             )}
 
