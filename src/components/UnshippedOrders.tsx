@@ -2253,7 +2253,7 @@ function OrderDetailModal({
                             <td className="px-4 py-2.5 text-right tabular-nums text-gray-700 whitespace-nowrap align-top">
                               {item.itemPrice ? fmt(item.itemPrice, order.currency) : '—'}
                             </td>
-                            <td className={clsx('px-4 py-2.5 text-right tabular-nums align-top', item.quantityOrdered > 1 ? 'font-bold text-blue-600' : 'font-semibold text-gray-900')}>{item.quantityOrdered}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums align-top font-semibold text-gray-900">{item.quantityOrdered}</td>
                             <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-gray-900 whitespace-nowrap align-top">
                               {extPrice > 0 ? fmt(String(extPrice), order.currency) : '—'}
                             </td>
@@ -5947,7 +5947,7 @@ export default function UnshippedOrders() {
                   {/* Qty */}
                   <td className="px-3 py-1.5 whitespace-nowrap">
                     <div className={clsx('flex flex-col', multi && 'gap-0.5')}>
-                      {order.items.map(i => <span key={i.id} className="text-[11px] text-gray-700 leading-4 tabular-nums">{i.quantityOrdered}</span>)}
+                      {order.items.map(i => <span key={i.id} className={clsx('text-[11px] leading-4 tabular-nums', i.quantityOrdered > 1 ? 'font-bold text-blue-600' : 'text-gray-700')}>{i.quantityOrdered}</span>)}
                     </div>
                   </td>
                   {/* Product */}
