@@ -27,6 +27,9 @@ model User {
   casesAssigned Case[]        @relation("CaseAssignedTo")
   caseMessages  CaseMessage[]
 
+  todos        Todo[]
+  todoComments TodoComment[]
+
   @@map("users")
 }
 
@@ -1782,4 +1785,42 @@ model SickwCheck {
   @@index([imei])
   @@index([createdAt])
   @@map("sickw_checks")
+}
+
+// ─── Todos ───────────────────────────────────────────────────────────────────
+
+enum TodoPriority {
+  URGENT
+  NORMAL
+  LOW
+}
+
+model Todo {
+  id          String       @id @default(cuid())
+  title       String
+  description String?      @db.Text
+  priority    TodoPriority @default(NORMAL)
+  completed   Boolean      @default(false)
+  dueDate     DateTime?
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  comments    TodoComment[]
+
+  @@index([userId])
+  @@map("todos")
+}
+
+model TodoComment {
+  id        String   @id @default(cuid())
+  todoId    String
+  todo      Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([todoId])
+  @@map("todo_comments")
 }

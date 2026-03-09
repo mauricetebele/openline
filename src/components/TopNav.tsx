@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom'
 import {
   ClipboardList, LogOut, ChevronDown,
   Truck, Tag, Tags, Package, Boxes, Building2, RotateCcw, ShoppingCart,
-  LayoutGrid, RefreshCcw, PackageMinus, Barcode, List,
+  LayoutGrid, RefreshCcw, PackageMinus, Barcode, List, ListTodo,
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, Search, ArrowRightLeft, Menu, X, Settings, History,
   Moon, Sun, FolderOpen, Undo2, Upload, BookOpen,
@@ -69,6 +69,7 @@ const NAV: NavItem[] = [
     ],
   },
   { href: '/cases',            label: 'Cases',       icon: FolderOpen },
+  { href: '/todo-list',        label: 'To Do',       icon: ListTodo },
   { href: '/serial-search',    label: 'Serial Search',    icon: Barcode },
   {
     group: true,
