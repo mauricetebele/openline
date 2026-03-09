@@ -4074,6 +4074,7 @@ export default function UnshippedOrders() {
   const [syncError, setSyncError]         = useState<string | null>(null)
   const [ssEnriching, setSsEnriching]     = useState(false)
   const [ssEnrichResult, setSsEnrichResult] = useState<{ enriched: number; addresses: number } | null>(null)
+  const [ssProgress, setSsProgress]       = useState('')
   const [showSyncBar, setShowSyncBar]     = useState(false)
   const [lastSyncInfo, setLastSyncInfo]   = useState<Record<string, { completedAt: string; trigger: string; totalSynced: number } | null>>({})
 
@@ -4340,22 +4341,7 @@ export default function UnshippedOrders() {
           fetchLastSync()
           // Auto-trigger ShipStation enrichment after sync completes
           if (selectedAccountId && (syncSource === 'amazon' || syncSource === 'all')) {
-            setSsEnriching(true)
-            setSsEnrichResult(null)
-            fetch('/api/orders/enrich-shipstation', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ accountId: selectedAccountId }),
-            })
-              .then(r => r.json())
-              .then((data: { enriched?: number; addresses?: number; error?: string }) => {
-                if (data.enriched != null) {
-                  setSsEnrichResult({ enriched: data.enriched, addresses: data.addresses ?? 0 })
-                  if (data.enriched > 0 || (data.addresses ?? 0) > 0) setFetchKey(k => k + 1)
-                }
-              })
-              .catch(() => {})
-              .finally(() => { setSsEnriching(false); dismissSyncBarLater() })
+            checkShipStationSync().finally(() => dismissSyncBarLater())
           } else {
             dismissSyncBarLater()
           }
@@ -4529,20 +4515,46 @@ export default function UnshippedOrders() {
 
   async function checkShipStationSync() {
     if (!selectedAccountId) return
-    setSsEnriching(true); setSsEnrichResult(null)
+    setSsEnriching(true); setSsEnrichResult(null); setSsProgress('Starting…')
     try {
-      const res = await apiPost<{ enriched: number; addresses: number; total: number; checked: number; error?: string }>(
-        '/api/orders/enrich-shipstation',
-        { accountId: selectedAccountId },
-      )
-      if (res.error) throw new Error(res.error)
-      setSsEnrichResult({ enriched: res.enriched, addresses: res.addresses })
-      // Refresh grid so SS badges appear immediately
-      if (res.enriched > 0 || res.addresses > 0) setFetchKey(k => k + 1)
+      const res = await fetch('/api/orders/enrich-shipstation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: selectedAccountId }),
+      })
+      if (!res.ok) throw new Error('SS sync failed')
+      const reader = res.body?.getReader()
+      if (!reader) throw new Error('No stream')
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let finalResult: { enriched: number; addresses: number } | null = null
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (!line.trim()) continue
+          const evt = JSON.parse(line)
+          if (evt.phase === 'fetching') setSsProgress('Fetching ShipStation orders…')
+          else if (evt.phase === 'fetched') setSsProgress(`Fetched ${evt.total} SS orders`)
+          else if (evt.phase === 'checking') setSsProgress(`Checking ${evt.checked} local orders…`)
+          else if (evt.phase === 'updating') setSsProgress(`Updating ${evt.done}/${evt.of} orders…`)
+          else if (evt.phase === 'done') {
+            finalResult = { enriched: evt.enriched, addresses: evt.addresses }
+            setSsProgress('')
+          } else if (evt.phase === 'error') throw new Error(evt.error)
+        }
+      }
+      if (finalResult) {
+        setSsEnrichResult(finalResult)
+        if (finalResult.enriched > 0 || finalResult.addresses > 0) setFetchKey(k => k + 1)
+      }
     } catch (err) {
       setSyncError(err instanceof Error ? err.message : 'SS check failed')
     } finally {
-      setSsEnriching(false)
+      setSsEnriching(false); setSsProgress('')
     }
   }
 
@@ -5613,7 +5625,7 @@ export default function UnshippedOrders() {
           {bmSyncStatus && <SyncProgressRow label="BM" job={bmSyncStatus} color="teal" />}
           {/* SS enrichment bar */}
           {ssEnriching && (
-            <SyncProgressRow label="SS" job={null} color="purple" indeterminateText="Linking ShipStation orders…" />
+            <SyncProgressRow label="SS" job={null} color="purple" indeterminateText={ssProgress || 'Linking ShipStation orders…'} />
           )}
           {!syncing && !ssEnriching && ssEnrichResult && (
             <SyncProgressRow label="SS" job={null} color="purple" completedText={`${ssEnrichResult.enriched} linked, ${ssEnrichResult.addresses} addresses`} />
