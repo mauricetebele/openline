@@ -51,6 +51,7 @@ export default function VendorLedgerManager() {
   const [payVendorId, setPayVendorId] = useState('')
   const [payAmount, setPayAmount] = useState('')
   const [payDesc, setPayDesc] = useState('')
+  const [payInvoiceNo, setPayInvoiceNo] = useState('')
   const [payType, setPayType] = useState<'CREDIT' | 'DEBIT'>('CREDIT')
   const [paySaving, setPaySaving] = useState(false)
   const [payFileBase64, setPayFileBase64] = useState<string | null>(null)
@@ -137,6 +138,7 @@ export default function VendorLedgerManager() {
           type: payType,
           amount: parseFloat(payAmount),
           description: payDesc.trim() || undefined,
+          vendorInvoiceNo: payInvoiceNo.trim() || undefined,
           fileBase64: payFileBase64 || undefined,
           fileFilename: payFilename || undefined,
         }),
@@ -148,6 +150,7 @@ export default function VendorLedgerManager() {
       setShowForm(false)
       setPayAmount('')
       setPayDesc('')
+      setPayInvoiceNo('')
       setPayVendorId('')
       setPayFileBase64(null)
       setPayFilename(null)
@@ -282,6 +285,16 @@ export default function VendorLedgerManager() {
                   placeholder="0.00"
                 />
               </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Vendor Invoice #</label>
+              <input
+                type="text"
+                value={payInvoiceNo}
+                onChange={(e) => setPayInvoiceNo(e.target.value)}
+                className="h-9 w-36 rounded-md border border-gray-300 px-3 text-sm"
+                placeholder="e.g. INV-12345"
+              />
             </div>
             <div className="flex-1 min-w-[200px]">
               <label className="text-xs text-gray-500 block mb-1">Description</label>

@@ -26,11 +26,12 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { vendorId, type, amount, description, fileBase64, fileFilename } = body as {
+  const { vendorId, type, amount, description, vendorInvoiceNo, fileBase64, fileFilename } = body as {
     vendorId: string
     type: 'DEBIT' | 'CREDIT'
     amount: number
     description?: string
+    vendorInvoiceNo?: string
     fileBase64?: string
     fileFilename?: string
   }
@@ -49,6 +50,7 @@ export async function POST(req: NextRequest) {
       type,
       amount,
       description: description?.trim() || null,
+      vendorInvoiceNo: vendorInvoiceNo?.trim() || null,
       ...(fileBase64 ? { fileBase64 } : {}),
       ...(fileFilename ? { fileFilename } : {}),
     },
