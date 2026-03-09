@@ -4980,7 +4980,6 @@ export default function UnshippedOrders() {
     } finally {
       setApplyingPreset(false)
       setRatingOrderIds(new Set())
-      setSelectedOrderIds(new Set())
     }
   }
 
@@ -5057,7 +5056,6 @@ export default function UnshippedOrders() {
     } finally {
       setApplyingPackagePreset(false)
       setPkgRatingOrderIds(new Set())
-      setSelectedOrderIds(new Set())
     }
   }
 
@@ -5574,7 +5572,11 @@ export default function UnshippedOrders() {
             {activeTab === 'unshipped' && batchEligible.length > 0 && (
               <button
                 onClick={() => setShowBatchConfirm(true)}
-                className="flex items-center gap-1 h-7 px-2.5 rounded bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition-colors"
+                disabled={applyingPreset || applyingPackagePreset}
+                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
+                  applyingPreset || applyingPackagePreset
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700')}
               >
                 <Tag size={11} /> Label Batch ({batchEligible.length})
               </button>
