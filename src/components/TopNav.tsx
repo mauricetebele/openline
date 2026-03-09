@@ -103,10 +103,11 @@ const NAV: NavItem[] = [
 
 // ─── Dropdown group item ───────────────────────────────────────────────────────
 
-function GroupItem({ item, isActive, onNavigate }: {
+function GroupItem({ item, isActive, onNavigate, badge }: {
   item: NavGroup
   isActive: (href: string) => boolean
   onNavigate: () => void
+  badge?: { count: number; color: string }
 }) {
   const [open, setOpen] = useState(false)
   const [coords, setCoords] = useState({ top: 0, left: 0 })
@@ -143,13 +144,18 @@ function GroupItem({ item, isActive, onNavigate }: {
         onClick={handleToggle}
         className={clsx(
           'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap',
-          groupActive || open
-            ? 'bg-amazon-blue text-white'
-            : 'text-gray-300 hover:bg-white/10 hover:text-white',
+          badge && badge.count > 0
+            ? 'bg-red-600 text-white'
+            : groupActive || open
+              ? 'bg-amazon-blue text-white'
+              : 'text-gray-300 hover:bg-white/10 hover:text-white',
         )}
       >
         <item.icon size={14} />
         {item.label}
+        {badge && badge.count > 0 && (
+          <span className="text-xs font-bold">({badge.count})</span>
+        )}
         <ChevronDown size={12} className={clsx('transition-transform', open && 'rotate-180')} />
       </button>
 
@@ -210,6 +216,7 @@ export default function TopNav() {
   const { user, signOut } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [storeLogo, setStoreLogo] = useState<string | null>(null)
+  const [dueToday, setDueToday] = useState(0)
 
   // Fetch store logo
   useEffect(() => {
@@ -217,6 +224,19 @@ export default function TopNav() {
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.logoBase64) setStoreLogo(d.logoBase64) })
       .catch(() => {})
+  }, [])
+
+  // Fetch due-today count for Fulfillment badge
+  useEffect(() => {
+    function fetchDueToday() {
+      fetch('/api/orders/due-today')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.count !== undefined) setDueToday(d.count) })
+        .catch(() => {})
+    }
+    fetchDueToday()
+    const interval = setInterval(fetchDueToday, 60_000) // refresh every minute
+    return () => clearInterval(interval)
   }, [])
 
   function isActive(href: string) {
@@ -340,6 +360,7 @@ export default function TopNav() {
                 item={item}
                 isActive={isActive}
                 onNavigate={() => {}}
+                badge={item.label === 'Fulfillment' && dueToday > 0 ? { count: dueToday, color: 'red' } : undefined}
               />
             )
           }
@@ -358,6 +379,7 @@ export default function TopNav() {
                 item={item}
                 isActive={isActive}
                 onNavigate={() => {}}
+                badge={item.label === 'Fulfillment' && dueToday > 0 ? { count: dueToday, color: 'red' } : undefined}
               />
             )
           }
@@ -386,7 +408,13 @@ export default function TopNav() {
             if ('group' in item) {
               return (
                 <div key={item.label}>
-                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest px-3 pt-2 pb-1">{item.label}</p>
+                  <p className={clsx(
+                    'text-[10px] font-semibold uppercase tracking-widest px-3 pt-2 pb-1',
+                    item.label === 'Fulfillment' && dueToday > 0 ? 'text-red-400' : 'text-gray-500',
+                  )}>
+                    {item.label}
+                    {item.label === 'Fulfillment' && dueToday > 0 && ` (${dueToday})`}
+                  </p>
                   {item.children.map(child => {
                     const active = isActive(child.href)
                     return (
