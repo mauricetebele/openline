@@ -234,6 +234,11 @@ export default function TopNav() {
   const divider        = dividerIdx === -1 ? null  : NAV[dividerIdx] as NavDivider
   const wholesaleItems = dividerIdx === -1 ? []    : NAV.slice(dividerIdx + 1) as NavLeaf[]
 
+  // Split mainItems into two rows for desktop nav
+  const ROW1_COUNT = 6 // Products, Marketplace SKUs, Vendors, Returns, Inventory, Fulfillment
+  const row1Items = mainItems.slice(0, ROW1_COUNT)
+  const row2Items = mainItems.slice(ROW1_COUNT)
+
   function renderFlatLink(item: NavLeaf) {
     const active = isActive(item.href)
     return (
@@ -324,9 +329,27 @@ export default function TopNav() {
         </button>
       </div>
 
-      {/* Row 2: Desktop navigation links */}
+      {/* Row 2: Desktop navigation links — top row */}
+      <nav className="hidden lg:flex items-center gap-0.5 px-4 h-10 overflow-x-auto scrollbar-hide border-b border-white/5">
+        {row1Items.map((item) => {
+          if ('divider' in item) return null
+          if ('group' in item) {
+            return (
+              <GroupItem
+                key={item.label}
+                item={item}
+                isActive={isActive}
+                onNavigate={() => {}}
+              />
+            )
+          }
+          return renderFlatLink(item)
+        })}
+      </nav>
+
+      {/* Row 3: Desktop navigation links — bottom row */}
       <nav className="hidden lg:flex items-center gap-0.5 px-4 h-10 overflow-x-auto scrollbar-hide">
-        {mainItems.map((item) => {
+        {row2Items.map((item) => {
           if ('divider' in item) return null
           if ('group' in item) {
             return (
