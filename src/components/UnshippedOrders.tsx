@@ -5756,6 +5756,20 @@ export default function UnshippedOrders() {
         </div>
       )}
 
+      {/* Multi-qty alert */}
+      {(() => {
+        const multiQtyCount = Array.from(selectedOrderIds).filter(id => {
+          const o = orders.find(x => x.id === id)
+          return o && o.items.some(i => i.quantityOrdered > 1)
+        }).length
+        return multiQtyCount > 0 ? (
+          <div className="flex items-center gap-2 px-4 py-1.5 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs font-medium">
+            <AlertTriangle size={12} className="shrink-0" />
+            {multiQtyCount} Multi-QTY Order{multiQtyCount !== 1 ? 's' : ''} Selected
+          </div>
+        ) : null
+      })()}
+
       {/* Table */}
       <div className="flex-1 overflow-auto dark:bg-gray-900">
         <table className="w-full text-xs dark:text-gray-200">
