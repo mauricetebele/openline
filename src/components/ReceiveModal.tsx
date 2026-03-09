@@ -368,10 +368,6 @@ export default function ReceiveModal({
         setErr(`Select a location for "${l.product.description}"`)
         return
       }
-      if (grades.length > 0 && !l.gradeId) {
-        setErr(`Select a grade for "${l.product.description}"`)
-        return
-      }
     }
 
     await submitReceive(activeLines, false)
