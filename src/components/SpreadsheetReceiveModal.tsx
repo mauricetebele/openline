@@ -4,7 +4,7 @@ import { X, AlertCircle, PackageCheck, CheckCircle2, XCircle, FileSpreadsheet, D
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface ProductGrade {
+interface GradeOption {
   id: string
   grade: string
   description: string | null
@@ -15,7 +15,6 @@ interface Product {
   description: string
   sku: string
   isSerializable: boolean
-  grades?: ProductGrade[]
 }
 
 interface POLine {
@@ -94,29 +93,25 @@ export default function SpreadsheetReceiveModal({
 
   // Already-received qty per PO line
   const [receivedMap, setReceivedMap] = useState<Map<string, number>>(new Map())
-
-  // Collect all unique grades across PO line products
-  const allGrades = po.lines.reduce<ProductGrade[]>((acc, l) => {
-    for (const g of (l.product.grades ?? [])) {
-      if (!acc.some(a => a.id === g.id)) acc.push(g)
-    }
-    return acc
-  }, [])
+  const [allGrades, setAllGrades] = useState<GradeOption[]>([])
   const anySerializable = po.lines.some(l => l.product.isSerializable)
 
   // Load warehouses + existing receipts
   const init = useCallback(async () => {
     setLoadingData(true)
     try {
-      const [whRes, receiptRes] = await Promise.all([
+      const [whRes, receiptRes, gradesRes] = await Promise.all([
         fetch('/api/warehouses'),
         fetch(`/api/purchase-orders/${po.id}/receipts`),
+        fetch('/api/grades'),
       ])
       const whData      = await whRes.json()
       const receiptData = await receiptRes.json()
+      const gradesData  = await gradesRes.json()
 
       const whs: Warehouse[] = whData.data ?? []
       setWarehouses(whs)
+      setAllGrades(gradesData.data ?? [])
 
       if (whs[0]) {
         setWarehouseId(whs[0].id)
@@ -293,8 +288,7 @@ export default function SpreadsheetReceiveModal({
     if (!locationId) { setErr('Select a warehouse and location'); return }
     if (invalidRows.length > 0) { setErr('Fix all validation errors before submitting'); return }
     if (validRows.length === 0) { setErr('No valid rows to submit'); return }
-    const needsGrade = validRows.some(r => (r.matchedLine!.product.grades?.length ?? 0) > 0)
-    if (needsGrade && !gradeId) { setErr('Select a grade — some products require one'); return }
+    if (allGrades.length > 0 && !gradeId) { setErr('Select a grade'); return }
     setShowConfirmation(true)
   }
 

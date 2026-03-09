@@ -132,9 +132,9 @@ async function handleParse(req: NextRequest) {
   const allProducts = await prisma.product.findMany({ select: { id: true, sku: true } })
   const productBySku = new Map(allProducts.map(p => [p.sku.toUpperCase(), p]))
 
-  const allGrades = await prisma.productGrade.findMany({ select: { id: true, productId: true, grade: true } })
+  const allGrades = await prisma.grade.findMany({ select: { id: true, grade: true } })
   const gradeMap = new Map<string, { id: string }>()
-  for (const g of allGrades) gradeMap.set(`${g.productId}::${g.grade.toUpperCase()}`, g)
+  for (const g of allGrades) gradeMap.set(g.grade.toUpperCase(), g)
 
   // Collect all serials from file for batch DB check
   const fileSerials: string[] = []
@@ -232,19 +232,10 @@ async function handleParse(req: NextRequest) {
       newProductSet.add(skuRaw)
     }
 
-    // Check if grade exists → mark new
-    if (skuRaw && gradeRaw) {
-      const product = productBySku.get(skuRaw)
-      if (product) {
-        if (!gradeMap.has(`${product.id}::${gradeRaw}`)) {
-          row.isNewGrade = true
-          newGradeSet.add(`${skuRaw} / ${gradeRaw}`)
-        }
-      } else {
-        // New product, so grade is also new
-        row.isNewGrade = true
-        newGradeSet.add(`${skuRaw} / ${gradeRaw}`)
-      }
+    // Check if grade exists → mark new (grades are global now)
+    if (gradeRaw && !gradeMap.has(gradeRaw)) {
+      row.isNewGrade = true
+      newGradeSet.add(gradeRaw)
     }
 
     if (errors.length) {
@@ -301,7 +292,7 @@ async function handleCommit(req: NextRequest) {
     await prisma.$transaction(async (tx) => {
       // Resolve/create products and grades
       const productCache = new Map<string, string>() // SKU → id
-      const gradeCache = new Map<string, string>()   // "productId::grade" → gradeId
+      const gradeCache = new Map<string, string>()   // "GRADE" → gradeId
 
       // Pre-fetch existing products
       const existingProducts = await tx.product.findMany({
@@ -310,11 +301,11 @@ async function handleCommit(req: NextRequest) {
       })
       for (const p of existingProducts) productCache.set(p.sku.toUpperCase(), p.id)
 
-      // Pre-fetch existing grades
-      const existingGrades = await tx.productGrade.findMany({
-        select: { id: true, productId: true, grade: true },
+      // Pre-fetch existing grades (global)
+      const existingGrades = await tx.grade.findMany({
+        select: { id: true, grade: true },
       })
-      for (const g of existingGrades) gradeCache.set(`${g.productId}::${g.grade.toUpperCase()}`, g.id)
+      for (const g of existingGrades) gradeCache.set(g.grade.toUpperCase(), g.id)
 
       // Pre-fetch vendors by vendorNumber
       const vendorNums = Array.from(new Set(rows.map(r => r.vendorNumber)))
@@ -343,14 +334,14 @@ async function handleCommit(req: NextRequest) {
           productsCreated++
         }
 
-        // Resolve or create grade
+        // Resolve or create grade (global)
         let gradeId: string | null = null
         if (row.grade) {
-          const gKey = `${productId}::${row.grade.toUpperCase()}`
+          const gKey = row.grade.toUpperCase()
           gradeId = gradeCache.get(gKey) ?? null
           if (!gradeId) {
-            const newGrade = await tx.productGrade.create({
-              data: { productId, grade: row.grade.toUpperCase() },
+            const newGrade = await tx.grade.create({
+              data: { grade: gKey },
             })
             gradeId = newGrade.id
             gradeCache.set(gKey, gradeId)

@@ -544,7 +544,7 @@ model OrderInventoryReservation {
   locationId  String
   location    Location      @relation(fields: [locationId], references: [id], onDelete: Restrict)
   gradeId     String?
-  grade       ProductGrade? @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  grade       Grade? @relation(fields: [gradeId], references: [id], onDelete: SetNull)
   qtyReserved Int
   reservedAt  DateTime      @default(now())
 
@@ -822,21 +822,18 @@ model Product {
   customerRMAItems       CustomerRMAItem[]
   orderReservations      OrderInventoryReservation[]
   salesOrderReservations SalesOrderInventoryReservation[]
-  grades                 ProductGrade[]
   marketplaceSkus        ProductGradeMarketplaceSku[]
   marketplaceRMAItems    MarketplaceRMAItem[]
 
   @@map("products")
 }
 
-// ─── Product Grades ────────────────────────────────────────────────────────────
+// ─── Grades (global / store-level) ────────────────────────────────────────────
 
-model ProductGrade {
+model Grade {
   id          String   @id @default(cuid())
-  productId   String
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  grade       String // e.g. "A", "B", "Refurb"
-  description String? // optional display label
+  grade       String   @unique
+  description String?
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -849,9 +846,7 @@ model ProductGrade {
   marketplaceRMASerials  MarketplaceRMASerial[]
   purchaseOrderLines     PurchaseOrderLine[]
 
-  @@unique([productId, grade])
-  @@index([productId])
-  @@map("product_grades")
+  @@map("grades")
 }
 
 model ProductGradeMarketplaceSku {
@@ -859,7 +854,7 @@ model ProductGradeMarketplaceSku {
   productId   String
   product     Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
   gradeId     String?
-  grade       ProductGrade? @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  grade       Grade? @relation(fields: [gradeId], references: [id], onDelete: Cascade)
   marketplace String // "amazon" | "backmarket" | "wholesale"
   accountId   String? // null = applies to all accounts for that marketplace
   sellerSku   String
@@ -931,7 +926,7 @@ model PurchaseOrderLine {
   productId       String
   product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
   gradeId         String?
-  grade           ProductGrade? @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  grade           Grade? @relation(fields: [gradeId], references: [id], onDelete: SetNull)
   qty             Int           @default(1)
   unitCost        Decimal       @db.Decimal(12, 2)
   createdAt       DateTime      @default(now())
@@ -1142,7 +1137,7 @@ model InventoryItem {
   locationId String
   location   Location      @relation(fields: [locationId], references: [id], onDelete: Restrict)
   gradeId    String?
-  grade      ProductGrade? @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  grade      Grade? @relation(fields: [gradeId], references: [id], onDelete: SetNull)
   qty        Int           @default(0)
   updatedAt  DateTime      @updatedAt
 
@@ -1160,7 +1155,7 @@ model InventorySerial {
   locationId    String
   location      Location       @relation(fields: [locationId], references: [id], onDelete: Restrict)
   gradeId       String?
-  grade         ProductGrade?  @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  grade         Grade?  @relation(fields: [gradeId], references: [id], onDelete: SetNull)
   receiptLineId String?
   receiptLine   POReceiptLine? @relation(fields: [receiptLineId], references: [id])
   status        SerialStatus   @default(IN_STOCK)
@@ -1446,7 +1441,7 @@ model SalesOrderInventoryReservation {
   locationId       String
   location         Location       @relation(fields: [locationId], references: [id], onDelete: Restrict)
   gradeId          String?
-  grade            ProductGrade?  @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  grade            Grade?  @relation(fields: [gradeId], references: [id], onDelete: SetNull)
   qtyReserved      Int
   reservedAt       DateTime       @default(now())
 
@@ -1722,7 +1717,7 @@ model MarketplaceRMASerial {
   locationId        String?
   location          Location?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
   gradeId           String?
-  grade             ProductGrade?    @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  grade             Grade?    @relation(fields: [gradeId], references: [id], onDelete: SetNull)
   note              String?
 
   @@index([rmaItemId])

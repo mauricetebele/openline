@@ -183,46 +183,31 @@ function POPanel({
     return m
   }, [products])
 
-  // Grade cache: productId → Grade[]
-  const gradeCache = useRef<Map<string, Grade[]>>(new Map())
+  // Global grades
+  const [globalGrades, setGlobalGrades] = useState<Grade[]>([])
 
-  async function fetchGrades(productId: string): Promise<Grade[]> {
-    const cached = gradeCache.current.get(productId)
-    if (cached) return cached
-    try {
-      const res = await fetch(`/api/products/${productId}/grades`)
-      const data = await res.json()
-      const grades: Grade[] = (data.data ?? []).map((g: { id: string; grade: string }) => ({ id: g.id, grade: g.grade }))
-      gradeCache.current.set(productId, grades)
-      return grades
-    } catch {
-      return []
-    }
-  }
+  useEffect(() => {
+    fetch('/api/grades')
+      .then(r => r.json())
+      .then(j => setGlobalGrades((j.data ?? []).map((g: { id: string; grade: string }) => ({ id: g.id, grade: g.grade }))))
+      .catch(() => {})
+  }, [])
 
-  // Init lines from editing PO (need to fetch grades for each product)
+  // Init lines from editing PO
   useEffect(() => {
     if (isEdit && editing.lines.length) {
-      let cancelled = false
-      ;(async () => {
-        const formLines: FormLine[] = await Promise.all(
-          editing.lines.map(async (l) => {
-            const grades = await fetchGrades(l.productId)
-            return {
-              productId: l.productId,
-              sku: l.product.sku,
-              description: l.product.description,
-              qty: l.qty,
-              unitCost: String(l.unitCost),
-              gradeId: l.gradeId ?? null,
-              gradeName: l.grade?.grade ?? null,
-              grades,
-            }
-          })
-        )
-        if (!cancelled) { setLines(formLines); setLinesReady(true) }
-      })()
-      return () => { cancelled = true }
+      const formLines: FormLine[] = editing.lines.map((l) => ({
+        productId: l.productId,
+        sku: l.product.sku,
+        description: l.product.description,
+        qty: l.qty,
+        unitCost: String(l.unitCost),
+        gradeId: l.gradeId ?? null,
+        gradeName: l.grade?.grade ?? null,
+        grades: globalGrades,
+      }))
+      setLines(formLines)
+      setLinesReady(true)
     } else {
       setLinesReady(true)
     }
@@ -264,7 +249,6 @@ function POPanel({
     setSkuSearch('')
     setSkuResults([])
     setSkuDropOpen(false)
-    const grades = await fetchGrades(p.id)
     setLines(prev => [...prev, {
       productId: p.id,
       sku: p.sku,
@@ -273,7 +257,7 @@ function POPanel({
       unitCost: '',
       gradeId: null,
       gradeName: null,
-      grades,
+      grades: globalGrades,
     }])
   }
 
@@ -333,9 +317,6 @@ function POPanel({
       if (product) uniqueProductIds.add(product.id)
     }
 
-    // Pre-fetch all grades
-    await Promise.all(Array.from(uniqueProductIds).map(pid => fetchGrades(pid)))
-
     for (let i = startIdx; i < rows.length; i++) {
       const row = rows[i]
       const sku = row[colSku] ?? ''
@@ -356,12 +337,11 @@ function POPanel({
       const qty = parseInt(qtyClean, 10)
       if (!qty || qty < 1) { errors.push(`Row ${i + 1}: invalid QTY "${rawQty}"`); continue }
 
-      const grades = gradeCache.current.get(product.id) ?? []
       let gradeId: string | null = null
       let gradeName: string | null = null
       if (gradeStr) {
-        const match = grades.find(g => g.grade.toLowerCase() === gradeStr.toLowerCase())
-        if (!match) { errors.push(`Row ${i + 1}: grade "${gradeStr}" not found for SKU "${sku}"`); continue }
+        const match = globalGrades.find(g => g.grade.toLowerCase() === gradeStr.toLowerCase())
+        if (!match) { errors.push(`Row ${i + 1}: grade "${gradeStr}" not found`); continue }
         gradeId = match.id
         gradeName = match.grade
       }
@@ -374,7 +354,7 @@ function POPanel({
         unitCost: cost.toFixed(2),
         gradeId,
         gradeName,
-        grades,
+        grades: globalGrades,
       })
     }
 

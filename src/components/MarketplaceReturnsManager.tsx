@@ -542,16 +542,19 @@ function CreateReturnModal({
   const [nonSerialReceive, setNonSerialReceive] = useState<Record<string, {
     warehouseId: string; locationId: string; gradeId: string
   }>>({})
-  const [gradesMap, setGradesMap] = useState<Record<string, Grade[]>>({})
+  const [globalGrades, setGlobalGrades] = useState<Grade[]>([])
   const [receiving, setReceiving] = useState(false)
 
-  // Fetch warehouses when step 2
+  // Fetch warehouses + grades when step 2
   useEffect(() => {
     if (step !== 2) return
-    fetch('/api/warehouses')
-      .then(r => r.json())
-      .then(j => setWarehouses(j.data ?? j ?? []))
-      .catch(() => {})
+    Promise.all([
+      fetch('/api/warehouses').then(r => r.json()),
+      fetch('/api/grades').then(r => r.json()),
+    ]).then(([whJson, grJson]) => {
+      setWarehouses(whJson.data ?? whJson ?? [])
+      setGlobalGrades(grJson.data ?? [])
+    }).catch(() => {})
   }, [step])
 
   // Collect all items with serials and non-serial items
@@ -649,10 +652,6 @@ function CreateReturnModal({
         for (const s of item.serials ?? []) {
           serialRec[s.id] = { warehouseId: '', locationId: '', gradeId: '', note: '' }
         }
-        // Fetch grades for product
-        if (item.productId) {
-          fetchGrades(item.productId)
-        }
       }
       setSerialReceive(serialRec)
 
@@ -661,7 +660,6 @@ function CreateReturnModal({
       for (const item of rma.items ?? []) {
         if ((item.serials ?? []).length === 0) {
           nsRec[item.id] = { warehouseId: '', locationId: '', gradeId: '' }
-          if (item.productId) fetchGrades(item.productId)
         }
       }
       setNonSerialReceive(nsRec)
@@ -671,15 +669,6 @@ function CreateReturnModal({
       setError(err instanceof Error ? err.message : String(err))
     }
     setSaving(false)
-  }
-
-  async function fetchGrades(productId: string) {
-    if (gradesMap[productId]) return
-    try {
-      const res = await fetch(`/api/products/${productId}/grades`)
-      const json = await res.json()
-      setGradesMap(prev => ({ ...prev, [productId]: json.data ?? json ?? [] }))
-    } catch { /* ignore */ }
   }
 
   // ─── Step 2: Receive Returns ────────────────────────────────────────────
@@ -949,7 +938,6 @@ function CreateReturnModal({
                 {item.serials.map(serial => {
                   const state = serialReceive[serial.id] ?? { warehouseId: '', locationId: '', gradeId: '', note: '' }
                   const filteredLocs = warehouses.find(w => w.id === state.warehouseId)?.locations ?? []
-                  const productGrades = item.productId ? (gradesMap[item.productId] ?? []) : []
                   return (
                     <div key={serial.id} className="flex flex-wrap items-center gap-2 p-3 rounded-lg border border-gray-200">
                       <span className="font-mono text-sm font-medium text-gray-900 min-w-[120px]">{serial.serialNumber}</span>
@@ -976,7 +964,7 @@ function CreateReturnModal({
                         <option value="">Location...</option>
                         {filteredLocs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                       </select>
-                      {productGrades.length > 0 && (
+                      {globalGrades.length > 0 && (
                         <select
                           value={state.gradeId}
                           onChange={(e) => setSerialReceive(prev => ({
@@ -986,7 +974,7 @@ function CreateReturnModal({
                           className="border border-gray-200 rounded px-2 py-1.5 text-sm min-w-[80px]"
                         >
                           <option value="">Grade...</option>
-                          {productGrades.map(g => <option key={g.id} value={g.id}>{g.grade}</option>)}
+                          {globalGrades.map(g => <option key={g.id} value={g.id}>{g.grade}</option>)}
                         </select>
                       )}
                       <input
@@ -1008,7 +996,6 @@ function CreateReturnModal({
             {createdRma.items.filter(i => i.serials.length === 0).map(item => {
               const state = nonSerialReceive[item.id] ?? { warehouseId: '', locationId: '', gradeId: '' }
               const filteredLocs = warehouses.find(w => w.id === state.warehouseId)?.locations ?? []
-              const productGrades = item.productId ? (gradesMap[item.productId] ?? []) : []
               return (
                 <div key={item.id} className="flex flex-wrap items-center gap-2 p-3 rounded-lg border border-gray-200">
                   <div className="min-w-[120px]">
@@ -1038,7 +1025,7 @@ function CreateReturnModal({
                     <option value="">Location...</option>
                     {filteredLocs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
-                  {productGrades.length > 0 && (
+                  {globalGrades.length > 0 && (
                     <select
                       value={state.gradeId}
                       onChange={(e) => setNonSerialReceive(prev => ({
@@ -1048,7 +1035,7 @@ function CreateReturnModal({
                       className="border border-gray-200 rounded px-2 py-1.5 text-sm min-w-[80px]"
                     >
                       <option value="">Grade...</option>
-                      {productGrades.map(g => <option key={g.id} value={g.id}>{g.grade}</option>)}
+                      {globalGrades.map(g => <option key={g.id} value={g.id}>{g.grade}</option>)}
                     </select>
                   )}
                 </div>
@@ -1105,7 +1092,7 @@ function ReceiveReturnModal({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-  const [gradesMap, setGradesMap] = useState<Record<string, Grade[]>>({})
+  const [globalGrades, setGlobalGrades] = useState<Grade[]>([])
 
   const [serialReceive, setSerialReceive] = useState<Record<string, {
     warehouseId: string; locationId: string; gradeId: string; note: string
@@ -1118,15 +1105,17 @@ function ReceiveReturnModal({
   const [applyAllWh, setApplyAllWh] = useState('')
   const [applyAllLoc, setApplyAllLoc] = useState('')
 
-  // Fetch RMA details and warehouses
+  // Fetch RMA details, warehouses, and grades
   useEffect(() => {
     Promise.all([
       fetch(`/api/marketplace-rma/${rmaId}`).then(r => r.json()),
       fetch('/api/warehouses').then(r => r.json()),
-    ]).then(([rmaJson, whJson]) => {
+      fetch('/api/grades').then(r => r.json()),
+    ]).then(([rmaJson, whJson, grJson]) => {
       const rmaData = rmaJson.data
       setRma(rmaData)
       setWarehouses(whJson.data ?? whJson ?? [])
+      setGlobalGrades(grJson.data ?? [])
 
       if (rmaData) {
         // Init serial receive state
@@ -1145,11 +1134,6 @@ function ReceiveReturnModal({
               sr[s.id] = { warehouseId: '', locationId: '', gradeId: '', note: '' }
             }
           }
-          // Fetch grades
-          if (item.productId || item.product?.id) {
-            const pid = item.productId ?? item.product?.id
-            if (pid) fetchGrades(pid)
-          }
         }
         setSerialReceive(sr)
 
@@ -1166,15 +1150,6 @@ function ReceiveReturnModal({
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [rmaId])
-
-  async function fetchGrades(productId: string) {
-    if (gradesMap[productId]) return
-    try {
-      const res = await fetch(`/api/products/${productId}/grades`)
-      const json = await res.json()
-      setGradesMap(prev => ({ ...prev, [productId]: json.data ?? json ?? [] }))
-    } catch { /* ignore */ }
-  }
 
   function handleApplyToAll() {
     if (!applyAllWh || !applyAllLoc) return
@@ -1319,7 +1294,7 @@ function ReceiveReturnModal({
 
           {/* Items */}
           {rma.items.map(item => {
-            const productGrades = (item.productId ?? item.product?.id) ? (gradesMap[item.productId ?? item.product?.id ?? ''] ?? []) : []
+            const productGrades = globalGrades
             return (
               <div key={item.id} className="space-y-2">
                 <h3 className="text-sm font-semibold text-gray-700">

@@ -367,23 +367,21 @@ function InlineMappingRow({
   const [gradeId, setGradeId] = useState('')
   const [mapping, setMapping] = useState(false)
 
-  // Load grades when product changes
+  // Load global grades on mount
   useEffect(() => {
-    if (!selectedProduct) { setGrades([]); setGradeId(''); return }
     let cancelled = false
     ;(async () => {
       try {
-        const data = await apiFetch(`/api/products/${selectedProduct.id}/grades`)
+        const data = await apiFetch('/api/grades')
         if (!cancelled) {
           setGrades((data.data ?? []).map((g: { id: string; grade: string }) => ({ id: g.id, grade: g.grade })))
-          setGradeId('')
         }
       } catch {
         if (!cancelled) setGrades([])
       }
     })()
     return () => { cancelled = true }
-  }, [selectedProduct])
+  }, [])
 
   async function handleMap() {
     if (!selectedProduct) { onError('Select a product first'); return }
@@ -534,23 +532,21 @@ export default function MarketplaceSkuManager() {
   // Reset synced listings page when filters change
   useEffect(() => { setSyncPage(1) }, [tab, filterText, viewMode])
 
-  // Load grades when product changes
+  // Load global grades on mount
   useEffect(() => {
-    if (!selectedProduct) { setGrades([]); setFormGradeId(''); return }
     let cancelled = false
     ;(async () => {
       try {
-        const data = await apiFetch(`/api/products/${selectedProduct.id}/grades`)
+        const data = await apiFetch('/api/grades')
         if (!cancelled) {
           setGrades((data.data ?? []).map((g: { id: string; grade: string }) => ({ id: g.id, grade: g.grade })))
-          setFormGradeId('')
         }
       } catch {
         if (!cancelled) setGrades([])
       }
     })()
     return () => { cancelled = true }
-  }, [selectedProduct])
+  }, [])
 
   const [syncProgress, setSyncProgress] = useState('')
   const syncPollRef = useRef<ReturnType<typeof setInterval>>()

@@ -1055,15 +1055,11 @@ function RegradeModal({ warehouses, onClose }: {
       setResults(data)
       const found = data.found as BulkSerial[]
       setSelected(new Set(found.map(s => s.id)))
-      // Fetch grade options if all serials belong to the same product
+      // Fetch global grade options for regrade
       if (found.length > 0) {
-        const productIds = new Set(found.map(s => s.product.id))
-        if (productIds.size === 1) {
-          const productId = Array.from(productIds)[0]
-          const gradeRes  = await fetch(`/api/products/${productId}/grades`)
-          const gradeData = await gradeRes.json()
-          setGradeOptions(gradeData.data ?? [])
-        }
+        const gradeRes  = await fetch('/api/grades')
+        const gradeData = await gradeRes.json()
+        setGradeOptions(gradeData.data ?? [])
       }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Lookup failed')
@@ -1180,7 +1176,7 @@ function RegradeModal({ warehouses, onClose }: {
     setFromGradeId('')
     setToItemGradeId('')
     try {
-      const res  = await fetch(`/api/products/${p.id}/grades`)
+      const res  = await fetch('/api/grades')
       const data = await res.json()
       setItemGrades(data.data ?? [])
     } catch { setItemGrades([]) }
@@ -1695,7 +1691,7 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
     setSku(p.sku); setProduct(p); setSuggestions([]); setShowDropdown(false)
     setSkuErr(''); setBulkText(''); setGradeId(null)
     try {
-      const res  = await fetch(`/api/products/${p.id}/grades`)
+      const res  = await fetch('/api/grades')
       const data = await res.json()
       setGrades(data.data ?? [])
     } catch { setGrades([]) }

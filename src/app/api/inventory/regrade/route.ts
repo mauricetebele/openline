@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     // Validate destination grade exists (if provided)
     if (toGradeId) {
-      const gradeExists = await prisma.productGrade.findUnique({ where: { id: toGradeId } })
+      const gradeExists = await prisma.grade.findUnique({ where: { id: toGradeId } })
       if (!gradeExists) return NextResponse.json({ error: 'Target grade not found' }, { status: 404 })
     }
 

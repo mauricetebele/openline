@@ -4,7 +4,7 @@ import { X, AlertCircle, PackageCheck, Hash, CheckCircle2 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface ProductGrade {
+interface GradeOption {
   id: string
   grade: string
   description: string | null
@@ -15,7 +15,6 @@ interface Product {
   description: string
   sku: string
   isSerializable: boolean
-  grades?: ProductGrade[]
 }
 
 interface POLine {
@@ -260,6 +259,7 @@ export default function ReceiveModal({
   onClose: () => void
 }) {
   const [warehouses,    setWarehouses]    = useState<Warehouse[]>([])
+  const [grades,        setGrades]        = useState<GradeOption[]>([])
   const [lineStates,    setLineStates]    = useState<LineState[]>([])
   const [loadingData,   setLoadingData]   = useState(true)
   const [saving,        setSaving]        = useState(false)
@@ -275,15 +275,18 @@ export default function ReceiveModal({
   const init = useCallback(async () => {
     setLoadingData(true)
     try {
-      const [whRes, receiptRes] = await Promise.all([
+      const [whRes, receiptRes, gradesRes] = await Promise.all([
         fetch('/api/warehouses'),
         fetch(`/api/purchase-orders/${po.id}/receipts`),
+        fetch('/api/grades'),
       ])
       const whData      = await whRes.json()
       const receiptData = await receiptRes.json()
+      const gradesData  = await gradesRes.json()
 
       const whs: Warehouse[] = whData.data ?? []
       setWarehouses(whs)
+      setGrades(gradesData.data ?? [])
 
       // Compute already-received per PO line
       const receivedMap = new Map<string, number>()
@@ -365,7 +368,7 @@ export default function ReceiveModal({
         setErr(`Select a location for "${l.product.description}"`)
         return
       }
-      if ((l.product.grades?.length ?? 0) > 0 && !l.gradeId) {
+      if (grades.length > 0 && !l.gradeId) {
         setErr(`Select a grade for "${l.product.description}"`)
         return
       }
@@ -578,8 +581,8 @@ export default function ReceiveModal({
                             </div>
                           </div>
 
-                          {/* Grade selector — only shown if the product has grades */}
-                          {(ls.product.grades?.length ?? 0) > 0 && (
+                          {/* Grade selector — shown if global grades exist */}
+                          {grades.length > 0 && (
                             <div className="mt-1">
                               <label className="block text-xs font-medium text-gray-600 mb-1">
                                 Grade <span className="text-red-500">*</span>
@@ -590,7 +593,7 @@ export default function ReceiveModal({
                                 className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
                               >
                                 <option value="">Select grade…</option>
-                                {ls.product.grades!.map(g => (
+                                {grades.map(g => (
                                   <option key={g.id} value={g.id}>
                                     {g.grade}{g.description ? ` — ${g.description}` : ''}
                                   </option>

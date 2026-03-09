@@ -5,7 +5,7 @@ import {
   CheckCircle, AlertTriangle, Clock, RefreshCw, FlaskConical,
   ExternalLink, Warehouse, Truck, Settings,
   ChevronRight, Trash2, RotateCcw, Plus, X,
-  Store, Upload, ImageIcon, Users, Shield, Printer, Package, Smartphone,
+  Store, Upload, ImageIcon, Users, Shield, Printer, Package, Smartphone, Tag,
 } from 'lucide-react'
 import AppShell from '@/components/AppShell'
 import WarehouseManager from '@/components/WarehouseManager'
@@ -71,7 +71,7 @@ interface AmazonAccount {
   createdAt: string
 }
 
-type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'ups-buy-shipping' | 'fedex' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer' | 'sickw'
+type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'ups-buy-shipping' | 'fedex' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer' | 'sickw' | 'grades'
 
 // ─── Amazon Accounts Section ──────────────────────────────────────────────────
 
@@ -1444,6 +1444,114 @@ function RMASettingsSection() {
   )
 }
 
+// ─── Grades Settings Section ──────────────────────────────────────────────────
+
+interface GradeItem { id: string; grade: string; description: string | null; sortOrder: number }
+
+function GradesSettingsSection() {
+  const [grades, setGrades] = useState<GradeItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [newGrade, setNewGrade] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/grades')
+      .then(r => r.json())
+      .then(j => setGrades(j.data ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  async function handleAdd() {
+    if (!newGrade.trim()) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/grades', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grade: newGrade.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || 'Failed to add'); return }
+      setGrades(prev => [...prev, data])
+      setNewGrade('')
+      toast.success('Grade added')
+    } catch { toast.error('Failed to add grade') }
+    finally { setSaving(false) }
+  }
+
+  async function handleDelete(id: string) {
+    setDeletingId(id)
+    try {
+      const res = await fetch(`/api/grades?id=${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json()
+        toast.error(data.error || 'Failed to delete')
+        return
+      }
+      setGrades(prev => prev.filter(g => g.id !== id))
+      toast.success('Grade removed')
+    } catch { toast.error('Failed to delete') }
+    finally { setDeletingId(null) }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-800 mb-1">Inventory Grades</h3>
+        <p className="text-xs text-gray-500 mb-4">
+          These grades appear in receive, regrade, and return workflows across all products.
+        </p>
+
+        {/* Add new */}
+        <div className="flex items-center gap-2 mb-4">
+          <input
+            value={newGrade}
+            onChange={e => setNewGrade(e.target.value.toUpperCase())}
+            onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
+            placeholder="e.g. A, B, REFURB..."
+            className="flex-1 h-9 px-3 border border-gray-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+          />
+          <button
+            onClick={handleAdd}
+            disabled={!newGrade.trim() || saving}
+            className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50"
+          >
+            <Plus size={14} /> Add
+          </button>
+        </div>
+
+        {/* List */}
+        {loading ? (
+          <p className="text-sm text-gray-400 py-4 text-center">Loading...</p>
+        ) : grades.length === 0 ? (
+          <p className="text-sm text-gray-400 py-4 text-center">No grades configured yet</p>
+        ) : (
+          <div className="space-y-1.5">
+            {grades.map(g => (
+              <div
+                key={g.id}
+                className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-gray-200 bg-white"
+              >
+                <span className="text-sm font-mono font-semibold text-gray-800">{g.grade}</span>
+                <button
+                  onClick={() => handleDelete(g.id)}
+                  disabled={deletingId === g.id}
+                  className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                  title="Remove"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Users Management Section ─────────────────────────────────────────────────
 
 interface ManagedUser {
@@ -1997,6 +2105,14 @@ const HUB_GROUPS: HubGroup[] = [
         description: 'Configure return reasons that appear when creating marketplace or customer RMAs.',
       },
       {
+        id: 'grades',
+        icon: Tag,
+        iconBg: 'bg-amber-50',
+        iconColor: 'text-amber-600',
+        title: 'Grades',
+        description: 'Manage inventory condition grades (A, B, Refurb, etc.) used across all products.',
+      },
+      {
         id: 'printer',
         icon: Printer,
         iconBg: 'bg-teal-50',
@@ -2111,6 +2227,7 @@ function SettingsContent() {
             {activeSection === 'sickw'          && <SickwCredentialsSection />}
             {activeSection === 'backmarket'     && <BackMarketSection />}
             {activeSection === 'rma-settings'   && <RMASettingsSection />}
+            {activeSection === 'grades'         && <GradesSettingsSection />}
             {activeSection === 'store-settings' && <StoreSettingsSection />}
             {activeSection === 'users'          && <UsersSection />}
             {activeSection === 'printer'        && <PrinterSettingsSection />}

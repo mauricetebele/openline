@@ -28,11 +28,11 @@ export async function POST(req: NextRequest) {
   const product = await prisma.product.findUnique({ where: { id: productId } })
   if (!product) return NextResponse.json({ error: 'Product not found' }, { status: 404 })
 
-  // Validate grade belongs to product (if provided)
+  // Validate grade exists (if provided)
   if (gradeId) {
-    const grade = await prisma.productGrade.findUnique({ where: { id: gradeId } })
-    if (!grade || grade.productId !== productId) {
-      return NextResponse.json({ error: 'Grade not found for this product' }, { status: 404 })
+    const grade = await prisma.grade.findUnique({ where: { id: gradeId } })
+    if (!grade) {
+      return NextResponse.json({ error: 'Grade not found' }, { status: 404 })
     }
   }
 

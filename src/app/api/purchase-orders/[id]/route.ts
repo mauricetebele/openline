@@ -18,7 +18,6 @@ export async function GET(
           product: {
             select: {
               id: true, description: true, sku: true, isSerializable: true,
-              grades: { select: { id: true, grade: true, description: true }, orderBy: { sortOrder: 'asc' } },
             },
           },
           grade: { select: { id: true, grade: true } },
@@ -90,7 +89,6 @@ export async function PUT(
             product: {
               select: {
                 id: true, description: true, sku: true, isSerializable: true,
-                grades: { select: { id: true, grade: true, description: true }, orderBy: { sortOrder: 'asc' } },
               },
             },
             grade: { select: { id: true, grade: true } },
