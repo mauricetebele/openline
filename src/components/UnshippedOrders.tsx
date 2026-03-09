@@ -2487,20 +2487,20 @@ const CARRIER_LOGOS: Record<string, string> = {
   dhl_express_worldwide: '/logos/dhl.svg',
 }
 
-function carrierLogo(carrierCode: string | null | undefined): string | null {
-  if (!carrierCode) return null
-  const key = carrierCode.toLowerCase()
-  if (CARRIER_LOGOS[key]) return CARRIER_LOGOS[key]
-  // Fuzzy match
-  if (key.includes('usps') || key.includes('stamps')) return '/logos/usps.svg'
-  if (key.includes('ups')) return '/logos/ups.svg'
-  if (key.includes('fedex')) return '/logos/fedex.svg'
-  if (key.includes('dhl')) return '/logos/dhl.svg'
+function carrierLogo(carrierCode: string | null | undefined, serviceName?: string | null): string | null {
+  const candidates = [carrierCode, serviceName].filter(Boolean).map(s => s!.toLowerCase())
+  for (const key of candidates) {
+    if (CARRIER_LOGOS[key]) return CARRIER_LOGOS[key]
+    if (key.includes('usps') || key.includes('stamps')) return '/logos/usps.svg'
+    if (key.includes('ups')) return '/logos/ups.svg'
+    if (key.includes('fedex')) return '/logos/fedex.svg'
+    if (key.includes('dhl')) return '/logos/dhl.svg'
+  }
   return null
 }
 
-function CarrierLogo({ carrierCode, size = 16 }: { carrierCode: string | null | undefined; size?: number }) {
-  const src = carrierLogo(carrierCode)
+function CarrierLogo({ carrierCode, serviceName, size = 16 }: { carrierCode: string | null | undefined; serviceName?: string | null; size?: number }) {
+  const src = carrierLogo(carrierCode, serviceName)
   if (!src) return null
   // eslint-disable-next-line @next/next/no-img-element
   return <img src={src} alt="" width={size * 2.5} height={size} className="shrink-0 object-contain" />
@@ -6016,7 +6016,7 @@ export default function UnshippedOrders() {
                           {fmt(order.presetRateAmount)}
                         </span>
                         <div className="flex items-center gap-1">
-                          <CarrierLogo carrierCode={order.presetRateCarrier} size={10} />
+                          <CarrierLogo carrierCode={order.presetRateCarrier} serviceName={order.presetRateService} size={10} />
                           {order.presetRateService && (
                             <span className="text-[9px] text-gray-400 leading-none truncate max-w-[80px]" title={order.presetRateService}>
                               {order.presetRateService}
