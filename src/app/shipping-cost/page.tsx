@@ -3,40 +3,98 @@ export const dynamic = 'force-dynamic'
 
 import { useState } from 'react'
 import AppShell from '@/components/AppShell'
-import { DollarSign, Loader2, Search } from 'lucide-react'
+import {
+  DollarSign,
+  Loader2,
+  Search,
+  AlertTriangle,
+  CheckCircle2,
+  HelpCircle,
+  Truck,
+  Package,
+  ChevronDown,
+} from 'lucide-react'
 
-interface CostEntry {
-  source: 'adjustment' | 'shipment' | 'mfn'
-  label: string
-  postedDate: string | null
+// ─── Types matching API response ─────────────────────────────────────────────
+
+type LabelType = 'amazon_rate' | 'linked_carrier' | 'unknown'
+type Confidence = 'high' | 'medium' | 'low'
+
+interface TransactionCandidate {
+  transactionId: string | null
+  type: string | null
+  description: string | null
   amount: number
   currency: string
-  details: { type: string; amount: number }[]
+  postedDate: string | null
 }
 
-interface LookupResult {
-  amazonOrderId: string | null
+interface ShippingCostResult {
+  orderId: string | null
   shipmentId: string | null
-  parsed: {
-    entries: CostEntry[]
-    totalShippingCost: number
+  labelType: LabelType
+  carrier: string | null
+  service: string | null
+  tracking: string | null
+  purchaseQuotedCost: number | null
+  amazonTransactionAmount: number | null
+  carrierBilledAmount: number | null
+  bestEstimate: number | null
+  confidence: Confidence
+  reason: string
+  candidates: TransactionCandidate[]
+  warnings: string[]
+  raw: {
+    mfnShipment: Record<string, unknown> | null
+    transactions: unknown[] | null
+    v0Events: Record<string, unknown> | null
+    dbLabel: Record<string, unknown> | null
   }
-  eventSummary?: Record<string, number>
-  raw: Record<string, unknown>
 }
 
-const SOURCE_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  adjustment: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Postage Billing' },
-  shipment:   { bg: 'bg-gray-100',   text: 'text-gray-600',   label: 'Order Settlement' },
-  mfn:        { bg: 'bg-green-100',  text: 'text-green-700',  label: 'MFN Label' },
+// ─── Badge helpers ───────────────────────────────────────────────────────────
+
+const LABEL_TYPE_BADGE: Record<LabelType, { bg: string; text: string; label: string }> = {
+  amazon_rate:    { bg: 'bg-blue-100',   text: 'text-blue-700',   label: 'Amazon Rate' },
+  linked_carrier: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Linked Carrier' },
+  unknown:        { bg: 'bg-gray-100',   text: 'text-gray-600',   label: 'Unknown' },
 }
+
+const CONFIDENCE_BADGE: Record<Confidence, { bg: string; text: string; icon: typeof CheckCircle2 }> = {
+  high:   { bg: 'bg-green-100',  text: 'text-green-700',  icon: CheckCircle2 },
+  medium: { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: AlertTriangle },
+  low:    { bg: 'bg-red-100',    text: 'text-red-700',    icon: HelpCircle },
+}
+
+function Badge({ bg, text, label }: { bg: string; text: string; label: string }) {
+  return (
+    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${bg} ${text}`}>
+      {label}
+    </span>
+  )
+}
+
+// ─── Detail row component ────────────────────────────────────────────────────
+
+function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value) return null
+  return (
+    <div className="flex justify-between py-2 border-b border-gray-100 last:border-0">
+      <span className="text-sm text-gray-500">{label}</span>
+      <span className="text-sm font-medium text-gray-900">{value}</span>
+    </div>
+  )
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function ShippingCostPage() {
   const [orderId, setOrderId] = useState('')
   const [shipmentId, setShipmentId] = useState('')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<LookupResult | null>(null)
+  const [result, setResult] = useState<ShippingCostResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [rawOpen, setRawOpen] = useState(false)
 
   async function handleLookup() {
     const trimmedOrder = orderId.trim()
@@ -46,6 +104,7 @@ export default function ShippingCostPage() {
     setLoading(true)
     setError(null)
     setResult(null)
+    setRawOpen(false)
 
     try {
       const res = await fetch('/api/shipping-cost', {
@@ -66,7 +125,8 @@ export default function ShippingCostPage() {
     }
   }
 
-  const total = result?.parsed.totalShippingCost ?? 0
+  const confBadge = result ? CONFIDENCE_BADGE[result.confidence] : null
+  const typeBadge = result ? LABEL_TYPE_BADGE[result.labelType] : null
 
   return (
     <AppShell>
@@ -77,7 +137,7 @@ export default function ShippingCostPage() {
             Shipping Cost Lookup
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Look up Amazon Buy Shipping label costs. Uses Finances API + MFN getShipment.
+            Multi-source lookup: Local DB, MFN getShipment, Finances v2024-06-19, Finances v0.
           </p>
         </div>
 
@@ -102,18 +162,16 @@ export default function ShippingCostPage() {
                 Look Up
               </button>
             </div>
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={shipmentId}
-                onChange={e => setShipmentId(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleLookup()}
-                placeholder="MFN Shipment ID (optional — for own-carrier labels)"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            <input
+              type="text"
+              value={shipmentId}
+              onChange={e => setShipmentId(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleLookup()}
+              placeholder="MFN Shipment ID (optional — for own-carrier labels)"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
             <p className="text-xs text-gray-400">
-              Amazon-vendor labels: Order ID is enough (Finances API). Own-carrier labels: also provide the MFN Shipment ID.
+              Amazon-vendor labels: Order ID is enough. Own-carrier labels: also provide the MFN Shipment ID.
             </p>
           </div>
 
@@ -127,93 +185,172 @@ export default function ShippingCostPage() {
           {/* Results */}
           {result && (
             <div className="space-y-4">
-              {/* Summary */}
-              <div className={`px-4 py-3 rounded-lg border ${total > 0 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
-                <p className={`text-sm font-medium ${total > 0 ? 'text-green-800' : 'text-yellow-800'}`}>
-                  {result.amazonOrderId && <>Order: {result.amazonOrderId}</>}
-                  {result.amazonOrderId && result.shipmentId && ' · '}
-                  {result.shipmentId && <>Shipment: {result.shipmentId}</>}
+              {/* Warnings */}
+              {result.warnings.length > 0 && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 space-y-1">
+                  {result.warnings.map((w, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm text-yellow-800">
+                      <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                      <span>{w}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Header Card */}
+              <div className="bg-white border rounded-lg p-5">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      {result.orderId && (
+                        <span className="text-sm text-gray-500">
+                          Order: <span className="font-mono font-medium text-gray-700">{result.orderId}</span>
+                        </span>
+                      )}
+                      {result.shipmentId && (
+                        <span className="text-sm text-gray-500">
+                          Shipment: <span className="font-mono font-medium text-gray-700">{result.shipmentId}</span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      {typeBadge && <Badge bg={typeBadge.bg} text={typeBadge.text} label={typeBadge.label} />}
+                      {confBadge && (
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex items-center gap-1 ${confBadge.bg} ${confBadge.text}`}>
+                          <confBadge.icon size={12} />
+                          {result.confidence} confidence
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-gray-500">Best Estimate</p>
+                    <p className={`text-3xl font-bold ${result.bestEstimate !== null ? 'text-gray-900' : 'text-gray-400'}`}>
+                      {result.bestEstimate !== null ? `$${result.bestEstimate.toFixed(2)}` : '—'}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500 mt-3 border-t pt-3">
+                  {result.reason}
                 </p>
-                <p className={`text-2xl font-bold mt-1 ${total > 0 ? 'text-green-900' : 'text-yellow-900'}`}>
-                  Label Cost: ${total.toFixed(2)}
-                </p>
-                {total === 0 && (
-                  <p className="text-xs text-yellow-600 mt-0.5">
-                    No label cost found. For own-carrier labels, try providing the MFN Shipment ID.
-                  </p>
-                )}
               </div>
 
-              {/* Cost entries breakdown */}
-              {result.parsed.entries.length > 0 && (
-                <div className="border rounded-lg overflow-hidden">
+              {/* Details Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Shipping Details */}
+                <div className="bg-white border rounded-lg p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5 mb-3">
+                    <Truck size={14} />
+                    Shipping Details
+                  </h3>
+                  <DetailRow label="Carrier" value={result.carrier} />
+                  <DetailRow label="Service" value={result.service} />
+                  <DetailRow label="Tracking" value={result.tracking} />
+                  <DetailRow label="Label Type" value={typeBadge?.label} />
+                  {!result.carrier && !result.service && !result.tracking && (
+                    <p className="text-sm text-gray-400 italic">No shipping details available</p>
+                  )}
+                </div>
+
+                {/* Cost Breakdown */}
+                <div className="bg-white border rounded-lg p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5 mb-3">
+                    <Package size={14} />
+                    Cost Sources
+                  </h3>
+                  <DetailRow
+                    label="MFN Quoted Rate"
+                    value={result.purchaseQuotedCost !== null ? `$${result.purchaseQuotedCost.toFixed(2)}` : null}
+                  />
+                  <DetailRow
+                    label="Amazon Transaction"
+                    value={result.amazonTransactionAmount !== null ? `$${result.amazonTransactionAmount.toFixed(2)}` : null}
+                  />
+                  <DetailRow
+                    label="Carrier Billed"
+                    value={result.carrierBilledAmount !== null ? `$${result.carrierBilledAmount.toFixed(2)}` : 'N/A (not available via API)'}
+                  />
+                  {result.purchaseQuotedCost === null && result.amazonTransactionAmount === null && (
+                    <p className="text-sm text-gray-400 italic">No cost data found from any source</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Transaction Candidates */}
+              {result.candidates.length > 0 && (
+                <div className="bg-white border rounded-lg overflow-hidden">
+                  <div className="px-4 py-3 border-b bg-gray-50">
+                    <h3 className="text-sm font-semibold text-gray-700">
+                      Transaction Candidates ({result.candidates.length})
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Shipping-related transactions from Finances v2024-06-19
+                    </p>
+                  </div>
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-b">
                       <tr>
-                        <th className="text-left px-4 py-2 font-medium text-gray-700">Source</th>
-                        <th className="text-left px-4 py-2 font-medium text-gray-700">Posted</th>
-                        <th className="text-left px-4 py-2 font-medium text-gray-700">Breakdown</th>
-                        <th className="text-right px-4 py-2 font-medium text-gray-700">Amount</th>
+                        <th className="text-left px-4 py-2 font-medium text-gray-600">Transaction ID</th>
+                        <th className="text-left px-4 py-2 font-medium text-gray-600">Type</th>
+                        <th className="text-left px-4 py-2 font-medium text-gray-600">Description</th>
+                        <th className="text-left px-4 py-2 font-medium text-gray-600">Posted</th>
+                        <th className="text-right px-4 py-2 font-medium text-gray-600">Amount</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {result.parsed.entries.map((entry, i) => {
-                        const badge = SOURCE_BADGE[entry.source] ?? SOURCE_BADGE.shipment
-                        return (
-                          <tr key={i} className="hover:bg-gray-50">
-                            <td className="px-4 py-2">
-                              <div className="text-xs font-medium">{entry.label}</div>
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${badge.bg} ${badge.text}`}>
-                                {badge.label}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2 text-xs text-gray-600">
-                              {entry.postedDate ? new Date(entry.postedDate).toLocaleString() : '—'}
-                            </td>
-                            <td className="px-4 py-2">
-                              {entry.details.map((d, j) => (
-                                <div key={j} className="text-xs">
-                                  <span className="text-gray-500">{d.type}:</span>{' '}
-                                  ${d.amount.toFixed(2)}
-                                </div>
-                              ))}
-                            </td>
-                            <td className="px-4 py-2 text-right font-bold">
-                              {entry.amount > 0 ? `$${entry.amount.toFixed(2)}` : '—'}
-                            </td>
-                          </tr>
-                        )
-                      })}
+                      {result.candidates.map((c, i) => (
+                        <tr key={i} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 font-mono text-xs text-gray-600">
+                            {c.transactionId ?? '—'}
+                          </td>
+                          <td className="px-4 py-2 text-xs">{c.type ?? '—'}</td>
+                          <td className="px-4 py-2 text-xs text-gray-600 max-w-[200px] truncate">
+                            {c.description ?? '—'}
+                          </td>
+                          <td className="px-4 py-2 text-xs text-gray-500">
+                            {c.postedDate ? new Date(c.postedDate).toLocaleDateString() : '—'}
+                          </td>
+                          <td className="px-4 py-2 text-right font-medium">
+                            ${c.amount.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
               )}
 
-              {/* Event types found */}
-              {result.eventSummary && Object.keys(result.eventSummary).length > 0 && (
-                <details className="border rounded-lg">
-                  <summary className="px-4 py-2 text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50">
-                    Event Types Found
-                  </summary>
-                  <div className="px-4 py-3 border-t bg-blue-50 flex flex-wrap gap-2">
-                    {Object.entries(result.eventSummary).map(([key, count]) => (
-                      <span key={key} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                        {key}: {count}
-                      </span>
-                    ))}
-                  </div>
-                </details>
-              )}
-
               {/* Raw JSON */}
-              <details className="border rounded-lg">
-                <summary className="px-4 py-2 text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50">
-                  Raw JSON
-                </summary>
-                <pre className="px-4 py-3 text-xs bg-gray-50 overflow-auto max-h-96 border-t">
-                  {JSON.stringify(result.raw, null, 2)}
-                </pre>
-              </details>
+              <div className="bg-white border rounded-lg overflow-hidden">
+                <button
+                  onClick={() => setRawOpen(!rawOpen)}
+                  className="w-full px-4 py-3 flex items-center justify-between text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  <span>Raw API Responses</span>
+                  <ChevronDown
+                    size={16}
+                    className={`transition-transform ${rawOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {rawOpen && (
+                  <div className="border-t">
+                    {(['dbLabel', 'mfnShipment', 'transactions', 'v0Events'] as const).map(key => {
+                      const data = result.raw[key]
+                      if (!data) return null
+                      return (
+                        <div key={key} className="border-b last:border-0">
+                          <div className="px-4 py-2 bg-gray-50 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                            {key}
+                          </div>
+                          <pre className="px-4 py-3 text-xs bg-white overflow-auto max-h-64">
+                            {JSON.stringify(data, null, 2)}
+                          </pre>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
