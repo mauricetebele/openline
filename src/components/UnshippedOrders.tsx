@@ -6015,14 +6015,12 @@ export default function UnshippedOrders() {
                         <span className="text-[11px] font-semibold text-gray-900 tabular-nums">
                           {fmt(order.presetRateAmount)}
                         </span>
-                        <div className="flex items-center gap-1">
-                          <CarrierLogo carrierCode={order.presetRateCarrier} serviceName={order.presetRateService} size={16} />
-                          {order.presetRateService && (
-                            <span className="text-[9px] text-gray-400 leading-none truncate max-w-[80px]" title={order.presetRateService}>
-                              {order.presetRateService}
-                            </span>
-                          )}
-                        </div>
+                        <CarrierLogo carrierCode={order.presetRateCarrier} serviceName={order.presetRateService} size={16} />
+                        {order.presetRateService && (
+                          <span className="text-[9px] text-gray-400 leading-tight text-right" title={order.presetRateService}>
+                            {order.presetRateService}
+                          </span>
+                        )}
                       </div>
                     ) : (
                       <span className="text-gray-300 text-[10px]">—</span>
