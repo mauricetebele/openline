@@ -157,6 +157,8 @@ export async function GET(req: NextRequest) {
       trackingUpdatedAt: ret.trackingUpdatedAt,
       refundedAmount: ret.refundedAmount ? Number(ret.refundedAmount) : null,
       expectedSerial,
+      fmiStatus: ret.fmiStatus,
+      fmiCheckedAt: ret.fmiCheckedAt,
     }
   })
 
@@ -169,4 +171,22 @@ export async function GET(req: NextRequest) {
       totalPages: Math.ceil(total / pageSize),
     },
   })
+}
+
+/**
+ * PATCH /api/returns — update fmiStatus on a return
+ */
+export async function PATCH(req: NextRequest) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id, fmiStatus } = (await req.json()) as { id?: string; fmiStatus?: string }
+  if (!id || !fmiStatus) return NextResponse.json({ error: 'id and fmiStatus required' }, { status: 400 })
+
+  await prisma.mFNReturn.update({
+    where: { id },
+    data: { fmiStatus, fmiCheckedAt: new Date() },
+  })
+
+  return NextResponse.json({ ok: true })
 }

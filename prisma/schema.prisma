@@ -1021,6 +1021,10 @@ model MFNReturn {
   safetReimbursement Decimal?  @db.Decimal(12, 2)
   invoiceNumber     String?
   orderItemId       String?
+  // Find My iPhone / iCloud Lock check
+  fmiStatus         String?   // "ON", "OFF", or error message
+  fmiCheckedAt      DateTime?
+
   // Live carrier tracking status (fetched on demand)
   carrierStatus     String?
   deliveredAt       DateTime? // Actual delivery date from carrier (set when status = Delivered)

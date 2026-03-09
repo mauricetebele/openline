@@ -29,6 +29,8 @@ interface MFNReturnRow {
   trackingUpdatedAt: string | null
   refundedAmount: number | null
   expectedSerial: string | null
+  fmiStatus: string | null
+  fmiCheckedAt: string | null
 }
 
 interface Pagination {
@@ -93,7 +95,6 @@ export default function MFNReturnsManager() {
 
   // Find My iPhone check state
   const [fmiChecking, setFmiChecking] = useState<Set<string>>(new Set())
-  const [fmiResults, setFmiResults] = useState<Record<string, { status: 'on' | 'off' | 'error'; detail: string }>>({})
 
   // Tracking refresh state
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
@@ -204,14 +205,20 @@ export default function MFNReturnsManager() {
 
       const resultStr: string = json.data?.result ?? ''
       const lockMatch = resultStr.match(/iCloud Lock:\s*(?:<[^>]*>)?\s*(ON|OFF)/i)
-      if (lockMatch) {
-        const val = lockMatch[1].toUpperCase() as 'ON' | 'OFF'
-        setFmiResults(prev => ({ ...prev, [returnId]: { status: val.toLowerCase() as 'on' | 'off', detail: val } }))
-      } else {
-        setFmiResults(prev => ({ ...prev, [returnId]: { status: 'error', detail: 'Could not parse result' } }))
-      }
+      const fmiStatus = lockMatch ? lockMatch[1].toUpperCase() : 'UNKNOWN'
+
+      // Persist to DB
+      await fetch('/api/returns', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: returnId, fmiStatus }),
+      })
+
+      // Update local state
+      setReturns(prev => prev.map(r => r.id === returnId ? { ...r, fmiStatus, fmiCheckedAt: new Date().toISOString() } : r))
     } catch (e) {
-      setFmiResults(prev => ({ ...prev, [returnId]: { status: 'error', detail: e instanceof Error ? e.message : 'Failed' } }))
+      const errMsg = e instanceof Error ? e.message : 'Failed'
+      setReturns(prev => prev.map(r => r.id === returnId ? { ...r, fmiStatus: `ERROR: ${errMsg}` } : r))
     } finally {
       setFmiChecking(prev => { const n = new Set(prev); n.delete(returnId); return n })
     }
@@ -535,20 +542,18 @@ export default function MFNReturnsManager() {
 
                   {/* Find My (iCloud Lock) */}
                   <td className="px-4 py-2 text-xs">
-                    {fmiResults[r.id] ? (
-                      fmiResults[r.id].status === 'on' ? (
-                        <span className="inline-flex items-center gap-1 text-red-600 font-semibold">
-                          <XCircle size={12} /> ON
-                        </span>
-                      ) : fmiResults[r.id].status === 'off' ? (
-                        <span className="inline-flex items-center gap-1 text-green-600 font-semibold">
-                          <CheckCircle size={12} /> OFF
-                        </span>
-                      ) : (
-                        <span className="text-amber-600" title={fmiResults[r.id].detail}>Error</span>
-                      )
-                    ) : fmiChecking.has(r.id) ? (
+                    {fmiChecking.has(r.id) ? (
                       <Loader2 size={12} className="animate-spin text-blue-500" />
+                    ) : r.fmiStatus === 'ON' ? (
+                      <span className="inline-flex items-center gap-1 text-red-600 font-semibold">
+                        <XCircle size={12} /> ON
+                      </span>
+                    ) : r.fmiStatus === 'OFF' ? (
+                      <span className="inline-flex items-center gap-1 text-green-600 font-semibold">
+                        <CheckCircle size={12} /> OFF
+                      </span>
+                    ) : r.fmiStatus?.startsWith('ERROR') ? (
+                      <span className="text-amber-600" title={r.fmiStatus}>Error</span>
                     ) : r.expectedSerial ? (
                       <button
                         onClick={() => checkFindMy(r.id, r.expectedSerial!)}
