@@ -72,7 +72,7 @@ const NAV: NavItem[] = [
   { href: '/serial-search',    label: 'Serial Search',    icon: Barcode },
   {
     group: true,
-    label: 'Amazon API Tool',
+    label: 'Special Tools',
     icon: Cpu,
     children: [
       { href: '/refunds',            label: 'Refunds',            icon: RefreshCcw },
