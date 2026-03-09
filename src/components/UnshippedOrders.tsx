@@ -3968,7 +3968,7 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
         const currentProgress = batch.completed + batch.failed
         if (batch.status === 'RUNNING' && currentProgress === lastProgress && currentProgress < batch.totalOrders) {
           stallCount++
-          if (stallCount >= 3) {
+          if (stallCount >= 8) {
             console.log('[LabelBatch] stall detected at %d/%d, re-triggering', currentProgress, batch.totalOrders)
             stallCount = 0
             fetch('/api/orders/label-batch/continue', {
