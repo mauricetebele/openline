@@ -6,7 +6,7 @@ import AppShell from '@/components/AppShell'
 import { DollarSign, Loader2, Search } from 'lucide-react'
 
 interface CostEntry {
-  source: 'adjustment' | 'shipment'
+  source: 'adjustment' | 'shipment' | 'mfn'
   label: string
   postedDate: string | null
   amount: number
@@ -15,7 +15,8 @@ interface CostEntry {
 }
 
 interface LookupResult {
-  amazonOrderId: string
+  amazonOrderId: string | null
+  shipmentId: string | null
   parsed: {
     entries: CostEntry[]
     totalShippingCost: number
@@ -24,15 +25,23 @@ interface LookupResult {
   raw: Record<string, unknown>
 }
 
+const SOURCE_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  adjustment: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Postage Billing' },
+  shipment:   { bg: 'bg-gray-100',   text: 'text-gray-600',   label: 'Order Settlement' },
+  mfn:        { bg: 'bg-green-100',  text: 'text-green-700',  label: 'MFN Label' },
+}
+
 export default function ShippingCostPage() {
   const [orderId, setOrderId] = useState('')
+  const [shipmentId, setShipmentId] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<LookupResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function handleLookup() {
-    const trimmed = orderId.trim()
-    if (!trimmed) return
+    const trimmedOrder = orderId.trim()
+    const trimmedShipment = shipmentId.trim()
+    if (!trimmedOrder && !trimmedShipment) return
 
     setLoading(true)
     setError(null)
@@ -42,7 +51,10 @@ export default function ShippingCostPage() {
       const res = await fetch('/api/shipping-cost', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amazonOrderId: trimmed }),
+        body: JSON.stringify({
+          amazonOrderId: trimmedOrder || undefined,
+          shipmentId: trimmedShipment || undefined,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Lookup failed')
@@ -65,29 +77,44 @@ export default function ShippingCostPage() {
             Shipping Cost Lookup
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Look up Amazon Buy Shipping label costs via the Finances API.
+            Look up Amazon Buy Shipping label costs. Uses Finances API + MFN getShipment.
           </p>
         </div>
 
         <div className="p-6 space-y-6 max-w-4xl">
-          {/* Input */}
-          <div className="flex gap-3">
-            <input
-              type="text"
-              value={orderId}
-              onChange={e => setOrderId(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleLookup()}
-              placeholder="Enter Amazon Order ID (e.g. 114-1234567-1234567)"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={handleLookup}
-              disabled={loading || !orderId.trim()}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-              Look Up
-            </button>
+          {/* Inputs */}
+          <div className="space-y-3">
+            <div className="flex gap-3">
+              <input
+                type="text"
+                value={orderId}
+                onChange={e => setOrderId(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleLookup()}
+                placeholder="Amazon Order ID (e.g. 114-1234567-1234567)"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={handleLookup}
+                disabled={loading || (!orderId.trim() && !shipmentId.trim())}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                Look Up
+              </button>
+            </div>
+            <div className="flex gap-3">
+              <input
+                type="text"
+                value={shipmentId}
+                onChange={e => setShipmentId(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleLookup()}
+                placeholder="MFN Shipment ID (optional — for own-carrier labels)"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <p className="text-xs text-gray-400">
+              Amazon-vendor labels: Order ID is enough (Finances API). Own-carrier labels: also provide the MFN Shipment ID.
+            </p>
           </div>
 
           {/* Error */}
@@ -103,14 +130,16 @@ export default function ShippingCostPage() {
               {/* Summary */}
               <div className={`px-4 py-3 rounded-lg border ${total > 0 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
                 <p className={`text-sm font-medium ${total > 0 ? 'text-green-800' : 'text-yellow-800'}`}>
-                  Order: {result.amazonOrderId}
+                  {result.amazonOrderId && <>Order: {result.amazonOrderId}</>}
+                  {result.amazonOrderId && result.shipmentId && ' · '}
+                  {result.shipmentId && <>Shipment: {result.shipmentId}</>}
                 </p>
                 <p className={`text-2xl font-bold mt-1 ${total > 0 ? 'text-green-900' : 'text-yellow-900'}`}>
-                  Shipping Cost: ${total.toFixed(2)}
+                  Label Cost: ${total.toFixed(2)}
                 </p>
                 {total === 0 && (
                   <p className="text-xs text-yellow-600 mt-0.5">
-                    No shipping cost found in financial events for this order.
+                    No label cost found. For own-carrier labels, try providing the MFN Shipment ID.
                   </p>
                 )}
               </div>
@@ -128,34 +157,33 @@ export default function ShippingCostPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {result.parsed.entries.map((entry, i) => (
-                        <tr key={i} className="hover:bg-gray-50">
-                          <td className="px-4 py-2">
-                            <div className="text-xs font-medium">{entry.label}</div>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                              entry.source === 'adjustment'
-                                ? 'bg-purple-100 text-purple-700'
-                                : 'bg-blue-100 text-blue-700'
-                            }`}>
-                              {entry.source === 'adjustment' ? 'Adjustment' : 'Shipment'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 text-xs text-gray-600">
-                            {entry.postedDate ? new Date(entry.postedDate).toLocaleString() : '—'}
-                          </td>
-                          <td className="px-4 py-2">
-                            {entry.details.map((d, j) => (
-                              <div key={j} className="text-xs">
-                                <span className="text-gray-500">{d.type}:</span>{' '}
-                                ${d.amount.toFixed(2)}
-                              </div>
-                            ))}
-                          </td>
-                          <td className="px-4 py-2 text-right font-bold">
-                            ${entry.amount.toFixed(2)} {entry.currency}
-                          </td>
-                        </tr>
-                      ))}
+                      {result.parsed.entries.map((entry, i) => {
+                        const badge = SOURCE_BADGE[entry.source] ?? SOURCE_BADGE.shipment
+                        return (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-4 py-2">
+                              <div className="text-xs font-medium">{entry.label}</div>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${badge.bg} ${badge.text}`}>
+                                {badge.label}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 text-xs text-gray-600">
+                              {entry.postedDate ? new Date(entry.postedDate).toLocaleString() : '—'}
+                            </td>
+                            <td className="px-4 py-2">
+                              {entry.details.map((d, j) => (
+                                <div key={j} className="text-xs">
+                                  <span className="text-gray-500">{d.type}:</span>{' '}
+                                  ${d.amount.toFixed(2)}
+                                </div>
+                              ))}
+                            </td>
+                            <td className="px-4 py-2 text-right font-bold">
+                              {entry.amount > 0 ? `$${entry.amount.toFixed(2)}` : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -163,22 +191,24 @@ export default function ShippingCostPage() {
 
               {/* Event types found */}
               {result.eventSummary && Object.keys(result.eventSummary).length > 0 && (
-                <div className="bg-blue-50 border border-blue-200 px-4 py-3 rounded-lg">
-                  <p className="text-sm font-medium text-blue-800 mb-1">Event Types Found:</p>
-                  <div className="flex flex-wrap gap-2">
+                <details className="border rounded-lg">
+                  <summary className="px-4 py-2 text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50">
+                    Event Types Found
+                  </summary>
+                  <div className="px-4 py-3 border-t bg-blue-50 flex flex-wrap gap-2">
                     {Object.entries(result.eventSummary).map(([key, count]) => (
                       <span key={key} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
                         {key}: {count}
                       </span>
                     ))}
                   </div>
-                </div>
+                </details>
               )}
 
               {/* Raw JSON */}
               <details className="border rounded-lg">
                 <summary className="px-4 py-2 text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50">
-                  Raw Financial Events JSON
+                  Raw JSON
                 </summary>
                 <pre className="px-4 py-3 text-xs bg-gray-50 overflow-auto max-h-96 border-t">
                   {JSON.stringify(result.raw, null, 2)}

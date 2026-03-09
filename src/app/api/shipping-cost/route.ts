@@ -1,12 +1,10 @@
 /**
  * POST /api/shipping-cost
  *
- * Look up Amazon financial events for an order to find shipping costs
- * charged when purchasing labels via Amazon Buy Shipping.
- *
- * Two sources of shipping cost data:
- *  1. AdjustmentEventList → "PostageBilling_Postage"  (Amazon-vendor labels)
- *  2. ShipmentEventList → ItemFeeList / ItemChargeList (own-carrier-account labels)
+ * Look up Amazon shipping label costs via multiple SP-API sources:
+ *  1. Finances API → AdjustmentEventList "PostageBilling_Postage" (Amazon-vendor labels)
+ *  2. Finances API → ShipmentEventList charges/fees
+ *  3. MFN API → GET /mfn/v0/shipments/{shipmentId} (own-carrier-account labels)
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -14,48 +12,28 @@ import { getAuthUser } from '@/lib/get-auth-user'
 import { SpApiClient } from '@/lib/amazon/sp-api'
 import type { SpApiCurrencyAmount } from '@/types'
 
-// ─── Adjustment events (Amazon-vendor labels) ────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface AdjustmentEvent {
   AdjustmentType: string
   PostedDate?: string
   AdjustmentAmount?: SpApiCurrencyAmount
   AdjustmentItemList?: {
-    AdjustmentItemId?: string
     SellerSKU?: string
-    QuantityAdjusted?: number
-    PerUnitAmount?: SpApiCurrencyAmount
     TotalAmount?: SpApiCurrencyAmount
+    PerUnitAmount?: SpApiCurrencyAmount
   }[]
-}
-
-// ─── Shipment events (own-carrier labels) ────────────────────────────────────
-
-interface ChargeComponent {
-  ChargeType: string
-  ChargeAmount: SpApiCurrencyAmount
-}
-
-interface FeeComponent {
-  FeeType: string
-  FeeAmount: SpApiCurrencyAmount
-}
-
-interface ShipmentItem {
-  SellerSKU?: string
-  OrderItemId?: string
-  QuantityShipped?: number
-  ItemChargeList?: ChargeComponent[]
-  ItemFeeList?: FeeComponent[]
 }
 
 interface ShipmentEvent {
   AmazonOrderId: string
   PostedDate?: string
-  ShipmentItemList?: ShipmentItem[]
+  ShipmentItemList?: {
+    SellerSKU?: string
+    ItemChargeList?: { ChargeType: string; ChargeAmount: SpApiCurrencyAmount }[]
+    ItemFeeList?: { FeeType: string; FeeAmount: SpApiCurrencyAmount }[]
+  }[]
 }
-
-// ─── Payload ─────────────────────────────────────────────────────────────────
 
 interface FinancialEventsPayload {
   payload: {
@@ -67,26 +45,24 @@ interface FinancialEventsPayload {
   }
 }
 
-// ─── Shipping-related fee/charge types ───────────────────────────────────────
+interface MfnShipmentPayload {
+  payload: {
+    ShipmentId: string
+    AmazonOrderId: string
+    Status: string
+    TrackingId?: string
+    ShippingService?: {
+      ShippingServiceName?: string
+      CarrierName?: string
+      Rate?: { Amount: number; CurrencyCode: string }
+    }
+  }
+}
 
-const SHIPPING_CHARGE_TYPES = new Set([
-  'ShippingCharge',
-  'ShippingTax',
-  'ShippingDiscount',
-])
-
-const SHIPPING_FEE_TYPES = new Set([
-  'ShippingChargeback',
-  'ShippingHB',
-  'FBAPerUnitFulfillmentFee',
-  'FBAWeightBasedFee',
-  'FBAPerOrderFulfillmentFee',
-])
-
-// ─── Parsing ─────────────────────────────────────────────────────────────────
+// ─── Cost entry shape ────────────────────────────────────────────────────────
 
 interface CostEntry {
-  source: 'adjustment' | 'shipment'
+  source: 'adjustment' | 'shipment' | 'mfn'
   label: string
   postedDate: string | null
   amount: number
@@ -94,13 +70,15 @@ interface CostEntry {
   details: { type: string; amount: number }[]
 }
 
+// ─── Parsing ─────────────────────────────────────────────────────────────────
+
 function parseFinancialEvents(
   adjustments: AdjustmentEvent[],
   shipments: ShipmentEvent[],
-) {
+): CostEntry[] {
   const entries: CostEntry[] = []
 
-  // 1. PostageBilling from adjustments (Amazon-vendor labels)
+  // PostageBilling from adjustments (Amazon-vendor labels)
   for (const adj of adjustments) {
     if (adj.AdjustmentType === 'PostageBilling_Postage') {
       entries.push({
@@ -117,63 +95,32 @@ function parseFinancialEvents(
     }
   }
 
-  // 2. Shipping charges/fees from shipment events (own-carrier labels)
+  // All charges/fees from shipment events for visibility
   for (const event of shipments) {
     for (const item of event.ShipmentItemList ?? []) {
-      const allCharges = (item.ItemChargeList ?? []).map(c => ({
-        type: c.ChargeType,
+      const charges = (item.ItemChargeList ?? []).map(c => ({
+        type: `Charge: ${c.ChargeType}`,
         amount: c.ChargeAmount.CurrencyAmount,
-        currency: c.ChargeAmount.CurrencyCode,
-        isShipping: SHIPPING_CHARGE_TYPES.has(c.ChargeType),
       }))
-
-      const allFees = (item.ItemFeeList ?? []).map(f => ({
-        type: f.FeeType,
+      const fees = (item.ItemFeeList ?? []).map(f => ({
+        type: `Fee: ${f.FeeType}`,
         amount: f.FeeAmount.CurrencyAmount,
-        currency: f.FeeAmount.CurrencyCode,
-        isShipping: SHIPPING_FEE_TYPES.has(f.FeeType),
       }))
 
-      // Collect shipping-specific entries
-      const shippingDetails = [
-        ...allCharges.filter(c => c.isShipping).map(c => ({ type: c.type, amount: c.amount })),
-        ...allFees.filter(f => f.isShipping).map(f => ({ type: f.type, amount: f.amount })),
-      ]
-
-      const shippingAmount = shippingDetails.reduce((sum, d) => sum + Math.abs(d.amount), 0)
-
-      if (shippingAmount > 0) {
+      if (charges.length > 0 || fees.length > 0) {
         entries.push({
           source: 'shipment',
-          label: `Shipment — SKU: ${item.SellerSKU ?? '—'}`,
+          label: `Shipment Fees — SKU: ${item.SellerSKU ?? '—'}`,
           postedDate: event.PostedDate ?? null,
-          amount: shippingAmount,
-          currency: allCharges[0]?.currency ?? allFees[0]?.currency ?? 'USD',
-          details: shippingDetails,
-        })
-      }
-
-      // Also include ALL charges and fees for visibility
-      if (shippingAmount === 0 && (allCharges.length > 0 || allFees.length > 0)) {
-        entries.push({
-          source: 'shipment',
-          label: `Shipment — SKU: ${item.SellerSKU ?? '—'} (all fees)`,
-          postedDate: event.PostedDate ?? null,
-          amount: 0,
-          currency: allCharges[0]?.currency ?? allFees[0]?.currency ?? 'USD',
-          details: [
-            ...allCharges.map(c => ({ type: `Charge: ${c.type}`, amount: c.amount })),
-            ...allFees.map(f => ({ type: `Fee: ${f.type}`, amount: f.amount })),
-          ],
+          amount: 0, // these are order settlement fees, not label cost
+          currency: 'USD',
+          details: [...charges, ...fees],
         })
       }
     }
   }
 
-  return {
-    entries,
-    totalShippingCost: entries.reduce((sum, e) => sum + e.amount, 0),
-  }
+  return entries
 }
 
 // ─── Route handler ───────────────────────────────────────────────────────────
@@ -184,8 +131,9 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const amazonOrderId = (body.amazonOrderId as string)?.trim()
-  if (!amazonOrderId) {
-    return NextResponse.json({ error: 'amazonOrderId is required' }, { status: 400 })
+  const shipmentId = (body.shipmentId as string)?.trim() || null
+  if (!amazonOrderId && !shipmentId) {
+    return NextResponse.json({ error: 'amazonOrderId or shipmentId is required' }, { status: 400 })
   }
 
   const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
@@ -193,33 +141,73 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No active Amazon account' }, { status: 400 })
   }
 
-  try {
-    const client = new SpApiClient(account.id)
-    const resp = await client.get<FinancialEventsPayload>(
-      `/finances/v0/orders/${amazonOrderId}/financialEvents`,
-    )
+  const client = new SpApiClient(account.id)
+  const entries: CostEntry[] = []
+  let eventSummary: Record<string, number> = {}
+  let rawFinancialEvents: Record<string, unknown> = {}
+  let rawMfnShipment: Record<string, unknown> | null = null
 
-    const fe = resp.payload?.FinancialEvents ?? {}
-    const parsed = parseFinancialEvents(
-      fe.AdjustmentEventList ?? [],
-      fe.ShipmentEventList ?? [],
-    )
+  // 1. Finances API (if we have an order ID)
+  if (amazonOrderId) {
+    try {
+      const resp = await client.get<FinancialEventsPayload>(
+        `/finances/v0/orders/${amazonOrderId}/financialEvents`,
+      )
 
-    // Summary of all event types for debugging
-    const eventSummary: Record<string, number> = {}
-    for (const [key, val] of Object.entries(fe)) {
-      if (Array.isArray(val)) eventSummary[key] = val.length
+      const fe = resp.payload?.FinancialEvents ?? {}
+      rawFinancialEvents = fe as Record<string, unknown>
+
+      for (const [key, val] of Object.entries(fe)) {
+        if (Array.isArray(val)) eventSummary[key] = val.length
+      }
+
+      entries.push(...parseFinancialEvents(
+        fe.AdjustmentEventList ?? [],
+        fe.ShipmentEventList ?? [],
+      ))
+    } catch (err) {
+      console.error('[shipping-cost] Finances API error:', err)
     }
-
-    return NextResponse.json({
-      amazonOrderId,
-      parsed,
-      eventSummary,
-      raw: fe,
-    })
-  } catch (err) {
-    console.error('[shipping-cost] Error:', err)
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
   }
+
+  // 2. MFN getShipment (if we have a shipment ID)
+  if (shipmentId) {
+    try {
+      const resp = await client.get<MfnShipmentPayload>(
+        `/mfn/v0/shipments/${shipmentId}`,
+      )
+
+      const shipment = resp.payload
+      rawMfnShipment = shipment as unknown as Record<string, unknown>
+      const rate = shipment?.ShippingService?.Rate
+
+      if (rate && rate.Amount > 0) {
+        entries.push({
+          source: 'mfn',
+          label: `MFN Label — ${shipment.ShippingService?.CarrierName ?? ''} ${shipment.ShippingService?.ShippingServiceName ?? ''}`.trim(),
+          postedDate: null,
+          amount: rate.Amount,
+          currency: rate.CurrencyCode ?? 'USD',
+          details: [
+            { type: 'Label Rate', amount: rate.Amount },
+          ],
+        })
+      }
+    } catch (err) {
+      console.error('[shipping-cost] MFN getShipment error:', err)
+    }
+  }
+
+  const totalShippingCost = entries.reduce((sum, e) => sum + e.amount, 0)
+
+  return NextResponse.json({
+    amazonOrderId: amazonOrderId || null,
+    shipmentId,
+    parsed: { entries, totalShippingCost },
+    eventSummary,
+    raw: {
+      financialEvents: rawFinancialEvents,
+      ...(rawMfnShipment ? { mfnShipment: rawMfnShipment } : {}),
+    },
+  })
 }
