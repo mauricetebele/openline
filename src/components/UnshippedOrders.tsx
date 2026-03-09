@@ -2253,7 +2253,7 @@ function OrderDetailModal({
                             <td className="px-4 py-2.5 text-right tabular-nums text-gray-700 whitespace-nowrap align-top">
                               {item.itemPrice ? fmt(item.itemPrice, order.currency) : '—'}
                             </td>
-                            <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-gray-900 align-top">{item.quantityOrdered}</td>
+                            <td className={clsx('px-4 py-2.5 text-right tabular-nums align-top', item.quantityOrdered > 1 ? 'font-bold text-blue-600' : 'font-semibold text-gray-900')}>{item.quantityOrdered}</td>
                             <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-gray-900 whitespace-nowrap align-top">
                               {extPrice > 0 ? fmt(String(extPrice), order.currency) : '—'}
                             </td>
