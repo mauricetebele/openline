@@ -90,6 +90,23 @@ export async function GET(_req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Auto-close stale batches stuck in RUNNING for over 5 minutes
+  const staleThreshold = new Date(Date.now() - 5 * 60 * 1000)
+  const staleBatches = await prisma.labelBatch.findMany({
+    where: { status: 'RUNNING', createdAt: { lt: staleThreshold } },
+    select: { id: true },
+  })
+  for (const sb of staleBatches) {
+    const timedOut = await prisma.labelBatchItem.updateMany({
+      where: { batchId: sb.id, status: { in: ['PENDING', 'RUNNING'] } },
+      data:  { status: 'FAILED', error: 'Batch timed out' },
+    })
+    await prisma.labelBatch.update({
+      where: { id: sb.id },
+      data:  { status: 'COMPLETED', completedAt: new Date(), failed: { increment: timedOut.count } },
+    })
+  }
+
   const batches = await prisma.labelBatch.findMany({
     orderBy: { createdAt: 'desc' },
     take:    100,
