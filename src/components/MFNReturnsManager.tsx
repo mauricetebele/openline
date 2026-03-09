@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { format } from 'date-fns'
-import { Search, RefreshCcw, ExternalLink, Loader2, Filter } from 'lucide-react'
+import { Search, RefreshCcw, ExternalLink, Loader2, Filter, CheckCircle, XCircle } from 'lucide-react'
 import { clsx } from 'clsx'
 
 interface MFNReturnRow {
@@ -90,6 +90,10 @@ export default function MFNReturnsManager() {
   // Sync date range
   const [syncStart, setSyncStart] = useState('')
   const [syncEnd, setSyncEnd] = useState('')
+
+  // Find My iPhone check state
+  const [fmiChecking, setFmiChecking] = useState<Set<string>>(new Set())
+  const [fmiResults, setFmiResults] = useState<Record<string, { status: 'on' | 'off' | 'error'; detail: string }>>({})
 
   // Tracking refresh state
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
@@ -185,6 +189,33 @@ export default function MFNReturnsManager() {
   useEffect(() => {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [])
+
+  // ── Find My iPhone (iCloud Lock) check via SICKW Basic Info ──────────────
+  async function checkFindMy(returnId: string, serial: string) {
+    setFmiChecking(prev => { const n = new Set(prev); n.add(returnId); return n })
+    try {
+      const res = await fetch('/api/sickw/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imei: serial, serviceId: 30, serviceName: 'Basic Info' }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Check failed')
+
+      const resultStr: string = json.data?.result ?? ''
+      const lockMatch = resultStr.match(/iCloud Lock:\s*(?:<[^>]*>)?\s*(ON|OFF)/i)
+      if (lockMatch) {
+        const val = lockMatch[1].toUpperCase() as 'ON' | 'OFF'
+        setFmiResults(prev => ({ ...prev, [returnId]: { status: val.toLowerCase() as 'on' | 'off', detail: val } }))
+      } else {
+        setFmiResults(prev => ({ ...prev, [returnId]: { status: 'error', detail: 'Could not parse result' } }))
+      }
+    } catch (e) {
+      setFmiResults(prev => ({ ...prev, [returnId]: { status: 'error', detail: e instanceof Error ? e.message : 'Failed' } }))
+    } finally {
+      setFmiChecking(prev => { const n = new Set(prev); n.delete(returnId); return n })
+    }
+  }
 
   // ── Tracking refresh ──────────────────────────────────────────────────────
   async function refreshTracking(id: string) {
@@ -502,8 +533,33 @@ export default function MFNReturnsManager() {
                     {r.expectedSerial ?? <span className="text-gray-400">-</span>}
                   </td>
 
-                  {/* Find My (placeholder) */}
-                  <td className="px-4 py-2 text-gray-400 text-xs">-</td>
+                  {/* Find My (iCloud Lock) */}
+                  <td className="px-4 py-2 text-xs">
+                    {fmiResults[r.id] ? (
+                      fmiResults[r.id].status === 'on' ? (
+                        <span className="inline-flex items-center gap-1 text-red-600 font-semibold">
+                          <XCircle size={12} /> ON
+                        </span>
+                      ) : fmiResults[r.id].status === 'off' ? (
+                        <span className="inline-flex items-center gap-1 text-green-600 font-semibold">
+                          <CheckCircle size={12} /> OFF
+                        </span>
+                      ) : (
+                        <span className="text-amber-600" title={fmiResults[r.id].detail}>Error</span>
+                      )
+                    ) : fmiChecking.has(r.id) ? (
+                      <Loader2 size={12} className="animate-spin text-blue-500" />
+                    ) : r.expectedSerial ? (
+                      <button
+                        onClick={() => checkFindMy(r.id, r.expectedSerial!)}
+                        className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                      >
+                        Check
+                      </button>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </td>
 
                   {/* Return Date */}
                   <td className="px-4 py-2 whitespace-nowrap text-xs">
