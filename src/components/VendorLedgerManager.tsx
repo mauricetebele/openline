@@ -287,13 +287,13 @@ export default function VendorLedgerManager() {
               </div>
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">Vendor Invoice #</label>
+              <label className="text-xs text-gray-500 block mb-1">{payType === 'CREDIT' ? 'Vendor Credit #' : 'Vendor Invoice #'}</label>
               <input
                 type="text"
                 value={payInvoiceNo}
                 onChange={(e) => setPayInvoiceNo(e.target.value)}
                 className="h-9 w-36 rounded-md border border-gray-300 px-3 text-sm"
-                placeholder="e.g. INV-12345"
+                placeholder={payType === 'CREDIT' ? 'e.g. CR-12345' : 'e.g. INV-12345'}
               />
             </div>
             <div className="flex-1 min-w-[200px]">
