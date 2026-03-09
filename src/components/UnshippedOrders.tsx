@@ -34,13 +34,14 @@ function playTone(success: boolean) {
       osc.start(ctx.currentTime)
       osc.stop(ctx.currentTime + 0.25)
     } else {
-      // Low buzz for failure
+      // Harsh descending buzz for failure
       osc.type = 'square'
-      osc.frequency.setValueAtTime(220, ctx.currentTime)
-      gain.gain.setValueAtTime(0.12, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
+      osc.frequency.setValueAtTime(400, ctx.currentTime)
+      osc.frequency.setValueAtTime(200, ctx.currentTime + 0.15)
+      gain.gain.setValueAtTime(0.2, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
       osc.start(ctx.currentTime)
-      osc.stop(ctx.currentTime + 0.3)
+      osc.stop(ctx.currentTime + 0.4)
     }
   } catch { /* AudioContext not available */ }
 }
@@ -844,10 +845,23 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
           ...prev,
           [key]: { value: sn, valid: data.valid, message: data.valid ? (data.location ?? '✓ Valid') : (data.detail ?? 'Invalid'), checking: false },
         }))
-        if (immediate) playTone(data.valid)
+        if (immediate) {
+          playTone(data.valid)
+          if (!data.valid) {
+            // Show error briefly, then clear so user can scan another
+            setTimeout(() => {
+              setSerialInputs(prev => ({ ...prev, [key]: { value: '', valid: null, message: '', checking: false } }))
+            }, 1500)
+          }
+        }
       } catch {
         setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], checking: false, valid: false, message: 'Validation error' } }))
-        if (immediate) playTone(false)
+        if (immediate) {
+          playTone(false)
+          setTimeout(() => {
+            setSerialInputs(prev => ({ ...prev, [key]: { value: '', valid: null, message: '', checking: false } }))
+          }, 1500)
+        }
       }
     }
     if (immediate) { doValidate() } else { debounceRefs.current[key] = setTimeout(doValidate, 350) }
@@ -1263,10 +1277,22 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
             serialId: data.valid ? data.serialId : undefined,
           },
         }))
-        if (immediate) playTone(data.valid)
+        if (immediate) {
+          playTone(data.valid)
+          if (!data.valid) {
+            setTimeout(() => {
+              setSerialInputs(prev => ({ ...prev, [key]: { value: '', valid: null, message: '', checking: false, serialId: undefined } }))
+            }, 1500)
+          }
+        }
       } catch {
         setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], checking: false, valid: false, message: 'Validation error', serialId: undefined } }))
-        if (immediate) playTone(false)
+        if (immediate) {
+          playTone(false)
+          setTimeout(() => {
+            setSerialInputs(prev => ({ ...prev, [key]: { value: '', valid: null, message: '', checking: false, serialId: undefined } }))
+          }, 1500)
+        }
       }
     }
     if (immediate) { doValidate() } else { debounceRefs.current[key] = setTimeout(doValidate, 350) }
