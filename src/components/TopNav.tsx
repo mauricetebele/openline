@@ -33,7 +33,6 @@ const NAV: NavItem[] = [
       { href: '/vendors',         label: 'Vendors',         icon: Building2 },
       { href: '/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
       { href: '/vendor-ledger',  label: 'Vendor Ledger',   icon: BookOpen },
-      { href: '/vendor-rma',            label: 'Vendor Returns',  icon: PackageMinus },
     ],
   },
   {
@@ -43,6 +42,7 @@ const NAV: NavItem[] = [
     children: [
       { href: '/marketplace-returns',  label: 'Marketplace Returns', icon: Undo2 },
       { href: '/wholesale/customer-rma',    label: 'Wholesale RMA',       icon: RotateCcw },
+      { href: '/vendor-rma',            label: 'Vendor Returns',      icon: PackageMinus },
     ],
   },
   {
