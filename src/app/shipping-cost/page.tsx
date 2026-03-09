@@ -5,19 +5,20 @@ import { useState } from 'react'
 import AppShell from '@/components/AppShell'
 import { DollarSign, Loader2, Search } from 'lucide-react'
 
-interface PostageEntry {
-  type: string
+interface CostEntry {
+  source: 'adjustment' | 'shipment'
+  label: string
   postedDate: string | null
   amount: number
   currency: string
-  items: { sku: string | null; qty: number; perUnit: number | null; total: number | null }[]
+  details: { type: string; amount: number }[]
 }
 
 interface LookupResult {
   amazonOrderId: string
   parsed: {
-    entries: PostageEntry[]
-    totalPostage: number
+    entries: CostEntry[]
+    totalShippingCost: number
   }
   eventSummary?: Record<string, number>
   raw: Record<string, unknown>
@@ -52,6 +53,8 @@ export default function ShippingCostPage() {
       setLoading(false)
     }
   }
+
+  const total = result?.parsed.totalShippingCost ?? 0
 
   return (
     <AppShell>
@@ -98,37 +101,55 @@ export default function ShippingCostPage() {
           {result && (
             <div className="space-y-4">
               {/* Summary */}
-              <div className={`px-4 py-3 rounded-lg border ${result.parsed.totalPostage > 0 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
-                <p className={`text-sm font-medium ${result.parsed.totalPostage > 0 ? 'text-green-800' : 'text-yellow-800'}`}>
+              <div className={`px-4 py-3 rounded-lg border ${total > 0 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                <p className={`text-sm font-medium ${total > 0 ? 'text-green-800' : 'text-yellow-800'}`}>
                   Order: {result.amazonOrderId}
                 </p>
-                <p className={`text-2xl font-bold mt-1 ${result.parsed.totalPostage > 0 ? 'text-green-900' : 'text-yellow-900'}`}>
-                  Postage: ${result.parsed.totalPostage.toFixed(2)}
+                <p className={`text-2xl font-bold mt-1 ${total > 0 ? 'text-green-900' : 'text-yellow-900'}`}>
+                  Shipping Cost: ${total.toFixed(2)}
                 </p>
-                {result.parsed.totalPostage === 0 && (
+                {total === 0 && (
                   <p className="text-xs text-yellow-600 mt-0.5">
-                    No PostageBilling_Postage adjustment found for this order.
+                    No shipping cost found in financial events for this order.
                   </p>
                 )}
               </div>
 
-              {/* Postage entries */}
+              {/* Cost entries breakdown */}
               {result.parsed.entries.length > 0 && (
                 <div className="border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-b">
                       <tr>
-                        <th className="text-left px-4 py-2 font-medium text-gray-700">Type</th>
+                        <th className="text-left px-4 py-2 font-medium text-gray-700">Source</th>
                         <th className="text-left px-4 py-2 font-medium text-gray-700">Posted</th>
+                        <th className="text-left px-4 py-2 font-medium text-gray-700">Breakdown</th>
                         <th className="text-right px-4 py-2 font-medium text-gray-700">Amount</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {result.parsed.entries.map((entry, i) => (
                         <tr key={i} className="hover:bg-gray-50">
-                          <td className="px-4 py-2 font-mono text-xs">{entry.type}</td>
+                          <td className="px-4 py-2">
+                            <div className="text-xs font-medium">{entry.label}</div>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                              entry.source === 'adjustment'
+                                ? 'bg-purple-100 text-purple-700'
+                                : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {entry.source === 'adjustment' ? 'Adjustment' : 'Shipment'}
+                            </span>
+                          </td>
                           <td className="px-4 py-2 text-xs text-gray-600">
                             {entry.postedDate ? new Date(entry.postedDate).toLocaleString() : '—'}
+                          </td>
+                          <td className="px-4 py-2">
+                            {entry.details.map((d, j) => (
+                              <div key={j} className="text-xs">
+                                <span className="text-gray-500">{d.type}:</span>{' '}
+                                ${d.amount.toFixed(2)}
+                              </div>
+                            ))}
                           </td>
                           <td className="px-4 py-2 text-right font-bold">
                             ${entry.amount.toFixed(2)} {entry.currency}
