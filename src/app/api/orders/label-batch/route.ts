@@ -92,7 +92,7 @@ export async function GET(_req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Auto-close stale batches stuck in RUNNING for over 5 minutes
-  const staleThreshold = new Date(Date.now() - 5 * 60 * 1000)
+  const staleThreshold = new Date(Date.now() - 10 * 60 * 1000)
   const staleBatches = await prisma.labelBatch.findMany({
     where: { status: 'RUNNING', createdAt: { lt: staleThreshold } },
     select: { id: true },

@@ -3,12 +3,21 @@
  *
  * Called fire-and-forget from POST /api/orders/label-batch.
  * Runs entirely server-side so the browser can be closed mid-batch.
+ *
+ * If the function approaches the Vercel execution time limit (maxDuration=300s),
+ * it saves progress and triggers a continuation via an internal API call,
+ * allowing batches of unlimited size to process seamlessly.
  */
 import { prisma } from '@/lib/prisma'
 import { ShipStationClient, SSLabelPayload } from '@/lib/shipstation/client'
 import { decrypt } from '@/lib/crypto'
 
+/** Leave 30s of headroom before the Vercel timeout to safely chain */
+const MAX_RUN_MS = 260_000 // 4 min 20s (out of 5 min maxDuration)
+
 export async function runLabelBatch(batchId: string): Promise<void> {
+  const startedAt = Date.now()
+
   // ── 1. Mark batch RUNNING ──────────────────────────────────────────────────
   await prisma.labelBatch.update({
     where: { id: batchId },
@@ -52,26 +61,45 @@ export async function runLabelBatch(batchId: string): Promise<void> {
   const from           = warehouse.originAddress
   const fromPostalCode = from.postalCode.split('-')[0].trim()
 
-  // ── 4. Load batch with items ──────────────────────────────────────────────
+  // ── 4. Load batch with PENDING items only ─────────────────────────────────
   const batch = await prisma.labelBatch.findUnique({
     where:   { id: batchId },
     include: {
       items: {
+        where:   { status: 'PENDING' },
         include: {
           order: {
             include: { appliedPreset: true },
           },
         },
+        orderBy: { createdAt: 'asc' },
       },
     },
   })
   if (!batch) throw new Error(`Batch ${batchId} not found`)
 
-  let completedCount = 0
-  let failedCount    = 0
+  // Nothing left to process — mark done
+  if (batch.items.length === 0) {
+    await prisma.labelBatch.update({
+      where: { id: batchId },
+      data:  { status: 'COMPLETED', completedAt: new Date() },
+    })
+    return
+  }
+
+  let completedCount = batch.completed
+  let failedCount    = batch.failed
 
   // ── 5. Process each item sequentially ────────────────────────────────────
   for (const item of batch.items) {
+    // ── Time check: if approaching the limit, chain to a new invocation ───
+    if (Date.now() - startedAt > MAX_RUN_MS) {
+      console.log('[LabelBatch] batch=%s approaching timeout after %ds, chaining continuation for %d remaining items',
+        batchId, Math.round((Date.now() - startedAt) / 1000), batch.items.length - batch.items.indexOf(item))
+      triggerContinuation(batchId)
+      return // exit gracefully — continuation picks up remaining PENDING items
+    }
+
     const order = item.order
 
     // Mark item RUNNING
@@ -245,5 +273,22 @@ export async function runLabelBatch(batchId: string): Promise<void> {
   await prisma.labelBatch.update({
     where: { id: batchId },
     data:  { status: 'COMPLETED', completedAt: new Date() },
+  })
+}
+
+/**
+ * Triggers a new serverless function invocation to continue processing
+ * the remaining PENDING items in the batch. Fire-and-forget.
+ */
+function triggerContinuation(batchId: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`
+  const url = `${baseUrl}/api/orders/label-batch/continue`
+
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-batch-secret': process.env.BATCH_CHAIN_SECRET || 'internal' },
+    body: JSON.stringify({ batchId }),
+  }).catch(err => {
+    console.error('[LabelBatch] failed to trigger continuation for batch=%s: %s', batchId, err instanceof Error ? err.message : String(err))
   })
 }

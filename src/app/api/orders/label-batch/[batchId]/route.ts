@@ -30,7 +30,7 @@ export async function GET(
   if (!batch) return NextResponse.json({ error: 'Batch not found' }, { status: 404 })
 
   // Auto-close if stuck RUNNING for over 5 minutes
-  if (batch.status === 'RUNNING' && batch.createdAt < new Date(Date.now() - 5 * 60 * 1000)) {
+  if (batch.status === 'RUNNING' && batch.createdAt < new Date(Date.now() - 10 * 60 * 1000)) {
     const timedOut = await prisma.labelBatchItem.updateMany({
       where: { batchId: batch.id, status: { in: ['PENDING', 'RUNNING'] } },
       data:  { status: 'FAILED', error: 'Batch timed out' },
