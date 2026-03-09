@@ -5,26 +5,19 @@ import { useState } from 'react'
 import AppShell from '@/components/AppShell'
 import { DollarSign, Loader2, Search } from 'lucide-react'
 
-interface ChargeOrFee {
+interface PostageEntry {
   type: string
+  postedDate: string | null
   amount: number
   currency: string
-}
-
-interface ParsedItem {
-  sku: string | null
-  orderItemId: string | null
-  qty: number
-  charges: ChargeOrFee[]
-  fees: ChargeOrFee[]
-  shippingTotal: number
+  items: { sku: string | null; qty: number; perUnit: number | null; total: number | null }[]
 }
 
 interface LookupResult {
   amazonOrderId: string
   parsed: {
-    items: ParsedItem[]
-    totalShippingCost: number
+    entries: PostageEntry[]
+    totalPostage: number
   }
   eventSummary?: Record<string, number>
   raw: Record<string, unknown>
@@ -105,17 +98,47 @@ export default function ShippingCostPage() {
           {result && (
             <div className="space-y-4">
               {/* Summary */}
-              <div className="bg-green-50 border border-green-200 px-4 py-3 rounded-lg">
-                <p className="text-sm font-medium text-green-800">
+              <div className={`px-4 py-3 rounded-lg border ${result.parsed.totalPostage > 0 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                <p className={`text-sm font-medium ${result.parsed.totalPostage > 0 ? 'text-green-800' : 'text-yellow-800'}`}>
                   Order: {result.amazonOrderId}
                 </p>
-                <p className="text-lg font-bold text-green-900 mt-1">
-                  Total Shipping Cost: ${result.parsed.totalShippingCost.toFixed(2)}
+                <p className={`text-2xl font-bold mt-1 ${result.parsed.totalPostage > 0 ? 'text-green-900' : 'text-yellow-900'}`}>
+                  Postage: ${result.parsed.totalPostage.toFixed(2)}
                 </p>
-                <p className="text-xs text-green-600 mt-0.5">
-                  {result.parsed.items.length} line item{result.parsed.items.length !== 1 ? 's' : ''} found
-                </p>
+                {result.parsed.totalPostage === 0 && (
+                  <p className="text-xs text-yellow-600 mt-0.5">
+                    No PostageBilling_Postage adjustment found for this order.
+                  </p>
+                )}
               </div>
+
+              {/* Postage entries */}
+              {result.parsed.entries.length > 0 && (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="text-left px-4 py-2 font-medium text-gray-700">Type</th>
+                        <th className="text-left px-4 py-2 font-medium text-gray-700">Posted</th>
+                        <th className="text-right px-4 py-2 font-medium text-gray-700">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {result.parsed.entries.map((entry, i) => (
+                        <tr key={i} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 font-mono text-xs">{entry.type}</td>
+                          <td className="px-4 py-2 text-xs text-gray-600">
+                            {entry.postedDate ? new Date(entry.postedDate).toLocaleString() : '—'}
+                          </td>
+                          <td className="px-4 py-2 text-right font-bold">
+                            ${entry.amount.toFixed(2)} {entry.currency}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {/* Event types found */}
               {result.eventSummary && Object.keys(result.eventSummary).length > 0 && (
@@ -128,52 +151,6 @@ export default function ShippingCostPage() {
                       </span>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {/* Item breakdown */}
-              {result.parsed.items.length > 0 && (
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50 border-b">
-                      <tr>
-                        <th className="text-left px-4 py-2 font-medium text-gray-700">SKU</th>
-                        <th className="text-left px-4 py-2 font-medium text-gray-700">Qty</th>
-                        <th className="text-left px-4 py-2 font-medium text-gray-700">Charges</th>
-                        <th className="text-left px-4 py-2 font-medium text-gray-700">Fees</th>
-                        <th className="text-right px-4 py-2 font-medium text-gray-700">Shipping Total</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {result.parsed.items.map((item, i) => (
-                        <tr key={i} className="hover:bg-gray-50">
-                          <td className="px-4 py-2 font-mono text-xs">{item.sku ?? '—'}</td>
-                          <td className="px-4 py-2">{item.qty}</td>
-                          <td className="px-4 py-2">
-                            {item.charges.map((c, j) => (
-                              <div key={j} className="text-xs">
-                                <span className="text-gray-500">{c.type}:</span>{' '}
-                                ${c.amount.toFixed(2)}
-                              </div>
-                            ))}
-                            {item.charges.length === 0 && <span className="text-gray-400">—</span>}
-                          </td>
-                          <td className="px-4 py-2">
-                            {item.fees.map((f, j) => (
-                              <div key={j} className="text-xs">
-                                <span className="text-gray-500">{f.type}:</span>{' '}
-                                ${f.amount.toFixed(2)}
-                              </div>
-                            ))}
-                            {item.fees.length === 0 && <span className="text-gray-400">—</span>}
-                          </td>
-                          <td className="px-4 py-2 text-right font-medium">
-                            ${item.shippingTotal.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
               )}
 
