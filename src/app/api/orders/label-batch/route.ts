@@ -8,7 +8,6 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
-import { runLabelBatch } from '@/lib/label-batch'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // 5 minutes — batch labels can take a while
@@ -75,9 +74,15 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Fire and forget — continues even if browser disconnects
-  runLabelBatch(batch.id).catch(err =>
-    console.error('[LabelBatch] batch=%s fatal error:', batch.id, err),
+  // Trigger processing via a separate function invocation so it doesn't
+  // get killed when this POST response returns.
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`
+  fetch(`${baseUrl}/api/orders/label-batch/continue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-batch-secret': process.env.BATCH_CHAIN_SECRET || 'internal' },
+    body: JSON.stringify({ batchId: batch.id }),
+  }).catch(err =>
+    console.error('[LabelBatch] failed to trigger batch=%s: %s', batch.id, err instanceof Error ? err.message : String(err)),
   )
 
   return NextResponse.json({
