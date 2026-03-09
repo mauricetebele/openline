@@ -2477,6 +2477,35 @@ const FROM_ZIP_KEY  = 'ss_from_zip'
 const WH_KEY        = 'ss_warehouse_id'
 const TEST_MODE_KEY = 'ss_test_mode'
 
+const CARRIER_LOGOS: Record<string, string> = {
+  usps: '/logos/usps.svg',
+  stamps_com: '/logos/usps.svg',
+  ups: '/logos/ups.svg',
+  ups_walleted: '/logos/ups.svg',
+  fedex: '/logos/fedex.svg',
+  dhl_express: '/logos/dhl.svg',
+  dhl_express_worldwide: '/logos/dhl.svg',
+}
+
+function carrierLogo(carrierCode: string | null | undefined): string | null {
+  if (!carrierCode) return null
+  const key = carrierCode.toLowerCase()
+  if (CARRIER_LOGOS[key]) return CARRIER_LOGOS[key]
+  // Fuzzy match
+  if (key.includes('usps') || key.includes('stamps')) return '/logos/usps.svg'
+  if (key.includes('ups')) return '/logos/ups.svg'
+  if (key.includes('fedex')) return '/logos/fedex.svg'
+  if (key.includes('dhl')) return '/logos/dhl.svg'
+  return null
+}
+
+function CarrierLogo({ carrierCode, size = 16 }: { carrierCode: string | null | undefined; size?: number }) {
+  const src = carrierLogo(carrierCode)
+  if (!src) return null
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" width={size * 2.5} height={size} className="shrink-0 object-contain" />
+}
+
 function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelPanelProps) {
   const [lookup, setLookup]         = useState<SSLookupResult>({ status: 'loading' })
   const [warehouses, setWarehouses] = useState<SSWarehouse[]>([])
@@ -2990,9 +3019,12 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
                 const key = `${svc.carrierCode}-${svc.code}`, isBuying = purchasing === key
                 return (
                   <div key={`${key}-${idx}`} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-[#FF9900]/40 bg-orange-50/40 hover:border-[#FF9900] transition-colors">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{svc.name}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{svc.carrierName}</p>
+                    <div className="min-w-0 flex items-center gap-2.5">
+                      <CarrierLogo carrierCode={svc.carrierName} size={14} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{svc.name}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{svc.carrierName}</p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {svc.shipmentCost !== undefined ? <span className="text-sm font-bold text-gray-900">${svc.shipmentCost.toFixed(2)}</span> : <span className="text-xs text-gray-400 italic">Price at purchase</span>}
@@ -3014,9 +3046,12 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
                 const total = rate.shipmentCost + rate.otherCost, isBuying = purchasing === `${rate.carrierCode}-${rate.serviceCode}`
                 return (
                   <div key={`${rate.carrierCode}-${rate.serviceCode}-${idx}`} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 hover:border-[#FF9900] transition-colors">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{rate.serviceName}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{rate.carrierName ?? rate.carrierCode}{rate.transitDays != null ? ` · ${rate.transitDays}d` : ''}{rate.deliveryDate ? ` · Est. ${new Date(rate.deliveryDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</p>
+                    <div className="min-w-0 flex items-center gap-2.5">
+                      <CarrierLogo carrierCode={rate.carrierCode} size={14} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{rate.serviceName}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{rate.carrierName ?? rate.carrierCode}{rate.transitDays != null ? ` · ${rate.transitDays}d` : ''}{rate.deliveryDate ? ` · Est. ${new Date(rate.deliveryDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="text-sm font-bold text-gray-900">${total.toFixed(2)}</span>
@@ -5980,11 +6015,14 @@ export default function UnshippedOrders() {
                         <span className="text-[11px] font-semibold text-gray-900 tabular-nums">
                           {fmt(order.presetRateAmount)}
                         </span>
-                        {order.presetRateService && (
-                          <span className="text-[9px] text-gray-400 leading-none truncate max-w-[100px]" title={order.presetRateService}>
-                            {order.presetRateService}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1">
+                          <CarrierLogo carrierCode={order.presetRateCarrier} size={10} />
+                          {order.presetRateService && (
+                            <span className="text-[9px] text-gray-400 leading-none truncate max-w-[80px]" title={order.presetRateService}>
+                              {order.presetRateService}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <span className="text-gray-300 text-[10px]">—</span>
