@@ -54,15 +54,36 @@ export function StockBgProvider({ children }: { children: React.ReactNode }) {
 
     async function fetchAndApply() {
       try {
-        const res = await fetch('/api/stock-quote')
-        if (!res.ok) return
-        const data = await res.json()
-        if (!mounted || data.error) return
-        changeRef.current = data.changePercent
+        // Fetch directly from browser — Yahoo blocks cloud server IPs
+        // but allows browser requests. Fall back to our API route.
+        let changePercent: number | undefined
+        try {
+          const yRes = await fetch(
+            'https://query1.finance.yahoo.com/v8/finance/chart/LEU?interval=1d&range=1d',
+          )
+          if (yRes.ok) {
+            const yJson = await yRes.json()
+            const meta = yJson.chart.result[0].meta
+            const price: number = meta.regularMarketPrice
+            const prev: number = meta.chartPreviousClose
+            changePercent = ((price - prev) / prev) * 100
+          }
+        } catch { /* fall through to API route */ }
+
+        if (changePercent === undefined) {
+          const res = await fetch('/api/stock-quote')
+          if (!res.ok) return
+          const data = await res.json()
+          if (data.error) return
+          changePercent = data.changePercent
+        }
+
+        if (!mounted || changePercent === undefined) return
+        changeRef.current = changePercent
         const dark = document.documentElement.classList.contains('dark')
         document.documentElement.style.setProperty(
           '--stock-bg',
-          computeBg(data.changePercent, dark),
+          computeBg(changePercent, dark),
         )
       } catch {
         // keep last tint
