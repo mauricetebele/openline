@@ -26,6 +26,7 @@ interface LookupResult {
     items: ParsedItem[]
     totalShippingCost: number
   }
+  eventSummary?: Record<string, number>
   raw: Record<string, unknown>
 }
 
@@ -115,6 +116,20 @@ export default function ShippingCostPage() {
                   {result.parsed.items.length} line item{result.parsed.items.length !== 1 ? 's' : ''} found
                 </p>
               </div>
+
+              {/* Event types found */}
+              {result.eventSummary && Object.keys(result.eventSummary).length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 px-4 py-3 rounded-lg">
+                  <p className="text-sm font-medium text-blue-800 mb-1">Event Types Found:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(result.eventSummary).map(([key, count]) => (
+                      <span key={key} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                        {key}: {count}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Item breakdown */}
               {result.parsed.items.length > 0 && (

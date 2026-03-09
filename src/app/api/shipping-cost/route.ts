@@ -120,17 +120,25 @@ export async function POST(req: NextRequest) {
 
   try {
     const client = new SpApiClient(account.id)
-    const resp = await client.get<FinancialEventsPayload['payload']>(
+    const resp = await client.get<FinancialEventsPayload>(
       `/finances/v0/orders/${amazonOrderId}/financialEvents`,
     )
 
-    const financialEvents = resp.FinancialEvents ?? {}
+    const financialEvents = resp.payload?.FinancialEvents ?? {}
     const shipmentEvents = financialEvents.ShipmentEventList ?? []
     const parsed = parseShippingCosts(shipmentEvents)
+
+    // Log which event types have data for debugging
+    const eventSummary: Record<string, number> = {}
+    for (const [key, val] of Object.entries(financialEvents)) {
+      if (Array.isArray(val)) eventSummary[key] = val.length
+    }
+    console.log('[shipping-cost] Event types present:', JSON.stringify(eventSummary))
 
     return NextResponse.json({
       amazonOrderId,
       parsed,
+      eventSummary,
       raw: financialEvents,
     })
   } catch (err) {
