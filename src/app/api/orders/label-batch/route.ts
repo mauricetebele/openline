@@ -11,6 +11,7 @@ import { requireAdmin } from '@/lib/auth-helpers'
 import { runLabelBatch } from '@/lib/label-batch'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300 // 5 minutes — batch labels can take a while
 
 const bodySchema = z.object({
   orderIds: z.array(z.string().min(1)).min(1),
