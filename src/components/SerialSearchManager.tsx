@@ -136,7 +136,7 @@ export default function SerialSearchManager() {
   useEffect(() => {
     fetch('/api/grades')
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.data) setGrades(d.data) })
+      .then(d => { if (d?.data) setGrades(d.data.map((g: { grade: string }) => g.grade)) })
       .catch(() => {})
   }, [])
 
