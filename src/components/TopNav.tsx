@@ -34,7 +34,15 @@ const NAV: NavItem[] = [
       { href: '/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
       { href: '/vendor-ledger',  label: 'Vendor Ledger',   icon: BookOpen },
       { href: '/vendor-rma',            label: 'Vendor Returns',  icon: PackageMinus },
-      { href: '/marketplace-returns',  label: 'MP Returns',      icon: Undo2 },
+    ],
+  },
+  {
+    group: true,
+    label: 'Returns',
+    icon: Undo2,
+    children: [
+      { href: '/marketplace-returns',  label: 'Marketplace Returns', icon: Undo2 },
+      { href: '/wholesale/customer-rma',    label: 'Wholesale RMA',       icon: RotateCcw },
     ],
   },
   {
@@ -85,7 +93,6 @@ const NAV: NavItem[] = [
     children: [
       { href: '/customers',             label: 'View Customers', icon: Users },
       { href: '/wholesale/customers?new=1', label: 'Add a Customer', icon: Plus },
-      { href: '/wholesale/customer-rma',    label: 'Customer RMA',   icon: RotateCcw },
     ],
   },
   { divider: true, label: 'Wholesale' },
