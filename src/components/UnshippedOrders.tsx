@@ -5947,7 +5947,7 @@ export default function UnshippedOrders() {
                   {/* Qty */}
                   <td className="px-3 py-1.5 whitespace-nowrap">
                     <div className={clsx('flex flex-col', multi && 'gap-0.5')}>
-                      {order.items.map(i => <span key={i.id} className={clsx('text-[11px] leading-4 tabular-nums', i.quantityOrdered > 1 ? 'font-bold text-blue-600' : 'text-gray-700')}>{i.quantityOrdered}</span>)}
+                      {order.items.map(i => <span key={i.id} className={clsx('text-[11px] leading-4 tabular-nums', i.quantityOrdered > 1 ? 'font-bold text-red-600' : 'text-gray-700')}>{i.quantityOrdered}</span>)}
                     </div>
                   </td>
                   {/* Product */}
