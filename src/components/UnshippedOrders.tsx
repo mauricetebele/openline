@@ -5604,10 +5604,10 @@ export default function UnshippedOrders() {
             {activeTab === 'unshipped' && selectedOrderIds.size > 0 && (
               <button
                 onClick={() => setShowBatchConfirm(true)}
-                disabled={applyingPreset || applyingPackagePreset || batchEligible.length === 0}
-                title={batchEligible.length === 0 ? 'All selected orders need a shopped rate first' : undefined}
+                disabled={applyingPreset || applyingPackagePreset || batchEligible.length !== selectedOrderIds.size}
+                title={batchEligible.length !== selectedOrderIds.size ? `${selectedOrderIds.size - batchEligible.length} selected order(s) need a shopped rate first` : undefined}
                 className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
-                  applyingPreset || applyingPackagePreset || batchEligible.length === 0
+                  applyingPreset || applyingPackagePreset || batchEligible.length !== selectedOrderIds.size
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     : 'bg-indigo-600 text-white hover:bg-indigo-700')}
               >
