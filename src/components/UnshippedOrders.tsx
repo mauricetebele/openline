@@ -3562,7 +3562,7 @@ interface LabelBatchItemStatus {
   orderId: string
   status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
   error: string | null
-  order: { amazonOrderId: string }
+  order: { amazonOrderId: string; olmNumber: number | null; shipToName: string | null; presetRateService: string | null }
 }
 
 interface LabelBatchPollData {
@@ -3811,6 +3811,71 @@ function BatchGauge({ completed, total, failed }: { completed: number; total: nu
   )
 }
 
+// ─── BatchItemGrid ───────────────────────────────────────────────────────────
+
+const ITEM_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon?: 'spin' | 'check' | 'x' }> = {
+  PENDING:   { label: 'Queued',     bg: 'bg-gray-50',   text: 'text-gray-500' },
+  RUNNING:   { label: 'Processing', bg: 'bg-blue-50',   text: 'text-blue-700', icon: 'spin' },
+  COMPLETED: { label: 'Success',    bg: 'bg-green-50',  text: 'text-green-700', icon: 'check' },
+  FAILED:    { label: 'Error',      bg: 'bg-red-50',    text: 'text-red-700', icon: 'x' },
+}
+
+function BatchItemGrid({ items }: { items: LabelBatchItemStatus[] }) {
+  return (
+    <div className="border rounded-lg overflow-hidden flex-1 min-h-0">
+      <div className="overflow-y-auto max-h-[40vh]">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-gray-100 text-gray-500">
+              <th className="text-left px-3 py-1.5 font-semibold w-8">#</th>
+              <th className="text-left px-3 py-1.5 font-semibold">Order</th>
+              <th className="text-left px-3 py-1.5 font-semibold">Ship To</th>
+              <th className="text-left px-3 py-1.5 font-semibold">Service</th>
+              <th className="text-center px-3 py-1.5 font-semibold">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {items.map((item, idx) => {
+              const cfg = ITEM_STATUS_CONFIG[item.status] ?? ITEM_STATUS_CONFIG.PENDING
+              return (
+                <tr key={item.id} className={clsx(cfg.bg, item.status === 'RUNNING' && 'animate-pulse')}>
+                  <td className="px-3 py-1.5 tabular-nums text-gray-400 font-mono">{idx + 1}</td>
+                  <td className="px-3 py-1.5">
+                    <span className="font-medium text-gray-800">
+                      {item.order.olmNumber ? `OLM-${item.order.olmNumber}` : item.order.amazonOrderId}
+                    </span>
+                  </td>
+                  <td className="px-3 py-1.5 text-gray-600 truncate max-w-[120px]" title={item.order.shipToName ?? ''}>
+                    {item.order.shipToName ?? '—'}
+                  </td>
+                  <td className="px-3 py-1.5 text-gray-600 truncate max-w-[120px]" title={item.order.presetRateService ?? ''}>
+                    {item.order.presetRateService ?? '—'}
+                  </td>
+                  <td className="px-3 py-1.5 text-center">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className={clsx('inline-flex items-center gap-1 text-[10px] font-semibold', cfg.text)}>
+                        {cfg.icon === 'spin' && <RefreshCcw size={9} className="animate-spin" />}
+                        {cfg.icon === 'check' && <CheckCircle2 size={9} />}
+                        {cfg.icon === 'x' && <XCircle size={9} />}
+                        {cfg.label}
+                      </span>
+                      {item.status === 'FAILED' && item.error && (
+                        <span className="text-[9px] text-red-500 leading-tight max-w-[160px] text-center" title={item.error}>
+                          {item.error}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ─── LabelBatchModal ─────────────────────────────────────────────────────────
 
 interface LabelBatchModalProps {
@@ -3899,7 +3964,7 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b bg-gray-50">
           <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
@@ -3989,37 +4054,21 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
 
         {/* ── Processing Phase ──────────────────────────────────── */}
         {phase === 'processing' && (
-          <div className="px-5 py-6">
+          <div className="px-5 py-4 flex flex-col min-h-0">
             <BatchGauge completed={completed} total={total} failed={failed} />
-            <p className="text-center text-xs text-gray-400 mt-3">
+            <p className="text-center text-xs text-gray-400 mt-2 mb-3">
               {pollData?.isTest && <span className="bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded font-semibold mr-1">TEST</span>}
               Processing on the server… you can close this modal safely.
             </p>
+            {pollData && <BatchItemGrid items={pollData.items} />}
           </div>
         )}
 
         {/* ── Done Phase ────────────────────────────────────────── */}
         {phase === 'done' && (
-          <div className="px-5 py-5 space-y-4">
+          <div className="px-5 py-4 flex flex-col min-h-0 gap-3">
             <BatchGauge completed={completed} total={total} failed={failed} />
-
-            {failed > 0 && (
-              <div className="space-y-1">
-                <button type="button" onClick={() => setShowFailed(v => !v)}
-                  className="text-xs text-red-600 font-medium underline hover:text-red-700">
-                  {showFailed ? 'Hide' : 'Show'} {failed} failed label{failed !== 1 ? 's' : ''}
-                </button>
-                {showFailed && (
-                  <div className="max-h-28 overflow-y-auto rounded-lg border border-red-200 bg-red-50 p-2 space-y-0.5">
-                    {failedItems.map(item => (
-                      <p key={item.id} className="text-[10px] font-mono text-red-700">
-                        {item.order.amazonOrderId}: {item.error}
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            {pollData && <BatchItemGrid items={pollData.items} />}
 
             <div className="flex items-center justify-between pt-1">
               {completed > 0 && qzPrint?.connected && qzPrint.defaultPrinter ? (

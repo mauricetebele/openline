@@ -20,7 +20,7 @@ export async function GET(
     include: {
       items: {
         include: {
-          order: { select: { amazonOrderId: true } },
+          order: { select: { amazonOrderId: true, olmNumber: true, shipToName: true, presetRateService: true } },
         },
         orderBy: { createdAt: 'asc' },
       },
@@ -63,7 +63,7 @@ export async function GET(
       orderId: item.orderId,
       status:  item.status,
       error:   item.error,
-      order:   { amazonOrderId: item.order.amazonOrderId },
+      order:   { amazonOrderId: item.order.amazonOrderId, olmNumber: item.order.olmNumber, shipToName: item.order.shipToName, presetRateService: item.order.presetRateService },
     })),
   })
 }
