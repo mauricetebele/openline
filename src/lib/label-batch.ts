@@ -92,12 +92,12 @@ export async function runLabelBatch(batchId: string): Promise<void> {
 
   // ── 5. Process each item sequentially ────────────────────────────────────
   for (const item of batch.items) {
-    // ── Time check: if approaching the limit, chain to a new invocation ───
+    // ── Time check: if approaching the limit, stop gracefully ───────────────
+    // The client polling loop will detect the stall and re-trigger /continue.
     if (Date.now() - startedAt > MAX_RUN_MS) {
-      console.log('[LabelBatch] batch=%s approaching timeout after %ds, chaining continuation for %d remaining items',
+      console.log('[LabelBatch] batch=%s approaching timeout after %ds, stopping for %d remaining items (client will re-trigger)',
         batchId, Math.round((Date.now() - startedAt) / 1000), batch.items.length - batch.items.indexOf(item))
-      triggerContinuation(batchId)
-      return // exit gracefully — continuation picks up remaining PENDING items
+      return // exit gracefully — client re-triggers via /continue
     }
 
     const order = item.order
@@ -276,19 +276,3 @@ export async function runLabelBatch(batchId: string): Promise<void> {
   })
 }
 
-/**
- * Triggers a new serverless function invocation to continue processing
- * the remaining PENDING items in the batch. Fire-and-forget.
- */
-function triggerContinuation(batchId: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`
-  const url = `${baseUrl}/api/orders/label-batch/continue`
-
-  fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-batch-secret': process.env.BATCH_CHAIN_SECRET || 'internal' },
-    body: JSON.stringify({ batchId }),
-  }).catch(err => {
-    console.error('[LabelBatch] failed to trigger continuation for batch=%s: %s', batchId, err instanceof Error ? err.message : String(err))
-  })
-}

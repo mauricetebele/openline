@@ -3928,15 +3928,26 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
       setBatchId(data.batchId)
       setPhase('processing')
       onBatchCreated(data.batchId)
+
+      // Trigger batch processing in a separate long-running function invocation.
+      // This fetch keeps the /continue endpoint alive for up to 5 min; we don't
+      // await the result — the polling loop below tracks progress.
+      fetch('/api/orders/label-batch/continue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId: data.batchId }),
+      }).catch(() => { /* polling will detect stale batch */ })
     } catch (e) {
       setCreateErr(e instanceof Error ? e.message : 'Failed to create batch')
     }
   }
 
-  // Poll batch progress
+  // Poll batch progress — also re-triggers processing if the function timed out
   useEffect(() => {
     if (phase !== 'processing' || !batchId) return
     let stopped = false
+    let lastProgress = 0    // completed + failed at last poll
+    let stallCount   = 0    // consecutive polls with no progress
 
     async function poll() {
       try {
@@ -3944,11 +3955,32 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
         if (!res.ok) return
         const batch: LabelBatchPollData = await res.json()
         setPollData(batch)
+
         if (batch.status === 'COMPLETED' || batch.status === 'FAILED') {
           stopped = true
           setPhase('done')
           onBatchComplete()
+          return
         }
+
+        // Detect stall: if RUNNING but no progress for 3 consecutive polls (~6s),
+        // re-trigger processing (the previous function likely timed out)
+        const currentProgress = batch.completed + batch.failed
+        if (batch.status === 'RUNNING' && currentProgress === lastProgress && currentProgress < batch.totalOrders) {
+          stallCount++
+          if (stallCount >= 3) {
+            console.log('[LabelBatch] stall detected at %d/%d, re-triggering', currentProgress, batch.totalOrders)
+            stallCount = 0
+            fetch('/api/orders/label-batch/continue', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ batchId }),
+            }).catch(() => {})
+          }
+        } else {
+          stallCount = 0
+        }
+        lastProgress = currentProgress
       } catch { /* transient */ }
     }
 

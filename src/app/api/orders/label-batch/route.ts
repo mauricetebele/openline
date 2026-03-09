@@ -74,17 +74,8 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Trigger processing via a separate function invocation so it doesn't
-  // get killed when this POST response returns.
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`
-  fetch(`${baseUrl}/api/orders/label-batch/continue`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-batch-secret': process.env.BATCH_CHAIN_SECRET || 'internal' },
-    body: JSON.stringify({ batchId: batch.id }),
-  }).catch(err =>
-    console.error('[LabelBatch] failed to trigger batch=%s: %s', batch.id, err instanceof Error ? err.message : String(err)),
-  )
-
+  // Client is responsible for calling /api/orders/label-batch/continue
+  // to start processing (that endpoint awaits the batch and stays alive).
   return NextResponse.json({
     batchId:     batch.id,
     totalOrders: eligible.length,
