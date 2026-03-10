@@ -86,6 +86,13 @@ export async function POST(
           { status: 422 },
         )
       }
+      // Enforce grade constraint if the order item specifies a grade
+      if (orderItem.gradeId && serial.gradeId !== orderItem.gradeId) {
+        return NextResponse.json(
+          { error: `Serial "${sn}" does not match the required grade for this item` },
+          { status: 422 },
+        )
+      }
       if (serial.orderAssignment && serial.orderAssignment.orderId !== params.orderId) {
         return NextResponse.json(
           { error: `Serial "${sn}" is already assigned to another order` },

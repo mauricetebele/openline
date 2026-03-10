@@ -18,7 +18,7 @@ export async function GET(
   const order = await prisma.order.findUnique({
     where:   { id: params.orderId },
     include: {
-      items:            { orderBy: { sellerSku: 'asc' } },
+      items:            { orderBy: { sellerSku: 'asc' }, include: { grade: { select: { id: true, grade: true } } } },
       label:            { select: { trackingNumber: true, labelData: true, labelFormat: true } },
       serialAssignments: {
         include: {
@@ -51,6 +51,8 @@ export async function GET(
       quantityOrdered: item.quantityOrdered,
       isSerializable,
       assignedSerials,
+      gradeId:         item.gradeId ?? null,
+      gradeName:       item.grade?.grade ?? null,
     }
   }))
 

@@ -17,7 +17,7 @@ export async function PATCH(
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { sellerSku } = await req.json() as { sellerSku?: string }
+  const { sellerSku, gradeId } = await req.json() as { sellerSku?: string; gradeId?: string | null }
   if (typeof sellerSku !== 'string') {
     return NextResponse.json({ error: 'sellerSku must be a string' }, { status: 400 })
   }
@@ -45,8 +45,10 @@ export async function PATCH(
       sellerSku: trimmedSku,
       // Replace title with the product description if a matching product exists
       ...(product?.description ? { title: product.description } : {}),
+      // Save grade selection (null clears the grade)
+      ...(gradeId !== undefined ? { gradeId: gradeId || null } : {}),
     },
-    select: { id: true, sellerSku: true, title: true },
+    select: { id: true, sellerSku: true, title: true, gradeId: true },
   })
 
   return NextResponse.json(updated)

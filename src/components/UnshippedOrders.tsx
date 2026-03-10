@@ -59,6 +59,7 @@ interface OrderItem {
   isTransparency?: boolean
   transparencyCodes?: string[]
   bmSerials?: string[]
+  gradeId?: string | null
 }
 
 interface OrderLabelSummary {
@@ -134,6 +135,7 @@ interface OrderInventoryData { orderId: string; items: OrderItemInventory[] }
 interface VerificationItem {
   orderItemId: string; sellerSku: string | null; title: string | null
   quantityOrdered: number; isSerializable: boolean; assignedSerials: string[]
+  gradeId: string | null; gradeName: string | null
 }
 interface VerificationStatus {
   orderId: string; amazonOrderId: string; trackingNumber: string | null
@@ -828,7 +830,7 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order.id])
 
-  const validateSerial = useCallback((key: string, sn: string, sku: string, immediate = false) => {
+  const validateSerial = useCallback((key: string, sn: string, sku: string, immediate = false, gradeId?: string | null) => {
     if (!sn.trim()) {
       setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, valid: null, message: '', checking: false } }))
       return
@@ -839,7 +841,9 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
     if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key])
     const doValidate = async () => {
       try {
-        const res = await fetch(`/api/serials/validate?sn=${encodeURIComponent(sn.trim())}&sku=${encodeURIComponent(sku)}`)
+        let url = `/api/serials/validate?sn=${encodeURIComponent(sn.trim())}&sku=${encodeURIComponent(sku)}`
+        if (gradeId) url += `&gradeId=${encodeURIComponent(gradeId)}`
+        const res = await fetch(url)
         const data: { valid: boolean; reason?: string; detail?: string; location?: string } = await res.json()
         setSerialInputs(prev => ({
           ...prev,
@@ -974,6 +978,11 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                 <div key={item.orderItemId} className="rounded-lg border border-gray-200 p-3 space-y-2">
                   <div>
                     <span className="font-mono text-xs font-semibold text-gray-800">{item.sellerSku ?? '—'}</span>
+                    {item.gradeName && (
+                      <span className="ml-1.5 inline-flex items-center text-[9px] font-semibold bg-purple-100 text-purple-700 border border-purple-200 px-1.5 py-px rounded">
+                        {item.gradeName}
+                      </span>
+                    )}
                     <span className="text-xs text-gray-500 ml-2">×{item.quantityOrdered}</span>
                     <p className="text-xs text-gray-500 truncate">{item.title ?? '—'}</p>
                   </div>
@@ -999,12 +1008,12 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                               type="text"
                               placeholder="Scan or enter serial…"
                               value={state.value}
-                              onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '')}
+                              onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '', false, item.gradeId)}
                               onKeyDown={e => {
                                 if (e.key === 'Enter') {
                                   e.preventDefault()
                                   const val = (e.target as HTMLInputElement).value
-                                  if (val.trim()) validateSerial(key, val, item.sellerSku ?? '', true)
+                                  if (val.trim()) validateSerial(key, val, item.sellerSku ?? '', true, item.gradeId)
                                 }
                               }}
                               className={clsx(
@@ -1030,7 +1039,7 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                                 <p className="text-amber-600 mt-0.5">
                                   This serial differs from the one assigned during BackMarket serialization.{' '}
                                   <button type="button" className="underline font-medium hover:text-amber-800"
-                                    onClick={() => validateSerial(key, expectedSerial, item.sellerSku ?? '')}>
+                                    onClick={() => validateSerial(key, expectedSerial, item.sellerSku ?? '', false, item.gradeId)}>
                                     Use expected serial
                                   </button>{' '}
                                   or proceed with the current one.
@@ -1256,7 +1265,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order.id])
 
-  const validateSerial = useCallback((key: string, sn: string, sku: string, immediate = false) => {
+  const validateSerial = useCallback((key: string, sn: string, sku: string, immediate = false, gradeId?: string | null) => {
     if (!sn.trim()) {
       setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, valid: null, message: '', checking: false, serialId: undefined } }))
       return
@@ -1265,7 +1274,9 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
     if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key])
     const doValidate = async () => {
       try {
-        const res = await fetch(`/api/serials/validate?sn=${encodeURIComponent(sn.trim())}&sku=${encodeURIComponent(sku)}`)
+        let url = `/api/serials/validate?sn=${encodeURIComponent(sn.trim())}&sku=${encodeURIComponent(sku)}`
+        if (gradeId) url += `&gradeId=${encodeURIComponent(gradeId)}`
+        const res = await fetch(url)
         const data: { valid: boolean; reason?: string; detail?: string; location?: string; serialId?: string } = await res.json()
         setSerialInputs(prev => ({
           ...prev,
@@ -1413,12 +1424,12 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
                               type="text"
                               placeholder="Scan or enter serial…"
                               value={state.value}
-                              onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '')}
+                              onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '', false, item.gradeId)}
                               onKeyDown={e => {
                                 if (e.key === 'Enter') {
                                   e.preventDefault()
                                   const val = (e.target as HTMLInputElement).value
-                                  if (val.trim()) validateSerial(key, val, item.sellerSku ?? '', true)
+                                  if (val.trim()) validateSerial(key, val, item.sellerSku ?? '', true, item.gradeId)
                                 }
                               }}
                               className={clsx(
@@ -1861,7 +1872,7 @@ function OrderDetailModal({
   const [editingSkuValue, setEditingSkuValue]   = useState('')
 
   // Pending SKU changes — staged locally, committed only when user clicks Save
-  type PendingSkuChange = { newSku: string | null; newTitle: string | null; originalSku: string | null; originalTitle: string | null }
+  type PendingSkuChange = { newSku: string | null; newTitle: string | null; originalSku: string | null; originalTitle: string | null; gradeId: string | null }
   const [pendingSkuChanges, setPendingSkuChanges] = useState<Map<string, PendingSkuChange>>(() => new Map())
   const [savingSkuChanges, setSavingSkuChanges]   = useState(false)
 
@@ -1870,6 +1881,16 @@ function OrderDetailModal({
   const [skuSuggestions, setSkuSuggestions]     = useState<SkuSuggestion[]>([])
   const [skuSuggestIdx, setSkuSuggestIdx]       = useState(-1)
   const skuDebounceRef                          = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Grade selection — shown after picking a SKU
+  type GradeOption = { id: string; grade: string; description: string | null }
+  const [grades, setGrades]               = useState<GradeOption[]>([])
+  const [gradePickItemId, setGradePickItemId] = useState<string | null>(null) // which item is showing grade picker
+  useEffect(() => {
+    if (order.workflowStatus !== 'PENDING') return
+    fetch('/api/grades').then(r => r.ok ? r.json() : { data: [] }).then((d: { data: GradeOption[] }) => setGrades(d.data ?? [])).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function fetchSkuSuggestions(query: string) {
     if (skuDebounceRef.current) clearTimeout(skuDebounceRef.current)
@@ -1897,6 +1918,7 @@ function OrderDetailModal({
         newTitle:     s.description || null,
         originalSku:  original?.sellerSku ?? null,
         originalTitle: original?.title ?? null,
+        gradeId:      null,
       })
       return next
     })
@@ -1907,6 +1929,8 @@ function OrderDetailModal({
     setSkuSuggestions([])
     setSkuSuggestIdx(-1)
     setEditingSkuItemId(null)
+    // Show grade picker for this item
+    if (grades.length > 0) setGradePickItemId(itemId)
   }
 
   const isPendingOrder = order.workflowStatus === 'PENDING'
@@ -1919,7 +1943,7 @@ function OrderDetailModal({
         const res = await fetch(`/api/orders/items/${itemId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sellerSku: change.newSku }),
+          body: JSON.stringify({ sellerSku: change.newSku, gradeId: change.gradeId }),
         })
         if (res.ok) {
           const data = await res.json() as { id: string; sellerSku: string | null; title: string | null }
@@ -2224,20 +2248,53 @@ function OrderDetailModal({
                                   <p className="text-[9px] text-gray-400 mt-1">Select from the list — free text not accepted</p>
                                 </div>
                               ) : (
-                                <button
-                                  onClick={isPendingOrder ? () => { setEditingSkuItemId(item.id); setEditingSkuValue(item.sellerSku ?? '') } : undefined}
-                                  className={clsx(
-                                    'font-mono text-[11px] text-gray-700 text-left',
-                                    isPendingOrder && 'group inline-flex items-center gap-1.5 hover:text-indigo-600 cursor-pointer',
+                                <div>
+                                  <button
+                                    onClick={isPendingOrder ? () => { setEditingSkuItemId(item.id); setEditingSkuValue(item.sellerSku ?? '') } : undefined}
+                                    className={clsx(
+                                      'font-mono text-[11px] text-gray-700 text-left',
+                                      isPendingOrder && 'group inline-flex items-center gap-1.5 hover:text-indigo-600 cursor-pointer',
+                                    )}
+                                  >
+                                    {item.sellerSku ?? <span className="text-gray-400 italic">—</span>}
+                                    {isPendingOrder && <Pencil size={10} className="shrink-0 text-gray-300 group-hover:text-indigo-400 transition-colors" />}
+                                    {/* Amber dot = unsaved staged change */}
+                                    {pendingSkuChanges.has(item.id) && (
+                                      <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" title="Unsaved change — click Save Changes to apply" />
+                                    )}
+                                  </button>
+                                  {/* Grade badge */}
+                                  {pendingSkuChanges.get(item.id)?.gradeId && (
+                                    <span className="ml-1 inline-flex items-center gap-1 text-[9px] font-semibold bg-purple-100 text-purple-700 border border-purple-200 px-1.5 py-px rounded">
+                                      {grades.find(g => g.id === pendingSkuChanges.get(item.id)?.gradeId)?.grade ?? 'Grade'}
+                                    </span>
                                   )}
-                                >
-                                  {item.sellerSku ?? <span className="text-gray-400 italic">—</span>}
-                                  {isPendingOrder && <Pencil size={10} className="shrink-0 text-gray-300 group-hover:text-indigo-400 transition-colors" />}
-                                  {/* Amber dot = unsaved staged change */}
-                                  {pendingSkuChanges.has(item.id) && (
-                                    <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" title="Unsaved change — click Save Changes to apply" />
-                                  )}
-                                </button>
+                                </div>
+                              )}
+                              {/* Grade picker dropdown — shown after picking a SKU */}
+                              {isPendingOrder && gradePickItemId === item.id && grades.length > 0 && (
+                                <div className="mt-1.5">
+                                  <label className="text-[9px] font-medium text-gray-500 uppercase tracking-wide">Grade</label>
+                                  <select
+                                    autoFocus
+                                    className="mt-0.5 block w-full text-[11px] border border-purple-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400 bg-white"
+                                    value={pendingSkuChanges.get(item.id)?.gradeId ?? ''}
+                                    onChange={e => {
+                                      const gId = e.target.value || null
+                                      setPendingSkuChanges(prev => {
+                                        const next = new Map(prev)
+                                        const existing = next.get(item.id)
+                                        if (existing) next.set(item.id, { ...existing, gradeId: gId })
+                                        return next
+                                      })
+                                      setGradePickItemId(null)
+                                    }}
+                                    onBlur={() => setGradePickItemId(null)}
+                                  >
+                                    <option value="">No grade</option>
+                                    {grades.map(g => <option key={g.id} value={g.id}>{g.grade}{g.description ? ` — ${g.description}` : ''}</option>)}
+                                  </select>
+                                </div>
                               )}
                             </td>
                             <td className="px-4 py-2.5 align-top">

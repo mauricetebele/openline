@@ -528,6 +528,8 @@ model OrderItem {
   isTransparency    Boolean  @default(false)
   transparencyCodes String[] @default([])
   bmSerials         String[] @default([]) // BackMarket serial/IMEI numbers (one per unit)
+  gradeId           String?
+  grade             Grade?   @relation(fields: [gradeId], references: [id], onDelete: SetNull)
 
   reservations         OrderInventoryReservation[]
   serialAssignments    OrderSerialAssignment[]
@@ -850,6 +852,7 @@ model Grade {
   salesOrderReservations SalesOrderInventoryReservation[]
   marketplaceRMASerials  MarketplaceRMASerial[]
   purchaseOrderLines     PurchaseOrderLine[]
+  orderItems             OrderItem[]
 
   @@map("grades")
 }

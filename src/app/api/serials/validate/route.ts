@@ -6,7 +6,7 @@
  *   { valid: true,  serialId, location, productDescription }  — serial is good to use
  *   { valid: false, reason, detail }                          — explains why it's invalid
  *
- * Reasons: NOT_FOUND | WRONG_SKU | NOT_IN_STOCK | ALREADY_ASSIGNED
+ * Reasons: NOT_FOUND | WRONG_SKU | WRONG_GRADE | NOT_IN_STOCK | ALREADY_ASSIGNED
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
@@ -18,8 +18,9 @@ export async function GET(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const sn  = req.nextUrl.searchParams.get('sn')?.trim()
-  const sku = req.nextUrl.searchParams.get('sku')?.trim()
+  const sn      = req.nextUrl.searchParams.get('sn')?.trim()
+  const sku     = req.nextUrl.searchParams.get('sku')?.trim()
+  const gradeId = req.nextUrl.searchParams.get('gradeId')?.trim() || null
 
   if (!sn || !sku) {
     return NextResponse.json({ error: 'sn and sku query params are required' }, { status: 400 })
@@ -51,6 +52,19 @@ export async function GET(req: NextRequest) {
       valid:  false,
       reason: 'WRONG_SKU',
       detail: `Serial "${sn}" belongs to SKU "${serial.product.sku}" (${serial.product.description}), not "${sku}"`,
+    })
+  }
+
+  // Wrong grade
+  if (gradeId && serial.gradeId !== gradeId) {
+    const gradeName = serial.gradeId
+      ? (await prisma.grade.findUnique({ where: { id: serial.gradeId }, select: { grade: true } }))?.grade ?? 'Unknown'
+      : 'No grade'
+    const expectedGrade = (await prisma.grade.findUnique({ where: { id: gradeId }, select: { grade: true } }))?.grade ?? gradeId
+    return NextResponse.json({
+      valid:  false,
+      reason: 'WRONG_GRADE',
+      detail: `Serial "${sn}" is grade "${gradeName}", expected "${expectedGrade}"`,
     })
   }
 
