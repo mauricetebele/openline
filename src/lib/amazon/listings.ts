@@ -517,17 +517,9 @@ export async function createListing(
     ],
   }
 
-  if (shippingTemplateGroupId && fulfillmentChannel === 'MFN') {
-    attributes.merchant_shipping_group = [
-      { value: shippingTemplateGroupId, marketplace_id: account.marketplaceId },
-    ]
-  }
-
-  // Use LISTING_OFFER_ONLY only when there's no shipping template to set,
-  // since it causes Amazon to ignore non-offer attributes like merchant_shipping_group.
   const body = {
     productType: 'PRODUCT',
-    ...(!shippingTemplateGroupId ? { requirements: 'LISTING_OFFER_ONLY' } : {}),
+    requirements: 'LISTING_OFFER_ONLY',
     attributes,
   }
 
@@ -573,7 +565,31 @@ export async function createListing(
     )
     console.log(`[createListing] follow-up PATCH SKU=${sku} status=${patchResult.status}`)
   } catch (patchErr) {
-    console.error(`[createListing] follow-up PATCH failed for SKU=${sku} (non-fatal):`, patchErr)
+    console.error(`[createListing] follow-up price PATCH failed for SKU=${sku} (non-fatal):`, patchErr)
+  }
+
+  // Follow-up PATCH to set shipping template — LISTING_OFFER_ONLY ignores
+  // merchant_shipping_group in the initial PUT, so we apply it separately.
+  if (shippingTemplateGroupId && fulfillmentChannel === 'MFN') {
+    try {
+      const templatePatch = await client.patch<ListingsPatchResponse>(
+        `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+        {
+          productType: 'PRODUCT',
+          patches: [
+            {
+              op: 'replace',
+              path: '/attributes/merchant_shipping_group',
+              value: [{ value: shippingTemplateGroupId, marketplace_id: account.marketplaceId }],
+            },
+          ],
+        },
+        { marketplaceIds: account.marketplaceId },
+      )
+      console.log(`[createListing] shipping template PATCH SKU=${sku} status=${templatePatch.status}`)
+    } catch (templateErr) {
+      console.error(`[createListing] shipping template PATCH failed for SKU=${sku} (non-fatal):`, templateErr)
+    }
   }
 
   // Upsert into seller_listings
