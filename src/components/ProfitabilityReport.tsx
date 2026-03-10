@@ -507,6 +507,21 @@ export default function ProfitabilityReport() {
         {loading && <span className="text-xs text-gray-400 animate-pulse">Loading...</span>}
       </div>
 
+      {/* ── Net Margin ────────────────────────────────────────────────────── */}
+      {summary.totalRevenue !== 0 && (
+        <div className="flex items-center gap-3 px-6 py-3 shrink-0 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+          <div className={clsx(
+            'flex items-center gap-2 rounded-lg border px-4 py-2.5',
+            'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700',
+          )}>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Net Margin</span>
+            <span className={clsx('text-lg font-bold', profitColor(summary.totalNetProfit))}>
+              {(summary.totalNetProfit / summary.totalRevenue * 100).toFixed(1)}%
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* ── Summary cards ───────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-7 gap-3 px-6 py-4 shrink-0 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
         <SummaryCard label="Total Revenue" value={summary.totalRevenue} icon={DollarSign} color="bg-blue-500" />
