@@ -12,12 +12,16 @@ interface Vendor  { id: string; vendorNumber: number; name: string }
 interface Product { id: string; description: string; sku: string; isSerializable: boolean }
 interface Grade   { id: string; grade: string }
 
+interface CostCode { id: string; name: string; amount: string }
+
 interface POLine {
   id: string
   productId: string
   product: Product
   gradeId: string | null
   grade: Grade | null
+  costCodeId: string | null
+  costCode: CostCode | null
   qty: number
   unitCost: string
 }
@@ -45,6 +49,7 @@ interface FormLine {
   gradeId: string | null
   gradeName: string | null
   grades: Grade[]
+  costCodeId: string | null
 }
 
 interface ReceiptSerial {
@@ -185,11 +190,17 @@ function POPanel({
 
   // Global grades
   const [globalGrades, setGlobalGrades] = useState<Grade[]>([])
+  // Cost codes
+  const [costCodes, setCostCodes] = useState<CostCode[]>([])
 
   useEffect(() => {
     fetch('/api/grades')
       .then(r => r.json())
       .then(j => setGlobalGrades((j.data ?? []).map((g: { id: string; grade: string }) => ({ id: g.id, grade: g.grade }))))
+      .catch(() => {})
+    fetch('/api/cost-codes?active=true')
+      .then(r => r.json())
+      .then(j => setCostCodes(j.data ?? []))
       .catch(() => {})
   }, [])
 
@@ -205,6 +216,7 @@ function POPanel({
         gradeId: l.gradeId ?? null,
         gradeName: l.grade?.grade ?? null,
         grades: globalGrades,
+        costCodeId: l.costCodeId ?? null,
       }))
       setLines(formLines)
       setLinesReady(true)
@@ -258,6 +270,7 @@ function POPanel({
       gradeId: null,
       gradeName: null,
       grades: globalGrades,
+      costCodeId: null,
     }])
   }
 
@@ -355,6 +368,7 @@ function POPanel({
         gradeId,
         gradeName,
         grades: globalGrades,
+        costCodeId: null,
       })
     }
 
@@ -411,6 +425,7 @@ function POPanel({
           qty: Number(l.qty),
           unitCost: Number(l.unitCost),
           gradeId: l.gradeId || null,
+          costCodeId: l.costCodeId || null,
         })),
       }
       if (isEdit) {
@@ -616,10 +631,11 @@ function POPanel({
             {/* Column headers */}
             {lines.length > 0 && (
               <>
-                <div className="grid grid-cols-[120px_1fr_100px_60px_90px_28px] gap-2 mb-1 px-1">
+                <div className="grid grid-cols-[120px_1fr_100px_120px_60px_90px_28px] gap-2 mb-1 px-1">
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">SKU</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Description</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Grade</span>
+                  <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Cost Code</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide text-center">Qty</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide text-right">Cost</span>
                   <span />
@@ -627,7 +643,7 @@ function POPanel({
 
                 <div className="space-y-1.5">
                   {lines.map((line, i) => (
-                    <div key={i} className="grid grid-cols-[120px_1fr_100px_60px_90px_28px] gap-2 items-center">
+                    <div key={i} className="grid grid-cols-[120px_1fr_100px_120px_60px_90px_28px] gap-2 items-center">
                       {/* SKU (read-only) */}
                       <span className="h-9 flex items-center px-2 rounded-md bg-gray-50 border border-gray-200 text-xs font-mono text-gray-700 truncate">
                         {line.sku}
@@ -651,6 +667,18 @@ function POPanel({
                         <option value="">—</option>
                         {line.grades.map(g => (
                           <option key={g.id} value={g.id}>{g.grade}</option>
+                        ))}
+                      </select>
+
+                      {/* Cost Code dropdown */}
+                      <select
+                        value={line.costCodeId ?? ''}
+                        onChange={e => updateLine(i, { costCodeId: e.target.value || null })}
+                        className="h-9 rounded-md border border-gray-300 px-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                      >
+                        <option value="">—</option>
+                        {costCodes.map(cc => (
+                          <option key={cc.id} value={cc.id}>{cc.name} (${Number(cc.amount).toFixed(2)})</option>
                         ))}
                       </select>
 

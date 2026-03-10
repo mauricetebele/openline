@@ -32,16 +32,33 @@ export async function GET(
     cogsMap.set(`${row.productId}:${row.gradeId ?? ''}`, row.unitCost)
   }
 
-  if (source === 'wholesale') {
-    return handleWholesale(orderId, cogsMap)
+  // ── Cost code map ─────────────────────────────────────────────────────
+  const costCodeRows = await prisma.$queryRaw<
+    { productId: string; gradeId: string | null; amount: number }[]
+  >(Prisma.sql`
+    SELECT DISTINCT ON (pol."productId", pol."gradeId")
+      pol."productId", pol."gradeId", cc."amount"::float8 as "amount"
+    FROM purchase_order_lines pol
+    JOIN cost_codes cc ON cc.id = pol."costCodeId"
+    WHERE pol."costCodeId" IS NOT NULL
+    ORDER BY pol."productId", pol."gradeId", pol."createdAt" DESC
+  `)
+  const costCodeMap = new Map<string, number>()
+  for (const row of costCodeRows) {
+    costCodeMap.set(`${row.productId}:${row.gradeId ?? ''}`, row.amount)
   }
 
-  return handleMarketplace(orderId, cogsMap)
+  if (source === 'wholesale') {
+    return handleWholesale(orderId, cogsMap, costCodeMap)
+  }
+
+  return handleMarketplace(orderId, cogsMap, costCodeMap)
 }
 
 async function handleMarketplace(
   orderId: string,
   cogsMap: Map<string, number>,
+  costCodeMap: Map<string, number>,
 ) {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -53,7 +70,6 @@ async function handleMarketplace(
   })
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
-  const orderTotal = Number(order.orderTotal ?? 0)
   const totalCommission = Number(order.marketplaceCommission ?? 0)
   const totalShipping = Number(order.label?.shipmentCost ?? 0)
 
@@ -65,25 +81,28 @@ async function handleMarketplace(
     resByItemId.set(res.orderItemId, list)
   }
 
-  const itemCount = order.items.length
+  // Sale value excluding tax
+  const totalSale = order.items.reduce((sum, item) => sum + Number(item.itemPrice ?? 0), 0)
 
   const lineItems = order.items.map((item) => {
-    // Include tax in sale value to match orderTotal (which includes tax)
-    const itemSale = Number(item.itemPrice ?? 0) + Number(item.itemTax ?? 0)
-    const proportion = itemCount === 1 ? 1 : (orderTotal > 0 ? itemSale / orderTotal : 0)
+    const itemSale = Number(item.itemPrice ?? 0)
+    const proportion = totalSale > 0 ? itemSale / totalSale : 0
 
     // COGS from reservations for this line item
     let itemCogs = 0
+    let itemCostCodes = 0
     const reservations = resByItemId.get(item.id) ?? []
     for (const res of reservations) {
       const key = `${res.productId}:${res.gradeId ?? ''}`
       const unitCost = cogsMap.get(key) ?? 0
       itemCogs += unitCost * res.qtyReserved
+      const ccAmount = costCodeMap.get(key) ?? 0
+      itemCostCodes += ccAmount * res.qtyReserved
     }
 
     const itemCommission = totalCommission * proportion
     const itemShipping = totalShipping * proportion
-    const itemNetProfit = itemSale - itemCogs - itemCommission - itemShipping
+    const itemNetProfit = itemSale - itemCogs - itemCommission - itemShipping - itemCostCodes
 
     return {
       id: item.id,
@@ -96,6 +115,7 @@ async function handleMarketplace(
       cogs: Math.round(itemCogs * 100) / 100,
       commission: Math.round(itemCommission * 100) / 100,
       shipping: Math.round(itemShipping * 100) / 100,
+      costCodeDeductions: Math.round(itemCostCodes * 100) / 100,
       netProfit: Math.round(itemNetProfit * 100) / 100,
     }
   })
@@ -106,6 +126,7 @@ async function handleMarketplace(
 async function handleWholesale(
   orderId: string,
   cogsMap: Map<string, number>,
+  costCodeMap: Map<string, number>,
 ) {
   const order = await prisma.salesOrder.findUnique({
     where: { id: orderId },
@@ -132,15 +153,18 @@ async function handleWholesale(
     const proportion = orderTotal > 0 ? itemSale / orderTotal : 0
 
     let itemCogs = 0
+    let itemCostCodes = 0
     const reservations = resByItemId.get(item.id) ?? []
     for (const res of reservations) {
       const key = `${res.productId}:${res.gradeId ?? ''}`
       const unitCost = cogsMap.get(key) ?? 0
       itemCogs += unitCost * res.qtyReserved
+      const ccAmount = costCodeMap.get(key) ?? 0
+      itemCostCodes += ccAmount * res.qtyReserved
     }
 
     const itemShipping = totalShipping * proportion
-    const itemNetProfit = itemSale - itemCogs - itemShipping
+    const itemNetProfit = itemSale - itemCogs - itemShipping - itemCostCodes
 
     return {
       id: item.id,
@@ -153,6 +177,7 @@ async function handleWholesale(
       cogs: Math.round(itemCogs * 100) / 100,
       commission: 0,
       shipping: Math.round(itemShipping * 100) / 100,
+      costCodeDeductions: Math.round(itemCostCodes * 100) / 100,
       netProfit: Math.round(itemNetProfit * 100) / 100,
     }
   })

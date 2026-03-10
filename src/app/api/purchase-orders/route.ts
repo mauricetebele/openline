@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
         include: {
           product: { select: { id: true, description: true, sku: true, isSerializable: true } },
           grade: { select: { id: true, grade: true } },
+          costCode: { select: { id: true, name: true, amount: true } },
         },
         orderBy: { createdAt: 'asc' },
       },
@@ -82,11 +83,12 @@ export async function POST(req: NextRequest) {
         ...(vendorInvoiceBase64 !== undefined ? { vendorInvoiceBase64: vendorInvoiceBase64 || null } : {}),
         ...(vendorInvoiceFilename !== undefined ? { vendorInvoiceFilename: vendorInvoiceFilename || null } : {}),
         lines: {
-          create: lines.map((l: { productId: string; qty: number; unitCost: number; gradeId?: string | null }) => ({
+          create: lines.map((l: { productId: string; qty: number; unitCost: number; gradeId?: string | null; costCodeId?: string | null }) => ({
             productId: l.productId,
             qty: Number(l.qty),
             unitCost: Number(l.unitCost),
             ...(l.gradeId ? { gradeId: l.gradeId } : {}),
+            ...(l.costCodeId ? { costCodeId: l.costCodeId } : {}),
           })),
         },
       },
@@ -96,6 +98,7 @@ export async function POST(req: NextRequest) {
           include: {
             product: { select: { id: true, description: true, sku: true, isSerializable: true } },
             grade: { select: { id: true, grade: true } },
+            costCode: { select: { id: true, name: true, amount: true } },
           },
           orderBy: { createdAt: 'asc' },
         },

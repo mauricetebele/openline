@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { clsx } from 'clsx'
 import {
-  ChevronDown, ChevronRight, ChevronUp, DollarSign, TrendingUp, TrendingDown, Package,
+  ChevronDown, ChevronRight, ChevronUp, DollarSign, TrendingUp, TrendingDown, Package, Wrench,
 } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -18,6 +18,7 @@ interface ProfitRow {
   totalCogs: number
   commission: number
   shippingCost: number
+  costCodeDeductions: number
   netProfit: number
   commissionSynced: boolean
 }
@@ -27,6 +28,7 @@ interface Summary {
   totalCogs: number
   totalCommission: number
   totalShipping: number
+  totalCostCodes: number
   totalNetProfit: number
 }
 
@@ -41,10 +43,11 @@ interface LineItem {
   cogs: number
   commission: number
   shipping: number
+  costCodeDeductions: number
   netProfit: number
 }
 
-type SortKey = 'olmNumber' | 'marketplaceOrderId' | 'source' | 'orderDate' | 'saleValue' | 'totalCogs' | 'commission' | 'shippingCost' | 'netProfit'
+type SortKey = 'olmNumber' | 'marketplaceOrderId' | 'source' | 'orderDate' | 'saleValue' | 'totalCogs' | 'commission' | 'shippingCost' | 'costCodeDeductions' | 'netProfit'
 type SortDir = 'asc' | 'desc'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -137,6 +140,7 @@ function ExpandableRow({ row, index }: { row: ProfitRow; index: number }) {
             : <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300">Not synced</span>}
         </td>
         <td className="px-3 py-1.5 text-right">{fmt.format(row.shippingCost)}</td>
+        <td className="px-3 py-1.5 text-right">{fmt.format(row.costCodeDeductions)}</td>
         <td className={clsx('px-3 py-1.5 text-right font-semibold', profitColor(row.netProfit))}>
           {fmt.format(row.netProfit)}
         </td>
@@ -145,7 +149,7 @@ function ExpandableRow({ row, index }: { row: ProfitRow; index: number }) {
       {/* Expanded line items */}
       {expanded && (
         <tr className="border-b border-gray-200 dark:border-gray-700">
-          <td colSpan={10} className="p-0">
+          <td colSpan={11} className="p-0">
             <div className="bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 py-2">
               {loading ? (
                 <p className="text-xs text-gray-400 py-3 text-center">Loading line items...</p>
@@ -162,6 +166,7 @@ function ExpandableRow({ row, index }: { row: ProfitRow; index: number }) {
                       <th className="px-2 py-1 text-right font-medium">COGS</th>
                       <th className="px-2 py-1 text-right font-medium">Commission</th>
                       <th className="px-2 py-1 text-right font-medium">Shipping</th>
+                      <th className="px-2 py-1 text-right font-medium">Cost Codes</th>
                       <th className="px-2 py-1 text-right font-medium">Net Profit</th>
                     </tr>
                   </thead>
@@ -177,6 +182,7 @@ function ExpandableRow({ row, index }: { row: ProfitRow; index: number }) {
                         <td className="px-2 py-1.5 text-right">{fmt.format(li.cogs)}</td>
                         <td className="px-2 py-1.5 text-right">{fmt.format(li.commission)}</td>
                         <td className="px-2 py-1.5 text-right">{fmt.format(li.shipping)}</td>
+                        <td className="px-2 py-1.5 text-right">{fmt.format(li.costCodeDeductions)}</td>
                         <td className={clsx('px-2 py-1.5 text-right font-semibold', profitColor(li.netProfit))}>
                           {fmt.format(li.netProfit)}
                         </td>
@@ -223,7 +229,7 @@ export default function ProfitabilityReport() {
   const [startDate, setStartDate] = useState(today)
   const [endDate, setEndDate] = useState(today)
   const [rows, setRows] = useState<ProfitRow[]>([])
-  const [summary, setSummary] = useState<Summary>({ totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalShipping: 0, totalNetProfit: 0 })
+  const [summary, setSummary] = useState<Summary>({ totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalShipping: 0, totalCostCodes: 0, totalNetProfit: 0 })
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -260,7 +266,7 @@ export default function ProfitabilityReport() {
       if (!res.ok) throw new Error('Failed')
       const data = await res.json()
       setRows(data.rows ?? [])
-      setSummary(data.summary ?? { totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalShipping: 0, totalNetProfit: 0 })
+      setSummary(data.summary ?? { totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalShipping: 0, totalCostCodes: 0, totalNetProfit: 0 })
       setTotalCount(data.totalCount ?? 0)
     } catch {
       setRows([])
@@ -338,11 +344,12 @@ export default function ProfitabilityReport() {
       </div>
 
       {/* ── Summary cards ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 px-6 py-4 shrink-0 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 px-6 py-4 shrink-0 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
         <SummaryCard label="Total Revenue" value={summary.totalRevenue} icon={DollarSign} color="bg-blue-500" />
         <SummaryCard label="Total COGS" value={summary.totalCogs} icon={Package} color="bg-gray-500" />
         <SummaryCard label="Total Fees" value={summary.totalCommission} icon={TrendingDown} color="bg-orange-500" />
         <SummaryCard label="Shipping" value={summary.totalShipping} icon={Package} color="bg-indigo-500" />
+        <SummaryCard label="Cost Codes" value={summary.totalCostCodes} icon={Wrench} color="bg-amber-500" />
         <SummaryCard
           label="Net Profit"
           value={summary.totalNetProfit}
@@ -366,6 +373,7 @@ export default function ProfitabilityReport() {
                 { key: 'totalCogs', label: 'COGS', align: 'right' },
                 { key: 'commission', label: 'Commission', align: 'right' },
                 { key: 'shippingCost', label: 'Shipping', align: 'right' },
+                { key: 'costCodeDeductions', label: 'Cost Codes', align: 'right' },
                 { key: 'netProfit', label: 'Net Profit', align: 'right' },
               ] as { key: SortKey; label: string; align: string }[]).map(({ key, label, align }) => (
                 <th
@@ -391,7 +399,7 @@ export default function ProfitabilityReport() {
           <tbody>
             {sortedRows.length === 0 && !loading ? (
               <tr>
-                <td colSpan={10} className="px-6 py-12 text-center text-gray-400">
+                <td colSpan={11} className="px-6 py-12 text-center text-gray-400">
                   No shipped orders found for this date range.
                 </td>
               </tr>

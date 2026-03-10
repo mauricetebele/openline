@@ -21,6 +21,7 @@ export async function GET(
             },
           },
           grade: { select: { id: true, grade: true } },
+          costCode: { select: { id: true, name: true, amount: true } },
         },
         orderBy: { createdAt: 'asc' },
       },
@@ -74,11 +75,12 @@ export async function PUT(
         ...(vendorInvoiceBase64 !== undefined ? { vendorInvoiceBase64: vendorInvoiceBase64 || null } : {}),
         ...(vendorInvoiceFilename !== undefined ? { vendorInvoiceFilename: vendorInvoiceFilename || null } : {}),
         lines: {
-          create: lines.map((l: { productId: string; qty: number; unitCost: number; gradeId?: string | null }) => ({
+          create: lines.map((l: { productId: string; qty: number; unitCost: number; gradeId?: string | null; costCodeId?: string | null }) => ({
             productId: l.productId,
             qty: Number(l.qty),
             unitCost: Number(l.unitCost),
             ...(l.gradeId ? { gradeId: l.gradeId } : {}),
+            ...(l.costCodeId ? { costCodeId: l.costCodeId } : {}),
           })),
         },
       },
@@ -92,6 +94,7 @@ export async function PUT(
               },
             },
             grade: { select: { id: true, grade: true } },
+            costCode: { select: { id: true, name: true, amount: true } },
           },
           orderBy: { createdAt: 'asc' },
         },

@@ -42,6 +42,22 @@ export async function GET(req: NextRequest) {
     cogsMap.set(`${row.productId}:${row.gradeId ?? ''}`, row.unitCost)
   }
 
+  // ── Cost code lookup: latest cost code amount per product+grade ────────
+  const costCodeRows = await prisma.$queryRaw<
+    { productId: string; gradeId: string | null; amount: number }[]
+  >(Prisma.sql`
+    SELECT DISTINCT ON (pol."productId", pol."gradeId")
+      pol."productId", pol."gradeId", cc."amount"::float8 as "amount"
+    FROM purchase_order_lines pol
+    JOIN cost_codes cc ON cc.id = pol."costCodeId"
+    WHERE pol."costCodeId" IS NOT NULL
+    ORDER BY pol."productId", pol."gradeId", pol."createdAt" DESC
+  `)
+  const costCodeMap = new Map<string, number>()
+  for (const row of costCodeRows) {
+    costCodeMap.set(`${row.productId}:${row.gradeId ?? ''}`, row.amount)
+  }
+
   // ── Marketplace orders (SHIPPED) ────────────────────────────────────────
   // Use shippedAt when available, fall back to purchaseDate
   const marketplaceWhere = {
@@ -97,6 +113,7 @@ export async function GET(req: NextRequest) {
     totalCogs: number
     commission: number
     shippingCost: number
+    costCodeDeductions: number
     netProfit: number
     commissionSynced: boolean
   }
@@ -105,19 +122,23 @@ export async function GET(req: NextRequest) {
 
   // Marketplace rows
   for (const order of marketplaceOrders) {
-    const saleValue = Number(order.orderTotal ?? 0)
+    // Sale value excluding tax: sum item prices only (no tax)
+    const saleValue = order.items.reduce((sum, item) => sum + Number(item.itemPrice ?? 0), 0)
     const shippingCost = Number(order.label?.shipmentCost ?? 0)
     const commission = Number(order.marketplaceCommission ?? 0)
     const commissionSynced = !!order.commissionSyncedAt
 
     let totalCogs = 0
+    let costCodeDeductions = 0
     for (const res of order.reservations) {
       const key = `${res.productId}:${res.gradeId ?? ''}`
       const unitCost = cogsMap.get(key) ?? 0
       totalCogs += unitCost * res.qtyReserved
+      const ccAmount = costCodeMap.get(key) ?? 0
+      costCodeDeductions += ccAmount * res.qtyReserved
     }
 
-    const netProfit = saleValue - totalCogs - commission - shippingCost
+    const netProfit = saleValue - totalCogs - commission - shippingCost - costCodeDeductions
 
     rows.push({
       id: order.id,
@@ -125,10 +146,11 @@ export async function GET(req: NextRequest) {
       marketplaceOrderId: order.amazonOrderId,
       source: order.orderSource,
       orderDate: (order.shippedAt ?? order.purchaseDate).toISOString(),
-      saleValue,
+      saleValue: Math.round(saleValue * 100) / 100,
       totalCogs: Math.round(totalCogs * 100) / 100,
       commission: Math.round(commission * 100) / 100,
       shippingCost: Math.round(shippingCost * 100) / 100,
+      costCodeDeductions: Math.round(costCodeDeductions * 100) / 100,
       netProfit: Math.round(netProfit * 100) / 100,
       commissionSynced,
     })
@@ -141,13 +163,16 @@ export async function GET(req: NextRequest) {
     const commission = 0 // no marketplace commission for wholesale
 
     let totalCogs = 0
+    let costCodeDeductions = 0
     for (const res of order.inventoryReservations) {
       const key = `${res.productId}:${res.gradeId ?? ''}`
       const unitCost = cogsMap.get(key) ?? 0
       totalCogs += unitCost * res.qtyReserved
+      const ccAmount = costCodeMap.get(key) ?? 0
+      costCodeDeductions += ccAmount * res.qtyReserved
     }
 
-    const netProfit = saleValue - totalCogs - commission - shippingCost
+    const netProfit = saleValue - totalCogs - commission - shippingCost - costCodeDeductions
 
     rows.push({
       id: order.id,
@@ -159,6 +184,7 @@ export async function GET(req: NextRequest) {
       totalCogs: Math.round(totalCogs * 100) / 100,
       commission: 0,
       shippingCost: Math.round(shippingCost * 100) / 100,
+      costCodeDeductions: Math.round(costCodeDeductions * 100) / 100,
       netProfit: Math.round(netProfit * 100) / 100,
       commissionSynced: true, // N/A for wholesale
     })
@@ -172,6 +198,7 @@ export async function GET(req: NextRequest) {
   const totalCogs = rows.reduce((s, r) => s + r.totalCogs, 0)
   const totalCommission = rows.reduce((s, r) => s + r.commission, 0)
   const totalShipping = rows.reduce((s, r) => s + r.shippingCost, 0)
+  const totalCostCodes = rows.reduce((s, r) => s + r.costCodeDeductions, 0)
   const totalNetProfit = rows.reduce((s, r) => s + r.netProfit, 0)
 
   // Paginate
@@ -188,6 +215,7 @@ export async function GET(req: NextRequest) {
       totalCogs: Math.round(totalCogs * 100) / 100,
       totalCommission: Math.round(totalCommission * 100) / 100,
       totalShipping: Math.round(totalShipping * 100) / 100,
+      totalCostCodes: Math.round(totalCostCodes * 100) / 100,
       totalNetProfit: Math.round(totalNetProfit * 100) / 100,
     },
   })

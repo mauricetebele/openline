@@ -932,6 +932,8 @@ model PurchaseOrderLine {
   product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
   gradeId         String?
   grade           Grade? @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  costCodeId      String?
+  costCode        CostCode? @relation(fields: [costCodeId], references: [id], onDelete: SetNull)
   qty             Int           @default(1)
   unitCost        Decimal       @db.Decimal(12, 2)
   createdAt       DateTime      @default(now())
@@ -941,6 +943,7 @@ model PurchaseOrderLine {
   @@index([purchaseOrderId])
   @@index([productId])
   @@index([gradeId])
+  @@index([costCodeId])
   @@map("purchase_order_lines")
 }
 
@@ -1825,4 +1828,19 @@ model TodoComment {
 
   @@index([todoId])
   @@map("todo_comments")
+}
+
+// ─── Cost Codes ─────────────────────────────────────────────────────────────
+
+model CostCode {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  amount    Decimal  @db.Decimal(12, 2)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchaseOrderLines PurchaseOrderLine[]
+
+  @@map("cost_codes")
 }
