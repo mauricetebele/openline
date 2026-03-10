@@ -2398,9 +2398,9 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                   ['onHand', 'On Hand', 'text-right'],
                   ['reserved', 'Reserved', 'text-right'],
                   ['available', 'Available', 'text-right'],
-                  ['value', 'Value', 'text-right'],
                   ['marketplace', 'Marketplace', 'text-center'],
                   ['avgCost', 'Avg Cost', 'text-right'],
+                  ['value', 'Value', 'text-right'],
                 ] as [SortKey, string, string][]).map(([key, label, align]) => (
                   <th
                     key={key}
@@ -2463,9 +2463,6 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                   <td className="px-2 py-1 text-right font-semibold text-gray-900 tabular-nums">
                     {item.qty}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums text-gray-700 whitespace-nowrap">
-                    {value != null ? `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-gray-300">—</span>}
-                  </td>
                   <td className="px-2 py-1 text-center">
                     {(() => {
                       const matched = (item.product.marketplaceSkus ?? []).filter(s => (s.gradeId ?? null) === (item.grade?.id ?? null))
@@ -2474,12 +2471,9 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                       return (
                         <span className="inline-flex items-center gap-1 justify-center">
                           {names.includes('amazon') && (
-                            <span title="Amazon" className="inline-flex flex-col items-center leading-none select-none" style={{ gap: 0 }}>
-                              <span style={{ fontFamily: 'Arial, sans-serif', fontWeight: 900, fontSize: 8, letterSpacing: '-0.3px', color: '#232F3E', lineHeight: 1 }}>amazon</span>
-                              <svg width="22" height="6" viewBox="0 0 22 6" fill="none" style={{ marginTop: -1 }}>
-                                <path d="M1 4C6 7.5 16 7.5 21 4" stroke="#FF9900" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
-                                <path d="M17.5 2.5L21 4L17.5 5.5" stroke="#FF9900" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                              </svg>
+                            <span title="Amazon" className="inline-flex items-center justify-center shrink-0 select-none">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/logos/amazon-icon.svg" alt="Amazon" width={20} height={20} className="inline-block" />
                             </span>
                           )}
                           {names.includes('backmarket') && (
@@ -2494,6 +2488,9 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                   </td>
                   <td className="px-2 py-1 text-right tabular-nums text-gray-700 whitespace-nowrap">
                     {item.unitCost != null ? `$${item.unitCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-2 py-1 text-right tabular-nums text-gray-700 whitespace-nowrap">
+                    {value != null ? `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-gray-300">—</span>}
                   </td>
                 </tr>
                 )
