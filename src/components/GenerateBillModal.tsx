@@ -156,9 +156,9 @@ export default function GenerateBillModal({ po, onClose, onSuccess }: GenerateBi
                       )}
                     </td>
                     <td className="py-1.5 text-center">{l.qty}</td>
-                    <td className="py-1.5 text-right">${parseFloat(l.unitCost).toFixed(2)}</td>
+                    <td className="py-1.5 text-right">${parseFloat(l.unitCost).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td className="py-1.5 text-right font-medium">
-                      ${(l.qty * parseFloat(l.unitCost)).toFixed(2)}
+                      ${(l.qty * parseFloat(l.unitCost)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                   </tr>
                 ))}
@@ -166,7 +166,7 @@ export default function GenerateBillModal({ po, onClose, onSuccess }: GenerateBi
               <tfoot>
                 <tr className="font-semibold">
                   <td colSpan={3} className="pt-2 text-right">PO Total</td>
-                  <td className="pt-2 text-right">${poTotal.toFixed(2)}</td>
+                  <td className="pt-2 text-right">${poTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
               </tfoot>
             </table>
@@ -246,17 +246,17 @@ export default function GenerateBillModal({ po, onClose, onSuccess }: GenerateBi
           <div className="bg-gray-50 rounded-lg p-4 space-y-1">
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">PO Total</span>
-              <span>${poTotal.toFixed(2)}</span>
+              <span>${poTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
             {adjTotal !== 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Adjustments</span>
-                <span className={adjTotal < 0 ? 'text-green-600' : ''}>{adjTotal < 0 ? '-' : '+'}${Math.abs(adjTotal).toFixed(2)}</span>
+                <span className={adjTotal < 0 ? 'text-green-600' : ''}>{adjTotal < 0 ? '-' : '+'}${Math.abs(adjTotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             )}
             <div className="flex justify-between text-base font-bold pt-1 border-t border-gray-200">
               <span>Bill Total</span>
-              <span className="text-blue-700">${billTotal.toFixed(2)}</span>
+              <span className="text-blue-700">${billTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
           </div>
         </div>
@@ -276,7 +276,7 @@ export default function GenerateBillModal({ po, onClose, onSuccess }: GenerateBi
             disabled={saving || billTotal <= 0}
             className="px-4 py-2 text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg disabled:opacity-50"
           >
-            {saving ? 'Generating...' : `Generate Bill $${billTotal.toFixed(2)}`}
+            {saving ? 'Generating...' : `Generate Bill $${billTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </button>
         </div>
       </div>

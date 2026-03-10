@@ -678,7 +678,7 @@ function POPanel({
                       >
                         <option value="">—</option>
                         {costCodes.map(cc => (
-                          <option key={cc.id} value={cc.id}>{cc.name} (${Number(cc.amount).toFixed(2)})</option>
+                          <option key={cc.id} value={cc.id}>{cc.name} (${Number(cc.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</option>
                         ))}
                       </select>
 
@@ -765,7 +765,7 @@ function POPanel({
               <div className="mt-3 flex justify-end border-t pt-3">
                 <div className="text-right">
                   <span className="text-xs text-gray-500">Order Total</span>
-                  <p className="text-lg font-bold text-gray-900">${lineTotal.toFixed(2)}</p>
+                  <p className="text-lg font-bold text-gray-900">${lineTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 </div>
               </div>
             )}
@@ -950,7 +950,7 @@ function PORow({
         </td>
         <td className="px-4 py-3 text-gray-600 text-sm">{po.lines.length}</td>
         <td className="px-4 py-3 text-right text-gray-600 text-sm">{unitCount}</td>
-        <td className="px-4 py-3 font-medium text-gray-900 text-right">${total.toFixed(2)}</td>
+        <td className="px-4 py-3 font-medium text-gray-900 text-right">${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         <td className="px-4 py-3">
           <span className={clsx('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_COLOR[po.status])}>
             {STATUS_LABEL[po.status]}
@@ -1045,9 +1045,9 @@ function PORow({
                       <td className="py-1 pr-3 text-gray-500 truncate max-w-[200px]">{line.product.description}</td>
                       <td className="py-1 pr-3 text-gray-500">{line.grade?.grade ?? '—'}</td>
                       <td className="py-1 text-right text-gray-700">{line.qty}</td>
-                      <td className="py-1 text-right text-gray-700">${Number(line.unitCost).toFixed(2)}</td>
+                      <td className="py-1 text-right text-gray-700">${Number(line.unitCost).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td className="py-1 text-right font-medium text-gray-900">
-                        ${(line.qty * Number(line.unitCost)).toFixed(2)}
+                        ${(line.qty * Number(line.unitCost)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
                   ))}
@@ -1055,7 +1055,7 @@ function PORow({
                 <tfoot>
                   <tr className="border-t border-gray-200">
                     <td colSpan={5} className="pt-1.5 text-right text-xs font-semibold text-gray-600 pr-3">Total</td>
-                    <td className="pt-1.5 text-right font-bold text-gray-900">${total.toFixed(2)}</td>
+                    <td className="pt-1.5 text-right font-bold text-gray-900">${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -1192,7 +1192,7 @@ export default function PurchaseOrdersManager() {
 
         {orders.length > 0 && (
           <span className="text-xs text-gray-400">
-            {orders.length} PO{orders.length !== 1 ? 's' : ''} · Total: <span className="font-semibold text-gray-600">${grandTotal.toFixed(2)}</span>
+            {orders.length} PO{orders.length !== 1 ? 's' : ''} · Total: <span className="font-semibold text-gray-600">${grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </span>
         )}
 
