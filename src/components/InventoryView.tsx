@@ -8,7 +8,7 @@ import SNLookupModal from './SNLookupModal'
 
 interface Warehouse { id: string; name: string }
 interface Location  { id: string; name: string; warehouseId: string; warehouse: Warehouse }
-interface Product   { id: string; description: string; sku: string; isSerializable: boolean }
+interface Product   { id: string; description: string; sku: string; isSerializable: boolean; marketplaceSkus?: { marketplace: string; gradeId: string | null }[] }
 
 interface InventoryGrade { id: string; grade: string; description: string | null }
 
@@ -2185,7 +2185,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   const [showRegrade,   setShowRegrade]   = useState(false)
 
   // Sort state
-  type SortKey = 'sku' | 'description' | 'grade' | 'warehouse' | 'location' | 'type' | 'onHand' | 'reserved' | 'available' | 'value'
+  type SortKey = 'sku' | 'description' | 'grade' | 'warehouse' | 'location' | 'type' | 'onHand' | 'reserved' | 'available' | 'value' | 'marketplace' | 'avgCost'
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
@@ -2215,6 +2215,12 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
         case 'reserved':    av = a.reserved; bv = b.reserved; break
         case 'available':   av = a.qty; bv = b.qty; break
         case 'value':       av = (a.unitCost ?? 0) * a.onHand; bv = (b.unitCost ?? 0) * b.onHand; break
+        case 'marketplace': {
+          const am = (a.product.marketplaceSkus ?? []).filter(s => (s.gradeId ?? null) === (a.grade?.id ?? null))
+          const bm = (b.product.marketplaceSkus ?? []).filter(s => (s.gradeId ?? null) === (b.grade?.id ?? null))
+          av = new Set(am.map(s => s.marketplace)).size; bv = new Set(bm.map(s => s.marketplace)).size; break
+        }
+        case 'avgCost':     av = a.unitCost ?? 0; bv = b.unitCost ?? 0; break
         default:            return 0
       }
       if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv) * dir
@@ -2393,6 +2399,8 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                   ['reserved', 'Reserved', 'text-right'],
                   ['available', 'Available', 'text-right'],
                   ['value', 'Value', 'text-right'],
+                  ['marketplace', 'Marketplace', 'text-center'],
+                  ['avgCost', 'Avg Cost', 'text-right'],
                 ] as [SortKey, string, string][]).map(([key, label, align]) => (
                   <th
                     key={key}
@@ -2457,6 +2465,35 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                   </td>
                   <td className="px-2 py-1 text-right tabular-nums text-gray-700 whitespace-nowrap">
                     {value != null ? `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-2 py-1 text-center">
+                    {(() => {
+                      const matched = (item.product.marketplaceSkus ?? []).filter(s => (s.gradeId ?? null) === (item.grade?.id ?? null))
+                      const names = Array.from(new Set(matched.map(s => s.marketplace)))
+                      if (names.length === 0) return <span className="text-gray-300 text-[10px]">None</span>
+                      return (
+                        <span className="inline-flex items-center gap-1 justify-center">
+                          {names.includes('amazon') && (
+                            <span title="Amazon" className="inline-flex flex-col items-center leading-none select-none" style={{ gap: 0 }}>
+                              <span style={{ fontFamily: 'Arial, sans-serif', fontWeight: 900, fontSize: 8, letterSpacing: '-0.3px', color: '#232F3E', lineHeight: 1 }}>amazon</span>
+                              <svg width="22" height="6" viewBox="0 0 22 6" fill="none" style={{ marginTop: -1 }}>
+                                <path d="M1 4C6 7.5 16 7.5 21 4" stroke="#FF9900" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+                                <path d="M17.5 2.5L21 4L17.5 5.5" stroke="#FF9900" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                              </svg>
+                            </span>
+                          )}
+                          {names.includes('backmarket') && (
+                            <span title="Back Market" className="inline-flex items-center justify-center shrink-0 select-none">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/logos/backmarket-icon.svg" alt="BM" width={16} height={16} className="inline-block" />
+                            </span>
+                          )}
+                        </span>
+                      )
+                    })()}
+                  </td>
+                  <td className="px-2 py-1 text-right tabular-nums text-gray-700 whitespace-nowrap">
+                    {item.unitCost != null ? `$${item.unitCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-gray-300">—</span>}
                   </td>
                 </tr>
                 )

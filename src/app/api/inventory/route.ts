@@ -26,7 +26,9 @@ export async function GET(req: NextRequest) {
           : {}),
       },
       include: {
-        product:  { select: { id: true, description: true, sku: true, isSerializable: true } },
+        product:  { select: { id: true, description: true, sku: true, isSerializable: true,
+          marketplaceSkus: { select: { marketplace: true, gradeId: true } }
+        } },
         location: { include: { warehouse: { select: { id: true, name: true } } } },
         grade:    { select: { id: true, grade: true, description: true } },
       },
