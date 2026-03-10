@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const startDate = searchParams.get('startDate')
   const endDate = searchParams.get('endDate')
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10))
-  const pageSize = Math.min(200, Math.max(1, parseInt(searchParams.get('pageSize') ?? '50', 10)))
+  const pageSize = Math.min(500, Math.max(1, parseInt(searchParams.get('pageSize') ?? '50', 10)))
 
   if (!startDate || !endDate) {
     return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 })

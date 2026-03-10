@@ -229,7 +229,7 @@ export default function ProfitabilityReport() {
   const [loading, setLoading] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>('orderDate')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const pageSize = 50
+  const [pageSize, setPageSize] = useState(50)
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -267,7 +267,7 @@ export default function ProfitabilityReport() {
     } finally {
       setLoading(false)
     }
-  }, [startDate, endDate, page])
+  }, [startDate, endDate, page, pageSize])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -405,29 +405,43 @@ export default function ProfitabilityReport() {
       </div>
 
       {/* ── Pagination ──────────────────────────────────────────────────────── */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0 text-xs">
-          <span className="text-gray-500 dark:text-gray-400">
-            {totalCount} orders &middot; Page {page} of {totalPages}
-          </span>
-          <div className="flex gap-1">
-            <button
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
-              className="px-3 py-1.5 rounded border border-gray-200 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+      <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0 text-xs">
+        <span className="text-gray-500 dark:text-gray-400">
+          {totalCount} orders{totalPages > 1 && <> &middot; Page {page} of {totalPages}</>}
+        </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="text-gray-400">Rows:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }}
+              className="h-7 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-1.5 text-xs"
             >
-              Previous
-            </button>
-            <button
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-              className="px-3 py-1.5 rounded border border-gray-200 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            >
-              Next
-            </button>
+              {[50, 100, 200, 500].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
           </div>
+          {totalPages > 1 && (
+            <div className="flex gap-1">
+              <button
+                disabled={page <= 1}
+                onClick={() => setPage((p) => p - 1)}
+                className="px-3 py-1.5 rounded border border-gray-200 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
+                Previous
+              </button>
+              <button
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                className="px-3 py-1.5 rounded border border-gray-200 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
+                Next
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
