@@ -2471,12 +2471,9 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                       return (
                         <span className="inline-flex items-center gap-1 justify-center">
                           {names.includes('amazon') && (
-                            <span title="Amazon" className="inline-flex flex-col items-center leading-none select-none" style={{ gap: 0 }}>
-                              <span style={{ fontFamily: 'Arial, sans-serif', fontWeight: 900, fontSize: 8, letterSpacing: '-0.3px', color: '#232F3E', lineHeight: 1 }}>amazon</span>
-                              <svg width="22" height="8" viewBox="0 0 22 8" fill="none" style={{ marginTop: -1 }}>
-                                <path d="M1 4C6 7.5 16 7.5 21 4" stroke="#FF9900" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
-                                <path d="M17.5 2.5L21 4L17.5 5.5" stroke="#FF9900" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                              </svg>
+                            <span title="Amazon" className="inline-flex items-center justify-center shrink-0 select-none">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/logos/amazon-icon.png" alt="Amazon" width={20} height={20} className="inline-block rounded" />
                             </span>
                           )}
                           {names.includes('backmarket') && (
