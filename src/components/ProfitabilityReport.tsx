@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { clsx } from 'clsx'
 import {
-  ChevronDown, ChevronRight, DollarSign, TrendingUp, TrendingDown, Package,
+  ChevronDown, ChevronRight, ChevronUp, DollarSign, TrendingUp, TrendingDown, Package,
 } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -43,6 +43,9 @@ interface LineItem {
   shipping: number
   netProfit: number
 }
+
+type SortKey = 'olmNumber' | 'marketplaceOrderId' | 'source' | 'orderDate' | 'saleValue' | 'totalCogs' | 'commission' | 'shippingCost' | 'netProfit'
+type SortDir = 'asc' | 'desc'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -224,7 +227,31 @@ export default function ProfitabilityReport() {
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
+  const [sortKey, setSortKey] = useState<SortKey>('orderDate')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
   const pageSize = 50
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
+  }
+
+  const sortedRows = useMemo(() => {
+    const sorted = [...rows].sort((a, b) => {
+      let av: string | number = a[sortKey] ?? ''
+      let bv: string | number = b[sortKey] ?? ''
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+      }
+      av = Number(av); bv = Number(bv)
+      return sortDir === 'asc' ? av - bv : bv - av
+    })
+    return sorted
+  }, [rows, sortKey, sortDir])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -330,26 +357,46 @@ export default function ProfitabilityReport() {
           <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
             <tr>
               <th className="px-2 py-2.5 w-8" />
-              <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">OLM #</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Marketplace #</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Source</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Ship Date</th>
-              <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Sale Value</th>
-              <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">COGS</th>
-              <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Commission</th>
-              <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Shipping</th>
-              <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Net Profit</th>
+              {([
+                { key: 'olmNumber', label: 'OLM #', align: 'left' },
+                { key: 'marketplaceOrderId', label: 'Marketplace #', align: 'left' },
+                { key: 'source', label: 'Source', align: 'left' },
+                { key: 'orderDate', label: 'Ship Date', align: 'left' },
+                { key: 'saleValue', label: 'Sale Value', align: 'right' },
+                { key: 'totalCogs', label: 'COGS', align: 'right' },
+                { key: 'commission', label: 'Commission', align: 'right' },
+                { key: 'shippingCost', label: 'Shipping', align: 'right' },
+                { key: 'netProfit', label: 'Net Profit', align: 'right' },
+              ] as { key: SortKey; label: string; align: string }[]).map(({ key, label, align }) => (
+                <th
+                  key={key}
+                  onClick={() => toggleSort(key)}
+                  className={clsx(
+                    'px-3 py-2.5 font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:text-white transition-colors',
+                    align === 'right' ? 'text-right' : 'text-left',
+                  )}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {label}
+                    {sortKey === key ? (
+                      sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+                    ) : (
+                      <ChevronDown size={12} className="opacity-30" />
+                    )}
+                  </span>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && !loading ? (
+            {sortedRows.length === 0 && !loading ? (
               <tr>
                 <td colSpan={10} className="px-6 py-12 text-center text-gray-400">
                   No shipped orders found for this date range.
                 </td>
               </tr>
             ) : (
-              rows.map((row, i) => (
+              sortedRows.map((row, i) => (
                 <ExpandableRow key={row.id} row={row} index={i} />
               ))
             )}
