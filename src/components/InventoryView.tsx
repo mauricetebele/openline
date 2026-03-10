@@ -2326,23 +2326,23 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
           <table className="min-w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Warehouse</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Location</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">On Hand</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Reserved</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Available</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Warehouse</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Location</th>
+                <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">On Hand</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Reserved</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Available</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {items.map(item => (
                 <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-xs text-gray-500">{item.product.sku}</td>
-                  <td className="px-4 py-3 font-medium text-gray-900">{item.product.description}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-1.5 font-mono text-xs font-semibold text-gray-900">{item.product.sku}</td>
+                  <td className="px-3 py-1.5 text-gray-700">{item.product.description}</td>
+                  <td className="px-3 py-1.5">
                     {item.grade ? (
                       <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-2 py-0.5 text-xs font-semibold">
                         {item.grade.grade}
@@ -2351,9 +2351,9 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                       <span className="text-gray-300 text-xs">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-700">{item.location.warehouse.name}</td>
-                  <td className="px-4 py-3 text-gray-700">{item.location.name}</td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-3 py-1.5 text-gray-700">{item.location.warehouse.name}</td>
+                  <td className="px-3 py-1.5 text-gray-700">{item.location.name}</td>
+                  <td className="px-3 py-1.5 text-center">
                     <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                       item.product.isSerializable
                         ? 'bg-purple-100 text-purple-700'
@@ -2362,7 +2362,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                       {item.product.isSerializable ? 'Serialized' : 'Non-serial'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-3 py-1.5 text-right">
                     {item.product.isSerializable ? (
                       <button
                         type="button"
@@ -2375,14 +2375,14 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                       <span className="font-semibold text-gray-900 tabular-nums">{item.onHand}</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
+                  <td className="px-3 py-1.5 text-right tabular-nums">
                     {item.reserved > 0 ? (
                       <span className="font-medium text-amber-600">{item.reserved}</span>
                     ) : (
                       <span className="text-gray-300">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right font-semibold text-gray-900 tabular-nums">
+                  <td className="px-3 py-1.5 text-right font-semibold text-gray-900 tabular-nums">
                     {item.qty}
                   </td>
                 </tr>
