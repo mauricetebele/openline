@@ -291,7 +291,7 @@ export default function ProfitabilityReport() {
   const [loading, setLoading] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>('orderDate')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [pageSize, setPageSize] = useState(50)
+  const [pageSize, setPageSize] = useState(500)
   const [viewMode, setViewMode] = useState<ViewMode>('order')
   const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
