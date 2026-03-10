@@ -68,9 +68,9 @@ async function handleMarketplace(
   const itemCount = order.items.length
 
   const lineItems = order.items.map((item) => {
-    const itemSale = Number(item.itemPrice ?? 0)
-    // For single-item orders, assign full amounts directly to avoid tax-driven rounding errors
-    const proportion = itemCount === 1 ? 1 : (orderTotal > 0 ? (itemSale + Number(item.itemTax ?? 0)) / orderTotal : 0)
+    // Include tax in sale value to match orderTotal (which includes tax)
+    const itemSale = Number(item.itemPrice ?? 0) + Number(item.itemTax ?? 0)
+    const proportion = itemCount === 1 ? 1 : (orderTotal > 0 ? itemSale / orderTotal : 0)
 
     // COGS from reservations for this line item
     let itemCogs = 0
