@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  AlertCircle, CheckCircle2, XCircle, Loader2, ChevronRight, ArrowLeft, X,
+  AlertCircle, CheckCircle2, XCircle, Loader2, ChevronRight, ArrowLeft, X, Plus, Trash2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { AmazonAccountDTO } from '@/types'
@@ -591,7 +591,7 @@ export default function BulkListingCreator() {
                         <th className="px-2 py-2">Price</th>
                         <th className="px-2 py-2">Qty</th>
                         {fulfillment === 'MFN' && <th className="px-2 py-2">Template</th>}
-                        <th className="px-2 py-2 w-8"></th>
+                        <th className="px-2 py-2 w-20"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -686,11 +686,47 @@ export default function BulkListingCreator() {
                               </td>
                             )}
                             <td className="px-2 py-1.5">
-                              {hasErr ? (
-                                <span title={errs.join(', ')}><XCircle size={14} className="text-red-500" /></span>
-                              ) : row.marketplaceSku && row.asin && row.price ? (
-                                <CheckCircle2 size={14} className="text-green-600" />
-                              ) : null}
+                              <div className="flex items-center gap-1">
+                                {hasErr ? (
+                                  <span title={errs.join(', ')}><XCircle size={14} className="text-red-500" /></span>
+                                ) : row.marketplaceSku && row.asin && row.price ? (
+                                  <CheckCircle2 size={14} className="text-green-600" />
+                                ) : <span className="w-3.5" />}
+                                <button
+                                  type="button"
+                                  title="Duplicate row"
+                                  onClick={() => {
+                                    const clone: ListingRow = {
+                                      productId: row.productId,
+                                      internalSku: row.internalSku,
+                                      description: row.description,
+                                      gradeId: null,
+                                      gradeName: null,
+                                      availableQty: row.availableQty,
+                                      marketplaceSku: '',
+                                      asin: '',
+                                      price: '',
+                                      condition: 'New',
+                                      quantity: '0',
+                                      shippingTemplate: '',
+                                    }
+                                    setListingRows(prev => [...prev.slice(0, i + 1), clone, ...prev.slice(i + 1)])
+                                  }}
+                                  className="p-0.5 text-gray-400 hover:text-amazon-blue rounded"
+                                >
+                                  <Plus size={14} />
+                                </button>
+                                {listingRows.length > 1 && (
+                                  <button
+                                    type="button"
+                                    title="Remove row"
+                                    onClick={() => setListingRows(prev => prev.filter((_, idx) => idx !== i))}
+                                    className="p-0.5 text-gray-400 hover:text-red-500 rounded"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         )
