@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 
+export const maxDuration = 60
+
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -38,49 +40,58 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'All selected serials are already at that location' }, { status: 400 })
   }
 
+  // Group by (productId, fromLocationId, gradeId) for batched inventory adjustments
+  const groups = new Map<string, { productId: string; fromLocationId: string; gradeId: string | null; count: number }>()
+  for (const serial of toMove) {
+    const key = `${serial.productId}|${serial.locationId}|${serial.gradeId ?? 'NULL'}`
+    const existing = groups.get(key)
+    if (existing) {
+      existing.count++
+    } else {
+      groups.set(key, { productId: serial.productId, fromLocationId: serial.locationId, gradeId: serial.gradeId, count: 1 })
+    }
+  }
+
   await prisma.$transaction(async (tx) => {
-    for (const serial of toMove) {
-      const fromLocationId = serial.locationId
+    // 1. Bulk update all serials to the new location
+    await tx.inventorySerial.updateMany({
+      where: { id: { in: toMove.map(s => s.id) } },
+      data: { locationId },
+    })
 
-      // Update the serial's current location
-      await tx.inventorySerial.update({
-        where: { id: serial.id },
-        data:  { locationId },
-      })
+    // 2. Bulk create history events
+    await tx.serialHistory.createMany({
+      data: toMove.map(serial => ({
+        inventorySerialId: serial.id,
+        eventType: 'LOCATION_MOVE' as const,
+        locationId,
+        fromLocationId: serial.locationId,
+      })),
+    })
 
-      // Log a LOCATION_MOVE history event
-      await tx.serialHistory.create({
-        data: {
-          inventorySerialId: serial.id,
-          eventType:         'LOCATION_MOVE',
-          locationId,        // destination
-          fromLocationId,    // source
-        },
-      })
-
-      // Decrement source inventory item (guard against going below 0)
+    // 3. Adjust inventory items per group (not per serial)
+    for (const group of groups.values()) {
+      // Decrement source
       await tx.inventoryItem.updateMany({
-        where: { productId: serial.productId, locationId: fromLocationId, gradeId: serial.gradeId, qty: { gt: 0 } },
-        data:  { qty: { decrement: 1 } },
+        where: { productId: group.productId, locationId: group.fromLocationId, gradeId: group.gradeId, qty: { gt: 0 } },
+        data: { qty: { decrement: group.count } },
       })
 
-      // Upsert destination inventory item
-      // Prisma's composite-unique upsert rejects null, so handle null gradeId separately
-      const moveGradeId = serial.gradeId ?? null
-      if (moveGradeId) {
+      // Upsert destination
+      if (group.gradeId) {
         await tx.inventoryItem.upsert({
-          where:  { productId_locationId_gradeId: { productId: serial.productId, locationId, gradeId: moveGradeId } },
-          create: { productId: serial.productId, locationId, gradeId: moveGradeId, qty: 1 },
-          update: { qty: { increment: 1 } },
+          where: { productId_locationId_gradeId: { productId: group.productId, locationId, gradeId: group.gradeId } },
+          create: { productId: group.productId, locationId, gradeId: group.gradeId, qty: group.count },
+          update: { qty: { increment: group.count } },
         })
       } else {
         const existingInv = await tx.inventoryItem.findFirst({
-          where: { productId: serial.productId, locationId, gradeId: null },
+          where: { productId: group.productId, locationId, gradeId: null },
         })
         if (existingInv) {
-          await tx.inventoryItem.update({ where: { id: existingInv.id }, data: { qty: { increment: 1 } } })
+          await tx.inventoryItem.update({ where: { id: existingInv.id }, data: { qty: { increment: group.count } } })
         } else {
-          await tx.inventoryItem.create({ data: { productId: serial.productId, locationId, gradeId: null, qty: 1 } })
+          await tx.inventoryItem.create({ data: { productId: group.productId, locationId, gradeId: null, qty: group.count } })
         }
       }
     }
