@@ -1,7 +1,7 @@
 'use client'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2 } from 'lucide-react'
+import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown } from 'lucide-react'
 import SNLookupModal from './SNLookupModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -2168,6 +2168,45 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   const [showInventory, setShowInventory] = useState(false)
   const [showRegrade,   setShowRegrade]   = useState(false)
 
+  // Sort state
+  type SortKey = 'sku' | 'description' | 'grade' | 'warehouse' | 'location' | 'type' | 'onHand' | 'reserved' | 'available' | 'value'
+  const [sortKey, setSortKey] = useState<SortKey | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  const sortedItems = useMemo(() => {
+    if (!sortKey) return items
+    const sorted = [...items]
+    const dir = sortDir === 'asc' ? 1 : -1
+    sorted.sort((a, b) => {
+      let av: string | number, bv: string | number
+      switch (sortKey) {
+        case 'sku':         av = a.product.sku; bv = b.product.sku; break
+        case 'description': av = a.product.description; bv = b.product.description; break
+        case 'grade':       av = a.grade?.grade ?? ''; bv = b.grade?.grade ?? ''; break
+        case 'warehouse':   av = a.location.warehouse.name; bv = b.location.warehouse.name; break
+        case 'location':    av = a.location.name; bv = b.location.name; break
+        case 'type':        av = a.product.isSerializable ? 1 : 0; bv = b.product.isSerializable ? 1 : 0; break
+        case 'onHand':      av = a.onHand; bv = b.onHand; break
+        case 'reserved':    av = a.reserved; bv = b.reserved; break
+        case 'available':   av = a.qty; bv = b.qty; break
+        case 'value':       av = (a.unitCost ?? 0) * a.onHand; bv = (b.unitCost ?? 0) * b.onHand; break
+        default:            return 0
+      }
+      if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv) * dir
+      return ((av as number) - (bv as number)) * dir
+    })
+    return sorted
+  }, [items, sortKey, sortDir])
+
   // Auto-open modal when navigating to a sub-route
   useEffect(() => {
     if (openModal === 'add')        setShowInventory(true)
@@ -2327,20 +2366,35 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
           <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Description</th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Warehouse</th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Location</th>
-                <th className="px-2 py-1.5 text-center text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-                <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">On Hand</th>
-                <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Reserved</th>
-                <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Available</th>
-                <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Value</th>
+                {([
+                  ['sku', 'SKU', 'text-left'],
+                  ['description', 'Description', 'text-left'],
+                  ['grade', 'Grade', 'text-left'],
+                  ['warehouse', 'Warehouse', 'text-left'],
+                  ['location', 'Location', 'text-left'],
+                  ['type', 'Type', 'text-center'],
+                  ['onHand', 'On Hand', 'text-right'],
+                  ['reserved', 'Reserved', 'text-right'],
+                  ['available', 'Available', 'text-right'],
+                  ['value', 'Value', 'text-right'],
+                ] as [SortKey, string, string][]).map(([key, label, align]) => (
+                  <th
+                    key={key}
+                    onClick={() => toggleSort(key)}
+                    className={`px-2 py-1.5 ${align} text-[10px] font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors`}
+                  >
+                    <span className="inline-flex items-center gap-0.5">
+                      {label}
+                      {sortKey === key
+                        ? sortDir === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />
+                        : <ChevronsUpDown size={10} className="text-gray-300" />}
+                    </span>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {items.map(item => {
+              {sortedItems.map(item => {
                 const value = item.unitCost != null ? item.onHand * item.unitCost : null
                 return (
                 <tr key={item.id} className="hover:bg-gray-50">
