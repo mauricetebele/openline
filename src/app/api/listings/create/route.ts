@@ -13,6 +13,7 @@ import { createListing, resolveTemplateGroupId } from '@/lib/amazon/listings'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
+import { randomUUID } from 'crypto'
 
 const bodySchema = z.object({
   accountId: z.string().min(1),
@@ -59,20 +60,28 @@ export async function POST(req: NextRequest) {
       accountId, sku, asin, price, quantity, fulfillmentChannel, condition, resolvedTemplateGroupId,
     )
 
-    // Upsert ProductGradeMarketplaceSku if productId was provided
+    // Upsert ProductGradeMarketplaceSku if productId was provided (non-blocking)
     if (productId) {
-      await prisma.$executeRaw`
-        INSERT INTO "product_grade_marketplace_skus" ("id", "productId", "gradeId", "marketplace", "accountId", "sellerSku", "syncQty", "isSynced", "createdAt")
-        VALUES (gen_random_uuid()::text, ${productId}, ${gradeId ?? null}, 'amazon', ${accountId}, ${sku}, false, false, NOW())
-        ON CONFLICT ("productId", "gradeId", "marketplace", "accountId")
-        DO UPDATE SET "sellerSku" = EXCLUDED."sellerSku"
-      `
+      try {
+        const id = randomUUID()
+        const gId = gradeId ?? null
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO "product_grade_marketplace_skus" ("id", "productId", "gradeId", "marketplace", "accountId", "sellerSku", "syncQty", "isSynced", "createdAt")
+           VALUES ($1, $2, $3, 'amazon', $4, $5, false, false, NOW())
+           ON CONFLICT ("productId", "gradeId", "marketplace", "accountId")
+           DO UPDATE SET "sellerSku" = EXCLUDED."sellerSku"`,
+          id, productId, gId, accountId, sku,
+        )
+      } catch (upsertErr) {
+        console.error('[POST /api/listings/create] MSKU upsert failed (non-fatal):', upsertErr)
+      }
     }
 
     return NextResponse.json({ success: true, shippingTemplateGroupId: resolvedTemplateGroupId, ...result })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[POST /api/listings/create]', message)
+    const stack = err instanceof Error ? err.stack : undefined
+    console.error('[POST /api/listings/create]', message, stack ? `\n${stack}` : '')
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

@@ -87,6 +87,9 @@ export default function BulkListingCreator() {
   const [fulfillment, setFulfillment] = useState<'MFN' | 'FBA'>('MFN')
   const [allGrades, setAllGrades] = useState<GradeOption[]>([])
 
+  // Locked rows (successfully created — not editable on retry)
+  const [lockedKeys, setLockedKeys] = useState<Set<string>>(new Set())
+
   // Step 3 — progress
   const [progressRows, setProgressRows] = useState<ProgressRow[]>([])
   const [isCreating, setIsCreating] = useState(false)
@@ -232,8 +235,9 @@ export default function BulkListingCreator() {
     return errs
   }
 
-  const validListingRows = listingRows.filter((r, i) => getRowErrors(r, i).length === 0)
-  const errorListingRows = listingRows.filter((r, i) => getRowErrors(r, i).length > 0)
+  const editableRows = listingRows.filter(r => !lockedKeys.has(`${r.productId}::${r.gradeId}::${r.marketplaceSku}`))
+  const validListingRows = editableRows.filter((r, i) => getRowErrors(r, listingRows.indexOf(r)).length === 0)
+  const errorListingRows = editableRows.filter((r, i) => getRowErrors(r, listingRows.indexOf(r)).length > 0)
 
   // ─── Step 2 → Step 3: Submit ─────────────────────────────────────────────
 
@@ -246,6 +250,57 @@ export default function BulkListingCreator() {
     setIsCreating(true)
     setStep(3)
   }, [validListingRows])
+
+  // ─── Step 3 → Step 2: Back to edit (retry failed rows) ─────────────────
+
+  const handleBackToEdit = useCallback(() => {
+    // Lock successfully created rows
+    const newLocked = new Set(lockedKeys)
+    const remaining: ListingRow[] = []
+
+    for (const row of progressRows) {
+      const key = `${row.productId}::${row.gradeId}::${row.marketplaceSku}`
+      if (row.status === 'success') {
+        newLocked.add(key)
+        // Keep as locked listing row
+        remaining.push({
+          productId: row.productId,
+          internalSku: row.internalSku,
+          description: row.description,
+          gradeId: row.gradeId,
+          gradeName: row.gradeName,
+          availableQty: row.availableQty,
+          marketplaceSku: row.marketplaceSku,
+          asin: row.asin,
+          price: row.price,
+          condition: row.condition,
+          quantity: row.quantity,
+          shippingTemplate: row.shippingTemplate,
+        })
+      } else {
+        // Failed/pending rows stay editable
+        remaining.push({
+          productId: row.productId,
+          internalSku: row.internalSku,
+          description: row.description,
+          gradeId: row.gradeId,
+          gradeName: row.gradeName,
+          availableQty: row.availableQty,
+          marketplaceSku: row.marketplaceSku,
+          asin: row.asin,
+          price: row.price,
+          condition: row.condition,
+          quantity: row.quantity,
+          shippingTemplate: row.shippingTemplate,
+        })
+      }
+    }
+
+    setLockedKeys(newLocked)
+    setListingRows(remaining)
+    setProgressRows([])
+    setStep(2)
+  }, [progressRows, lockedKeys])
 
   // ─── Step 3: Sequential creation ─────────────────────────────────────────
 
@@ -330,6 +385,7 @@ export default function BulkListingCreator() {
     setNotFoundSkus([])
     setListingRows([])
     setProgressRows([])
+    setLockedKeys(new Set())
     setIsCreating(false)
     creatingRef.current = false
   }
@@ -601,63 +657,70 @@ export default function BulkListingCreator() {
                     </thead>
                     <tbody>
                       {listingRows.map((row, i) => {
-                        const errs = getRowErrors(row, i)
+                        const rowKey = `${row.productId}::${row.gradeId}::${row.marketplaceSku}`
+                        const isLocked = lockedKeys.has(rowKey)
+                        const errs = isLocked ? [] : getRowErrors(row, i)
                         const hasErr = errs.length > 0 && (row.marketplaceSku || row.asin || row.price)
                         return (
-                          <tr key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`} className="border-b last:border-0">
+                          <tr key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`} className={clsx('border-b last:border-0', isLocked && 'bg-green-50/50 opacity-60')}>
                             <td className="px-2 py-1.5">
-                              <div className="flex items-center gap-1">
-                                {hasErr ? (
-                                  <span title={errs.join(', ')}><XCircle size={14} className="text-red-500" /></span>
-                                ) : row.marketplaceSku && row.asin && row.price ? (
-                                  <CheckCircle2 size={14} className="text-green-600" />
-                                ) : <span className="w-3.5" />}
-                                <button
-                                  type="button"
-                                  title="Duplicate row"
-                                  onClick={() => {
-                                    const clone: ListingRow = {
-                                      productId: row.productId,
-                                      internalSku: row.internalSku,
-                                      description: row.description,
-                                      gradeId: null,
-                                      gradeName: null,
-                                      availableQty: row.availableQty,
-                                      marketplaceSku: '',
-                                      asin: '',
-                                      price: '',
-                                      condition: 'New',
-                                      quantity: '0',
-                                      shippingTemplate: '',
-                                    }
-                                    setListingRows(prev => [...prev.slice(0, i + 1), clone, ...prev.slice(i + 1)])
-                                  }}
-                                  className="p-0.5 text-gray-400 hover:text-amazon-blue rounded"
-                                >
-                                  <Plus size={14} />
-                                </button>
-                                {listingRows.length > 1 && (
+                              {isLocked ? (
+                                <CheckCircle2 size={14} className="text-green-600" />
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  {hasErr ? (
+                                    <span title={errs.join(', ')}><XCircle size={14} className="text-red-500" /></span>
+                                  ) : row.marketplaceSku && row.asin && row.price ? (
+                                    <CheckCircle2 size={14} className="text-green-600" />
+                                  ) : <span className="w-3.5" />}
                                   <button
                                     type="button"
-                                    title="Remove row"
-                                    onClick={() => setListingRows(prev => prev.filter((_, idx) => idx !== i))}
-                                    className="p-0.5 text-gray-400 hover:text-red-500 rounded"
+                                    title="Duplicate row"
+                                    onClick={() => {
+                                      const clone: ListingRow = {
+                                        productId: row.productId,
+                                        internalSku: row.internalSku,
+                                        description: row.description,
+                                        gradeId: null,
+                                        gradeName: null,
+                                        availableQty: row.availableQty,
+                                        marketplaceSku: '',
+                                        asin: '',
+                                        price: '',
+                                        condition: 'New',
+                                        quantity: '0',
+                                        shippingTemplate: '',
+                                      }
+                                      setListingRows(prev => [...prev.slice(0, i + 1), clone, ...prev.slice(i + 1)])
+                                    }}
+                                    className="p-0.5 text-gray-400 hover:text-amazon-blue rounded"
                                   >
-                                    <Trash2 size={13} />
+                                    <Plus size={14} />
                                   </button>
-                                )}
-                              </div>
+                                  {listingRows.length > 1 && (
+                                    <button
+                                      type="button"
+                                      title="Remove row"
+                                      onClick={() => setListingRows(prev => prev.filter((_, idx) => idx !== i))}
+                                      className="p-0.5 text-gray-400 hover:text-red-500 rounded"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </td>
                             <td className="px-2 py-1.5 font-mono text-xs text-gray-600 whitespace-nowrap">{row.internalSku}</td>
                             <td className="px-2 py-1.5">
                               <select
                                 value={row.gradeId ?? ''}
+                                disabled={isLocked}
                                 onChange={(e) => {
                                   const selectedId = e.target.value || null
                                   const selectedGrade = allGrades.find(g => g.id === selectedId)
                                   setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, gradeId: selectedId, gradeName: selectedGrade?.grade ?? null } : r))
                                 }}
-                                className="w-full h-8 rounded-md border border-gray-300 px-1 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                                className="w-full h-8 rounded-md border border-gray-300 px-1 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                               >
                                 <option value="">None</option>
                                 {allGrades.map(g => (
@@ -668,8 +731,9 @@ export default function BulkListingCreator() {
                             <td className="px-2 py-1.5">
                               <select
                                 value={row.condition}
+                                disabled={isLocked}
                                 onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, condition: e.target.value } : r))}
-                                className="w-full h-8 rounded-md border border-gray-300 px-1 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                                className="w-full h-8 rounded-md border border-gray-300 px-1 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                               >
                                 {CONDITIONS.map((c) => (
                                   <option key={c} value={c}>{c}</option>
@@ -680,21 +744,23 @@ export default function BulkListingCreator() {
                               <input
                                 type="text"
                                 value={row.marketplaceSku}
+                                disabled={isLocked}
                                 onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, marketplaceSku: e.target.value } : r))}
                                 placeholder="MSKU-001"
-                                className="w-full h-8 rounded-md border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                                className="w-full h-8 rounded-md border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                               />
                             </td>
                             <td className="px-2 py-1.5">
                               <input
                                 type="text"
                                 value={row.asin}
+                                disabled={isLocked}
                                 onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, asin: e.target.value.toUpperCase() } : r))}
                                 placeholder="B0XXXXXXXXX"
                                 maxLength={10}
                                 className={clsx(
-                                  'w-full h-8 rounded-md border px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue',
-                                  row.asin && !ASIN_RE.test(row.asin) ? 'border-red-400' : 'border-gray-300',
+                                  'w-full h-8 rounded-md border px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500',
+                                  !isLocked && row.asin && !ASIN_RE.test(row.asin) ? 'border-red-400' : 'border-gray-300',
                                 )}
                               />
                             </td>
@@ -702,29 +768,32 @@ export default function BulkListingCreator() {
                               <input
                                 type="number"
                                 value={row.price}
+                                disabled={isLocked}
                                 onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, price: e.target.value } : r))}
                                 placeholder="0.00"
                                 min="0.01"
                                 step="0.01"
-                                className="w-20 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                                className="w-20 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                               />
                             </td>
                             <td className="px-2 py-1.5">
                               <input
                                 type="number"
                                 value={row.quantity}
+                                disabled={isLocked}
                                 onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, quantity: e.target.value } : r))}
                                 min="0"
                                 step="1"
-                                className="w-16 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                                className="w-16 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                               />
                             </td>
                             {fulfillment === 'MFN' && (
                               <td className="px-2 py-1.5">
                                 <select
                                   value={row.shippingTemplate}
+                                  disabled={isLocked}
                                   onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, shippingTemplate: e.target.value } : r))}
-                                  className="w-full h-8 rounded-md border border-gray-300 px-1 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                                  className="w-full h-8 rounded-md border border-gray-300 px-1 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                                 >
                                   <option value="">None</option>
                                   {templates.map((t) => (
@@ -856,13 +925,24 @@ export default function BulkListingCreator() {
                 )}
               </div>
               {!isCreating && (
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  className="h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-semibold hover:bg-amazon-blue/90"
-                >
-                  Close
-                </button>
+                <div className="flex items-center gap-3">
+                  {failedCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleBackToEdit}
+                      className="flex items-center gap-1.5 h-9 px-4 rounded-md border border-gray-300 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                    >
+                      <ArrowLeft size={14} /> Edit &amp; Retry
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleClose}
+                    className="h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-semibold hover:bg-amazon-blue/90"
+                  >
+                    Close
+                  </button>
+                </div>
               )}
             </div>
           </>
