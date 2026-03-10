@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncUnshippedOrders } from '@/lib/amazon/sync-orders'
 import { syncBackMarketOrders } from '@/lib/backmarket/sync-orders'
+import { syncAmazonCommissions } from '@/lib/amazon/sync-commissions'
 
 export const maxDuration = 300
 
@@ -82,5 +83,21 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ synced: results.length, results, backmarket: bmResult ?? null })
+  // ── Amazon commission sync (piggyback on order sync) ────────────────────
+  const commissionResults: { accountId: string; status: string; message?: string }[] = []
+  const commEnd = new Date(Date.now() - 5 * 60 * 1000)
+  const commStart = new Date(commEnd.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+  for (const account of accounts) {
+    try {
+      const r = await syncAmazonCommissions(account.id, commStart, commEnd)
+      commissionResults.push({ accountId: account.id, status: 'ok', message: `${r.updated} updated` })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`[cron/sync-orders] Commission sync error ${account.sellerId}:`, message)
+      commissionResults.push({ accountId: account.id, status: 'error', message })
+    }
+  }
+
+  return NextResponse.json({ synced: results.length, results, backmarket: bmResult ?? null, commissions: commissionResults })
 }
