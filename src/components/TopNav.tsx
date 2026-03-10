@@ -75,6 +75,7 @@ const NAV: NavItem[] = [
     children: [
       { href: '/profitability',      label: 'Profitability', icon: TrendingUp },
       { href: '/shipping-manifest', label: 'Manifest',      icon: ClipboardList },
+      { href: '/po-line-items',     label: 'PO Line Items', icon: ListTodo },
     ],
   },
   { href: '/todo-list',        label: 'To Do',       icon: ListTodo },
