@@ -8,9 +8,28 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl
   const status = searchParams.get('status')
+  const search = searchParams.get('search')?.trim()
+
+  // Build where clause
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const where: any = {}
+  if (status) where.status = status
+
+  if (search) {
+    // Search by PO number, SKU (via line items), or serial (via receipts)
+    const poNum = parseInt(search, 10)
+    where.OR = [
+      // PO number match
+      ...(Number.isFinite(poNum) ? [{ poNumber: poNum }] : []),
+      // SKU match (product on any line)
+      { lines: { some: { product: { sku: { contains: search, mode: 'insensitive' } } } } },
+      // Serial match (via receipt lines → serials)
+      { receipts: { some: { lines: { some: { serials: { some: { serialNumber: { contains: search, mode: 'insensitive' } } } } } } } },
+    ]
+  }
 
   const orders = await prisma.purchaseOrder.findMany({
-    where: status ? { status: status as 'OPEN' | 'RECEIVED' | 'CANCELLED' } : {},
+    where,
     include: {
       vendor: { select: { id: true, vendorNumber: true, name: true } },
       lines: {

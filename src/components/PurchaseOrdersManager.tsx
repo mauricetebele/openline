@@ -891,6 +891,7 @@ function PORow({
   const [err,           setErr]           = useState('')
 
   const total = po.lines.reduce((s, l) => s + l.qty * Number(l.unitCost), 0)
+  const unitCount = po.lines.reduce((s, l) => s + l.qty, 0)
 
   async function handleDelete() {
     setDeleting(true)
@@ -919,7 +920,10 @@ function PORow({
         <td className="px-4 py-3 text-gray-500 text-sm">
           {new Date(po.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
         </td>
-        <td className="px-4 py-3 text-gray-600 text-sm">{po.lines.length} item{po.lines.length !== 1 ? 's' : ''}</td>
+        <td className="px-4 py-3 text-gray-600 text-sm">
+          {po.lines.length} item{po.lines.length !== 1 ? 's' : ''}
+          <span className="text-gray-400 ml-1">({unitCount} units)</span>
+        </td>
         <td className="px-4 py-3 font-medium text-gray-900 text-right">${total.toFixed(2)}</td>
         <td className="px-4 py-3">
           <span className={clsx('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_COLOR[po.status])}>
@@ -993,30 +997,30 @@ function PORow({
       {expanded && (
         <tr>
           <td colSpan={7} className="px-0 py-0 border-b border-gray-100">
-            <div className="bg-gray-50 border-t border-gray-100 px-10 py-4">
+            <div className="bg-gray-50 border-t border-gray-100 px-6 py-3">
               {po.notes && (
-                <p className="text-xs text-gray-500 italic mb-3">{po.notes}</p>
+                <p className="text-xs text-gray-500 italic mb-2">{po.notes}</p>
               )}
-              <table className="w-full text-sm">
+              <table className="w-full text-xs">
                 <thead>
                   <tr>
-                    <th className="text-left text-xs font-medium text-gray-400 pb-2 w-[35%]">Product</th>
-                    <th className="text-left text-xs font-medium text-gray-400 pb-2">SKU</th>
-                    <th className="text-left text-xs font-medium text-gray-400 pb-2">Grade</th>
-                    <th className="text-right text-xs font-medium text-gray-400 pb-2">Qty</th>
-                    <th className="text-right text-xs font-medium text-gray-400 pb-2">Unit Cost</th>
-                    <th className="text-right text-xs font-medium text-gray-400 pb-2">Subtotal</th>
+                    <th className="text-left text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">SKU</th>
+                    <th className="text-left text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">Description</th>
+                    <th className="text-left text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">Grade</th>
+                    <th className="text-right text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">Qty</th>
+                    <th className="text-right text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">Unit Cost</th>
+                    <th className="text-right text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">Subtotal</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {po.lines.map(line => (
                     <tr key={line.id}>
-                      <td className="py-1.5 pr-4 text-gray-800 font-medium">{line.product.description}</td>
-                      <td className="py-1.5 pr-4 font-mono text-xs text-gray-500">{line.product.sku}</td>
-                      <td className="py-1.5 pr-4 text-xs text-gray-500">{line.grade?.grade ?? '—'}</td>
-                      <td className="py-1.5 text-right text-gray-700">{line.qty}</td>
-                      <td className="py-1.5 text-right text-gray-700">${Number(line.unitCost).toFixed(2)}</td>
-                      <td className="py-1.5 text-right font-medium text-gray-900">
+                      <td className="py-1 pr-3 font-mono text-xs font-semibold text-gray-900 whitespace-nowrap">{line.product.sku}</td>
+                      <td className="py-1 pr-3 text-gray-500 truncate max-w-[200px]">{line.product.description}</td>
+                      <td className="py-1 pr-3 text-gray-500">{line.grade?.grade ?? '—'}</td>
+                      <td className="py-1 text-right text-gray-700">{line.qty}</td>
+                      <td className="py-1 text-right text-gray-700">${Number(line.unitCost).toFixed(2)}</td>
+                      <td className="py-1 text-right font-medium text-gray-900">
                         ${(line.qty * Number(line.unitCost)).toFixed(2)}
                       </td>
                     </tr>
@@ -1024,8 +1028,8 @@ function PORow({
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-gray-200">
-                    <td colSpan={5} className="pt-2 text-right text-xs font-semibold text-gray-600 pr-4">Total</td>
-                    <td className="pt-2 text-right font-bold text-gray-900">${total.toFixed(2)}</td>
+                    <td colSpan={5} className="pt-1.5 text-right text-xs font-semibold text-gray-600 pr-3">Total</td>
+                    <td className="pt-1.5 text-right font-bold text-gray-900">${total.toFixed(2)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -1083,12 +1087,18 @@ export default function PurchaseOrdersManager() {
   const [spreadsheetReceiving, setSpreadsheetReceiving] = useState<PurchaseOrder | null>(null)
   const [billing, setBilling] = useState<PurchaseOrder | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchInput, setSearchInput] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     setErr('')
     try {
-      const url = statusFilter ? `/api/purchase-orders?status=${statusFilter}` : '/api/purchase-orders'
+      const params = new URLSearchParams()
+      if (statusFilter) params.set('status', statusFilter)
+      if (searchQuery) params.set('search', searchQuery)
+      const qs = params.toString()
+      const url = `/api/purchase-orders${qs ? `?${qs}` : ''}`
       const res = await fetch(url)
       if (!res.ok) throw new Error('Failed to load')
       const data = await res.json()
@@ -1098,7 +1108,7 @@ export default function PurchaseOrdersManager() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter])
+  }, [statusFilter, searchQuery])
 
   useEffect(() => {
     Promise.all([
@@ -1120,7 +1130,29 @@ export default function PurchaseOrdersManager() {
   return (
     <div className="flex-1 overflow-auto px-6 py-4">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') setSearchQuery(searchInput.trim()) }}
+            placeholder="Search by PO#, SKU, or Serial…"
+            autoComplete="off"
+            className="h-9 w-64 rounded-md border border-gray-300 pl-8 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+          />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={() => { setSearchInput(''); setSearchQuery('') }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+
         <select
           value={statusFilter}
           onChange={e => setStatusFilter(e.target.value)}
