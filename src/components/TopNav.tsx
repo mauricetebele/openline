@@ -82,6 +82,7 @@ const NAV: NavItem[] = [
       { href: '/shipping-templates', label: 'Shipping Templates', icon: Truck },
       { href: '/return-label',       label: 'Return Label',       icon: Printer },
       { href: '/create-listing',      label: 'Create Listing',     icon: PlusCircle },
+      { href: '/bulk-listing',       label: 'Bulk Listing',       icon: List },
       { href: '/active-listings',    label: 'Active Listings',    icon: List },
       { href: '/pricing-rules',      label: 'Pricing Rules',      icon: Tag },
       { href: '/sickw',             label: 'SICKW',              icon: Smartphone },

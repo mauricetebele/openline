@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown } from 'lucide-react'
+import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown, Barcode } from 'lucide-react'
 import SNLookupModal from './SNLookupModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -2428,13 +2428,9 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                   <td className="px-2 py-1 text-gray-500 whitespace-nowrap">{item.location.warehouse.name}</td>
                   <td className="px-2 py-1 text-gray-500 whitespace-nowrap">{item.location.name}</td>
                   <td className="px-2 py-1 text-center">
-                    <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                      item.product.isSerializable
-                        ? 'bg-purple-100 text-purple-700'
-                        : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {item.product.isSerializable ? 'Serial' : 'Non-serial'}
-                    </span>
+                    {item.product.isSerializable
+                      ? <span title="Serialized"><Barcode size={14} className="inline text-purple-600" /></span>
+                      : <span className="inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500">Non-serial</span>}
                   </td>
                   <td className="px-2 py-1 text-right">
                     {item.product.isSerializable ? (
