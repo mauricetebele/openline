@@ -17,6 +17,7 @@ import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
@@ -54,44 +55,54 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'All selected serials already have the target grade' }, { status: 400 })
     }
 
+    // Group serials by (productId, locationId, fromGradeId) for batched inventory adjustments
+    const groups = new Map<string, { productId: string; locationId: string; fromGradeId: string | null; count: number }>()
+    for (const serial of toRegrade) {
+      const key = `${serial.productId}|${serial.locationId}|${serial.gradeId ?? 'NULL'}`
+      const existing = groups.get(key)
+      if (existing) {
+        existing.count++
+      } else {
+        groups.set(key, { productId: serial.productId, locationId: serial.locationId, fromGradeId: serial.gradeId, count: 1 })
+      }
+    }
+
     await prisma.$transaction(async tx => {
-      for (const serial of toRegrade) {
-        const fromGradeId = serial.gradeId
+      // 1. Bulk update all serials to the new grade in one query
+      await tx.inventorySerial.updateMany({
+        where: { id: { in: toRegrade.map(s => s.id) } },
+        data: { gradeId: toGradeId ?? null },
+      })
 
-        // Update the serial's grade
-        await tx.inventorySerial.update({
-          where: { id: serial.id },
-          data:  { gradeId: toGradeId ?? null },
-        })
-
-        // Decrement from-grade inventory item
+      // 2. Adjust inventory items per group (not per serial)
+      for (const group of groups.values()) {
+        // Decrement from-grade
         await tx.inventoryItem.updateMany({
           where: {
-            productId:  serial.productId,
-            locationId: serial.locationId,
-            gradeId:    fromGradeId,
+            productId:  group.productId,
+            locationId: group.locationId,
+            gradeId:    group.fromGradeId,
             qty:        { gt: 0 },
           },
-          data: { qty: { decrement: 1 } },
+          data: { qty: { decrement: group.count } },
         })
 
-        // Upsert to-grade inventory item
-        // Prisma's composite-unique upsert rejects null, so handle null gradeId separately
+        // Upsert to-grade
         const toGrade = toGradeId ?? null
         if (toGrade) {
           await tx.inventoryItem.upsert({
-            where:  { productId_locationId_gradeId: { productId: serial.productId, locationId: serial.locationId, gradeId: toGrade } },
-            create: { productId: serial.productId, locationId: serial.locationId, gradeId: toGrade, qty: 1 },
-            update: { qty: { increment: 1 } },
+            where:  { productId_locationId_gradeId: { productId: group.productId, locationId: group.locationId, gradeId: toGrade } },
+            create: { productId: group.productId, locationId: group.locationId, gradeId: toGrade, qty: group.count },
+            update: { qty: { increment: group.count } },
           })
         } else {
           const existingInv = await tx.inventoryItem.findFirst({
-            where: { productId: serial.productId, locationId: serial.locationId, gradeId: null },
+            where: { productId: group.productId, locationId: group.locationId, gradeId: null },
           })
           if (existingInv) {
-            await tx.inventoryItem.update({ where: { id: existingInv.id }, data: { qty: { increment: 1 } } })
+            await tx.inventoryItem.update({ where: { id: existingInv.id }, data: { qty: { increment: group.count } } })
           } else {
-            await tx.inventoryItem.create({ data: { productId: serial.productId, locationId: serial.locationId, gradeId: null, qty: 1 } })
+            await tx.inventoryItem.create({ data: { productId: group.productId, locationId: group.locationId, gradeId: null, qty: group.count } })
           }
         }
       }
@@ -121,7 +132,6 @@ export async function POST(req: NextRequest) {
     }
 
     // Check source item has enough stock
-    // Prisma's composite-unique rejects null, so handle null gradeId separately
     const sourceItem = fromGradeId
       ? await prisma.inventoryItem.findUnique({
           where: { productId_locationId_gradeId: { productId, locationId, gradeId: fromGradeId } },
