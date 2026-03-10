@@ -36,62 +36,64 @@ export async function GET() {
     },
   })
 
-  const results: QtyBreakdown[] = []
-
-  for (const msku of mskus) {
-    const inventoryWhere: { productId: string; gradeId?: string | null } = {
-      productId: msku.productId,
-    }
-    const reservationWhere: { productId: string; gradeId?: string | null } = {
-      productId: msku.productId,
-    }
-    if (msku.gradeId) {
-      inventoryWhere.gradeId = msku.gradeId
-      reservationWhere.gradeId = msku.gradeId
-    }
-
-    // InventoryItem.qty already has reservations subtracted
-    const { _sum: invSum } = await prisma.inventoryItem.aggregate({
-      where: inventoryWhere,
-      _sum: { qty: true },
-    })
-    const availableInInventory = invSum.qty ?? 0
-
-    // Sum active reservations to reconstruct true on-hand
-    const { _sum: resSum } = await prisma.orderInventoryReservation.aggregate({
-      where: reservationWhere,
-      _sum: { qtyReserved: true },
-    })
-    const reserved = resSum.qtyReserved ?? 0
-
-    // True on-hand = what's in inventory + what's reserved (since qty already subtracted)
-    const onHand = availableInInventory + reserved
-
-    // Pending Amazon MFN orders (not yet reserved)
-    let pendingOrders = 0
-    if (msku.marketplace === 'amazon') {
-      const pendingItems = await prisma.orderItem.findMany({
-        where: {
-          sellerSku: msku.sellerSku,
-          order: {
-            orderStatus: 'Pending',
-            fulfillmentChannel: 'MFN',
-            orderSource: 'amazon',
-          },
-        },
-        select: { quantityOrdered: true, quantityShipped: true },
-      })
-      pendingOrders = pendingItems.reduce(
-        (sum, item) => sum + (item.quantityOrdered - item.quantityShipped),
-        0,
-      )
-    }
-
-    // Available = what we actually push to the marketplace
-    // (InventoryItem.qty already has reservations out, so just subtract pending)
-    const available = Math.max(0, availableInInventory - pendingOrders)
-    results.push({ mskuId: msku.id, onHand, reserved, pendingOrders, available })
+  if (mskus.length === 0) {
+    return NextResponse.json({ data: [] })
   }
+
+  // Batch: inventory qty grouped by productId + gradeId
+  const invGroups = await prisma.inventoryItem.groupBy({
+    by: ['productId', 'gradeId'],
+    _sum: { qty: true },
+  })
+  const invMap = new Map<string, number>()
+  for (const g of invGroups) {
+    invMap.set(`${g.productId}:${g.gradeId ?? ''}`, g._sum.qty ?? 0)
+  }
+
+  // Batch: reservations grouped by productId + gradeId
+  const resGroups = await prisma.orderInventoryReservation.groupBy({
+    by: ['productId', 'gradeId'],
+    _sum: { qtyReserved: true },
+  })
+  const resMap = new Map<string, number>()
+  for (const g of resGroups) {
+    resMap.set(`${g.productId}:${g.gradeId ?? ''}`, g._sum.qtyReserved ?? 0)
+  }
+
+  // Batch: pending Amazon MFN order items
+  const amazonSkus = mskus
+    .filter(m => m.marketplace === 'amazon')
+    .map(m => m.sellerSku)
+
+  const pendingMap = new Map<string, number>()
+  if (amazonSkus.length > 0) {
+    const pendingItems = await prisma.orderItem.findMany({
+      where: {
+        sellerSku: { in: amazonSkus },
+        order: {
+          orderStatus: 'Pending',
+          fulfillmentChannel: 'MFN',
+          orderSource: 'amazon',
+        },
+      },
+      select: { sellerSku: true, quantityOrdered: true, quantityShipped: true },
+    })
+    for (const item of pendingItems) {
+      const pending = item.quantityOrdered - item.quantityShipped
+      pendingMap.set(item.sellerSku, (pendingMap.get(item.sellerSku) ?? 0) + pending)
+    }
+  }
+
+  // Assemble results
+  const results: QtyBreakdown[] = mskus.map(msku => {
+    const key = `${msku.productId}:${msku.gradeId ?? ''}`
+    const availableInInventory = invMap.get(key) ?? 0
+    const reserved = resMap.get(key) ?? 0
+    const onHand = availableInInventory + reserved
+    const pendingOrders = msku.marketplace === 'amazon' ? (pendingMap.get(msku.sellerSku) ?? 0) : 0
+    const available = Math.max(0, availableInInventory - pendingOrders)
+    return { mskuId: msku.id, onHand, reserved, pendingOrders, available }
+  })
 
   return NextResponse.json({ data: results })
 }
