@@ -539,6 +539,26 @@ export async function createListing(
 
   console.log(`[createListing] SKU=${sku} ASIN=${asin} status=${result.status} submissionId=${result.submissionId}`)
 
+  // Wait for Amazon to process the PUT before sending follow-up PATCHes
+  await new Promise((r) => setTimeout(r, 3000))
+
+  // Fetch the listing to get the real product type assigned by Amazon.
+  // Using generic 'PRODUCT' in PATCH causes Amazon to silently ignore the update.
+  let realProductType = 'PRODUCT'
+  try {
+    const listingItem = await client.get<{ summaries?: Array<{ productType?: string }> }>(
+      `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+      { marketplaceIds: account.marketplaceId, includedData: 'summaries' },
+    )
+    const fetched = listingItem.summaries?.[0]?.productType
+    if (fetched) {
+      realProductType = fetched
+      console.log(`[createListing] resolved productType=${realProductType} for SKU=${sku}`)
+    }
+  } catch (fetchErr) {
+    console.error(`[createListing] could not fetch productType for SKU=${sku}, using PRODUCT:`, fetchErr)
+  }
+
   // Follow-up PATCH to explicitly set purchasable_offer — Amazon's PUT with
   // LISTING_OFFER_ONLY sometimes creates the listing skeleton without applying
   // the offer attributes (price), resulting in "Missing Offer" / $0.00 on Seller Central.
@@ -546,7 +566,7 @@ export async function createListing(
     const patchResult = await client.patch<ListingsPatchResponse>(
       `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
       {
-        productType: 'PRODUCT',
+        productType: realProductType,
         patches: [
           {
             op: 'replace',
@@ -575,7 +595,7 @@ export async function createListing(
       const templatePatch = await client.patch<ListingsPatchResponse>(
         `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
         {
-          productType: 'PRODUCT',
+          productType: realProductType,
           patches: [
             {
               op: 'replace',
