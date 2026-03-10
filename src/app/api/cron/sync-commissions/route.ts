@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const results: { accountId: string; status: string; message?: string }[] = []
 
   const end = new Date(Date.now() - 5 * 60 * 1000)
-  const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
+  const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000) // 7 days back
 
   for (const account of accounts) {
     try {
