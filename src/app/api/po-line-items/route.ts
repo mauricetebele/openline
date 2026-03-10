@@ -17,20 +17,24 @@ export async function GET(req: NextRequest) {
   if (startDate) dateFilter.gte = new Date(startDate + 'T00:00:00Z')
   if (endDate) dateFilter.lte = new Date(endDate + 'T23:59:59.999Z')
 
-  const where: Record<string, unknown> = {}
+  const conditions: Record<string, unknown>[] = []
 
   if (startDate || endDate) {
-    where.purchaseOrder = { date: dateFilter }
+    conditions.push({ purchaseOrder: { date: dateFilter } })
   }
 
   if (search) {
     const poNumSearch = parseInt(search, 10)
-    where.OR = [
-      { product: { sku: { contains: search, mode: 'insensitive' } } },
-      { product: { description: { contains: search, mode: 'insensitive' } } },
-      ...(Number.isFinite(poNumSearch) ? [{ purchaseOrder: { poNumber: poNumSearch } }] : []),
-    ]
+    conditions.push({
+      OR: [
+        { product: { sku: { contains: search, mode: 'insensitive' } } },
+        { product: { description: { contains: search, mode: 'insensitive' } } },
+        ...(Number.isFinite(poNumSearch) ? [{ purchaseOrder: { poNumber: poNumSearch } }] : []),
+      ],
+    })
   }
+
+  const where = conditions.length > 0 ? { AND: conditions } : {}
 
   const [rows, totalCount] = await Promise.all([
     prisma.purchaseOrderLine.findMany({
