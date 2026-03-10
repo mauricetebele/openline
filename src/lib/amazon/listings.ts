@@ -292,7 +292,7 @@ export async function resolveTemplateGroupId(
     where: {
       accountId,
       fulfillmentChannel: 'MFN',
-      shippingTemplate: templateName,
+      shippingTemplate: { equals: templateName, mode: 'insensitive' },
       lastSyncedAt: { gte: syncBatchCutoff },
     },
     take: 5,
