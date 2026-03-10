@@ -308,7 +308,7 @@ export default function BulkListingCreator() {
     if (!isCreating || creatingRef.current) return
     creatingRef.current = true
 
-    let cachedTemplateGroupId: string | undefined
+    const templateCache = new Map<string, string>()
 
     async function createAll() {
       const rows = [...progressRows]
@@ -333,8 +333,9 @@ export default function BulkListingCreator() {
             gradeId: row.gradeId,
           }
           if (fulfillment === 'MFN' && row.shippingTemplate) {
-            if (cachedTemplateGroupId) {
-              body.shippingTemplateGroupId = cachedTemplateGroupId
+            const cached = templateCache.get(row.shippingTemplate)
+            if (cached) {
+              body.shippingTemplateGroupId = cached
             } else {
               body.shippingTemplate = row.shippingTemplate
             }
@@ -348,9 +349,9 @@ export default function BulkListingCreator() {
           const data = await res.json()
           if (!res.ok) throw new Error(data.error ?? 'Failed')
 
-          // Cache the resolved template group ID for subsequent calls
-          if (data.shippingTemplateGroupId && !cachedTemplateGroupId) {
-            cachedTemplateGroupId = data.shippingTemplateGroupId
+          // Cache the resolved template group ID for subsequent calls with the same template
+          if (data.shippingTemplateGroupId && row.shippingTemplate && !templateCache.has(row.shippingTemplate)) {
+            templateCache.set(row.shippingTemplate, data.shippingTemplateGroupId)
           }
 
           setProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'success' } : r))
