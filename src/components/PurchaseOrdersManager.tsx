@@ -784,7 +784,7 @@ function ReceiptLineRow({ rl }: { rl: ReceiptLine }) {
         <td className="px-3 py-1.5 text-right font-semibold text-gray-800">{rl.qtyReceived}</td>
       </tr>
       {showSerials && (
-        <tr>
+        <tr onClick={e => e.stopPropagation()}>
           <td colSpan={3} className="px-3 pb-2 pt-0">
             <div className="ml-4 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
               <table className="w-full text-xs">
