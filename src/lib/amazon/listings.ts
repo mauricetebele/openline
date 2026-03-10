@@ -518,6 +518,11 @@ export async function createListing(
     ],
   }
 
+  // MFN listings require handling_time to activate the offer
+  if (fulfillmentChannel === 'MFN') {
+    attributes.handling_time = [{ value: 2, marketplace_id: account.marketplaceId }]
+  }
+
   const body = {
     productType: 'PRODUCT',
     requirements: 'LISTING_OFFER_ONLY',
