@@ -506,7 +506,7 @@ export async function createListing(
       {
         marketplace_id: account.marketplaceId,
         currency: 'USD',
-        our_price: [{ schedule: [{ value_with_tax: price.toFixed(2) }] }],
+        our_price: [{ schedule: [{ value_with_tax: price }] }],
       },
     ],
     fulfillment_availability: [
@@ -555,7 +555,7 @@ export async function createListing(
               {
                 marketplace_id: account.marketplaceId,
                 currency: 'USD',
-                our_price: [{ schedule: [{ value_with_tax: price.toFixed(2) }] }],
+                our_price: [{ schedule: [{ value_with_tax: price }] }],
               },
             ],
           },
