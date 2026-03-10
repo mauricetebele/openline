@@ -5,10 +5,11 @@ import {
   CheckCircle, AlertTriangle, Clock, RefreshCw, FlaskConical,
   ExternalLink, Warehouse, Truck, Settings,
   ChevronRight, Trash2, RotateCcw, Plus, X,
-  Store, Upload, ImageIcon, Users, Shield, Printer, Package, Smartphone, Tag,
+  Store, Upload, ImageIcon, Users, Shield, Printer, Package, Smartphone, Tag, Wrench,
 } from 'lucide-react'
 import AppShell from '@/components/AppShell'
 import WarehouseManager from '@/components/WarehouseManager'
+import CostCodeManager from '@/components/CostCodeManager'
 
 // ─── Brand logo components ────────────────────────────────────────────────────
 
@@ -71,7 +72,7 @@ interface AmazonAccount {
   createdAt: string
 }
 
-type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'ups-buy-shipping' | 'fedex' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer' | 'sickw' | 'grades'
+type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'ups-buy-shipping' | 'fedex' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer' | 'sickw' | 'grades' | 'cost-codes'
 
 // ─── Amazon Accounts Section ──────────────────────────────────────────────────
 
@@ -2113,6 +2114,14 @@ const HUB_GROUPS: HubGroup[] = [
         description: 'Manage inventory condition grades (A, B, Refurb, etc.) used across all products.',
       },
       {
+        id: 'cost-codes',
+        icon: Wrench,
+        iconBg: 'bg-orange-50',
+        iconColor: 'text-orange-600',
+        title: 'Cost Codes',
+        description: 'Manage per-unit cost codes applied to PO lines (e.g. kitting, refurbishment) that factor into profitability.',
+      },
+      {
         id: 'printer',
         icon: Printer,
         iconBg: 'bg-teal-50',
@@ -2228,6 +2237,7 @@ function SettingsContent() {
             {activeSection === 'backmarket'     && <BackMarketSection />}
             {activeSection === 'rma-settings'   && <RMASettingsSection />}
             {activeSection === 'grades'         && <GradesSettingsSection />}
+            {activeSection === 'cost-codes'    && <CostCodeManager />}
             {activeSection === 'store-settings' && <StoreSettingsSection />}
             {activeSection === 'users'          && <UsersSection />}
             {activeSection === 'printer'        && <PrinterSettingsSection />}
