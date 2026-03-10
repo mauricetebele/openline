@@ -457,6 +457,13 @@ export default function ProfitabilityReport() {
           Apply
         </button>
 
+        <button
+          onClick={() => { setStartDate(today); setEndDate(today); setSearchInput(''); setSearchQuery(''); setPage(1); setViewMode('order') }}
+          className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+        >
+          Reset
+        </button>
+
         {/* View toggle */}
         <div className="flex gap-1 ml-2">
           <button
