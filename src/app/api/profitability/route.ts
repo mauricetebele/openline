@@ -43,9 +43,13 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Marketplace orders (SHIPPED) ────────────────────────────────────────
+  // Use shippedAt when available, fall back to purchaseDate
   const marketplaceWhere = {
     workflowStatus: 'SHIPPED' as const,
-    shippedAt: { gte: dateFrom, lte: dateTo },
+    OR: [
+      { shippedAt: { gte: dateFrom, lte: dateTo } },
+      { shippedAt: null, purchaseDate: { gte: dateFrom, lte: dateTo } },
+    ],
   }
 
   const [marketplaceOrders, marketplaceCount] = await Promise.all([
@@ -56,7 +60,7 @@ export async function GET(req: NextRequest) {
         label: { select: { shipmentCost: true } },
         reservations: { select: { productId: true, gradeId: true, qtyReserved: true, orderItemId: true } },
       },
-      orderBy: { shippedAt: 'desc' },
+      orderBy: { purchaseDate: 'desc' },
     }),
     prisma.order.count({ where: marketplaceWhere }),
   ])
@@ -64,7 +68,10 @@ export async function GET(req: NextRequest) {
   // ── Wholesale orders (SHIPPED) ─────────────────────────────────────────
   const wholesaleWhere = {
     fulfillmentStatus: 'SHIPPED' as const,
-    shippedAt: { gte: dateFrom, lte: dateTo },
+    OR: [
+      { shippedAt: { gte: dateFrom, lte: dateTo } },
+      { shippedAt: null, orderDate: { gte: dateFrom, lte: dateTo } },
+    ],
   }
 
   const [wholesaleOrders, wholesaleCount] = await Promise.all([
@@ -74,7 +81,7 @@ export async function GET(req: NextRequest) {
         items: true,
         inventoryReservations: { select: { productId: true, gradeId: true, qtyReserved: true, salesOrderItemId: true } },
       },
-      orderBy: { shippedAt: 'desc' },
+      orderBy: { orderDate: 'desc' },
     }),
     prisma.salesOrder.count({ where: wholesaleWhere }),
   ])
