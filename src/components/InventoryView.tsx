@@ -1084,8 +1084,7 @@ function RegradeModal({ warehouses, onClose }: {
   }
 
   const selectedSerials = results?.found.filter(s => selected.has(s.id)) ?? []
-  const multiProduct    = new Set(selectedSerials.map(s => s.product.id)).size > 1
-  const canRegradeSerial = someSelected && !multiProduct && !!toGradeId && !submitting
+  const canRegradeSerial = someSelected && !!toGradeId && !submitting
 
   async function handleRegradeSerials() {
     setSubmitting(true)
@@ -1304,12 +1303,6 @@ function RegradeModal({ warehouses, onClose }: {
                       <span><span className="font-semibold">Not found:</span> {results.notFound.join(', ')}</span>
                     </div>
                   )}
-                  {multiProduct && someSelected && (
-                    <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
-                      <AlertCircle size={13} className="shrink-0 mt-0.5" />
-                      <span>Selected serials belong to different products. Regrade one product at a time.</span>
-                    </div>
-                  )}
                   {results.found.length === 0 ? (
                     <p className="text-sm text-gray-400 text-center py-8">No serialized inventory found for the entered serial numbers.</p>
                   ) : (
@@ -1359,7 +1352,7 @@ function RegradeModal({ warehouses, onClose }: {
                   )}
 
                   {/* Grade picker */}
-                  {results.found.length > 0 && !multiProduct && gradeOptions.length > 0 && (
+                  {results.found.length > 0 && gradeOptions.length > 0 && (
                     <div className="flex items-center gap-3 pt-1">
                       <label className="text-xs font-medium text-gray-600 shrink-0">Regrade selected to:</label>
                       <select value={toGradeId} onChange={e => setToGradeId(e.target.value)}
@@ -1371,7 +1364,7 @@ function RegradeModal({ warehouses, onClose }: {
                       </select>
                     </div>
                   )}
-                  {results.found.length > 0 && !multiProduct && gradeOptions.length === 0 && (
+                  {results.found.length > 0 && gradeOptions.length === 0 && (
                     <p className="text-xs text-amber-600">No grades configured for this product. Add grades in the Products section first.</p>
                   )}
                 </div>
