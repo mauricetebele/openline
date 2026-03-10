@@ -36,6 +36,11 @@ interface StagingRow {
   checked: boolean
 }
 
+interface GradeOption {
+  id: string
+  grade: string
+}
+
 interface ListingRow {
   productId: string
   internalSku: string
@@ -46,6 +51,9 @@ interface ListingRow {
   marketplaceSku: string
   asin: string
   price: string
+  condition: string
+  quantity: string
+  shippingTemplate: string
 }
 
 type RowStatus = 'pending' | 'creating' | 'success' | 'error'
@@ -76,17 +84,15 @@ export default function BulkListingCreator() {
   const [accountsError, setAccountsError] = useState<string | null>(null)
   const [templates, setTemplates] = useState<string[]>([])
   const [accountId, setAccountId] = useState('')
-  const [condition, setCondition] = useState('New')
   const [fulfillment, setFulfillment] = useState<'MFN' | 'FBA'>('MFN')
-  const [quantity, setQuantity] = useState('0')
-  const [shippingTemplate, setShippingTemplate] = useState('')
+  const [allGrades, setAllGrades] = useState<GradeOption[]>([])
 
   // Step 3 — progress
   const [progressRows, setProgressRows] = useState<ProgressRow[]>([])
   const [isCreating, setIsCreating] = useState(false)
   const creatingRef = useRef(false)
 
-  // ─── Load accounts on mount ──────────────────────────────────────────────
+  // ─── Load accounts + grades on mount ────────────────────────────────────
 
   useEffect(() => {
     fetch('/api/accounts')
@@ -106,6 +112,11 @@ export default function BulkListingCreator() {
         setAccountId(data[0].id)
       })
       .catch((err) => setAccountsError(err.message))
+
+    fetch('/api/grades')
+      .then(r => r.json())
+      .then(j => setAllGrades((j.data ?? []).map((g: { id: string; grade: string }) => ({ id: g.id, grade: g.grade }))))
+      .catch(() => {})
   }, [])
 
   // Load templates when account changes
@@ -197,6 +208,9 @@ export default function BulkListingCreator() {
       marketplaceSku: '',
       asin: '',
       price: '',
+      condition: 'New',
+      quantity: '0',
+      shippingTemplate: '',
     }))
     setListingRows(rows)
     setStep(2)
@@ -238,7 +252,6 @@ export default function BulkListingCreator() {
 
     async function createAll() {
       const rows = [...progressRows]
-      const qtyNum = parseInt(quantity, 10) || 0
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
@@ -247,22 +260,23 @@ export default function BulkListingCreator() {
         setProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'creating' } : r))
 
         try {
+          const qtyNum = parseInt(row.quantity, 10) || 0
           const body: Record<string, unknown> = {
             accountId,
             sku: row.marketplaceSku.trim(),
             asin: row.asin,
             price: parseFloat(row.price),
-            condition,
+            condition: row.condition,
             fulfillmentChannel: fulfillment,
             quantity: qtyNum,
             productId: row.productId,
             gradeId: row.gradeId,
           }
-          if (fulfillment === 'MFN' && shippingTemplate) {
+          if (fulfillment === 'MFN' && row.shippingTemplate) {
             if (cachedTemplateGroupId) {
               body.shippingTemplateGroupId = cachedTemplateGroupId
             } else {
-              body.shippingTemplate = shippingTemplate
+              body.shippingTemplate = row.shippingTemplate
             }
           }
 
@@ -379,7 +393,7 @@ export default function BulkListingCreator() {
         className={clsx(
           'bg-white rounded-xl shadow-2xl flex flex-col',
           'max-h-[90vh]',
-          step === 2 ? 'w-[1100px]' : 'w-[900px]',
+          step === 2 ? 'w-[1300px]' : 'w-[900px]',
         )}
       >
         {/* ── Step 1: Staging Area ──────────────────────────────────────────── */}
@@ -516,7 +530,7 @@ export default function BulkListingCreator() {
 
             <div className="flex-1 overflow-auto px-6 py-4 space-y-5">
               {/* Shared defaults */}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {/* Account */}
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Account</label>
@@ -527,20 +541,6 @@ export default function BulkListingCreator() {
                   >
                     {accounts.map((a) => (
                       <option key={a.id} value={a.id}>{a.marketplaceName} — {a.sellerId}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Condition */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Condition</label>
-                  <select
-                    value={condition}
-                    onChange={(e) => setCondition(e.target.value)}
-                    className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                  >
-                    {CONDITIONS.map((c) => (
-                      <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
                 </div>
@@ -575,36 +575,6 @@ export default function BulkListingCreator() {
                     </button>
                   </div>
                 </div>
-
-                {/* Quantity */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Quantity</label>
-                  <input
-                    type="number"
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value)}
-                    min="0"
-                    step="1"
-                    className="w-full h-9 rounded-md border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                  />
-                </div>
-
-                {/* Shipping Template (MFN only) */}
-                {fulfillment === 'MFN' && (
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Template</label>
-                    <select
-                      value={shippingTemplate}
-                      onChange={(e) => setShippingTemplate(e.target.value)}
-                      className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                    >
-                      <option value="">None (default)</option>
-                      {templates.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
               </div>
 
               {/* Per-row table */}
@@ -613,12 +583,15 @@ export default function BulkListingCreator() {
                   <table className="w-full text-sm">
                     <thead className="sticky top-0">
                       <tr className="bg-gray-50 border-b text-left text-xs font-semibold text-gray-500 uppercase">
-                        <th className="px-3 py-2">Internal SKU</th>
-                        <th className="px-3 py-2">Grade</th>
-                        <th className="px-3 py-2">Marketplace SKU</th>
-                        <th className="px-3 py-2">ASIN</th>
-                        <th className="px-3 py-2">Price</th>
-                        <th className="px-3 py-2 w-8"></th>
+                        <th className="px-2 py-2">Internal SKU</th>
+                        <th className="px-2 py-2">Grade</th>
+                        <th className="px-2 py-2">Condition</th>
+                        <th className="px-2 py-2">Marketplace SKU</th>
+                        <th className="px-2 py-2">ASIN</th>
+                        <th className="px-2 py-2">Price</th>
+                        <th className="px-2 py-2">Qty</th>
+                        {fulfillment === 'MFN' && <th className="px-2 py-2">Template</th>}
+                        <th className="px-2 py-2 w-8"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -627,17 +600,35 @@ export default function BulkListingCreator() {
                         const hasErr = errs.length > 0 && (row.marketplaceSku || row.asin || row.price)
                         return (
                           <tr key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`} className="border-b last:border-0">
-                            <td className="px-3 py-1.5 font-mono text-xs text-gray-600">{row.internalSku}</td>
-                            <td className="px-3 py-1.5">
-                              {row.gradeName ? (
-                                <span className="inline-block px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
-                                  {row.gradeName}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-gray-400">—</span>
-                              )}
+                            <td className="px-2 py-1.5 font-mono text-xs text-gray-600 whitespace-nowrap">{row.internalSku}</td>
+                            <td className="px-2 py-1.5">
+                              <select
+                                value={row.gradeId ?? ''}
+                                onChange={(e) => {
+                                  const selectedId = e.target.value || null
+                                  const selectedGrade = allGrades.find(g => g.id === selectedId)
+                                  setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, gradeId: selectedId, gradeName: selectedGrade?.grade ?? null } : r))
+                                }}
+                                className="w-full h-8 rounded-md border border-gray-300 px-1 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                              >
+                                <option value="">None</option>
+                                {allGrades.map(g => (
+                                  <option key={g.id} value={g.id}>{g.grade}</option>
+                                ))}
+                              </select>
                             </td>
-                            <td className="px-3 py-1.5">
+                            <td className="px-2 py-1.5">
+                              <select
+                                value={row.condition}
+                                onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, condition: e.target.value } : r))}
+                                className="w-full h-8 rounded-md border border-gray-300 px-1 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                              >
+                                {CONDITIONS.map((c) => (
+                                  <option key={c} value={c}>{c}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-2 py-1.5">
                               <input
                                 type="text"
                                 value={row.marketplaceSku}
@@ -646,7 +637,7 @@ export default function BulkListingCreator() {
                                 className="w-full h-8 rounded-md border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue"
                               />
                             </td>
-                            <td className="px-3 py-1.5">
+                            <td className="px-2 py-1.5">
                               <input
                                 type="text"
                                 value={row.asin}
@@ -659,7 +650,7 @@ export default function BulkListingCreator() {
                                 )}
                               />
                             </td>
-                            <td className="px-3 py-1.5">
+                            <td className="px-2 py-1.5">
                               <input
                                 type="number"
                                 value={row.price}
@@ -667,10 +658,34 @@ export default function BulkListingCreator() {
                                 placeholder="0.00"
                                 min="0.01"
                                 step="0.01"
-                                className="w-24 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                                className="w-20 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
                               />
                             </td>
-                            <td className="px-3 py-1.5">
+                            <td className="px-2 py-1.5">
+                              <input
+                                type="number"
+                                value={row.quantity}
+                                onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, quantity: e.target.value } : r))}
+                                min="0"
+                                step="1"
+                                className="w-16 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                              />
+                            </td>
+                            {fulfillment === 'MFN' && (
+                              <td className="px-2 py-1.5">
+                                <select
+                                  value={row.shippingTemplate}
+                                  onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, shippingTemplate: e.target.value } : r))}
+                                  className="w-full h-8 rounded-md border border-gray-300 px-1 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                                >
+                                  <option value="">None</option>
+                                  {templates.map((t) => (
+                                    <option key={t} value={t}>{t}</option>
+                                  ))}
+                                </select>
+                              </td>
+                            )}
+                            <td className="px-2 py-1.5">
                               {hasErr ? (
                                 <span title={errs.join(', ')}><XCircle size={14} className="text-red-500" /></span>
                               ) : row.marketplaceSku && row.asin && row.price ? (
