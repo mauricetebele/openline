@@ -17,6 +17,7 @@ interface InventoryItem {
   qty: number
   reserved: number
   onHand: number
+  unitCost: number | null
   product: Product
   location: Location
   grade: InventoryGrade | null
@@ -2323,46 +2324,49 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="min-w-full text-sm">
+          <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Warehouse</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Location</th>
-                <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">On Hand</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Reserved</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Available</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Description</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Warehouse</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Location</th>
+                <th className="px-2 py-1.5 text-center text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+                <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">On Hand</th>
+                <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Reserved</th>
+                <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Available</th>
+                <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Value</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {items.map(item => (
+            <tbody className="divide-y divide-gray-50">
+              {items.map(item => {
+                const value = item.unitCost != null ? item.onHand * item.unitCost : null
+                return (
                 <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-3 py-1.5 font-mono text-xs font-semibold text-gray-900">{item.product.sku}</td>
-                  <td className="px-3 py-1.5 text-gray-700">{item.product.description}</td>
-                  <td className="px-3 py-1.5">
+                  <td className="px-2 py-1 font-mono text-xs font-semibold text-gray-900 whitespace-nowrap">{item.product.sku}</td>
+                  <td className="px-2 py-1 text-gray-600 truncate max-w-[200px]">{item.product.description}</td>
+                  <td className="px-2 py-1">
                     {item.grade ? (
-                      <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-2 py-0.5 text-xs font-semibold">
+                      <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-1.5 py-0.5 text-[10px] font-semibold">
                         {item.grade.grade}
                       </span>
                     ) : (
-                      <span className="text-gray-300 text-xs">—</span>
+                      <span className="text-gray-300">—</span>
                     )}
                   </td>
-                  <td className="px-3 py-1.5 text-gray-700">{item.location.warehouse.name}</td>
-                  <td className="px-3 py-1.5 text-gray-700">{item.location.name}</td>
-                  <td className="px-3 py-1.5 text-center">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                  <td className="px-2 py-1 text-gray-500 whitespace-nowrap">{item.location.warehouse.name}</td>
+                  <td className="px-2 py-1 text-gray-500 whitespace-nowrap">{item.location.name}</td>
+                  <td className="px-2 py-1 text-center">
+                    <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                       item.product.isSerializable
                         ? 'bg-purple-100 text-purple-700'
                         : 'bg-gray-100 text-gray-500'
                     }`}>
-                      {item.product.isSerializable ? 'Serialized' : 'Non-serial'}
+                      {item.product.isSerializable ? 'Serial' : 'Non-serial'}
                     </span>
                   </td>
-                  <td className="px-3 py-1.5 text-right">
+                  <td className="px-2 py-1 text-right">
                     {item.product.isSerializable ? (
                       <button
                         type="button"
@@ -2375,18 +2379,22 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                       <span className="font-semibold text-gray-900 tabular-nums">{item.onHand}</span>
                     )}
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
+                  <td className="px-2 py-1 text-right tabular-nums">
                     {item.reserved > 0 ? (
                       <span className="font-medium text-amber-600">{item.reserved}</span>
                     ) : (
                       <span className="text-gray-300">—</span>
                     )}
                   </td>
-                  <td className="px-3 py-1.5 text-right font-semibold text-gray-900 tabular-nums">
+                  <td className="px-2 py-1 text-right font-semibold text-gray-900 tabular-nums">
                     {item.qty}
                   </td>
+                  <td className="px-2 py-1 text-right tabular-nums text-gray-700 whitespace-nowrap">
+                    {value != null ? `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-gray-300">—</span>}
+                  </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
