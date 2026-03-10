@@ -2473,7 +2473,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                           {names.includes('amazon') && (
                             <span title="Amazon" className="inline-flex items-center justify-center shrink-0 select-none">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src="/logos/amazon-icon.svg" alt="Amazon" width={20} height={20} className="inline-block" />
+                              <img src="/logos/amazon-icon.svg" alt="Amazon" width={40} height={14} className="inline-block" />
                             </span>
                           )}
                           {names.includes('backmarket') && (
