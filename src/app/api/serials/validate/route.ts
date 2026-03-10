@@ -26,8 +26,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'sn and sku query params are required' }, { status: 400 })
   }
 
-  // Find the product for the expected SKU
-  const expectedProduct = await prisma.product.findUnique({ where: { sku } })
+  // Find the product for the expected SKU (direct match or marketplace SKU mapping)
+  let expectedProduct = await prisma.product.findUnique({ where: { sku } })
+  if (!expectedProduct) {
+    const msku = await prisma.productGradeMarketplaceSku.findFirst({
+      where: { sellerSku: sku },
+      include: { product: true },
+    })
+    expectedProduct = msku?.product ?? null
+  }
   if (!expectedProduct) {
     return NextResponse.json({ valid: false, reason: 'NOT_FOUND', detail: `No product found for SKU "${sku}"` })
   }

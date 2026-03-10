@@ -33,10 +33,18 @@ export async function GET(
   const items = await Promise.all(order.items.map(async item => {
     let isSerializable = false
     if (item.sellerSku) {
-      const product = await prisma.product.findUnique({
+      // Try direct product match first, then fall back to marketplace SKU mapping
+      let product = await prisma.product.findUnique({
         where:  { sku: item.sellerSku },
         select: { isSerializable: true },
       })
+      if (!product) {
+        const msku = await prisma.productGradeMarketplaceSku.findFirst({
+          where: { sellerSku: item.sellerSku },
+          include: { product: { select: { isSerializable: true } } },
+        })
+        product = msku?.product ?? null
+      }
       isSerializable = product?.isSerializable ?? false
     }
 
