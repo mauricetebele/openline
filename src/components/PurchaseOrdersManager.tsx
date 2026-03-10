@@ -920,10 +920,8 @@ function PORow({
         <td className="px-4 py-3 text-gray-500 text-sm">
           {new Date(po.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
         </td>
-        <td className="px-4 py-3 text-gray-600 text-sm">
-          {po.lines.length} item{po.lines.length !== 1 ? 's' : ''}
-          <span className="text-gray-400 ml-1">({unitCount} units)</span>
-        </td>
+        <td className="px-4 py-3 text-gray-600 text-sm">{po.lines.length}</td>
+        <td className="px-4 py-3 text-right text-gray-600 text-sm">{unitCount}</td>
         <td className="px-4 py-3 font-medium text-gray-900 text-right">${total.toFixed(2)}</td>
         <td className="px-4 py-3">
           <span className={clsx('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_COLOR[po.status])}>
@@ -996,7 +994,7 @@ function PORow({
       {/* Expanded: line items + receipt history */}
       {expanded && (
         <tr>
-          <td colSpan={7} className="px-0 py-0 border-b border-gray-100">
+          <td colSpan={8} className="px-0 py-0 border-b border-gray-100">
             <div className="bg-gray-50 border-t border-gray-100 px-6 py-3">
               {po.notes && (
                 <p className="text-xs text-gray-500 italic mb-2">{po.notes}</p>
@@ -1207,6 +1205,7 @@ export default function PurchaseOrdersManager() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Vendor</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Items</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Units</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                 <th className="px-4 py-3 w-36" />
