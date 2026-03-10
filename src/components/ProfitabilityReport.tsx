@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { clsx } from 'clsx'
 import {
   ChevronDown, ChevronRight, ChevronUp, DollarSign, TrendingUp, TrendingDown, Package, Wrench,
+  Search, X,
 } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -17,16 +18,26 @@ interface ProfitRow {
   saleValue: number
   totalCogs: number
   commission: number
+  customerShipping: number
   shippingCost: number
   costCodeDeductions: number
   netProfit: number
   commissionSynced: boolean
 }
 
+interface LineItemRow extends ProfitRow {
+  orderId: string
+  asin: string | null
+  sellerSku: string | null
+  title: string | null
+  quantity: number
+}
+
 interface Summary {
   totalRevenue: number
   totalCogs: number
   totalCommission: number
+  totalCustomerShipping: number
   totalShipping: number
   totalCostCodes: number
   totalNetProfit: number
@@ -47,7 +58,8 @@ interface LineItem {
   netProfit: number
 }
 
-type SortKey = 'olmNumber' | 'marketplaceOrderId' | 'source' | 'orderDate' | 'saleValue' | 'totalCogs' | 'commission' | 'shippingCost' | 'costCodeDeductions' | 'netProfit'
+type ViewMode = 'order' | 'lineItem'
+type SortKey = 'olmNumber' | 'marketplaceOrderId' | 'source' | 'orderDate' | 'saleValue' | 'totalCogs' | 'commission' | 'customerShipping' | 'shippingCost' | 'costCodeDeductions' | 'netProfit' | 'sellerSku' | 'title' | 'quantity'
 type SortDir = 'asc' | 'desc'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -139,6 +151,7 @@ function ExpandableRow({ row, index }: { row: ProfitRow; index: number }) {
             ? fmt.format(row.commission)
             : <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300">Not synced</span>}
         </td>
+        <td className="px-3 py-1.5 text-right">{fmt.format(row.customerShipping)}</td>
         <td className="px-3 py-1.5 text-right">{fmt.format(row.shippingCost)}</td>
         <td className="px-3 py-1.5 text-right">{fmt.format(row.costCodeDeductions)}</td>
         <td className={clsx('px-3 py-1.5 text-right font-semibold', profitColor(row.netProfit))}>
@@ -199,6 +212,49 @@ function ExpandableRow({ row, index }: { row: ProfitRow; index: number }) {
   )
 }
 
+// ─── Line Item Table Row (flat view) ────────────────────────────────────────
+
+function LineItemTableRow({ row, index }: { row: LineItemRow; index: number }) {
+  const stripeBg = index % 2 === 0
+    ? 'bg-white dark:bg-gray-900'
+    : 'bg-gray-50 dark:bg-gray-800/50'
+
+  return (
+    <tr
+      className={clsx(
+        'border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors',
+        stripeBg,
+        'hover:bg-blue-50/50 dark:hover:bg-blue-900/10',
+      )}
+    >
+      <td className="px-3 py-1.5 font-medium">
+        {row.olmNumber ? `OLM-${row.olmNumber}` : '—'}
+      </td>
+      <td className="px-3 py-1.5 font-mono text-[11px]">
+        {row.marketplaceOrderId}
+      </td>
+      <td className="px-3 py-1.5">{sourceBadge(row.source)}</td>
+      <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400">{formatDate(row.orderDate)}</td>
+      <td className="px-3 py-1.5 font-mono">{row.sellerSku ?? row.asin ?? '—'}</td>
+      <td className="px-3 py-1.5 max-w-[180px] truncate" title={row.title ?? ''}>{row.title ?? '—'}</td>
+      <td className="px-3 py-1.5 text-center">{row.quantity}</td>
+      <td className="px-3 py-1.5 text-right font-medium">{fmt.format(row.saleValue)}</td>
+      <td className="px-3 py-1.5 text-right">{fmt.format(row.totalCogs)}</td>
+      <td className="px-3 py-1.5 text-right">
+        {row.commissionSynced
+          ? fmt.format(row.commission)
+          : <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300">Not synced</span>}
+      </td>
+      <td className="px-3 py-1.5 text-right">{fmt.format(row.customerShipping)}</td>
+      <td className="px-3 py-1.5 text-right">{fmt.format(row.shippingCost)}</td>
+      <td className="px-3 py-1.5 text-right">{fmt.format(row.costCodeDeductions)}</td>
+      <td className={clsx('px-3 py-1.5 text-right font-semibold', profitColor(row.netProfit))}>
+        {fmt.format(row.netProfit)}
+      </td>
+    </tr>
+  )
+}
+
 // ─── Summary Card ───────────────────────────────────────────────────────────
 
 function SummaryCard({ label, value, icon: Icon, color }: {
@@ -228,14 +284,17 @@ export default function ProfitabilityReport() {
   const today = new Date().toISOString().slice(0, 10)
   const [startDate, setStartDate] = useState(today)
   const [endDate, setEndDate] = useState(today)
-  const [rows, setRows] = useState<ProfitRow[]>([])
-  const [summary, setSummary] = useState<Summary>({ totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalShipping: 0, totalCostCodes: 0, totalNetProfit: 0 })
+  const [rows, setRows] = useState<(ProfitRow | LineItemRow)[]>([])
+  const [summary, setSummary] = useState<Summary>({ totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalCustomerShipping: 0, totalShipping: 0, totalCostCodes: 0, totalNetProfit: 0 })
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>('orderDate')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [pageSize, setPageSize] = useState(50)
+  const [viewMode, setViewMode] = useState<ViewMode>('order')
+  const [searchInput, setSearchInput] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -248,8 +307,10 @@ export default function ProfitabilityReport() {
 
   const sortedRows = useMemo(() => {
     const sorted = [...rows].sort((a, b) => {
-      let av: string | number = a[sortKey] ?? ''
-      let bv: string | number = b[sortKey] ?? ''
+      const aRec = a as unknown as Record<string, unknown>
+      const bRec = b as unknown as Record<string, unknown>
+      let av: string | number = (aRec[sortKey] as string | number) ?? ''
+      let bv: string | number = (bRec[sortKey] as string | number) ?? ''
       if (typeof av === 'string' && typeof bv === 'string') {
         return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
       }
@@ -262,18 +323,22 @@ export default function ProfitabilityReport() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/profitability?startDate=${startDate}&endDate=${endDate}&page=${page}&pageSize=${pageSize}`)
+      const params = new URLSearchParams({
+        startDate, endDate, page: String(page), pageSize: String(pageSize), view: viewMode,
+      })
+      if (searchQuery) params.set('search', searchQuery)
+      const res = await fetch(`/api/profitability?${params}`)
       if (!res.ok) throw new Error('Failed')
       const data = await res.json()
       setRows(data.rows ?? [])
-      setSummary(data.summary ?? { totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalShipping: 0, totalCostCodes: 0, totalNetProfit: 0 })
+      setSummary(data.summary ?? { totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalCustomerShipping: 0, totalShipping: 0, totalCostCodes: 0, totalNetProfit: 0 })
       setTotalCount(data.totalCount ?? 0)
     } catch {
       setRows([])
     } finally {
       setLoading(false)
     }
-  }, [startDate, endDate, page, pageSize])
+  }, [startDate, endDate, page, pageSize, viewMode, searchQuery])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -285,7 +350,59 @@ export default function ProfitabilityReport() {
     setPage(1)
   }
 
+  function handleViewChange(mode: ViewMode) {
+    setViewMode(mode)
+    setPage(1)
+  }
+
+  function handleSearchKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') {
+      setSearchQuery(searchInput)
+      setPage(1)
+    }
+  }
+
+  function clearSearch() {
+    setSearchInput('')
+    setSearchQuery('')
+    setPage(1)
+  }
+
   const totalPages = Math.ceil(totalCount / pageSize)
+
+  const orderColumns: { key: SortKey; label: string; align: string }[] = [
+    { key: 'olmNumber', label: 'OLM #', align: 'left' },
+    { key: 'marketplaceOrderId', label: 'Marketplace #', align: 'left' },
+    { key: 'source', label: 'Source', align: 'left' },
+    { key: 'orderDate', label: 'Ship Date', align: 'left' },
+    { key: 'saleValue', label: 'Sale Value', align: 'right' },
+    { key: 'totalCogs', label: 'COGS', align: 'right' },
+    { key: 'commission', label: 'Commission', align: 'right' },
+    { key: 'customerShipping', label: 'Cust. Shipping', align: 'right' },
+    { key: 'shippingCost', label: 'Ship Cost', align: 'right' },
+    { key: 'costCodeDeductions', label: 'Cost Codes', align: 'right' },
+    { key: 'netProfit', label: 'Net Profit', align: 'right' },
+  ]
+
+  const lineItemColumns: { key: SortKey; label: string; align: string }[] = [
+    { key: 'olmNumber', label: 'OLM #', align: 'left' },
+    { key: 'marketplaceOrderId', label: 'Marketplace #', align: 'left' },
+    { key: 'source', label: 'Source', align: 'left' },
+    { key: 'orderDate', label: 'Ship Date', align: 'left' },
+    { key: 'sellerSku', label: 'SKU', align: 'left' },
+    { key: 'title', label: 'Title', align: 'left' },
+    { key: 'quantity', label: 'Qty', align: 'center' },
+    { key: 'saleValue', label: 'Sale', align: 'right' },
+    { key: 'totalCogs', label: 'COGS', align: 'right' },
+    { key: 'commission', label: 'Commission', align: 'right' },
+    { key: 'customerShipping', label: 'Cust. Shipping', align: 'right' },
+    { key: 'shippingCost', label: 'Ship Cost', align: 'right' },
+    { key: 'costCodeDeductions', label: 'Cost Codes', align: 'right' },
+    { key: 'netProfit', label: 'Net Profit', align: 'right' },
+  ]
+
+  const columns = viewMode === 'lineItem' ? lineItemColumns : orderColumns
+  const colSpan = viewMode === 'lineItem' ? 14 : 12
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -340,15 +457,63 @@ export default function ProfitabilityReport() {
           Apply
         </button>
 
+        {/* View toggle */}
+        <div className="flex gap-1 ml-2">
+          <button
+            onClick={() => handleViewChange('order')}
+            className={clsx(
+              'px-3 py-1.5 text-xs rounded-lg border font-medium transition-colors',
+              viewMode === 'order'
+                ? 'bg-amazon-orange text-white border-amazon-orange'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-gray-400',
+            )}
+          >
+            Order View
+          </button>
+          <button
+            onClick={() => handleViewChange('lineItem')}
+            className={clsx(
+              'px-3 py-1.5 text-xs rounded-lg border font-medium transition-colors',
+              viewMode === 'lineItem'
+                ? 'bg-amazon-orange text-white border-amazon-orange'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-gray-400',
+            )}
+          >
+            Line Item View
+          </button>
+        </div>
+
+        {/* Search input */}
+        <div className="relative ml-2">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search orders..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            className="pl-8 pr-7 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 w-52 placeholder:text-gray-400"
+          />
+          {searchInput && (
+            <button
+              onClick={clearSearch}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
         {loading && <span className="text-xs text-gray-400 animate-pulse">Loading...</span>}
       </div>
 
       {/* ── Summary cards ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 px-6 py-4 shrink-0 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+      <div className="grid grid-cols-2 lg:grid-cols-7 gap-3 px-6 py-4 shrink-0 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
         <SummaryCard label="Total Revenue" value={summary.totalRevenue} icon={DollarSign} color="bg-blue-500" />
         <SummaryCard label="Total COGS" value={summary.totalCogs} icon={Package} color="bg-gray-500" />
         <SummaryCard label="Total Fees" value={summary.totalCommission} icon={TrendingDown} color="bg-orange-500" />
-        <SummaryCard label="Shipping" value={summary.totalShipping} icon={Package} color="bg-indigo-500" />
+        <SummaryCard label="Cust. Shipping" value={summary.totalCustomerShipping} icon={TrendingUp} color="bg-teal-500" />
+        <SummaryCard label="Ship Cost" value={summary.totalShipping} icon={Package} color="bg-indigo-500" />
         <SummaryCard label="Cost Codes" value={summary.totalCostCodes} icon={Wrench} color="bg-amber-500" />
         <SummaryCard
           label="Net Profit"
@@ -363,25 +528,14 @@ export default function ProfitabilityReport() {
         <table className="w-full text-xs dark:text-gray-200">
           <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
             <tr>
-              <th className="px-2 py-2.5 w-8" />
-              {([
-                { key: 'olmNumber', label: 'OLM #', align: 'left' },
-                { key: 'marketplaceOrderId', label: 'Marketplace #', align: 'left' },
-                { key: 'source', label: 'Source', align: 'left' },
-                { key: 'orderDate', label: 'Ship Date', align: 'left' },
-                { key: 'saleValue', label: 'Sale Value', align: 'right' },
-                { key: 'totalCogs', label: 'COGS', align: 'right' },
-                { key: 'commission', label: 'Commission', align: 'right' },
-                { key: 'shippingCost', label: 'Shipping', align: 'right' },
-                { key: 'costCodeDeductions', label: 'Cost Codes', align: 'right' },
-                { key: 'netProfit', label: 'Net Profit', align: 'right' },
-              ] as { key: SortKey; label: string; align: string }[]).map(({ key, label, align }) => (
+              {viewMode === 'order' && <th className="px-2 py-2.5 w-8" />}
+              {columns.map(({ key, label, align }) => (
                 <th
                   key={key}
                   onClick={() => toggleSort(key)}
                   className={clsx(
                     'px-3 py-2.5 font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:text-white transition-colors',
-                    align === 'right' ? 'text-right' : 'text-left',
+                    align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left',
                   )}
                 >
                   <span className="inline-flex items-center gap-1">
@@ -399,10 +553,16 @@ export default function ProfitabilityReport() {
           <tbody>
             {sortedRows.length === 0 && !loading ? (
               <tr>
-                <td colSpan={11} className="px-6 py-12 text-center text-gray-400">
-                  No shipped orders found for this date range.
+                <td colSpan={colSpan} className="px-6 py-12 text-center text-gray-400">
+                  {searchQuery
+                    ? 'No results match your search.'
+                    : 'No shipped orders found for this date range.'}
                 </td>
               </tr>
+            ) : viewMode === 'lineItem' ? (
+              sortedRows.map((row, i) => (
+                <LineItemTableRow key={row.id} row={row as LineItemRow} index={i} />
+              ))
             ) : (
               sortedRows.map((row, i) => (
                 <ExpandableRow key={row.id} row={row} index={i} />
@@ -415,7 +575,9 @@ export default function ProfitabilityReport() {
       {/* ── Pagination ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0 text-xs">
         <span className="text-gray-500 dark:text-gray-400">
-          {totalCount} orders{totalPages > 1 && <> &middot; Page {page} of {totalPages}</>}
+          {totalCount} {viewMode === 'lineItem' ? 'line items' : 'orders'}
+          {searchQuery && ' (filtered)'}
+          {totalPages > 1 && <> &middot; Page {page} of {totalPages}</>}
         </span>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
