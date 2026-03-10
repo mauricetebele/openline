@@ -539,8 +539,10 @@ export async function createListing(
 
   console.log(`[createListing] SKU=${sku} ASIN=${asin} status=${result.status} submissionId=${result.submissionId}`)
 
-  // Wait for Amazon to process the PUT before sending follow-up PATCHes
-  await new Promise((r) => setTimeout(r, 3000))
+  // Wait for Amazon to process the PUT before sending follow-up PATCHes.
+  // Listings can take 1-2 minutes to appear on Seller Central, so we need
+  // enough time for Amazon to assign the real product type.
+  await new Promise((r) => setTimeout(r, 15000))
 
   // Fetch the listing to get the real product type assigned by Amazon.
   // Using generic 'PRODUCT' in PATCH causes Amazon to silently ignore the update.
