@@ -65,11 +65,18 @@ const NAV: NavItem[] = [
     icon: Package,
     children: [
       { href: '/unshipped-orders',    label: 'Order Fulfillment', icon: Package },
-      { href: '/shipping-manifest',   label: 'Manifest',          icon: ClipboardList },
     ],
   },
   { href: '/cases',            label: 'Cases',       icon: FolderOpen },
-  { href: '/profitability',    label: 'Profitability', icon: TrendingUp },
+  {
+    group: true,
+    label: 'Reports',
+    icon: BarChart2,
+    children: [
+      { href: '/profitability',      label: 'Profitability', icon: TrendingUp },
+      { href: '/shipping-manifest', label: 'Manifest',      icon: ClipboardList },
+    ],
+  },
   { href: '/todo-list',        label: 'To Do',       icon: ListTodo },
   { href: '/serial-search',    label: 'Serial Search',    icon: Barcode },
   {
