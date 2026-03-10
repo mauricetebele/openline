@@ -468,6 +468,117 @@ export async function updateShippingTemplate(
   })
 }
 
+// ─── createListing ───────────────────────────────────────────────────────────
+
+interface ListingsPutResponse {
+  sku: string
+  status: 'ACCEPTED' | 'INVALID'
+  submissionId?: string
+  issues?: {
+    code: string
+    message: string
+    severity: 'ERROR' | 'WARNING' | 'INFO'
+    attributeNames?: string[]
+  }[]
+}
+
+// SP-API condition_type values matching the Listings Items API attribute schema
+const CONDITION_TYPE_MAP: Record<string, string> = {
+  'New': 'new_new',
+  'Used - Like New': 'used_like_new',
+  'Used - Very Good': 'used_very_good',
+  'Used - Good': 'used_good',
+  'Used - Acceptable': 'used_acceptable',
+  'Refurbished': 'refurbished_refurbished',
+}
+
+export async function createListing(
+  accountId: string,
+  sku: string,
+  asin: string,
+  price: number,
+  quantity: number,
+  fulfillmentChannel: 'MFN' | 'FBA',
+  condition: string,
+  shippingTemplateGroupId?: string,
+): Promise<ListingsPutResponse> {
+  const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
+  const client = new SpApiClient(accountId)
+  const encodedSku = encodeURIComponent(sku)
+
+  const conditionType = CONDITION_TYPE_MAP[condition]
+  if (!conditionType) {
+    throw new Error(`Unknown condition: "${condition}". Valid values: ${Object.keys(CONDITION_TYPE_MAP).join(', ')}`)
+  }
+
+  const fulfillmentChannelCode = fulfillmentChannel === 'MFN' ? 'DEFAULT' : 'AMAZON_NA'
+
+  // Build attributes
+  const attributes: Record<string, unknown> = {
+    merchant_suggested_asin: [{ value: asin, marketplace_id: account.marketplaceId }],
+    condition_type: [{ value: conditionType, marketplace_id: account.marketplaceId }],
+    purchasable_offer: [
+      {
+        marketplace_id: account.marketplaceId,
+        currency: 'USD',
+        our_price: [{ schedule: [{ value_with_tax: price }] }],
+      },
+    ],
+    fulfillment_availability: [
+      {
+        fulfillment_channel_code: fulfillmentChannelCode,
+        quantity,
+      },
+    ],
+  }
+
+  if (shippingTemplateGroupId && fulfillmentChannel === 'MFN') {
+    attributes.merchant_shipping_group = [
+      { value: shippingTemplateGroupId, marketplace_id: account.marketplaceId },
+    ]
+  }
+
+  const body = {
+    productType: 'PRODUCT',
+    requirements: 'LISTING_OFFER_ONLY',
+    attributes,
+  }
+
+  const result = await client.put<ListingsPutResponse>(
+    `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+    body,
+    { marketplaceIds: account.marketplaceId },
+  )
+
+  if (result.status === 'INVALID') {
+    const errors = result.issues
+      ?.filter((i) => i.severity === 'ERROR')
+      .map((i) => `${i.code}: ${i.message}${i.attributeNames?.length ? ` (${i.attributeNames.join(', ')})` : ''}`)
+      .join('; ')
+    throw new Error(`Amazon rejected listing (INVALID) — ${errors ?? 'no details'}`)
+  }
+
+  console.log(`[createListing] SKU=${sku} ASIN=${asin} status=${result.status} submissionId=${result.submissionId}`)
+
+  // Upsert into seller_listings
+  const now = new Date()
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO seller_listings (id, "accountId", sku, asin, condition, "fulfillmentChannel", "listingStatus", quantity, price, "updatedAt")
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'Active', $6, $7, $8)
+     ON CONFLICT ("accountId", sku) DO UPDATE SET
+       asin = EXCLUDED.asin,
+       condition = EXCLUDED.condition,
+       "fulfillmentChannel" = EXCLUDED."fulfillmentChannel",
+       "listingStatus" = EXCLUDED."listingStatus",
+       quantity = EXCLUDED.quantity,
+       price = EXCLUDED.price,
+       "updatedAt" = EXCLUDED."updatedAt"`,
+    accountId, sku, asin, condition, fulfillmentChannel, quantity, price, now,
+  )
+
+  return result
+}
+
 // ─── updateListingPrice ──────────────────────────────────────────────────────
 
 export async function updateListingPrice(

@@ -106,6 +106,21 @@ export class SpApiClient {
     })
   }
 
+  async put<T>(path: string, body: unknown, params?: Record<string, string>): Promise<T> {
+    await this.ensureFreshToken()
+    const config: AxiosRequestConfig = {
+      params,
+      headers: {
+        'x-amz-access-token': this.accessToken,
+        'Content-Type': 'application/json',
+      },
+    }
+    return withRetry(async () => {
+      const { data } = await this.http.put<T>(path, body, config)
+      return data
+    })
+  }
+
   async delete<T = void>(path: string, params?: Record<string, string>): Promise<T> {
     await this.ensureFreshToken()
     const config: AxiosRequestConfig = {

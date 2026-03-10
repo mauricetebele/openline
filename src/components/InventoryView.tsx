@@ -2326,8 +2326,8 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
           <table className="min-w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Warehouse</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Location</th>
@@ -2340,8 +2340,8 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
             <tbody className="divide-y divide-gray-100">
               {items.map(item => (
                 <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-900">{item.product.description}</td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-500">{item.product.sku}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900">{item.product.description}</td>
                   <td className="px-4 py-3">
                     {item.grade ? (
                       <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-2 py-0.5 text-xs font-semibold">
@@ -2362,8 +2362,18 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                       {item.product.isSerializable ? 'Serialized' : 'Non-serial'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right font-semibold text-gray-900 tabular-nums">
-                    {item.onHand}
+                  <td className="px-4 py-3 text-right">
+                    {item.product.isSerializable ? (
+                      <button
+                        type="button"
+                        onClick={() => setSerialTarget({ product: item.product, location: item.location })}
+                        className="font-semibold text-amazon-blue hover:underline tabular-nums"
+                      >
+                        {item.onHand}
+                      </button>
+                    ) : (
+                      <span className="font-semibold text-gray-900 tabular-nums">{item.onHand}</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
                     {item.reserved > 0 ? (
@@ -2372,18 +2382,8 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                       <span className="text-gray-300">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    {item.product.isSerializable ? (
-                      <button
-                        type="button"
-                        onClick={() => setSerialTarget({ product: item.product, location: item.location })}
-                        className="font-semibold text-amazon-blue hover:underline tabular-nums"
-                      >
-                        {item.qty}
-                      </button>
-                    ) : (
-                      <span className="font-semibold text-gray-900 tabular-nums">{item.qty}</span>
-                    )}
+                  <td className="px-4 py-3 text-right font-semibold text-gray-900 tabular-nums">
+                    {item.qty}
                   </td>
                 </tr>
               ))}
