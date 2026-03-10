@@ -1522,6 +1522,15 @@ function SerialsModal({
   const [serials, setSerials] = useState<Serial[]>([])
   const [loading, setLoading] = useState(true)
   const [err,     setErr]     = useState('')
+  const [copied,  setCopied]  = useState(false)
+
+  function copySerials() {
+    const text = serials.map(s => s.serialNumber).join('\n')
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -1575,10 +1584,17 @@ function SerialsModal({
             </div>
           ) : (
             <div>
-              <div className="px-5 pt-3 pb-2">
+              <div className="px-5 pt-3 pb-2 flex items-center justify-between">
                 <p className="text-xs text-gray-500">
                   {serials.length} unit{serials.length !== 1 ? 's' : ''} in stock
                 </p>
+                <button
+                  type="button"
+                  onClick={copySerials}
+                  className="flex items-center gap-1 text-xs text-amazon-blue hover:text-blue-700 font-medium transition-colors"
+                >
+                  {copied ? <><CheckCircle2 size={12} /> Copied!</> : 'Copy All'}
+                </button>
               </div>
 
               {/* Table header */}
