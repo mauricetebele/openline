@@ -1,14 +1,18 @@
 /**
  * POST /api/listings/create
- * Body: { accountId, sku, asin, price, condition, fulfillmentChannel, quantity?, shippingTemplate? }
+ * Body: { accountId, sku, asin, price, condition, fulfillmentChannel, quantity?, shippingTemplate?,
+ *         productId?, gradeId?, shippingTemplateGroupId? }
  *
  * Creates a new Amazon listing for an existing ASIN via the SP-API putListingsItem endpoint.
+ * If productId is provided, also upserts a ProductGradeMarketplaceSku record.
+ * If shippingTemplateGroupId is provided, skips resolving the template UUID.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createListing, resolveTemplateGroupId } from '@/lib/amazon/listings'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
+import { prisma } from '@/lib/prisma'
 
 const bodySchema = z.object({
   accountId: z.string().min(1),
@@ -19,6 +23,9 @@ const bodySchema = z.object({
   fulfillmentChannel: z.enum(['MFN', 'FBA']),
   quantity: z.number().int().min(0).default(0),
   shippingTemplate: z.string().optional(),
+  productId: z.string().optional(),
+  gradeId: z.string().nullable().optional(),
+  shippingTemplateGroupId: z.string().optional(),
 })
 
 export async function POST(req: NextRequest) {
@@ -40,19 +47,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid request', issues: parsed.error.issues }, { status: 400 })
     }
 
-    const { accountId, sku, asin, price, condition, fulfillmentChannel, quantity, shippingTemplate } = parsed.data
+    const { accountId, sku, asin, price, condition, fulfillmentChannel, quantity, shippingTemplate, productId, gradeId } = parsed.data
 
-    // Resolve shipping template UUID if provided (MFN only)
-    let shippingTemplateGroupId: string | undefined
-    if (shippingTemplate && fulfillmentChannel === 'MFN') {
-      shippingTemplateGroupId = await resolveTemplateGroupId(accountId, shippingTemplate)
+    // Resolve shipping template UUID — use pre-resolved ID if provided, otherwise resolve by name
+    let resolvedTemplateGroupId: string | undefined = parsed.data.shippingTemplateGroupId
+    if (!resolvedTemplateGroupId && shippingTemplate && fulfillmentChannel === 'MFN') {
+      resolvedTemplateGroupId = await resolveTemplateGroupId(accountId, shippingTemplate)
     }
 
     const result = await createListing(
-      accountId, sku, asin, price, quantity, fulfillmentChannel, condition, shippingTemplateGroupId,
+      accountId, sku, asin, price, quantity, fulfillmentChannel, condition, resolvedTemplateGroupId,
     )
 
-    return NextResponse.json({ success: true, ...result })
+    // Upsert ProductGradeMarketplaceSku if productId was provided
+    if (productId) {
+      await prisma.$executeRaw`
+        INSERT INTO "product_grade_marketplace_skus" ("id", "productId", "gradeId", "marketplace", "accountId", "sellerSku", "syncQty", "isSynced", "createdAt")
+        VALUES (gen_random_uuid()::text, ${productId}, ${gradeId ?? null}, 'amazon', ${accountId}, ${sku}, false, false, NOW())
+        ON CONFLICT ("productId", "gradeId", "marketplace", "accountId")
+        DO UPDATE SET "sellerSku" = EXCLUDED."sellerSku"
+      `
+    }
+
+    return NextResponse.json({ success: true, shippingTemplateGroupId: resolvedTemplateGroupId, ...result })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[POST /api/listings/create]', message)

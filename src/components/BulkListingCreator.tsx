@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  AlertCircle, CheckCircle2, XCircle, Loader2, Upload, Download, Trash2,
+  AlertCircle, CheckCircle2, XCircle, Loader2, ChevronRight, ArrowLeft, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { AmazonAccountDTO } from '@/types'
@@ -19,98 +19,75 @@ const CONDITIONS = [
   'Refurbished',
 ]
 
-const CSV_TEMPLATE = 'SKU,ASIN,Price\nMY-SKU-001,B0XXXXXXXXX,29.99\nMY-SKU-002,B0YYYYYYYYY,49.99\n'
-
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface ParsedRow {
-  sku: string
+interface LookupProduct {
+  product: { id: string; sku: string; description: string }
+  grades: { gradeId: string | null; gradeName: string | null; availableQty: number }[]
+}
+
+interface StagingRow {
+  productId: string
+  internalSku: string
+  description: string
+  gradeId: string | null
+  gradeName: string | null
+  availableQty: number
+  checked: boolean
+}
+
+interface ListingRow {
+  productId: string
+  internalSku: string
+  description: string
+  gradeId: string | null
+  gradeName: string | null
+  availableQty: number
+  marketplaceSku: string
   asin: string
   price: string
-  errors: string[]
 }
 
-interface SubmitResult {
-  sku: string
-  asin: string
-  success: boolean
+type RowStatus = 'pending' | 'creating' | 'success' | 'error'
+
+interface ProgressRow extends ListingRow {
+  status: RowStatus
   error?: string
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function parseRows(text: string): ParsedRow[] {
-  if (!text.trim()) return []
-  const lines = text.trim().split('\n')
-  const rows: ParsedRow[] = []
-
-  for (const raw of lines) {
-    const line = raw.trim()
-    if (!line) continue
-    // Skip header row
-    if (/^sku[\t,]/i.test(line)) continue
-
-    // Auto-detect delimiter: tab first, then comma
-    const sep = line.includes('\t') ? '\t' : ','
-    const parts = line.split(sep).map(s => s.trim())
-
-    const sku = parts[0] ?? ''
-    const asin = (parts[1] ?? '').toUpperCase()
-    const price = parts[2] ?? ''
-    const errors: string[] = []
-
-    if (!sku) errors.push('SKU is empty')
-    if (!ASIN_RE.test(asin)) errors.push('Invalid ASIN')
-    const priceNum = parseFloat(price)
-    if (!price || isNaN(priceNum) || priceNum <= 0) errors.push('Price must be > 0')
-
-    rows.push({ sku, asin, price, errors })
-  }
-  return rows
-}
-
-function downloadTemplate() {
-  const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'bulk-listing-template.csv'
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function BulkListingCreator() {
-  // Accounts
+  // Step: 0=page textarea, 1=staging, 2=form, 3=progress
+  const [step, setStep] = useState<0 | 1 | 2 | 3>(0)
+
+  // Step 0 — raw input
+  const [rawText, setRawText] = useState('')
+  const [lookupLoading, setLookupLoading] = useState(false)
+  const [lookupError, setLookupError] = useState<string | null>(null)
+
+  // Step 1 — staging
+  const [stagingRows, setStagingRows] = useState<StagingRow[]>([])
+  const [notFoundSkus, setNotFoundSkus] = useState<string[]>([])
+
+  // Step 2 — listing details
+  const [listingRows, setListingRows] = useState<ListingRow[]>([])
   const [accounts, setAccounts] = useState<AmazonAccountDTO[]>([])
   const [accountsError, setAccountsError] = useState<string | null>(null)
-
-  // Templates
   const [templates, setTemplates] = useState<string[]>([])
-
-  // Shared defaults
   const [accountId, setAccountId] = useState('')
   const [condition, setCondition] = useState('New')
   const [fulfillment, setFulfillment] = useState<'MFN' | 'FBA'>('MFN')
   const [quantity, setQuantity] = useState('0')
   const [shippingTemplate, setShippingTemplate] = useState('')
 
-  // Input
-  const [rawText, setRawText] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
+  // Step 3 — progress
+  const [progressRows, setProgressRows] = useState<ProgressRow[]>([])
+  const [isCreating, setIsCreating] = useState(false)
+  const creatingRef = useRef(false)
 
-  // Parsed preview
-  const [rows, setRows] = useState<ParsedRow[]>([])
-  const validRows = rows.filter(r => r.errors.length === 0)
-  const errorRows = rows.filter(r => r.errors.length > 0)
+  // ─── Load accounts on mount ──────────────────────────────────────────────
 
-  // Submission
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
-  const [results, setResults] = useState<SubmitResult[] | null>(null)
-
-  // Load accounts
   useEffect(() => {
     fetch('/api/accounts')
       .then(async (r) => {
@@ -140,65 +117,205 @@ export default function BulkListingCreator() {
       .catch(() => {})
   }, [accountId])
 
-  // Parse rows whenever rawText changes
-  useEffect(() => {
-    setRows(parseRows(rawText))
-  }, [rawText])
+  // ─── Step 0 → Step 1: Load SKUs ─────────────────────────────────────────
 
-  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const text = ev.target?.result
-      if (typeof text === 'string') setRawText(text)
-    }
-    reader.readAsText(file)
-    // Reset input so same file can be re-uploaded
-    e.target.value = ''
-  }, [])
+  const handleLoadSkus = useCallback(async () => {
+    const lines = rawText
+      .split('\n')
+      .map(l => l.trim())
+      .filter(Boolean)
+    const uniqueSkus = Array.from(new Set(lines))
 
-  async function handleSubmit() {
-    if (validRows.length === 0 || submitting) return
-    setSubmitting(true)
-    setSubmitError(null)
-    setResults(null)
+    if (uniqueSkus.length === 0) return
+
+    setLookupLoading(true)
+    setLookupError(null)
 
     try {
-      const items = validRows.map(r => ({
-        sku: r.sku,
-        asin: r.asin,
-        price: parseFloat(r.price),
-      }))
-
-      const body: Record<string, unknown> = {
-        accountId,
-        condition,
-        fulfillmentChannel: fulfillment,
-        quantity: parseInt(quantity, 10) || 0,
-        items,
-      }
-      if (fulfillment === 'MFN' && shippingTemplate) {
-        body.shippingTemplate = shippingTemplate
-      }
-
-      const res = await fetch('/api/listings/bulk-create', {
+      const res = await fetch('/api/products/lookup-skus', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ skus: uniqueSkus }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Bulk create failed')
+      if (!res.ok) throw new Error(data.error ?? 'Lookup failed')
 
-      setResults(data.results)
+      const found: LookupProduct[] = data.found
+      const notFound: string[] = data.notFound
+
+      // Expand into staging rows
+      const rows: StagingRow[] = []
+      for (const item of found) {
+        const { product, grades } = item
+        if (grades.length === 0) {
+          // Product exists but no inventory — show grayed out
+          rows.push({
+            productId: product.id,
+            internalSku: product.sku,
+            description: product.description,
+            gradeId: null,
+            gradeName: null,
+            availableQty: 0,
+            checked: false,
+          })
+        } else {
+          for (const g of grades) {
+            rows.push({
+              productId: product.id,
+              internalSku: product.sku,
+              description: product.description,
+              gradeId: g.gradeId,
+              gradeName: g.gradeName,
+              availableQty: g.availableQty,
+              checked: g.availableQty > 0,
+            })
+          }
+        }
+      }
+
+      setStagingRows(rows)
+      setNotFoundSkus(notFound)
+      setStep(1)
     } catch (err: unknown) {
-      setSubmitError(err instanceof Error ? err.message : String(err))
+      setLookupError(err instanceof Error ? err.message : String(err))
     } finally {
-      setSubmitting(false)
+      setLookupLoading(false)
     }
+  }, [rawText])
+
+  // ─── Step 1 → Step 2: Move to form ──────────────────────────────────────
+
+  const handleNextToForm = useCallback(() => {
+    const checked = stagingRows.filter(r => r.checked)
+    const rows: ListingRow[] = checked.map(r => ({
+      productId: r.productId,
+      internalSku: r.internalSku,
+      description: r.description,
+      gradeId: r.gradeId,
+      gradeName: r.gradeName,
+      availableQty: r.availableQty,
+      marketplaceSku: '',
+      asin: '',
+      price: '',
+    }))
+    setListingRows(rows)
+    setStep(2)
+  }, [stagingRows])
+
+  // ─── Step 2 validation ──────────────────────────────────────────────────
+
+  const getRowErrors = (row: ListingRow): string[] => {
+    const errs: string[] = []
+    if (!row.marketplaceSku.trim()) errs.push('SKU required')
+    if (!ASIN_RE.test(row.asin)) errs.push('Invalid ASIN')
+    const p = parseFloat(row.price)
+    if (!row.price || isNaN(p) || p <= 0) errs.push('Price > 0')
+    return errs
   }
 
-  // ─── Error state ───────────────────────────────────────────────────────────
+  const validListingRows = listingRows.filter(r => getRowErrors(r).length === 0)
+  const errorListingRows = listingRows.filter(r => getRowErrors(r).length > 0)
+
+  // ─── Step 2 → Step 3: Submit ─────────────────────────────────────────────
+
+  const handleSubmit = useCallback(() => {
+    const rows: ProgressRow[] = validListingRows.map(r => ({
+      ...r,
+      status: 'pending' as RowStatus,
+    }))
+    setProgressRows(rows)
+    setIsCreating(true)
+    setStep(3)
+  }, [validListingRows])
+
+  // ─── Step 3: Sequential creation ─────────────────────────────────────────
+
+  useEffect(() => {
+    if (!isCreating || creatingRef.current) return
+    creatingRef.current = true
+
+    let cachedTemplateGroupId: string | undefined
+
+    async function createAll() {
+      const rows = [...progressRows]
+      const qtyNum = parseInt(quantity, 10) || 0
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+
+        // Update status to 'creating'
+        setProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'creating' } : r))
+
+        try {
+          const body: Record<string, unknown> = {
+            accountId,
+            sku: row.marketplaceSku.trim(),
+            asin: row.asin,
+            price: parseFloat(row.price),
+            condition,
+            fulfillmentChannel: fulfillment,
+            quantity: qtyNum,
+            productId: row.productId,
+            gradeId: row.gradeId,
+          }
+          if (fulfillment === 'MFN' && shippingTemplate) {
+            if (cachedTemplateGroupId) {
+              body.shippingTemplateGroupId = cachedTemplateGroupId
+            } else {
+              body.shippingTemplate = shippingTemplate
+            }
+          }
+
+          const res = await fetch('/api/listings/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+          const data = await res.json()
+          if (!res.ok) throw new Error(data.error ?? 'Failed')
+
+          // Cache the resolved template group ID for subsequent calls
+          if (data.shippingTemplateGroupId && !cachedTemplateGroupId) {
+            cachedTemplateGroupId = data.shippingTemplateGroupId
+          }
+
+          setProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'success' } : r))
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err)
+          setProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'error', error: msg } : r))
+        }
+
+        // Rate-limit delay between calls
+        if (i < rows.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 400))
+        }
+      }
+
+      setIsCreating(false)
+      creatingRef.current = false
+    }
+
+    createAll()
+  }, [isCreating]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Computed ────────────────────────────────────────────────────────────
+
+  const succeededCount = progressRows.filter(r => r.status === 'success').length
+  const failedCount = progressRows.filter(r => r.status === 'error').length
+  const checkedCount = stagingRows.filter(r => r.checked).length
+
+  const handleClose = () => {
+    setStep(0)
+    setRawText('')
+    setStagingRows([])
+    setNotFoundSkus([])
+    setListingRows([])
+    setProgressRows([])
+    setIsCreating(false)
+    creatingRef.current = false
+  }
+
+  // ─── Render: Error state ─────────────────────────────────────────────────
 
   if (accountsError) {
     return (
@@ -211,298 +328,488 @@ export default function BulkListingCreator() {
     )
   }
 
-  // ─── Results view ──────────────────────────────────────────────────────────
+  // ─── Render: Step 0 — Textarea ───────────────────────────────────────────
 
-  if (results) {
-    const succeeded = results.filter(r => r.success).length
-    const failed = results.filter(r => !r.success).length
-
+  if (step === 0) {
     return (
-      <div className="p-6 max-w-4xl space-y-4">
-        {/* Summary */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-green-700">
-            <CheckCircle2 size={16} />
-            {succeeded} created
+      <div className="p-6 max-w-2xl space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+            Internal Product SKUs (one per line)
+          </label>
+          <textarea
+            value={rawText}
+            onChange={(e) => setRawText(e.target.value)}
+            placeholder={`SKU-001\nSKU-002\nSKU-003`}
+            rows={8}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue resize-y"
+          />
+        </div>
+
+        {lookupError && (
+          <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            <AlertCircle size={14} className="shrink-0 mt-0.5" />
+            <span>{lookupError}</span>
           </div>
-          {failed > 0 && (
-            <div className="flex items-center gap-2 text-sm font-semibold text-red-600">
-              <XCircle size={16} />
-              {failed} failed
-            </div>
-          )}
-        </div>
+        )}
 
-        {/* Results table */}
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 border-b text-left text-xs font-semibold text-gray-500 uppercase">
-                <th className="px-3 py-2 w-8"></th>
-                <th className="px-3 py-2">SKU</th>
-                <th className="px-3 py-2">ASIN</th>
-                <th className="px-3 py-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {results.map((r, i) => (
-                <tr key={i} className="border-b last:border-0">
-                  <td className="px-3 py-2">
-                    {r.success
-                      ? <CheckCircle2 size={14} className="text-green-600" />
-                      : <XCircle size={14} className="text-red-500" />}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">{r.sku}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{r.asin}</td>
-                  <td className="px-3 py-2 text-xs">
-                    {r.success
-                      ? <span className="text-green-700">Created</span>
-                      : <span className="text-red-600">{r.error}</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Reset */}
         <button
           type="button"
-          onClick={() => { setResults(null); setRawText(''); setRows([]) }}
-          className="text-sm text-amazon-blue hover:underline"
+          onClick={handleLoadSkus}
+          disabled={!rawText.trim() || lookupLoading}
+          className={clsx(
+            'flex items-center justify-center gap-2 h-10 px-6 rounded-md text-sm font-semibold transition-colors',
+            rawText.trim() && !lookupLoading
+              ? 'bg-amazon-blue text-white hover:bg-amazon-blue/90'
+              : 'bg-gray-200 text-gray-400 cursor-not-allowed',
+          )}
         >
-          Create more listings
+          {lookupLoading && <Loader2 size={14} className="animate-spin" />}
+          {lookupLoading ? 'Loading…' : 'Load SKUs'}
         </button>
       </div>
     )
   }
 
-  // ─── Main form ─────────────────────────────────────────────────────────────
-
-  const qtyNum = parseInt(quantity, 10)
-  const canSubmit = validRows.length > 0 && accountId && !submitting
+  // ─── Render: Modal backdrop ──────────────────────────────────────────────
 
   return (
-    <div className="p-6 max-w-4xl space-y-6">
-
-      {/* Error banner */}
-      {submitError && (
-        <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-          <AlertCircle size={14} className="shrink-0 mt-0.5" />
-          <span className="whitespace-pre-wrap">{submitError}</span>
-        </div>
-      )}
-
-      {/* ── Shared Defaults ────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        {/* Account */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Account</label>
-          <select
-            value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
-            className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-          >
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.marketplaceName} — {a.sellerId}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Condition */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Condition</label>
-          <select
-            value={condition}
-            onChange={(e) => setCondition(e.target.value)}
-            className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-          >
-            {CONDITIONS.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Fulfillment */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Fulfillment</label>
-          <div className="flex gap-0 rounded-md border border-gray-300 overflow-hidden w-fit h-9">
-            <button
-              type="button"
-              onClick={() => setFulfillment('MFN')}
-              className={clsx(
-                'px-3 text-sm font-medium transition-colors',
-                fulfillment === 'MFN'
-                  ? 'bg-amazon-blue text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-50',
-              )}
-            >
-              MFN
-            </button>
-            <button
-              type="button"
-              onClick={() => setFulfillment('FBA')}
-              className={clsx(
-                'px-3 text-sm font-medium transition-colors border-l border-gray-300',
-                fulfillment === 'FBA'
-                  ? 'bg-amazon-blue text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-50',
-              )}
-            >
-              FBA
-            </button>
-          </div>
-        </div>
-
-        {/* Quantity */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Quantity</label>
-          <input
-            type="number"
-            value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
-            min="0"
-            step="1"
-            className="w-full h-9 rounded-md border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-          />
-        </div>
-
-        {/* Shipping Template (MFN only) */}
-        {fulfillment === 'MFN' && (
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Template</label>
-            <select
-              value={shippingTemplate}
-              onChange={(e) => setShippingTemplate(e.target.value)}
-              className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-            >
-              <option value="">None (default)</option>
-              {templates.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </div>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+      <div
+        className={clsx(
+          'bg-white rounded-xl shadow-2xl flex flex-col',
+          'max-h-[90vh]',
+          step === 2 ? 'w-[1100px]' : 'w-[900px]',
         )}
-      </div>
+      >
+        {/* ── Step 1: Staging Area ──────────────────────────────────────────── */}
+        {step === 1 && (
+          <>
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Select Products</h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Products expanded by grade. Uncheck any you don&apos;t want to list.
+                </p>
+              </div>
+              <button type="button" onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
 
-      {/* ── Input Area ─────────────────────────────────────────────────────── */}
-      <div>
-        <div className="flex items-center gap-3 mb-2">
-          <label className="text-xs font-semibold text-gray-500 uppercase">
-            Paste rows (SKU, ASIN, Price)
-          </label>
-          <div className="flex gap-2 ml-auto">
-            <button
-              type="button"
-              onClick={downloadTemplate}
-              className="flex items-center gap-1.5 text-xs text-amazon-blue hover:underline"
-            >
-              <Download size={12} /> Template
-            </button>
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-1.5 text-xs text-amazon-blue hover:underline"
-            >
-              <Upload size={12} /> Upload CSV
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,.tsv,.txt"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            {rawText && (
+            <div className="flex-1 overflow-auto px-6 py-4">
+              {/* Not-found banner */}
+              {notFoundSkus.length > 0 && (
+                <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800 mb-4">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-medium">SKUs not found:</span>{' '}
+                    {notFoundSkus.join(', ')}
+                  </div>
+                </div>
+              )}
+
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b text-left text-xs font-semibold text-gray-500 uppercase">
+                      <th className="px-3 py-2 w-10">
+                        <input
+                          type="checkbox"
+                          checked={stagingRows.length > 0 && stagingRows.filter(r => r.availableQty > 0).every(r => r.checked)}
+                          onChange={(e) => {
+                            const val = e.target.checked
+                            setStagingRows(prev => prev.map(r => r.availableQty > 0 ? { ...r, checked: val } : r))
+                          }}
+                          className="rounded border-gray-300"
+                        />
+                      </th>
+                      <th className="px-3 py-2">Internal SKU</th>
+                      <th className="px-3 py-2">Description</th>
+                      <th className="px-3 py-2">Grade</th>
+                      <th className="px-3 py-2 text-right">Available Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stagingRows.map((row, i) => {
+                      const noStock = row.availableQty === 0
+                      return (
+                        <tr
+                          key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`}
+                          className={clsx('border-b last:border-0', noStock && 'opacity-40')}
+                        >
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={row.checked}
+                              disabled={noStock}
+                              onChange={(e) => {
+                                setStagingRows(prev => prev.map((r, idx) => idx === i ? { ...r, checked: e.target.checked } : r))
+                              }}
+                              className="rounded border-gray-300"
+                            />
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">{row.internalSku}</td>
+                          <td className="px-3 py-2 text-xs text-gray-600 truncate max-w-[250px]">{row.description}</td>
+                          <td className="px-3 py-2">
+                            {row.gradeName ? (
+                              <span className="inline-block px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
+                                {row.gradeName}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right text-xs tabular-nums">{row.availableQty}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t flex items-center justify-between">
+              <span className="text-sm text-gray-500">
+                {checkedCount} of {stagingRows.length} selected
+              </span>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="h-9 px-4 rounded-md border border-gray-300 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNextToForm}
+                  disabled={checkedCount === 0}
+                  className={clsx(
+                    'flex items-center gap-1.5 h-9 px-5 rounded-md text-sm font-semibold transition-colors',
+                    checkedCount > 0
+                      ? 'bg-amazon-blue text-white hover:bg-amazon-blue/90'
+                      : 'bg-gray-200 text-gray-400 cursor-not-allowed',
+                  )}
+                >
+                  Next <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── Step 2: Listing Details ─────────────────────────────────────── */}
+        {step === 2 && (
+          <>
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Listing Details</h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Set shared defaults, then fill in per-row marketplace details.
+                </p>
+              </div>
+              <button type="button" onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto px-6 py-4 space-y-5">
+              {/* Shared defaults */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                {/* Account */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Account</label>
+                  <select
+                    value={accountId}
+                    onChange={(e) => setAccountId(e.target.value)}
+                    className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                  >
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.marketplaceName} — {a.sellerId}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Condition */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Condition</label>
+                  <select
+                    value={condition}
+                    onChange={(e) => setCondition(e.target.value)}
+                    className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                  >
+                    {CONDITIONS.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Fulfillment */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Fulfillment</label>
+                  <div className="flex gap-0 rounded-md border border-gray-300 overflow-hidden w-fit h-9">
+                    <button
+                      type="button"
+                      onClick={() => setFulfillment('MFN')}
+                      className={clsx(
+                        'px-3 text-sm font-medium transition-colors',
+                        fulfillment === 'MFN'
+                          ? 'bg-amazon-blue text-white'
+                          : 'bg-white text-gray-600 hover:bg-gray-50',
+                      )}
+                    >
+                      MFN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFulfillment('FBA')}
+                      className={clsx(
+                        'px-3 text-sm font-medium transition-colors border-l border-gray-300',
+                        fulfillment === 'FBA'
+                          ? 'bg-amazon-blue text-white'
+                          : 'bg-white text-gray-600 hover:bg-gray-50',
+                      )}
+                    >
+                      FBA
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quantity */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Quantity</label>
+                  <input
+                    type="number"
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                    min="0"
+                    step="1"
+                    className="w-full h-9 rounded-md border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                  />
+                </div>
+
+                {/* Shipping Template (MFN only) */}
+                {fulfillment === 'MFN' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Template</label>
+                    <select
+                      value={shippingTemplate}
+                      onChange={(e) => setShippingTemplate(e.target.value)}
+                      className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                    >
+                      <option value="">None (default)</option>
+                      {templates.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Per-row table */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-[400px] overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0">
+                      <tr className="bg-gray-50 border-b text-left text-xs font-semibold text-gray-500 uppercase">
+                        <th className="px-3 py-2">Internal SKU</th>
+                        <th className="px-3 py-2">Grade</th>
+                        <th className="px-3 py-2">Marketplace SKU</th>
+                        <th className="px-3 py-2">ASIN</th>
+                        <th className="px-3 py-2">Price</th>
+                        <th className="px-3 py-2 w-8"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {listingRows.map((row, i) => {
+                        const errs = getRowErrors(row)
+                        const hasErr = errs.length > 0 && (row.marketplaceSku || row.asin || row.price)
+                        return (
+                          <tr key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`} className="border-b last:border-0">
+                            <td className="px-3 py-1.5 font-mono text-xs text-gray-600">{row.internalSku}</td>
+                            <td className="px-3 py-1.5">
+                              {row.gradeName ? (
+                                <span className="inline-block px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
+                                  {row.gradeName}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-400">—</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <input
+                                type="text"
+                                value={row.marketplaceSku}
+                                onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, marketplaceSku: e.target.value } : r))}
+                                placeholder="MSKU-001"
+                                className="w-full h-8 rounded-md border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                              />
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <input
+                                type="text"
+                                value={row.asin}
+                                onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, asin: e.target.value.toUpperCase() } : r))}
+                                placeholder="B0XXXXXXXXX"
+                                maxLength={10}
+                                className={clsx(
+                                  'w-full h-8 rounded-md border px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue',
+                                  row.asin && !ASIN_RE.test(row.asin) ? 'border-red-400' : 'border-gray-300',
+                                )}
+                              />
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <input
+                                type="number"
+                                value={row.price}
+                                onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, price: e.target.value } : r))}
+                                placeholder="0.00"
+                                min="0.01"
+                                step="0.01"
+                                className="w-24 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                              />
+                            </td>
+                            <td className="px-3 py-1.5">
+                              {hasErr ? (
+                                <span title={errs.join(', ')}><XCircle size={14} className="text-red-500" /></span>
+                              ) : row.marketplaceSku && row.asin && row.price ? (
+                                <CheckCircle2 size={14} className="text-green-600" />
+                              ) : null}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Summary */}
+              <div className="flex items-center gap-4 text-sm">
+                <span className="text-green-700 font-medium">{validListingRows.length} valid</span>
+                {errorListingRows.length > 0 && (
+                  <span className="text-red-600 font-medium">{errorListingRows.length} with errors</span>
+                )}
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t flex items-center justify-between">
               <button
                 type="button"
-                onClick={() => { setRawText(''); setRows([]) }}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500"
+                onClick={() => setStep(1)}
+                className="flex items-center gap-1.5 h-9 px-4 rounded-md border border-gray-300 text-sm font-medium text-gray-600 hover:bg-gray-50"
               >
-                <Trash2 size={12} /> Clear
+                <ArrowLeft size={14} /> Back
               </button>
-            )}
-          </div>
-        </div>
-        <textarea
-          value={rawText}
-          onChange={(e) => setRawText(e.target.value)}
-          placeholder={`SKU, ASIN, Price\nMY-SKU-001, B0XXXXXXXXX, 29.99\nMY-SKU-002, B0YYYYYYYYY, 49.99`}
-          rows={6}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue resize-y"
-        />
-      </div>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={validListingRows.length === 0}
+                className={clsx(
+                  'flex items-center gap-2 h-9 px-5 rounded-md text-sm font-semibold transition-colors',
+                  validListingRows.length > 0
+                    ? 'bg-amazon-blue text-white hover:bg-amazon-blue/90'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed',
+                )}
+              >
+                Submit {validListingRows.length} Listings
+              </button>
+            </div>
+          </>
+        )}
 
-      {/* ── Preview Table ──────────────────────────────────────────────────── */}
-      {rows.length > 0 && (
-        <div>
-          {/* Summary */}
-          <div className="flex items-center gap-4 mb-2 text-sm">
-            <span className="text-gray-600">{rows.length} rows parsed</span>
-            <span className="text-green-700 font-medium">{validRows.length} valid</span>
-            {errorRows.length > 0 && (
-              <span className="text-red-600 font-medium">{errorRows.length} errors</span>
-            )}
-          </div>
+        {/* ── Step 3: Progress ────────────────────────────────────────────── */}
+        {step === 3 && (
+          <>
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Creating Listings</h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {isCreating
+                    ? `Processing… ${succeededCount + failedCount} of ${progressRows.length}`
+                    : `Done — ${succeededCount} created, ${failedCount} failed`}
+                </p>
+              </div>
+              {!isCreating && (
+                <button type="button" onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+                  <X size={20} />
+                </button>
+              )}
+            </div>
 
-          <div className="border rounded-lg overflow-hidden max-h-[400px] overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0">
-                <tr className="bg-gray-50 border-b text-left text-xs font-semibold text-gray-500 uppercase">
-                  <th className="px-3 py-2 w-8">#</th>
-                  <th className="px-3 py-2">SKU</th>
-                  <th className="px-3 py-2">ASIN</th>
-                  <th className="px-3 py-2">Price</th>
-                  <th className="px-3 py-2 w-8"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => {
-                  const hasErr = r.errors.length > 0
-                  return (
-                    <tr key={i} className={clsx('border-b last:border-0', hasErr && 'bg-red-50')}>
-                      <td className="px-3 py-1.5 text-xs text-gray-400">{i + 1}</td>
-                      <td className="px-3 py-1.5 font-mono text-xs">{r.sku || <span className="text-gray-300">—</span>}</td>
-                      <td className={clsx('px-3 py-1.5 font-mono text-xs', !ASIN_RE.test(r.asin) && r.asin && 'text-red-600')}>
-                        {r.asin || <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-3 py-1.5 text-xs">
-                        {r.price ? `$${r.price}` : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        {hasErr
-                          ? <span title={r.errors.join(', ')}><XCircle size={14} className="text-red-500" /></span>
-                          : <CheckCircle2 size={14} className="text-green-600" />}
-                      </td>
+            <div className="flex-1 overflow-auto px-6 py-4">
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b text-left text-xs font-semibold text-gray-500 uppercase">
+                      <th className="px-3 py-2">Internal SKU</th>
+                      <th className="px-3 py-2">Grade</th>
+                      <th className="px-3 py-2">Marketplace SKU</th>
+                      <th className="px-3 py-2">ASIN</th>
+                      <th className="px-3 py-2">Price</th>
+                      <th className="px-3 py-2 w-16">Status</th>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                  </thead>
+                  <tbody>
+                    {progressRows.map((row, i) => (
+                      <tr key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`} className="border-b last:border-0">
+                        <td className="px-3 py-2 font-mono text-xs text-gray-600">{row.internalSku}</td>
+                        <td className="px-3 py-2">
+                          {row.gradeName ? (
+                            <span className="inline-block px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
+                              {row.gradeName}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs">{row.marketplaceSku}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{row.asin}</td>
+                        <td className="px-3 py-2 text-xs">${row.price}</td>
+                        <td className="px-3 py-2">
+                          {row.status === 'pending' && <span className="text-xs text-gray-400">Pending</span>}
+                          {row.status === 'creating' && <Loader2 size={14} className="animate-spin text-amazon-blue" />}
+                          {row.status === 'success' && <CheckCircle2 size={14} className="text-green-600" />}
+                          {row.status === 'error' && (
+                            <span title={row.error}>
+                              <XCircle size={14} className="text-red-500" />
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-      {/* ── Submit ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-4">
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          className={clsx(
-            'flex items-center justify-center gap-2 h-10 px-6 rounded-md text-sm font-semibold transition-colors',
-            canSubmit
-              ? 'bg-amazon-blue text-white hover:bg-amazon-blue/90'
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed',
-          )}
-        >
-          {submitting && <Loader2 size={14} className="animate-spin" />}
-          {submitting ? `Creating ${validRows.length} listings…` : `Create ${validRows.length} Listings`}
-        </button>
-        {rows.length > 0 && !submitting && (
-          <span className="text-xs text-gray-400">
-            Qty: {isNaN(qtyNum) ? 0 : qtyNum} &middot; {condition} &middot; {fulfillment}
-          </span>
+            <div className="px-6 py-4 border-t flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                {succeededCount > 0 && (
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-green-700">
+                    <CheckCircle2 size={14} />
+                    {succeededCount} created
+                  </div>
+                )}
+                {failedCount > 0 && (
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-red-600">
+                    <XCircle size={14} />
+                    {failedCount} failed
+                  </div>
+                )}
+              </div>
+              {!isCreating && (
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-semibold hover:bg-amazon-blue/90"
+                >
+                  Close
+                </button>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>
