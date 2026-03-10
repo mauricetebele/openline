@@ -65,14 +65,25 @@ export async function GET(
       continue
     }
 
-    // Check if this sellerSku maps to a grade-specific SKU
+    // Grade constraint: prefer the OrderItem's explicit gradeId (set during SKU edit),
+    // then fall back to ProductGradeMarketplaceSku mapping
+    let gradeId:   string | null = item.gradeId ?? null
+    let gradeName: string | null = null
+
+    if (gradeId) {
+      const g = await prisma.grade.findUnique({ where: { id: gradeId }, select: { grade: true } })
+      gradeName = g?.grade ?? null
+    }
+
     const msku = await prisma.productGradeMarketplaceSku.findFirst({
       where: { sellerSku: item.sellerSku },
       include: { grade: true, product: true },
     })
 
-    const gradeId   = msku?.gradeId ?? null
-    const gradeName = msku?.grade?.grade ?? null
+    if (!gradeId && msku?.gradeId) {
+      gradeId   = msku.gradeId
+      gradeName = msku.grade?.grade ?? null
+    }
 
     // Try exact product match first, then fall back to grade's product
     let product = await prisma.product.findUnique({
