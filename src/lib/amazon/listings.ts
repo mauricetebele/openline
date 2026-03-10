@@ -506,7 +506,7 @@ export async function createListing(
       {
         marketplace_id: account.marketplaceId,
         currency: 'USD',
-        our_price: [{ schedule: [{ value_with_tax: price }] }],
+        our_price: [{ schedule: [{ value_with_tax: price.toFixed(2) }] }],
       },
     ],
     fulfillment_availability: [
@@ -523,9 +523,11 @@ export async function createListing(
     ]
   }
 
+  // Use LISTING_OFFER_ONLY only when there's no shipping template to set,
+  // since it causes Amazon to ignore non-offer attributes like merchant_shipping_group.
   const body = {
     productType: 'PRODUCT',
-    requirements: 'LISTING_OFFER_ONLY',
+    ...(!shippingTemplateGroupId ? { requirements: 'LISTING_OFFER_ONLY' } : {}),
     attributes,
   }
 
@@ -561,7 +563,7 @@ export async function createListing(
               {
                 marketplace_id: account.marketplaceId,
                 currency: 'USD',
-                our_price: [{ schedule: [{ value_with_tax: price }] }],
+                our_price: [{ schedule: [{ value_with_tax: price.toFixed(2) }] }],
               },
             ],
           },
