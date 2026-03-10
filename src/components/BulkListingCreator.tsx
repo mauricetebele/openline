@@ -218,17 +218,22 @@ export default function BulkListingCreator() {
 
   // ─── Step 2 validation ──────────────────────────────────────────────────
 
-  const getRowErrors = (row: ListingRow): string[] => {
+  const getRowErrors = (row: ListingRow, index: number): string[] => {
     const errs: string[] = []
     if (!row.marketplaceSku.trim()) errs.push('SKU required')
     if (!ASIN_RE.test(row.asin)) errs.push('Invalid ASIN')
     const p = parseFloat(row.price)
     if (!row.price || isNaN(p) || p <= 0) errs.push('Price > 0')
+    // Check for duplicate product+grade within the list
+    const isDupe = listingRows.some((other, j) =>
+      j !== index && other.productId === row.productId && other.gradeId === row.gradeId
+    )
+    if (isDupe) errs.push('Duplicate SKU+Grade')
     return errs
   }
 
-  const validListingRows = listingRows.filter(r => getRowErrors(r).length === 0)
-  const errorListingRows = listingRows.filter(r => getRowErrors(r).length > 0)
+  const validListingRows = listingRows.filter((r, i) => getRowErrors(r, i).length === 0)
+  const errorListingRows = listingRows.filter((r, i) => getRowErrors(r, i).length > 0)
 
   // ─── Step 2 → Step 3: Submit ─────────────────────────────────────────────
 
@@ -583,6 +588,7 @@ export default function BulkListingCreator() {
                   <table className="w-full text-sm">
                     <thead className="sticky top-0">
                       <tr className="bg-gray-50 border-b text-left text-xs font-semibold text-gray-500 uppercase">
+                        <th className="px-2 py-2 w-20"></th>
                         <th className="px-2 py-2">Internal SKU</th>
                         <th className="px-2 py-2">Grade</th>
                         <th className="px-2 py-2">Condition</th>
@@ -591,15 +597,57 @@ export default function BulkListingCreator() {
                         <th className="px-2 py-2">Price</th>
                         <th className="px-2 py-2">Qty</th>
                         {fulfillment === 'MFN' && <th className="px-2 py-2">Template</th>}
-                        <th className="px-2 py-2 w-20"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {listingRows.map((row, i) => {
-                        const errs = getRowErrors(row)
+                        const errs = getRowErrors(row, i)
                         const hasErr = errs.length > 0 && (row.marketplaceSku || row.asin || row.price)
                         return (
                           <tr key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`} className="border-b last:border-0">
+                            <td className="px-2 py-1.5">
+                              <div className="flex items-center gap-1">
+                                {hasErr ? (
+                                  <span title={errs.join(', ')}><XCircle size={14} className="text-red-500" /></span>
+                                ) : row.marketplaceSku && row.asin && row.price ? (
+                                  <CheckCircle2 size={14} className="text-green-600" />
+                                ) : <span className="w-3.5" />}
+                                <button
+                                  type="button"
+                                  title="Duplicate row"
+                                  onClick={() => {
+                                    const clone: ListingRow = {
+                                      productId: row.productId,
+                                      internalSku: row.internalSku,
+                                      description: row.description,
+                                      gradeId: null,
+                                      gradeName: null,
+                                      availableQty: row.availableQty,
+                                      marketplaceSku: '',
+                                      asin: '',
+                                      price: '',
+                                      condition: 'New',
+                                      quantity: '0',
+                                      shippingTemplate: '',
+                                    }
+                                    setListingRows(prev => [...prev.slice(0, i + 1), clone, ...prev.slice(i + 1)])
+                                  }}
+                                  className="p-0.5 text-gray-400 hover:text-amazon-blue rounded"
+                                >
+                                  <Plus size={14} />
+                                </button>
+                                {listingRows.length > 1 && (
+                                  <button
+                                    type="button"
+                                    title="Remove row"
+                                    onClick={() => setListingRows(prev => prev.filter((_, idx) => idx !== i))}
+                                    className="p-0.5 text-gray-400 hover:text-red-500 rounded"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-2 py-1.5 font-mono text-xs text-gray-600 whitespace-nowrap">{row.internalSku}</td>
                             <td className="px-2 py-1.5">
                               <select
@@ -685,49 +733,6 @@ export default function BulkListingCreator() {
                                 </select>
                               </td>
                             )}
-                            <td className="px-2 py-1.5">
-                              <div className="flex items-center gap-1">
-                                {hasErr ? (
-                                  <span title={errs.join(', ')}><XCircle size={14} className="text-red-500" /></span>
-                                ) : row.marketplaceSku && row.asin && row.price ? (
-                                  <CheckCircle2 size={14} className="text-green-600" />
-                                ) : <span className="w-3.5" />}
-                                <button
-                                  type="button"
-                                  title="Duplicate row"
-                                  onClick={() => {
-                                    const clone: ListingRow = {
-                                      productId: row.productId,
-                                      internalSku: row.internalSku,
-                                      description: row.description,
-                                      gradeId: null,
-                                      gradeName: null,
-                                      availableQty: row.availableQty,
-                                      marketplaceSku: '',
-                                      asin: '',
-                                      price: '',
-                                      condition: 'New',
-                                      quantity: '0',
-                                      shippingTemplate: '',
-                                    }
-                                    setListingRows(prev => [...prev.slice(0, i + 1), clone, ...prev.slice(i + 1)])
-                                  }}
-                                  className="p-0.5 text-gray-400 hover:text-amazon-blue rounded"
-                                >
-                                  <Plus size={14} />
-                                </button>
-                                {listingRows.length > 1 && (
-                                  <button
-                                    type="button"
-                                    title="Remove row"
-                                    onClick={() => setListingRows(prev => prev.filter((_, idx) => idx !== i))}
-                                    className="p-0.5 text-gray-400 hover:text-red-500 rounded"
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                )}
-                              </div>
-                            </td>
                           </tr>
                         )
                       })}
