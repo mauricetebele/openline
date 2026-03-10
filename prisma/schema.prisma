@@ -500,6 +500,8 @@ model Order {
   serialAssignments      OrderSerialAssignment[]
   labelBatchItems        LabelBatchItem[]
   serialHistory          SerialHistory[]
+  marketplaceCommission  Decimal?                    @db.Decimal(12, 2)
+  commissionSyncedAt     DateTime?
   marketplaceRMAs        MarketplaceRMA[]
 
   @@unique([accountId, amazonOrderId, orderSource])
