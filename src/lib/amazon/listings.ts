@@ -272,29 +272,14 @@ export async function resolveTemplateGroupId(
 ): Promise<string> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
 
-  // Only sample listings from the most recent sync batch.
-  // Listings not included in the latest TSV (e.g. inactive/removed) keep their old
-  // lastSyncedAt and shippingTemplate — those stale entries would return wrong UUIDs.
-  const latestSync = await prisma.sellerListing.findFirst({
-    where: { accountId },
-    orderBy: { lastSyncedAt: 'desc' },
-    select: { lastSyncedAt: true },
-  })
-
-  if (!latestSync) {
-    throw new Error(`No synced listings found for this account. Run a catalog sync first.`)
-  }
-
-  // 30-minute window covers the full duration of even a large sync job
-  const syncBatchCutoff = new Date(latestSync.lastSyncedAt.getTime() - 30 * 60 * 1000)
-
+  // Sample listings that use this template from the most recent sync for this template.
   const samples = await prisma.sellerListing.findMany({
     where: {
       accountId,
       fulfillmentChannel: 'MFN',
       shippingTemplate: { equals: templateName, mode: 'insensitive' },
-      lastSyncedAt: { gte: syncBatchCutoff },
     },
+    orderBy: { lastSyncedAt: 'desc' },
     take: 5,
   })
 
