@@ -560,6 +560,35 @@ export async function createListing(
 
   console.log(`[createListing] SKU=${sku} ASIN=${asin} status=${result.status} submissionId=${result.submissionId}`)
 
+  // Follow-up PATCH to explicitly set purchasable_offer — Amazon's PUT with
+  // LISTING_OFFER_ONLY sometimes creates the listing skeleton without applying
+  // the offer attributes (price), resulting in "Missing Offer" / $0.00 on Seller Central.
+  try {
+    const patchResult = await client.patch<ListingsPatchResponse>(
+      `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+      {
+        productType: 'PRODUCT',
+        patches: [
+          {
+            op: 'replace',
+            path: '/attributes/purchasable_offer',
+            value: [
+              {
+                marketplace_id: account.marketplaceId,
+                currency: 'USD',
+                our_price: [{ schedule: [{ value_with_tax: price }] }],
+              },
+            ],
+          },
+        ],
+      },
+      { marketplaceIds: account.marketplaceId },
+    )
+    console.log(`[createListing] follow-up PATCH SKU=${sku} status=${patchResult.status}`)
+  } catch (patchErr) {
+    console.error(`[createListing] follow-up PATCH failed for SKU=${sku} (non-fatal):`, patchErr)
+  }
+
   // Upsert into seller_listings
   const now = new Date()
   await prisma.$executeRawUnsafe(
