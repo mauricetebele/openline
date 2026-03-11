@@ -435,7 +435,7 @@ export default function MFNReturnsManager() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Search order ID, RMA, ASIN..."
+            placeholder="Search order ID, RMA, ASIN, SKU..."
             onChange={(e) => handleSearch(e.target.value)}
             className="input pl-9 w-64 text-sm"
           />
@@ -450,6 +450,7 @@ export default function MFNReturnsManager() {
               <th className="px-4 py-2">Amazon Order ID</th>
               <th className="px-4 py-2">Product Title</th>
               <th className="px-4 py-2">ASIN</th>
+              <th className="px-4 py-2">Seller SKU</th>
               <th className="px-4 py-2">Price</th>
               <th className="px-4 py-2">Refunded</th>
               <th className="px-4 py-2">RMA #</th>
@@ -463,14 +464,14 @@ export default function MFNReturnsManager() {
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {loading && returns.length === 0 ? (
               <tr>
-                <td colSpan={11} className="text-center py-12 text-gray-400">
+                <td colSpan={12} className="text-center py-12 text-gray-400">
                   <Loader2 className="mx-auto animate-spin mb-2" size={20} />
                   Loading...
                 </td>
               </tr>
             ) : returns.length === 0 ? (
               <tr>
-                <td colSpan={11} className="text-center py-12 text-gray-400">
+                <td colSpan={12} className="text-center py-12 text-gray-400">
                   No MFN returns found. Click &quot;Sync Returns&quot; to pull from Amazon.
                 </td>
               </tr>
@@ -496,6 +497,9 @@ export default function MFNReturnsManager() {
 
                   {/* ASIN */}
                   <td className="px-4 py-2 font-mono text-xs">{r.asin ?? '-'}</td>
+
+                  {/* Seller SKU */}
+                  <td className="px-4 py-2 font-mono text-xs">{r.sku ?? '-'}</td>
 
                   {/* Price */}
                   <td className="px-4 py-2 whitespace-nowrap">
