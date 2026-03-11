@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive, Warehouse, LocateFixed, Building2, Tag, FileText, CircleDot, Printer, Star } from 'lucide-react'
+import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive, Warehouse, LocateFixed, Building2, Tag, FileText, CircleDot, Printer, Star, ArrowRightLeft } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import JsBarcode from 'jsbarcode'
 import { clsx } from 'clsx'
@@ -157,6 +157,11 @@ export default function SerialSearchManager() {
   const [bulkBin, setBulkBin] = useState('')
   const [bulkBinSaving, setBulkBinSaving] = useState(false)
 
+  // Move inventory state
+  const [moveWarehouseId, setMoveWarehouseId] = useState('')
+  const [moveLocationId, setMoveLocationId] = useState('')
+  const [moveLoading, setMoveLoading] = useState(false)
+
   // Sort state
   const [sortCol, setSortCol] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -304,6 +309,28 @@ export default function SerialSearchManager() {
       setErr(e instanceof Error ? e.message : 'Failed to update bin location')
     } finally {
       setBulkBinSaving(false)
+    }
+  }
+
+  async function handleMoveInventory() {
+    if (selectedInStock.length === 0 || !moveLocationId) return
+    setMoveLoading(true)
+    try {
+      const res = await fetch('/api/serials/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serialIds: selectedInStock.map(r => r.id), locationId: moveLocationId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to move')
+      setSelectedIds(new Set())
+      setMoveWarehouseId('')
+      setMoveLocationId('')
+      await handleSearch()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to move inventory')
+    } finally {
+      setMoveLoading(false)
     }
   }
 
@@ -613,7 +640,7 @@ export default function SerialSearchManager() {
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 {/* Bulk note */}
                 <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
                   <div className="flex items-center gap-2 mb-2">
@@ -662,6 +689,43 @@ export default function SerialSearchManager() {
                     >
                       <MapPin size={12} />
                       {bulkBinSaving ? 'Saving…' : 'Set'}
+                    </button>
+                  </div>
+                </div>
+                {/* Move inventory */}
+                <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ArrowRightLeft size={18} className="text-indigo-400 shrink-0" />
+                    <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">Move Inventory</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={moveWarehouseId}
+                      onChange={e => { setMoveWarehouseId(e.target.value); setMoveLocationId('') }}
+                      disabled={selectedInStock.length === 0}
+                      className="flex-1 text-xs border border-indigo-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                    >
+                      <option value="">Warehouse…</option>
+                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                    </select>
+                    <select
+                      value={moveLocationId}
+                      onChange={e => setMoveLocationId(e.target.value)}
+                      disabled={selectedInStock.length === 0 || !moveWarehouseId}
+                      className="flex-1 text-xs border border-indigo-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                    >
+                      <option value="">Location…</option>
+                      {(warehouses.find(w => w.id === moveWarehouseId)?.locations ?? []).map(l => (
+                        <option key={l.id} value={l.id}>{l.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleMoveInventory}
+                      disabled={moveLoading || selectedInStock.length === 0 || !moveLocationId}
+                      className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      <ArrowRightLeft size={12} />
+                      {moveLoading ? 'Moving…' : 'Move'}
                     </button>
                   </div>
                 </div>
