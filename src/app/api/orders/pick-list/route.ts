@@ -38,36 +38,40 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  // Collect product+location pairs that need bin lookups (reservations without serial assignments)
-  const binLookups: { productId: string; locationId: string }[] = []
+  // Collect product+location+grade tuples that need bin lookups (reservations without serial assignments)
+  const binLookups: { productId: string; locationId: string; gradeId: string | null }[] = []
   for (const o of orders) {
     if (o.serialAssignments.length > 0) continue // already has serials — bins come from there
     for (const r of o.reservations) {
-      binLookups.push({ productId: r.productId, locationId: r.locationId })
+      binLookups.push({ productId: r.productId, locationId: r.locationId, gradeId: r.gradeId })
     }
   }
 
-  // Batch-query bin locations from in-stock serials for reserved product+location pairs
-  const binMap = new Map<string, Map<string, number>>() // "productId:locationId" → bin→count
+  // Batch-query bin locations from in-stock serials for reserved product+location+grade tuples
+  const binMap = new Map<string, Map<string, number>>() // "productId:locationId:gradeId" → bin→count
   if (binLookups.length > 0) {
     const seen = new Set<string>()
     const uniquePairs = binLookups.filter(p => {
-      const k = `${p.productId}:${p.locationId}`
+      const k = `${p.productId}:${p.locationId}:${p.gradeId ?? ''}`
       if (seen.has(k)) return false
       seen.add(k)
       return true
     })
-    // Query all at once using OR conditions
+    // Query all at once using OR conditions — constrained by grade
     const serials = await prisma.inventorySerial.findMany({
       where: {
-        OR: uniquePairs.map(p => ({ productId: p.productId, locationId: p.locationId })),
+        OR: uniquePairs.map(p => ({
+          productId: p.productId,
+          locationId: p.locationId,
+          ...(p.gradeId ? { gradeId: p.gradeId } : { gradeId: null }),
+        })),
         status: 'IN_STOCK',
         binLocation: { not: null },
       },
-      select: { productId: true, locationId: true, binLocation: true },
+      select: { productId: true, locationId: true, gradeId: true, binLocation: true },
     })
     for (const s of serials) {
-      const key = `${s.productId}:${s.locationId}`
+      const key = `${s.productId}:${s.locationId}:${s.gradeId ?? ''}`
       let counts = binMap.get(key)
       if (!counts) { counts = new Map(); binMap.set(key, counts) }
       counts.set(s.binLocation!, (counts.get(s.binLocation!) ?? 0) + 1)
@@ -94,10 +98,10 @@ export async function GET(req: NextRequest) {
           if (b) binCounts.set(b, (binCounts.get(b) ?? 0) + 1)
         }
 
-        // Fallback: bin locations from in-stock serials at reserved product+location
+        // Fallback: bin locations from in-stock serials at reserved product+location+grade
         if (binCounts.size === 0) {
           for (const r of itemRes) {
-            const key = `${r.productId}:${r.locationId}`
+            const key = `${r.productId}:${r.locationId}:${r.gradeId ?? ''}`
             const counts = binMap.get(key)
             if (counts) {
               counts.forEach((qty, bin) => {
