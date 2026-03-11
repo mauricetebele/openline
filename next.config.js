@@ -22,6 +22,10 @@ const nextConfig = {
       html2canvas: false,
       dompurify:   false,
     }
+    // Force @firebase/auth to browser bundle (avoids undici private-field parse error)
+    config.resolve.alias['@firebase/auth'] = path.resolve(
+      __dirname, 'node_modules/firebase/node_modules/@firebase/auth/dist/esm2017/index.js'
+    )
     return config
   },
 }
