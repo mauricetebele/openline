@@ -41,8 +41,13 @@ export async function GET(req: NextRequest) {
     ORDER BY "productId", "gradeId", "createdAt" DESC
   `)
   const cogsMap = new Map<string, number>()
+  const cogsProductOnly = new Map<string, number>() // fallback ignoring grade
   for (const row of cogsRows) {
     cogsMap.set(`${row.productId}:${row.gradeId ?? ''}`, row.unitCost)
+    // Keep the first (most recent) entry per product as the fallback
+    if (!cogsProductOnly.has(row.productId)) {
+      cogsProductOnly.set(row.productId, row.unitCost)
+    }
   }
 
   // ── Cost code lookup: latest cost code amount per product+grade ────────
@@ -57,8 +62,12 @@ export async function GET(req: NextRequest) {
     ORDER BY pol."productId", pol."gradeId", pol."createdAt" DESC
   `)
   const costCodeMap = new Map<string, number>()
+  const costCodeProductOnly = new Map<string, number>() // fallback ignoring grade
   for (const row of costCodeRows) {
     costCodeMap.set(`${row.productId}:${row.gradeId ?? ''}`, row.amount)
+    if (!costCodeProductOnly.has(row.productId)) {
+      costCodeProductOnly.set(row.productId, row.amount)
+    }
   }
 
   // ── Marketplace orders (SHIPPED) ────────────────────────────────────────
@@ -137,9 +146,9 @@ export async function GET(req: NextRequest) {
     let costCodeDeductions = 0
     for (const res of order.reservations) {
       const key = `${res.productId}:${res.gradeId ?? ''}`
-      const unitCost = cogsMap.get(key) ?? 0
+      const unitCost = cogsMap.get(key) ?? cogsProductOnly.get(res.productId) ?? 0
       totalCogs += unitCost * res.qtyReserved
-      const ccAmount = costCodeMap.get(key) ?? 0
+      const ccAmount = costCodeMap.get(key) ?? costCodeProductOnly.get(res.productId) ?? 0
       costCodeDeductions += ccAmount * res.qtyReserved
     }
 
@@ -172,9 +181,9 @@ export async function GET(req: NextRequest) {
     let costCodeDeductions = 0
     for (const res of order.inventoryReservations) {
       const key = `${res.productId}:${res.gradeId ?? ''}`
-      const unitCost = cogsMap.get(key) ?? 0
+      const unitCost = cogsMap.get(key) ?? cogsProductOnly.get(res.productId) ?? 0
       totalCogs += unitCost * res.qtyReserved
-      const ccAmount = costCodeMap.get(key) ?? 0
+      const ccAmount = costCodeMap.get(key) ?? costCodeProductOnly.get(res.productId) ?? 0
       costCodeDeductions += ccAmount * res.qtyReserved
     }
 
@@ -236,8 +245,8 @@ export async function GET(req: NextRequest) {
         const reservations = resByItemId.get(item.id) ?? []
         for (const res of reservations) {
           const key = `${res.productId}:${res.gradeId ?? ''}`
-          itemCogs += (cogsMap.get(key) ?? 0) * res.qtyReserved
-          itemCostCodes += (costCodeMap.get(key) ?? 0) * res.qtyReserved
+          itemCogs += (cogsMap.get(key) ?? cogsProductOnly.get(res.productId) ?? 0) * res.qtyReserved
+          itemCostCodes += (costCodeMap.get(key) ?? costCodeProductOnly.get(res.productId) ?? 0) * res.qtyReserved
         }
 
         const itemCustomerShipping = Number(item.shippingPrice ?? 0)
@@ -289,8 +298,8 @@ export async function GET(req: NextRequest) {
         const reservations = resByItemId.get(item.id) ?? []
         for (const res of reservations) {
           const key = `${res.productId}:${res.gradeId ?? ''}`
-          itemCogs += (cogsMap.get(key) ?? 0) * res.qtyReserved
-          itemCostCodes += (costCodeMap.get(key) ?? 0) * res.qtyReserved
+          itemCogs += (cogsMap.get(key) ?? cogsProductOnly.get(res.productId) ?? 0) * res.qtyReserved
+          itemCostCodes += (costCodeMap.get(key) ?? costCodeProductOnly.get(res.productId) ?? 0) * res.qtyReserved
         }
 
         const itemShipping = totalShippingVal * proportion
