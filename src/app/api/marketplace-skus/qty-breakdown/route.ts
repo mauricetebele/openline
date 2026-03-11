@@ -19,6 +19,8 @@ export interface QtyBreakdown {
   reserved: number
   pendingOrders: number
   available: number
+  maxQty: number | null
+  pushing: number
 }
 
 export async function GET() {
@@ -33,6 +35,7 @@ export async function GET() {
       gradeId: true,
       marketplace: true,
       sellerSku: true,
+      maxQty: true,
     },
   })
 
@@ -92,7 +95,8 @@ export async function GET() {
     const onHand = availableInInventory + reserved
     const pendingOrders = msku.marketplace === 'amazon' ? (pendingMap.get(msku.sellerSku) ?? 0) : 0
     const available = Math.max(0, availableInInventory - pendingOrders)
-    return { mskuId: msku.id, onHand, reserved, pendingOrders, available }
+    const pushing = msku.maxQty != null ? Math.min(available, msku.maxQty) : available
+    return { mskuId: msku.id, onHand, reserved, pendingOrders, available, maxQty: msku.maxQty, pushing }
   })
 
   return NextResponse.json({ data: results })

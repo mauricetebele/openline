@@ -27,6 +27,7 @@ interface MarketplaceSku {
   accountId: string | null
   sellerSku: string
   syncQty: boolean
+  maxQty: number | null
 }
 
 interface MarketplaceListing {
@@ -62,6 +63,8 @@ interface QtyBreakdown {
   reserved: number
   pendingOrders: number
   available: number
+  maxQty: number | null
+  pushing: number
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -298,7 +301,7 @@ function QtyBadge({ breakdown }: { breakdown: QtyBreakdown }) {
         onMouseLeave={() => setHover(false)}
         className="inline-flex items-center justify-center font-mono text-xs font-semibold text-blue-700 bg-blue-50 rounded px-2 py-0.5 cursor-default"
       >
-        {breakdown.available}
+        {breakdown.pushing}
       </span>
       {hover && createPortal(
         <div
@@ -328,6 +331,18 @@ function QtyBadge({ breakdown }: { breakdown: QtyBreakdown }) {
               <span className="text-gray-300">Available</span>
               <span className="font-mono font-bold">{breakdown.available}</span>
             </div>
+            {breakdown.maxQty != null && (
+              <div className="flex justify-between gap-4">
+                <span className="text-gray-300">Max Cap</span>
+                <span className="font-mono text-orange-300">{breakdown.maxQty}</span>
+              </div>
+            )}
+            {breakdown.maxQty != null && breakdown.pushing !== breakdown.available && (
+              <div className="flex justify-between gap-4 border-t border-gray-700 mt-1 pt-1">
+                <span className="text-gray-300">Pushing</span>
+                <span className="font-mono font-bold text-green-300">{breakdown.pushing}</span>
+              </div>
+            )}
           </div>
         </div>,
         document.body,
@@ -640,8 +655,8 @@ export default function MarketplaceSkuManager() {
   async function handleToggleSyncQty(id: string, currentValue: boolean) {
     setTogglingIds((prev) => new Set(prev).add(id))
     try {
-      await apiPatch(`/api/marketplace-skus/${id}`, { syncQty: !currentValue })
-      setSkus((prev) => prev.map((s) => (s.id === id ? { ...s, syncQty: !currentValue } : s)))
+      const updated = await apiPatch(`/api/marketplace-skus/${id}`, { syncQty: !currentValue })
+      setSkus((prev) => prev.map((s) => (s.id === id ? { ...s, syncQty: !currentValue, maxQty: updated.maxQty ?? null } : s)))
       // Immediately push qty for this SKU only when enabling sync
       if (!currentValue) {
         const data = await apiPost('/api/marketplace-skus/push-qty', { mskuId: id })
@@ -985,6 +1000,7 @@ export default function MarketplaceSkuManager() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Sync Qty</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Max Qty</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Pushing</th>
                   <th className="px-4 py-3 w-12" />
                 </tr>
@@ -1024,6 +1040,33 @@ export default function MarketplaceSkuManager() {
                           )}
                         />
                       </button>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="—"
+                        disabled={!s.syncQty}
+                        defaultValue={s.maxQty ?? ''}
+                        key={`${s.id}-${s.maxQty}`}
+                        onBlur={(e) => {
+                          const raw = e.target.value.trim()
+                          const val = raw === '' ? null : Math.max(0, parseInt(raw, 10))
+                          if (val !== s.maxQty && !(val === null && s.maxQty === null) && !(Number.isNaN(val as number))) {
+                            apiPatch(`/api/marketplace-skus/${s.id}`, { maxQty: val })
+                              .then(() => {
+                                setSkus((prev) => prev.map((sk) => (sk.id === s.id ? { ...sk, maxQty: val } : sk)))
+                                loadQtyBreakdown()
+                              })
+                              .catch((err: Error) => setErr(err.message))
+                          }
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                        className={clsx(
+                          'w-16 text-center font-mono text-xs rounded border px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400',
+                          s.syncQty ? 'border-gray-300 bg-white text-gray-900' : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed',
+                        )}
+                      />
                     </td>
                     <td className="px-4 py-3 text-center">
                       {s.syncQty && qtyMap[s.id] ? (

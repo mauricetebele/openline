@@ -14,10 +14,11 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { syncQty } = body as { syncQty?: boolean }
+  const { syncQty, maxQty } = body as { syncQty?: boolean; maxQty?: number | null }
 
-  if (typeof syncQty !== 'boolean') {
-    return NextResponse.json({ error: 'syncQty (boolean) is required' }, { status: 400 })
+  // At least one field must be provided
+  if (typeof syncQty !== 'boolean' && maxQty === undefined) {
+    return NextResponse.json({ error: 'syncQty (boolean) or maxQty (number|null) is required' }, { status: 400 })
   }
 
   const msku = await prisma.productGradeMarketplaceSku.findUnique({
@@ -27,9 +28,13 @@ export async function PATCH(
     return NextResponse.json({ error: 'Marketplace SKU not found' }, { status: 404 })
   }
 
+  const data: { syncQty?: boolean; maxQty?: number | null } = {}
+  if (typeof syncQty === 'boolean') data.syncQty = syncQty
+  if (maxQty !== undefined) data.maxQty = maxQty
+
   const updated = await prisma.productGradeMarketplaceSku.update({
     where: { id: params.id },
-    data: { syncQty },
+    data,
     include: {
       product: { select: { id: true, sku: true, description: true } },
       grade: { select: { id: true, grade: true } },

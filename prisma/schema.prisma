@@ -867,6 +867,7 @@ model ProductGradeMarketplaceSku {
   accountId   String? // null = applies to all accounts for that marketplace
   sellerSku   String
   syncQty     Boolean       @default(false)
+  maxQty      Int?          // null = no cap; when set, pushed qty is min(available, maxQty)
   isSynced    Boolean       @default(false) // true = came from marketplace sync
   createdAt   DateTime      @default(now())
 

@@ -76,8 +76,9 @@ async function pushOneQuantity(
     )
   }
 
-  // 3. Calculate final available
+  // 3. Calculate final available, applying maxQty cap if set
   const available = Math.max(0, onHand - pendingQty)
+  const finalQty = msku.maxQty != null ? Math.min(available, msku.maxQty) : available
 
   // 4. Push to marketplace
   if (msku.marketplace === 'amazon') {
@@ -85,9 +86,9 @@ async function pushOneQuantity(
     if (!accountId) {
       const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
       if (!account) throw new Error('No active Amazon account found')
-      await updateAmazonQty(account.id, msku.sellerSku, available)
+      await updateAmazonQty(account.id, msku.sellerSku, finalQty)
     } else {
-      await updateAmazonQty(accountId, msku.sellerSku, available)
+      await updateAmazonQty(accountId, msku.sellerSku, finalQty)
     }
   } else if (msku.marketplace === 'backmarket') {
     if (!bmClient || !bmListingsCache) {
@@ -97,10 +98,10 @@ async function pushOneQuantity(
     if (!listingId) {
       throw new Error(`BM listing not found for SKU ${msku.sellerSku}`)
     }
-    await bmClient.updateListingQuantity(listingId, available)
+    await bmClient.updateListingQuantity(listingId, finalQty)
   }
 
-  return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: available }
+  return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty }
 }
 
 /**
