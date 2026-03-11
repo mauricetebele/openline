@@ -980,7 +980,7 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                 <div key={item.orderItemId} className="rounded-lg border border-gray-100 bg-gray-50 p-3 flex items-center justify-between">
                   <div>
                     <span className="font-mono text-xs font-semibold text-gray-700">{item.internalSku ?? item.sellerSku ?? '—'}</span>
-                    {item.mappedGradeName && <span className="ml-1.5 text-[9px] font-semibold text-purple-700">{item.mappedGradeName}</span>}
+                    {item.mappedGradeName && <span className="ml-1.5 text-[9px] font-semibold text-purple-700">Grade {item.mappedGradeName}</span>}
                     <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
                     <p className="text-xs text-gray-500 truncate mt-0.5">{item.title ?? '—'}</p>
                   </div>
@@ -994,7 +994,7 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                     <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
                     {(item.mappedGradeName || item.gradeName) && (
                       <span className="ml-1.5 inline-flex items-center text-[9px] font-semibold bg-purple-100 text-purple-700 border border-purple-200 px-1.5 py-px rounded">
-                        {item.mappedGradeName ?? item.gradeName}
+                        Grade {item.mappedGradeName ?? item.gradeName}
                       </span>
                     )}
                     <span className="text-xs text-gray-500 ml-2">×{item.quantityOrdered}</span>
@@ -1421,7 +1421,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
                   <div className="flex items-start justify-between">
                     <div>
                       <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
-                      {item.mappedGradeName && <span className="ml-1.5 text-[9px] font-semibold text-purple-700">{item.mappedGradeName}</span>}
+                      {item.mappedGradeName && <span className="ml-1.5 text-[9px] font-semibold text-purple-700">Grade {item.mappedGradeName}</span>}
                       <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
                       {item.title && <p className="text-xs text-gray-500 truncate mt-0.5">{item.title}</p>}
                     </div>
@@ -1675,7 +1675,7 @@ function ManualShipModal({ order, onClose, onShipped }: {
                     <div key={item.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-gray-50 border border-gray-100">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="font-mono font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
-                        {item.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600">{item.mappedGradeName}</span>}
+                        {item.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}
                         <span className="text-gray-400">×{item.quantityOrdered}</span>
                       </div>
                       {item.isSerializable && (
@@ -2282,11 +2282,11 @@ function OrderDetailModal({
                                   {/* Grade badge from pending change or MSKU mapping */}
                                   {pendingSkuChanges.get(item.id)?.gradeId ? (
                                     <span className="block text-[9px] font-semibold text-purple-700 mt-0.5">
-                                      {grades.find(g => g.id === pendingSkuChanges.get(item.id)?.gradeId)?.grade ?? 'Grade'}
+                                      Grade {grades.find(g => g.id === pendingSkuChanges.get(item.id)?.gradeId)?.grade ?? ''}
                                     </span>
                                   ) : item.mappedGradeName ? (
                                     <span className="block text-[9px] font-semibold text-purple-700 mt-0.5">
-                                      {item.mappedGradeName}
+                                      Grade {item.mappedGradeName}
                                     </span>
                                   ) : null}
                                   {/* Show marketplace SKU underneath when internal SKU differs */}
@@ -2457,7 +2457,7 @@ function OrderDetailModal({
                             <tr key={sa.id} className="hover:bg-gray-50">
                               <td className="px-4 py-2 text-gray-400 tabular-nums">{idx + 1}</td>
                               <td className="px-4 py-2 font-mono font-semibold text-gray-900">{sa.inventorySerial.serialNumber}</td>
-                              <td className="px-4 py-2 font-mono text-gray-600">{item?.internalSku ?? item?.sellerSku ?? '—'}{item?.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-600">{item.mappedGradeName}</span>}</td>
+                              <td className="px-4 py-2 font-mono text-gray-600">{item?.internalSku ?? item?.sellerSku ?? '—'}{item?.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}</td>
                             </tr>
                           )
                         })}
@@ -2933,7 +2933,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1.5">
             {order.items.map(item => (
               <div key={item.id} className="flex items-start gap-2 text-xs">
-                <span className="font-mono text-gray-600 shrink-0">{item.internalSku ?? item.sellerSku ?? '—'}{item.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600 ml-1">{item.mappedGradeName}</span>}</span>
+                <span className="font-mono text-gray-600 shrink-0">{item.internalSku ?? item.sellerSku ?? '—'}{item.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600 ml-1">Grade {item.mappedGradeName}</span>}</span>
                 <span className="text-gray-500">×{item.quantityOrdered}</span>
                 <span className="text-gray-700 truncate">{item.title ?? '—'}</span>
               </div>
@@ -3058,7 +3058,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
                 <div key={item.orderItemId} className="space-y-2">
                   <div className="flex items-center gap-2 text-xs">
                     <span className="font-mono font-semibold text-gray-700">{item.internalSku ?? item.sellerSku ?? item.asin ?? '—'}</span>
-                    {item.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600">{item.mappedGradeName}</span>}
+                    {item.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}
                     <span className="text-gray-400">×{item.quantityOrdered}</span>
                     <span className="text-gray-500 truncate">{item.title ?? ''}</span>
                   </div>
@@ -6153,7 +6153,7 @@ export default function UnshippedOrders() {
                       {order.items.map(i => (
                         <span key={i.id} className="font-mono text-[11px] text-gray-800 leading-4">
                           {i.internalSku ?? i.sellerSku ?? '—'}
-                          {i.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600 ml-1">{i.mappedGradeName}</span>}
+                          {i.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600 ml-1">Grade {i.mappedGradeName}</span>}
                         </span>
                       ))}
                     </div>
