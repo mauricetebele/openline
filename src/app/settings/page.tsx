@@ -6,10 +6,22 @@ import {
   ExternalLink, Warehouse, Truck, Settings,
   ChevronRight, Trash2, RotateCcw, Plus, X,
   Store, Upload, ImageIcon, Users, Shield, Printer, Package, Smartphone, Tag, Wrench,
+  Lock, Pencil,
 } from 'lucide-react'
 import AppShell from '@/components/AppShell'
 import WarehouseManager from '@/components/WarehouseManager'
 import CostCodeManager from '@/components/CostCodeManager'
+import { auth } from '@/lib/firebase-client'
+import {
+  signInWithEmailAndPassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  multiFactor,
+  TotpMultiFactorGenerator,
+  TotpSecret,
+  type MultiFactorInfo,
+} from 'firebase/auth'
+import QRCode from 'qrcode'
 
 // ─── Brand logo components ────────────────────────────────────────────────────
 
@@ -72,7 +84,7 @@ interface AmazonAccount {
   createdAt: string
 }
 
-type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'ups-buy-shipping' | 'fedex' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer' | 'sickw' | 'grades' | 'cost-codes'
+type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'ups-buy-shipping' | 'fedex' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer' | 'sickw' | 'grades' | 'cost-codes' | 'security'
 
 // ─── Amazon Accounts Section ──────────────────────────────────────────────────
 
@@ -1570,6 +1582,8 @@ function UsersSection() {
   const [saving, setSaving] = useState(false)
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
 
   // Form state
   const [formEmail, setFormEmail] = useState('')
@@ -1655,6 +1669,27 @@ function UsersSection() {
     }
   }
 
+  async function handleRename(u: ManagedUser) {
+    const trimmed = editName.trim()
+    if (!trimmed || trimmed === u.name) { setEditingId(null); return }
+    setTogglingId(u.id) // reuse toggling indicator
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id, name: trimmed }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success(`Renamed to ${trimmed}`)
+      setEditingId(null)
+      fetchUsers()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
   if (loading) return <p className="text-sm text-gray-500">Loading users…</p>
 
   return (
@@ -1724,7 +1759,33 @@ function UsersSection() {
           {users.map(u => (
             <div key={u.id} className="flex items-center gap-4 px-5 py-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{u.name}</p>
+                {editingId === u.id ? (
+                  <form
+                    onSubmit={e => { e.preventDefault(); handleRename(u) }}
+                    className="flex items-center gap-2"
+                  >
+                    <input
+                      type="text"
+                      className="input text-sm py-1 px-2"
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
+                      autoFocus
+                      onBlur={() => handleRename(u)}
+                      onKeyDown={e => { if (e.key === 'Escape') setEditingId(null) }}
+                    />
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-1.5 group">
+                    <p className="text-sm font-medium text-gray-900 truncate">{u.name}</p>
+                    <button
+                      onClick={() => { setEditingId(u.id); setEditName(u.name) }}
+                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 transition-opacity"
+                      title="Edit name"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  </div>
+                )}
                 <p className="text-xs text-gray-500 truncate">{u.email}</p>
               </div>
               <p className="text-xs text-gray-400 whitespace-nowrap hidden sm:block">
@@ -1757,6 +1818,291 @@ function UsersSection() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Two-Factor Authentication Section ────────────────────────────────────────
+
+function TwoFactorSection() {
+  const [mfaEnabled, setMfaEnabled] = useState(false)
+  const [enrolledFactors, setEnrolledFactors] = useState<MultiFactorInfo[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Enrollment flow state
+  const [step, setStep] = useState<'idle' | 'password' | 'qr' | 'verify'>('idle')
+  const [reAuthPassword, setReAuthPassword] = useState('')
+  const [qrDataUrl, setQrDataUrl] = useState('')
+  const [totpSecret, setTotpSecret] = useState<TotpSecret | null>(null)
+  const [verifyCode, setVerifyCode] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // Disable flow
+  const [disableStep, setDisableStep] = useState<'idle' | 'password'>('idle')
+  const [disablePassword, setDisablePassword] = useState('')
+
+  useEffect(() => {
+    checkMfaStatus()
+  }, [])
+
+  function checkMfaStatus() {
+    const user = auth.currentUser
+    if (!user) {
+      setLoading(false)
+      return
+    }
+    const factors = multiFactor(user).enrolledFactors
+    setEnrolledFactors(factors)
+    setMfaEnabled(factors.length > 0)
+    setLoading(false)
+  }
+
+  async function handleStartEnrollment(e: React.FormEvent) {
+    e.preventDefault()
+    const user = auth.currentUser
+    if (!user || !user.email) return
+    setBusy(true)
+    try {
+      const credential = EmailAuthProvider.credential(user.email, reAuthPassword)
+      await reauthenticateWithCredential(user, credential)
+
+      const mfaSession = await multiFactor(user).getSession()
+      const secret = await TotpMultiFactorGenerator.generateSecret(mfaSession)
+      setTotpSecret(secret)
+
+      const qrUrl = secret.generateQrCodeUrl(user.email, 'OpenLine')
+      const dataUrl = await QRCode.toDataURL(qrUrl, { width: 200, margin: 2 })
+      setQrDataUrl(dataUrl)
+      setStep('qr')
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code
+      if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+        toast.error('Incorrect password')
+      } else {
+        toast.error((err as Error).message ?? 'Failed to start enrollment')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleVerifyEnrollment(e: React.FormEvent) {
+    e.preventDefault()
+    if (!totpSecret) return
+    setBusy(true)
+    try {
+      const user = auth.currentUser
+      if (!user) throw new Error('Not signed in')
+
+      const assertion = TotpMultiFactorGenerator.assertionForEnrollment(totpSecret, verifyCode)
+      await multiFactor(user).enroll(assertion, 'Authenticator')
+
+      toast.success('Two-factor authentication enabled')
+      setStep('idle')
+      setReAuthPassword('')
+      setVerifyCode('')
+      setQrDataUrl('')
+      setTotpSecret(null)
+      checkMfaStatus()
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code
+      if (code === 'auth/invalid-verification-code') {
+        toast.error('Invalid code. Please try again.')
+      } else {
+        toast.error((err as Error).message ?? 'Enrollment failed')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleDisable(e: React.FormEvent) {
+    e.preventDefault()
+    const user = auth.currentUser
+    if (!user || !user.email) return
+    setBusy(true)
+    try {
+      const credential = EmailAuthProvider.credential(user.email, disablePassword)
+      await reauthenticateWithCredential(user, credential)
+
+      const factors = multiFactor(user).enrolledFactors
+      for (const factor of factors) {
+        await multiFactor(user).unenroll(factor)
+      }
+
+      toast.success('Two-factor authentication disabled')
+      setDisableStep('idle')
+      setDisablePassword('')
+      checkMfaStatus()
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code
+      if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+        toast.error('Incorrect password')
+      } else {
+        toast.error((err as Error).message ?? 'Failed to disable 2FA')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (loading) return <p className="text-sm text-gray-500">Checking 2FA status…</p>
+
+  if (!auth.currentUser) {
+    return (
+      <div className="max-w-xl">
+        <div className="card p-6">
+          <p className="text-sm text-gray-500">
+            Sign in with the Firebase client SDK to manage two-factor authentication.
+            Your current session uses server-side cookies — please sign out and sign back in to enable 2FA management.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-w-xl space-y-6">
+      {/* Current status */}
+      <div className="card p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-900">Status</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {mfaEnabled
+                ? `Enabled — ${enrolledFactors.map(f => f.displayName ?? 'Authenticator').join(', ')}`
+                : 'Not enabled'}
+            </p>
+          </div>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+            mfaEnabled
+              ? 'bg-green-100 text-green-700'
+              : 'bg-gray-100 text-gray-600'
+          }`}>
+            {mfaEnabled ? 'Active' : 'Off'}
+          </span>
+        </div>
+      </div>
+
+      {/* Enable flow */}
+      {!mfaEnabled && step === 'idle' && (
+        <button
+          onClick={() => setStep('password')}
+          className="btn-primary w-full justify-center"
+        >
+          Enable Two-Factor Authentication
+        </button>
+      )}
+
+      {!mfaEnabled && step === 'password' && (
+        <div className="card p-6">
+          <p className="text-sm font-medium text-gray-900 mb-1">Confirm your password</p>
+          <p className="text-xs text-gray-500 mb-4">Re-authentication is required before enabling 2FA.</p>
+          <form onSubmit={handleStartEnrollment} className="space-y-3">
+            <input
+              type="password"
+              className="input"
+              placeholder="Current password"
+              value={reAuthPassword}
+              onChange={e => setReAuthPassword(e.target.value)}
+              required
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button type="submit" disabled={busy} className="btn-primary text-xs">
+                {busy ? 'Verifying…' : 'Continue'}
+              </button>
+              <button type="button" className="btn btn-secondary text-xs" onClick={() => { setStep('idle'); setReAuthPassword('') }}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {!mfaEnabled && step === 'qr' && (
+        <div className="card p-6 space-y-4">
+          <div>
+            <p className="text-sm font-medium text-gray-900 mb-1">Scan QR Code</p>
+            <p className="text-xs text-gray-500">
+              Open your authenticator app (Google Authenticator, Authy, etc.) and scan this QR code.
+            </p>
+          </div>
+          {qrDataUrl && (
+            <div className="flex justify-center">
+              <img src={qrDataUrl} alt="TOTP QR Code" width={200} height={200} className="rounded-lg border" />
+            </div>
+          )}
+          <button onClick={() => setStep('verify')} className="btn-primary w-full justify-center text-sm">
+            I&apos;ve scanned the code
+          </button>
+        </div>
+      )}
+
+      {!mfaEnabled && step === 'verify' && (
+        <div className="card p-6">
+          <p className="text-sm font-medium text-gray-900 mb-1">Enter verification code</p>
+          <p className="text-xs text-gray-500 mb-4">Enter the 6-digit code from your authenticator app.</p>
+          <form onSubmit={handleVerifyEnrollment} className="space-y-3">
+            <input
+              type="text"
+              className="input text-center text-lg tracking-[0.3em] font-mono"
+              placeholder="000000"
+              value={verifyCode}
+              onChange={e => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              maxLength={6}
+              required
+              autoFocus
+              inputMode="numeric"
+              autoComplete="one-time-code"
+            />
+            <div className="flex gap-2">
+              <button type="submit" disabled={busy || verifyCode.length !== 6} className="btn-primary text-xs">
+                {busy ? 'Verifying…' : 'Enable 2FA'}
+              </button>
+              <button type="button" className="btn btn-secondary text-xs" onClick={() => setStep('qr')}>
+                Back
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Disable flow */}
+      {mfaEnabled && disableStep === 'idle' && (
+        <button
+          onClick={() => setDisableStep('password')}
+          className="btn btn-secondary w-full justify-center text-red-600 hover:text-red-700"
+        >
+          Disable Two-Factor Authentication
+        </button>
+      )}
+
+      {mfaEnabled && disableStep === 'password' && (
+        <div className="card p-6">
+          <p className="text-sm font-medium text-gray-900 mb-1">Confirm your password</p>
+          <p className="text-xs text-gray-500 mb-4">Re-authentication is required to disable 2FA.</p>
+          <form onSubmit={handleDisable} className="space-y-3">
+            <input
+              type="password"
+              className="input"
+              placeholder="Current password"
+              value={disablePassword}
+              onChange={e => setDisablePassword(e.target.value)}
+              required
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button type="submit" disabled={busy} className="btn-primary text-xs bg-red-600 hover:bg-red-700">
+                {busy ? 'Disabling…' : 'Disable 2FA'}
+              </button>
+              <button type="button" className="btn btn-secondary text-xs" onClick={() => { setDisableStep('idle'); setDisablePassword('') }}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   )
 }
@@ -2142,6 +2488,14 @@ const HUB_GROUPS: HubGroup[] = [
         title: 'Users',
         description: 'Create team accounts, assign Admin or Reviewer roles, and manage access to the platform.',
       },
+      {
+        id: 'security',
+        icon: Lock,
+        iconBg: 'bg-emerald-50',
+        iconColor: 'text-emerald-600',
+        title: 'Two-Factor Auth',
+        description: 'Enable TOTP two-factor authentication using Google Authenticator or Authy for added account security.',
+      },
     ],
   },
 ]
@@ -2240,6 +2594,7 @@ function SettingsContent() {
             {activeSection === 'cost-codes'    && <CostCodeManager />}
             {activeSection === 'store-settings' && <StoreSettingsSection />}
             {activeSection === 'users'          && <UsersSection />}
+            {activeSection === 'security'       && <TwoFactorSection />}
             {activeSection === 'printer'        && <PrinterSettingsSection />}
           </div>
         )}
