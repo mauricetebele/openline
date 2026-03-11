@@ -32,20 +32,30 @@ export async function GET(
 
   const items = await Promise.all(order.items.map(async item => {
     let isSerializable = false
+    let internalSku: string | null = null
+    let mappedGradeName: string | null = null
     if (item.sellerSku) {
       // Try direct product match first, then fall back to marketplace SKU mapping
       let product = await prisma.product.findUnique({
         where:  { sku: item.sellerSku },
-        select: { isSerializable: true },
+        select: { isSerializable: true, sku: true },
       })
       if (!product) {
         const msku = await prisma.productGradeMarketplaceSku.findFirst({
           where: { sellerSku: item.sellerSku },
-          include: { product: { select: { isSerializable: true } } },
+          include: { product: { select: { isSerializable: true, sku: true } }, grade: { select: { grade: true } } },
         })
         product = msku?.product ?? null
+        if (msku) {
+          internalSku = msku.product.sku
+          mappedGradeName = msku.grade?.grade ?? null
+        }
       }
       isSerializable = product?.isSerializable ?? false
+    }
+    // Fall back to item's own grade if no MSKU grade
+    if (!mappedGradeName && item.grade?.grade) {
+      mappedGradeName = item.grade.grade
     }
 
     const assignedSerials = order.serialAssignments
@@ -55,6 +65,8 @@ export async function GET(
     return {
       orderItemId:     item.id,
       sellerSku:       item.sellerSku,
+      internalSku,
+      mappedGradeName,
       title:           item.title,
       quantityOrdered: item.quantityOrdered,
       isSerializable,
