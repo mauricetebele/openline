@@ -31,6 +31,15 @@ interface LookupSerial {
   history: HistoryEvent[]
 }
 
+interface PartialMatch {
+  id:           string
+  serialNumber: string
+  status:       string
+  product:      { description: string; sku: string }
+  grade:        { id: string; grade: string } | null
+  location:     { name: string; warehouse: { name: string } }
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_LABEL: Record<string, string> = {
@@ -63,6 +72,7 @@ const EVENT_LABEL: Record<string, string> = {
 export default function SNLookupModal({ onClose, initialQuery }: { onClose: () => void; initialQuery?: string }) {
   const [query,    setQuery]    = useState(initialQuery ?? '')
   const [result,   setResult]   = useState<LookupSerial | null>(null)
+  const [matches,  setMatches]  = useState<PartialMatch[]>([])
   const [loading,  setLoading]  = useState(false)
   const [err,      setErr]      = useState('')
 
@@ -155,11 +165,43 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
     setLoading(true)
     setErr('')
     setResult(null)
+    setMatches([])
     try {
       const res  = await fetch(`/api/serials/lookup?sn=${encodeURIComponent(val)}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Lookup failed')
-      setResult(data)
+      if (data.matches) {
+        // Multiple partial matches — show list
+        setMatches(data.matches)
+      } else {
+        // Single/exact match — show detail
+        setResult(data)
+      }
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Lookup failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function selectMatch(id: string) {
+    setLoading(true)
+    setErr('')
+    setMatches([])
+    try {
+      // Fetch the selected serial by exact serial number
+      const match = matches.find(m => m.id === id)
+      if (!match) return
+      const res = await fetch(`/api/serials/lookup?sn=${encodeURIComponent(match.serialNumber)}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Lookup failed')
+      if (data.matches) {
+        // Shouldn't happen with exact SN, but handle gracefully
+        setResult(data.matches[0])
+      } else {
+        setResult(data)
+      }
+      setQuery(match.serialNumber)
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Lookup failed')
     } finally {
@@ -189,7 +231,7 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
               ref={inputRef}
               type="text"
               value={query}
-              onChange={e => { setQuery(e.target.value); setErr(''); setResult(null) }}
+              onChange={e => { setQuery(e.target.value); setErr(''); setResult(null); setMatches([]) }}
               onKeyDown={e => { if (e.key === 'Enter') handleSearch() }}
               placeholder="Enter or scan a serial number…"
               className="flex-1 h-10 rounded-md border border-gray-300 px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue"
@@ -208,10 +250,43 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
 
         {/* Results */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {!result && !err && !loading && (
+          {!result && !err && !loading && matches.length === 0 && (
             <div className="py-12 text-center">
               <Hash size={32} className="mx-auto text-gray-200 mb-3" />
-              <p className="text-sm text-gray-400">Enter a serial number to view its history</p>
+              <p className="text-sm text-gray-400">Enter a full or partial serial number to search</p>
+            </div>
+          )}
+
+          {matches.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                {matches.length} match{matches.length !== 1 ? 'es' : ''} found
+              </p>
+              <div className="space-y-1">
+                {matches.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => selectMatch(m.id)}
+                    className="w-full text-left rounded-lg border border-gray-200 hover:border-amazon-blue hover:bg-blue-50/50 px-3 py-2.5 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold font-mono text-gray-900 truncate">{m.serialNumber}</p>
+                        <p className="text-xs text-gray-500 truncate">{m.product.sku} · {m.product.description}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {m.grade && (
+                          <span className="text-[10px] font-semibold text-gray-600 bg-gray-100 rounded px-1.5 py-0.5">{m.grade.grade}</span>
+                        )}
+                        <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${STATUS_COLOR[m.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                          {STATUS_LABEL[m.status] ?? m.status}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{m.location.warehouse.name} / {m.location.name}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

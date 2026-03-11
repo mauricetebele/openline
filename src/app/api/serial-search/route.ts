@@ -31,7 +31,13 @@ export async function GET(req: NextRequest) {
 
   // Build where clause: serial search, filter search, or both
   const where: Record<string, unknown> = {}
-  if (requested.length) where.serialNumber = { in: requested, mode: 'insensitive' }
+  if (requested.length === 1) {
+    // Single serial — use partial match
+    where.serialNumber = { contains: requested[0], mode: 'insensitive' }
+  } else if (requested.length > 1) {
+    // Multiple serials — use exact match (bulk lookup)
+    where.serialNumber = { in: requested, mode: 'insensitive' }
+  }
   if (locationId) where.locationId = locationId
   else if (warehouseId) where.location = { warehouseId }
   if (status === 'IN_STOCK') where.status = 'IN_STOCK'
@@ -63,9 +69,10 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const isPartialSearch = requested.length === 1
   const records = await prisma.inventorySerial.findMany({
     where,
-    ...(isFilterSearch ? { take: 500 } : {}),
+    ...((isFilterSearch || isPartialSearch) ? { take: 500 } : {}),
     include: {
       product: { select: { sku: true, description: true } },
       grade: { select: { grade: true } },
@@ -93,7 +100,8 @@ export async function GET(req: NextRequest) {
   })
 
   const foundSerials = new Set(records.map(r => r.serialNumber.toLowerCase()))
-  const notFound = requested.length
+  // For partial (single-serial) search, don't report "not found" — results are contains-matches
+  const notFound = requested.length > 1
     ? requested.filter(s => !foundSerials.has(s.toLowerCase()))
     : []
 
