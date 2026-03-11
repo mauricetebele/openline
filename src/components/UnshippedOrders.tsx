@@ -980,8 +980,8 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                 <div key={item.orderItemId} className="rounded-lg border border-gray-100 bg-gray-50 p-3 flex items-center justify-between">
                   <div>
                     <span className="font-mono text-xs font-semibold text-gray-700">{item.internalSku ?? item.sellerSku ?? '—'}</span>
-                    {item.mappedGradeName && <span className="ml-1.5 text-[9px] font-semibold text-purple-700">Grade {item.mappedGradeName}</span>}
                     <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
+                    {item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-700">Grade {item.mappedGradeName}</span>}
                     <p className="text-xs text-gray-500 truncate mt-0.5">{item.title ?? '—'}</p>
                   </div>
                   <span className="text-xs text-gray-400 italic">Not serializable</span>
@@ -992,12 +992,12 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                 <div key={item.orderItemId} className="rounded-lg border border-gray-200 p-3 space-y-2">
                   <div>
                     <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
+                    <span className="text-xs text-gray-500 ml-2">×{item.quantityOrdered}</span>
                     {(item.mappedGradeName || item.gradeName) && (
-                      <span className="ml-1.5 inline-flex items-center text-[9px] font-semibold bg-purple-100 text-purple-700 border border-purple-200 px-1.5 py-px rounded">
+                      <span className="block text-[9px] font-semibold text-purple-700">
                         Grade {item.mappedGradeName ?? item.gradeName}
                       </span>
                     )}
-                    <span className="text-xs text-gray-500 ml-2">×{item.quantityOrdered}</span>
                     <p className="text-xs text-gray-500 truncate">{item.title ?? '—'}</p>
                   </div>
                   <div className="space-y-1.5">
@@ -1421,8 +1421,8 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
                   <div className="flex items-start justify-between">
                     <div>
                       <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
-                      {item.mappedGradeName && <span className="ml-1.5 text-[9px] font-semibold text-purple-700">Grade {item.mappedGradeName}</span>}
                       <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
+                      {item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-700">Grade {item.mappedGradeName}</span>}
                       {item.title && <p className="text-xs text-gray-500 truncate mt-0.5">{item.title}</p>}
                     </div>
                     {!item.isSerializable && <span className="text-[9px] text-gray-400 italic shrink-0">Not serializable</span>}
@@ -1673,9 +1673,11 @@ function ManualShipModal({ order, onClose, onShipped }: {
                 <div className="space-y-1">
                   {order.items.map(item => (
                     <div key={item.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-gray-50 border border-gray-100">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-mono font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
-                        {item.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}
+                      <div className="flex items-start gap-2 min-w-0">
+                        <div>
+                          <span className="font-mono font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
+                          {item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}
+                        </div>
                         <span className="text-gray-400">×{item.quantityOrdered}</span>
                       </div>
                       {item.isSerializable && (
@@ -2933,7 +2935,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1.5">
             {order.items.map(item => (
               <div key={item.id} className="flex items-start gap-2 text-xs">
-                <span className="font-mono text-gray-600 shrink-0">{item.internalSku ?? item.sellerSku ?? '—'}{item.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600 ml-1">Grade {item.mappedGradeName}</span>}</span>
+                <span className="font-mono text-gray-600 shrink-0">{item.internalSku ?? item.sellerSku ?? '—'}{item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}</span>
                 <span className="text-gray-500">×{item.quantityOrdered}</span>
                 <span className="text-gray-700 truncate">{item.title ?? '—'}</span>
               </div>
@@ -3057,8 +3059,10 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
               {transparencyItems.map(item => (
                 <div key={item.orderItemId} className="space-y-2">
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="font-mono font-semibold text-gray-700">{item.internalSku ?? item.sellerSku ?? item.asin ?? '—'}</span>
-                    {item.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}
+                    <div>
+                      <span className="font-mono font-semibold text-gray-700">{item.internalSku ?? item.sellerSku ?? item.asin ?? '—'}</span>
+                      {item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}
+                    </div>
                     <span className="text-gray-400">×{item.quantityOrdered}</span>
                     <span className="text-gray-500 truncate">{item.title ?? ''}</span>
                   </div>
@@ -6153,7 +6157,7 @@ export default function UnshippedOrders() {
                       {order.items.map(i => (
                         <span key={i.id} className="font-mono text-[11px] text-gray-800 leading-4">
                           {i.internalSku ?? i.sellerSku ?? '—'}
-                          {i.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600 ml-1">Grade {i.mappedGradeName}</span>}
+                          {i.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-600">Grade {i.mappedGradeName}</span>}
                         </span>
                       ))}
                     </div>
