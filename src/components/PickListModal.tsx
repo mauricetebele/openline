@@ -19,6 +19,7 @@ interface BinCount {
 interface PickItem {
   orderItemId: string
   sellerSku: string | null
+  internalSku: string | null
   title: string | null
   quantityOrdered: number
   binLocations: BinCount[]
@@ -293,14 +294,14 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
       .catch(e  => { setError(e.message); setLoading(false) })
   }, [orderIds])
 
-  // Aggregate items by SKU + grade across all orders
+  // Aggregate items by internal SKU + grade across all orders
   const aggregated = useMemo<AggregatedItem[]>(() => {
     const map = new Map<string, AggregatedItem>()
     for (const order of orders) {
       for (const item of order.items) {
-        // Determine grade from reservations (all reservations for the same item usually share a grade)
+        const sku = item.internalSku ?? item.sellerSku
         const grade = item.reservations[0]?.grade ?? null
-        const key = `${item.sellerSku ?? '\x00'}::${grade ?? ''}`
+        const key = `${sku ?? '\x00'}::${grade ?? ''}`
         const existing = map.get(key)
         if (existing) {
           existing.totalQty += item.quantityOrdered
@@ -312,7 +313,7 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
           }
         } else {
           map.set(key, {
-            sellerSku:    item.sellerSku,
+            sellerSku:    sku,
             grade,
             title:        item.title,
             totalQty:     item.quantityOrdered,

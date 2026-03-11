@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
             include: { warehouse: { select: { name: true } } },
           },
           grade: { select: { grade: true } },
+          product: { select: { sku: true } },
         },
       },
       serialAssignments: {
@@ -112,9 +113,12 @@ export async function GET(req: NextRequest) {
         }
 
         const binLocations = Array.from(binCounts.entries()).map(([bin, qty]) => ({ bin, qty }))
+        // Internal (parent) SKU from the reserved product
+        const internalSku = itemRes[0]?.product?.sku ?? null
         return {
           orderItemId:     item.id,
           sellerSku:       item.sellerSku,
+          internalSku,
           title:           item.title,
           quantityOrdered: item.quantityOrdered,
           binLocations,
