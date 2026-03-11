@@ -64,8 +64,12 @@ export async function GET(req: NextRequest) {
 
   // Build lookup: `${productId}:${gradeId ?? ''}` → latest unit cost
   const costMap = new Map<string, number>()
+  const costProductOnly = new Map<string, number>() // fallback ignoring grade
   for (const c of costRows) {
     costMap.set(`${c.productId}:${c.gradeId ?? ''}`, c.unitCost)
+    if (!costProductOnly.has(c.productId)) {
+      costProductOnly.set(c.productId, c.unitCost)
+    }
   }
 
   const data = items
@@ -73,7 +77,7 @@ export async function GET(req: NextRequest) {
       const key      = `${item.productId}:${item.locationId}:${item.gradeId ?? ''}`
       const reserved = reservedMap.get(key) ?? 0
       const onHand   = item.qty + reserved
-      const unitCost = costMap.get(`${item.productId}:${item.gradeId ?? ''}`) ?? null
+      const unitCost = costMap.get(`${item.productId}:${item.gradeId ?? ''}`) ?? costProductOnly.get(item.productId) ?? null
       return { ...item, reserved, onHand, unitCost }
     })
     .filter(item => item.onHand > 0)
