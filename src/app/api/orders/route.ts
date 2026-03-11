@@ -71,7 +71,10 @@ export async function GET(req: NextRequest) {
         take: pageSize,
         orderBy,
         include: {
-          items: { orderBy: { sellerSku: 'asc' } },
+          items: {
+            orderBy: { sellerSku: 'asc' },
+            include: { grade: { select: { grade: true } } },
+          },
           label: {
             select: {
               trackingNumber: true,
@@ -126,7 +129,7 @@ export async function GET(req: NextRequest) {
           ...item,
           isSerializable: item.sellerSku ? serializableSkus.has(item.sellerSku) : false,
           internalSku:    mapping?.product.sku ?? null,
-          mappedGradeName: mapping?.grade?.grade ?? null,
+          mappedGradeName: mapping?.grade?.grade ?? item.grade?.grade ?? null,
         }
       }),
     }))
