@@ -6307,7 +6307,6 @@ export default function UnshippedOrders() {
                           {(() => {
                             const totalSerializable = order.items.filter(i => i.isSerializable).reduce((s, i) => s + i.quantityOrdered, 0)
                             const assigned = order.serialAssignments?.length ?? 0
-                            const isSerialized = totalSerializable === 0 || assigned >= totalSerializable
                             const isFullySerialized = totalSerializable > 0 && assigned >= totalSerializable
                             return (
                               <>
@@ -6318,7 +6317,7 @@ export default function UnshippedOrders() {
                                     <Truck size={10} /> Ship
                                   </button>
                                 )}
-                                {isSerialized ? (
+                                {isFullySerialized ? (
                                   <button onClick={() => setManualShipOrder(order)}
                                     title="Manual Ship — mark as shipped without marketplace push"
                                     className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
@@ -6382,10 +6381,10 @@ export default function UnshippedOrders() {
                         {(() => {
                           const totalSerializable = order.items.filter(i => i.isSerializable).reduce((s, i) => s + i.quantityOrdered, 0)
                           const assigned = order.serialAssignments?.length ?? 0
-                          const isSerialized = totalSerializable === 0 || assigned >= totalSerializable
+                          const isFullySerialized = totalSerializable > 0 && assigned >= totalSerializable
                           return (
                             <>
-                              {isSerialized && (
+                              {isFullySerialized && (
                                 <button onClick={() => setManualShipOrder(order)}
                                   title="Manual Ship — mark as shipped without marketplace push"
                                   className="inline-flex items-center gap-1 h-6 px-1.5 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
