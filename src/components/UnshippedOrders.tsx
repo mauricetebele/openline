@@ -528,8 +528,11 @@ function BulkProcessModal({
       init[oi.orderId] = {}
       for (const item of oi.items) {
         if (!item.productId || item.locations.length === 0) continue
-        // Prefer FG location with enough stock, then best qty
-        const fg   = item.locations.find(l => l.isFinishedGoods && l.qty >= item.quantityOrdered)
+        // Prefer grade-matching FG location with enough stock, then best qty
+        const fg   = item.locations.find(l =>
+          l.isFinishedGoods && l.qty >= item.quantityOrdered
+          && (item.gradeId ? l.gradeId === item.gradeId : true)
+        )
         const best = fg ?? item.locations.find(l => l.qty >= item.quantityOrdered) ?? item.locations[0]
         init[oi.orderId][item.orderItemId] = {
           orderItemId: item.orderItemId,
@@ -708,7 +711,14 @@ function BulkProcessModal({
                                 </div>
                               )}
                               <div className="flex-1 min-w-0">
-                                <p className="font-mono text-xs font-semibold text-gray-800">{item.sellerSku ?? '—'}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="font-mono text-xs font-semibold text-gray-800">{item.sellerSku ?? '—'}</p>
+                                  {item.gradeName && (
+                                    <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-1.5 py-0.5 text-[10px] font-bold">
+                                      Grade {item.gradeName}
+                                    </span>
+                                  )}
+                                </div>
                                 <p className="text-xs text-gray-500 truncate">{item.title ?? '—'}</p>
                                 <p className="text-xs text-gray-400">Qty: <strong>{item.quantityOrdered}</strong></p>
                               </div>
@@ -4973,10 +4983,13 @@ export default function UnshippedOrders() {
         .map(r => {
           const data = r.data!
           const order = orders.find(o => o.id === r.orderId)
-          // An order is "all FG" if every item has a FG location with enough stock
+          // An order is "all FG" if every item has a grade-matching FG location with enough stock
           const allFG = data.items.every(item => {
             if (!item.productId) return false
-            return item.locations.some(l => l.isFinishedGoods && l.qty >= item.quantityOrdered)
+            return item.locations.some(l =>
+              l.isFinishedGoods && l.qty >= item.quantityOrdered
+              && (item.gradeId ? l.gradeId === item.gradeId : true)
+            )
           })
           // Build asinMap from original order items
           const asinMap: Record<string, string | null> = {}
