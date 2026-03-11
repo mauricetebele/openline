@@ -60,6 +60,8 @@ interface OrderItem {
   transparencyCodes?: string[]
   bmSerials?: string[]
   gradeId?: string | null
+  internalSku?: string | null
+  mappedGradeName?: string | null
 }
 
 interface OrderLabelSummary {
@@ -2266,18 +2268,26 @@ function OrderDetailModal({
                                       isPendingOrder && 'group inline-flex items-center gap-1.5 hover:text-indigo-600 cursor-pointer',
                                     )}
                                   >
-                                    {item.sellerSku ?? <span className="text-gray-400 italic">—</span>}
+                                    {item.internalSku ?? item.sellerSku ?? <span className="text-gray-400 italic">—</span>}
                                     {isPendingOrder && <Pencil size={10} className="shrink-0 text-gray-300 group-hover:text-indigo-400 transition-colors" />}
                                     {/* Amber dot = unsaved staged change */}
                                     {pendingSkuChanges.has(item.id) && (
                                       <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" title="Unsaved change — click Save Changes to apply" />
                                     )}
                                   </button>
-                                  {/* Grade badge */}
-                                  {pendingSkuChanges.get(item.id)?.gradeId && (
-                                    <span className="ml-1 inline-flex items-center gap-1 text-[9px] font-semibold bg-purple-100 text-purple-700 border border-purple-200 px-1.5 py-px rounded">
+                                  {/* Grade badge from pending change or MSKU mapping */}
+                                  {pendingSkuChanges.get(item.id)?.gradeId ? (
+                                    <span className="block text-[9px] font-semibold text-purple-700 mt-0.5">
                                       {grades.find(g => g.id === pendingSkuChanges.get(item.id)?.gradeId)?.grade ?? 'Grade'}
                                     </span>
+                                  ) : item.mappedGradeName ? (
+                                    <span className="block text-[9px] font-semibold text-purple-700 mt-0.5">
+                                      {item.mappedGradeName}
+                                    </span>
+                                  ) : null}
+                                  {/* Show marketplace SKU underneath when internal SKU differs */}
+                                  {item.internalSku && item.sellerSku && item.internalSku !== item.sellerSku && (
+                                    <span className="block font-mono text-[9px] text-gray-400 mt-0.5">{item.sellerSku}</span>
                                   )}
                                 </div>
                               )}

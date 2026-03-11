@@ -107,14 +107,28 @@ export async function GET(req: NextRequest) {
       : []
     const serializableSkus = new Set(serializableProducts.map(p => p.sku))
 
-    // Compute requiresTransparency + isSerializable per order item
+    // Batch-lookup marketplace SKU → internal SKU + grade mappings
+    const mskuMappings = allSkus.length > 0
+      ? await prisma.productGradeMarketplaceSku.findMany({
+          where: { sellerSku: { in: allSkus } },
+          include: { product: { select: { sku: true } }, grade: { select: { grade: true } } },
+        })
+      : []
+    const mskuMap = new Map(mskuMappings.map(m => [m.sellerSku, m]))
+
+    // Compute requiresTransparency + isSerializable + internalSku/gradeName per order item
     const data = orders.map(order => ({
       ...order,
       requiresTransparency: order.items.some(item => item.isTransparency),
-      items: order.items.map(item => ({
-        ...item,
-        isSerializable: item.sellerSku ? serializableSkus.has(item.sellerSku) : false,
-      })),
+      items: order.items.map(item => {
+        const mapping = item.sellerSku ? mskuMap.get(item.sellerSku) : undefined
+        return {
+          ...item,
+          isSerializable: item.sellerSku ? serializableSkus.has(item.sellerSku) : false,
+          internalSku:    mapping?.product.sku ?? null,
+          mappedGradeName: mapping?.grade?.grade ?? null,
+        }
+      }),
     }))
 
     return NextResponse.json({
