@@ -8,6 +8,7 @@ interface PickReservation {
   locationName: string
   warehouseName: string
   qtyReserved: number
+  grade: string | null
 }
 
 interface BinCount {
@@ -37,6 +38,7 @@ interface PickOrder {
 
 interface AggregatedItem {
   sellerSku: string | null
+  grade: string | null
   title: string | null
   totalQty: number
   binLocations: BinCount[]
@@ -82,6 +84,7 @@ function buildPrintHtml(opts: {
     }</td>` : ''
     return `<tr>
       <td class="sku">${esc(item.sellerSku ?? '—')}</td>
+      <td class="grade">${esc(item.grade ?? '—')}</td>
       <td class="qty">${item.totalQty}</td>
       ${locationCell}
       <td class="chk"><span class="checkbox"></span></td>
@@ -89,6 +92,7 @@ function buildPrintHtml(opts: {
   }).join('\n')
 
   const locationTh = showLocations ? '<th>Location</th>' : ''
+  const gradeTh = '<th>Grade</th>'
 
   return `<!DOCTYPE html>
 <html>
@@ -165,6 +169,12 @@ function buildPrintHtml(opts: {
     white-space: nowrap;
     color: #000;
   }
+  td.grade {
+    font-weight: 700;
+    font-size: ${is4x6 ? '7pt' : '9pt'};
+    white-space: nowrap;
+    color: #374151;
+  }
   td.qty {
     font-weight: 800;
     font-size: ${is4x6 ? '8pt' : '11pt'};
@@ -221,6 +231,7 @@ function buildPrintHtml(opts: {
   <thead>
     <tr>
       <th>SKU</th>
+      ${gradeTh}
       <th class="center">Qty</th>
       ${locationTh}
       <th class="center">✓</th>
@@ -282,12 +293,14 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
       .catch(e  => { setError(e.message); setLoading(false) })
   }, [orderIds])
 
-  // Aggregate items by SKU across all orders
+  // Aggregate items by SKU + grade across all orders
   const aggregated = useMemo<AggregatedItem[]>(() => {
     const map = new Map<string, AggregatedItem>()
     for (const order of orders) {
       for (const item of order.items) {
-        const key = item.sellerSku ?? '\x00'
+        // Determine grade from reservations (all reservations for the same item usually share a grade)
+        const grade = item.reservations[0]?.grade ?? null
+        const key = `${item.sellerSku ?? '\x00'}::${grade ?? ''}`
         const existing = map.get(key)
         if (existing) {
           existing.totalQty += item.quantityOrdered
@@ -300,6 +313,7 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
         } else {
           map.set(key, {
             sellerSku:    item.sellerSku,
+            grade,
             title:        item.title,
             totalQty:     item.quantityOrdered,
             binLocations: [...item.binLocations],
@@ -309,7 +323,7 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
       }
     }
     return Array.from(map.values()).sort((a, b) =>
-      (a.sellerSku ?? '').localeCompare(b.sellerSku ?? ''))
+      (a.sellerSku ?? '').localeCompare(b.sellerSku ?? '') || (a.grade ?? '').localeCompare(b.grade ?? ''))
   }, [orders])
 
   const totalUnits = aggregated.reduce((s, i) => s + i.totalQty, 0)
@@ -396,6 +410,7 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">SKU</th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Grade</th>
                       <th className="px-4 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-12">Qty</th>
                       {showLocations && (
                         <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Location</th>
@@ -408,6 +423,9 @@ export default function PickListModal({ orderIds, showLocations, onClose }: Prop
                       <tr key={i} className="border-b border-gray-100 last:border-0">
                         <td className="px-4 py-3 font-mono text-sm font-black text-gray-900 whitespace-nowrap align-top">
                           {item.sellerSku ?? '—'}
+                        </td>
+                        <td className="px-4 py-3 text-xs font-semibold text-gray-700 whitespace-nowrap align-top">
+                          {item.grade ?? <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-4 py-3 text-center font-bold text-gray-900 align-top text-sm">
                           {item.totalQty}

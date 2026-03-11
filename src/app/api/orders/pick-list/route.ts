@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
           location: {
             include: { warehouse: { select: { name: true } } },
           },
+          grade: { select: { grade: true } },
         },
       },
       serialAssignments: {
@@ -117,6 +118,7 @@ export async function GET(req: NextRequest) {
             locationName:  r.location.name,
             warehouseName: r.location.warehouse.name,
             qtyReserved:   r.qtyReserved,
+            grade:         r.grade?.grade ?? null,
           })),
         }
       }),
