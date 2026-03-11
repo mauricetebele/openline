@@ -629,36 +629,36 @@ export default function ProductsManager() {
       ) : viewArchived ? (
         /* ─── Archived Products Table ─── */
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="min-w-full text-sm">
+          <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Serialization</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Archived On</th>
-                <th className="px-4 py-3 w-32" />
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Description</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Serialization</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Archived On</th>
+                <th className="px-2 py-1.5 w-32" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-50">
               {products.map((product) => (
                 <tr key={product.id} className="hover:bg-gray-50 group">
-                  <td className="px-4 py-3 font-medium text-gray-600">{product.description}</td>
-                  <td className="px-4 py-3 font-mono text-gray-500 text-xs">{product.sku}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-2 py-1 font-mono text-xs font-semibold text-gray-600 whitespace-nowrap">{product.sku}</td>
+                  <td className="px-2 py-1 text-gray-600">{product.description}</td>
+                  <td className="px-2 py-1">
                     {product.isSerializable ? (
-                      <span className="inline-flex items-center rounded-full bg-purple-100 text-purple-700 px-2.5 py-0.5 text-xs font-medium">
+                      <span className="inline-flex items-center rounded-full bg-purple-100 text-purple-700 px-2 py-0.5 text-[10px] font-medium">
                         Serializable
                       </span>
                     ) : (
-                      <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-600 px-2.5 py-0.5 text-xs font-medium">
+                      <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-600 px-2 py-0.5 text-[10px] font-medium">
                         Non-Serializable
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">
+                  <td className="px-2 py-1 text-gray-400 text-[10px] whitespace-nowrap">
                     {product.archivedAt ? new Date(product.archivedAt).toLocaleDateString() : '—'}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-2 py-1">
                     {purgeConfirm === product.id ? (
                       <div className="flex items-center gap-2 justify-end">
                         <span className="text-xs text-red-600 whitespace-nowrap">Permanently delete?</span>
@@ -708,51 +708,51 @@ export default function ProductsManager() {
       ) : (
         /* ─── Active Products Table ─── */
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="min-w-full text-sm">
+          <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Serialization</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Created</th>
-                <th className="px-4 py-3 w-20" />
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Description</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Serialization</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Created</th>
+                <th className="px-2 py-1.5 w-16" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-50">
               {products.map((product) => (
                 <tr key={product.id} className="hover:bg-gray-50 group">
-                  <td className="px-4 py-3 font-medium text-gray-900">{product.description}</td>
-                  <td className="px-4 py-3 font-mono text-gray-700 text-xs">{product.sku}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-2 py-1 font-mono text-xs font-semibold text-gray-900 whitespace-nowrap">{product.sku}</td>
+                  <td className="px-2 py-1 text-gray-700">{product.description}</td>
+                  <td className="px-2 py-1">
                     {product.isSerializable ? (
-                      <span className="inline-flex items-center rounded-full bg-purple-100 text-purple-700 px-2.5 py-0.5 text-xs font-medium">
+                      <span className="inline-flex items-center rounded-full bg-purple-100 text-purple-700 px-2 py-0.5 text-[10px] font-medium">
                         Serializable
                       </span>
                     ) : (
-                      <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-600 px-2.5 py-0.5 text-xs font-medium">
+                      <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-600 px-2 py-0.5 text-[10px] font-medium">
                         Non-Serializable
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">
+                  <td className="px-2 py-1 text-gray-400 text-[10px] whitespace-nowrap">
                     {new Date(product.createdAt).toLocaleDateString()}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-2 py-1">
                     {deleteConfirm === product.id ? (
                       <div className="flex items-center gap-2 justify-end">
-                        <span className="text-xs text-red-600 whitespace-nowrap">Delete?</span>
+                        <span className="text-[10px] text-red-600 whitespace-nowrap">Delete?</span>
                         <button
                           type="button"
                           onClick={() => handleDelete(product.id)}
                           disabled={deletingId === product.id}
-                          className="text-xs font-medium text-red-600 hover:underline disabled:opacity-60"
+                          className="text-[10px] font-medium text-red-600 hover:underline disabled:opacity-60"
                         >
                           Yes
                         </button>
                         <button
                           type="button"
                           onClick={() => setDeleteConfirm(null)}
-                          className="text-xs text-gray-500 hover:underline"
+                          className="text-[10px] text-gray-500 hover:underline"
                         >
                           No
                         </button>
@@ -762,16 +762,16 @@ export default function ProductsManager() {
                         <button
                           type="button"
                           onClick={() => setPanel(product)}
-                          className="p-1.5 rounded text-gray-400 hover:text-amazon-blue hover:bg-blue-50"
+                          className="p-1 rounded text-gray-400 hover:text-amazon-blue hover:bg-blue-50"
                         >
-                          <Pencil size={13} />
+                          <Pencil size={12} />
                         </button>
                         <button
                           type="button"
                           onClick={() => setDeleteConfirm(product.id)}
-                          className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50"
+                          className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50"
                         >
-                          <Trash2 size={13} />
+                          <Trash2 size={12} />
                         </button>
                       </div>
                     )}

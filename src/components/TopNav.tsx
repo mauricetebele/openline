@@ -23,7 +23,15 @@ type NavDivider = { divider: true; label: string }
 type NavItem  = NavLeaf | NavGroup | NavDivider
 
 const NAV: NavItem[] = [
-  { href: '/products',          label: 'Products',         icon: Boxes },
+  {
+    group: true,
+    label: 'Products',
+    icon: Boxes,
+    children: [
+      { href: '/products',        label: 'Products',            icon: Boxes },
+      { href: '/po-line-items',   label: 'Backfill Cost Codes', icon: ListTodo },
+    ],
+  },
   { href: '/marketplace-skus', label: 'Marketplace SKUs', icon: Tags },
   {
     group: true,
@@ -75,7 +83,6 @@ const NAV: NavItem[] = [
     children: [
       { href: '/profitability',      label: 'Profitability', icon: TrendingUp },
       { href: '/shipping-manifest', label: 'Manifest',      icon: ClipboardList },
-      { href: '/po-line-items',     label: 'PO Line Items', icon: ListTodo },
     ],
   },
   { href: '/todo-list',        label: 'To Do',       icon: ListTodo },
