@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   const isFilterSearch = !requested.length && hasFilter
 
   if (requested.length === 0 && !isFilterSearch) return NextResponse.json({ found: [], notFound: [] })
-  if (requested.length > 200) return NextResponse.json({ error: 'Maximum 200 serials per search' }, { status: 400 })
+  if (requested.length > 1000) return NextResponse.json({ error: 'Maximum 1,000 serials per search' }, { status: 400 })
 
   // Build where clause: serial search, filter search, or both
   const where: Record<string, unknown> = {}
@@ -143,7 +143,7 @@ export async function POST(req: NextRequest) {
     .filter((s, i, arr) => arr.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
 
   if (requested.length === 0) return NextResponse.json({ found: [], notFound: [] })
-  if (requested.length > 200) return NextResponse.json({ error: 'Maximum 200 serials per search' }, { status: 400 })
+  if (requested.length > 1000) return NextResponse.json({ error: 'Maximum 1,000 serials per search' }, { status: 400 })
 
   const records = await prisma.inventorySerial.findMany({
     where: { serialNumber: { in: requested, mode: 'insensitive' } },
