@@ -21,7 +21,10 @@ export async function POST(
 
   const order = await prisma.order.findUnique({
     where:   { id: params.orderId },
-    include: { reservations: true },
+    include: {
+      reservations: true,
+      serialAssignments: { include: { inventorySerial: { select: { id: true, status: true, locationId: true } } } },
+    },
   })
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (!CANCELLABLE.has(order.workflowStatus)) {
@@ -32,6 +35,28 @@ export async function POST(
   }
 
   await prisma.$transaction(async tx => {
+    // ── De-serialize: revert any serial assignments back to IN_STOCK ──
+    for (const sa of order.serialAssignments) {
+      if (sa.inventorySerial.status !== 'IN_STOCK') {
+        await tx.inventorySerial.update({
+          where: { id: sa.inventorySerialId },
+          data: { status: 'IN_STOCK' },
+        })
+      }
+      await tx.serialHistory.create({
+        data: {
+          inventorySerialId: sa.inventorySerialId,
+          eventType: 'UNASSIGNED',
+          orderId: params.orderId,
+          locationId: sa.inventorySerial.locationId,
+          notes: `Cancelled order ${order.amazonOrderId}`,
+        },
+      })
+    }
+    if (order.serialAssignments.length > 0) {
+      await tx.orderSerialAssignment.deleteMany({ where: { orderId: params.orderId } })
+    }
+
     // Restore inventory qty for any existing reservations
     for (const r of order.reservations) {
       await tx.inventoryItem.updateMany({

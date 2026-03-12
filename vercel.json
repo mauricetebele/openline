@@ -4,6 +4,7 @@
     { "path": "/api/cron/push-qty", "schedule": "*/10 * * * *" },
     { "path": "/api/cron/backup-db", "schedule": "0 0 * * *" },
     { "path": "/api/cron/sync-fba-refunds", "schedule": "0 */6 * * *" },
-    { "path": "/api/cron/sync-commissions", "schedule": "0 */6 * * *" }
+    { "path": "/api/cron/sync-commissions", "schedule": "0 */6 * * *" },
+    { "path": "/api/cron/reconcile-qty", "schedule": "0 0 * * *" }
   ]
 }

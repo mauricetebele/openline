@@ -70,7 +70,7 @@ export async function POST(
 
           // Update InventorySerial → IN_STOCK at the new location
           if (su.inventorySerialId) {
-            await tx.inventorySerial.update({
+            const serial = await tx.inventorySerial.update({
               where: { id: su.inventorySerialId },
               data: {
                 status: 'IN_STOCK',
@@ -89,6 +89,45 @@ export async function POST(
                 orderId: rma.orderId,
               },
             })
+
+            // Increment inventory qty for the returned serial
+            if (gradeId) {
+              await tx.inventoryItem.upsert({
+                where: {
+                  productId_locationId_gradeId: {
+                    productId: serial.productId,
+                    locationId: su.locationId,
+                    gradeId,
+                  },
+                },
+                create: {
+                  productId: serial.productId,
+                  locationId: su.locationId,
+                  gradeId,
+                  qty: 1,
+                },
+                update: { qty: { increment: 1 } },
+              })
+            } else {
+              const existing = await tx.inventoryItem.findFirst({
+                where: { productId: serial.productId, locationId: su.locationId, gradeId: null },
+              })
+              if (existing) {
+                await tx.inventoryItem.update({
+                  where: { id: existing.id },
+                  data: { qty: { increment: 1 } },
+                })
+              } else {
+                await tx.inventoryItem.create({
+                  data: {
+                    productId: serial.productId,
+                    locationId: su.locationId,
+                    gradeId: null,
+                    qty: 1,
+                  },
+                })
+              }
+            }
           }
         }
       }
