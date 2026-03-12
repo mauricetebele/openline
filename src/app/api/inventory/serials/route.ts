@@ -9,14 +9,21 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const productId  = searchParams.get('productId')
   const locationId = searchParams.get('locationId')
+  const gradeParam = searchParams.get('gradeId')
 
   if (!productId || !locationId) {
     return NextResponse.json({ error: 'productId and locationId are required' }, { status: 400 })
   }
 
+  // gradeId param: absent = no grade filter, empty string = null grade, value = specific grade
+  const gradeFilter: { gradeId?: string | null } = {}
+  if (gradeParam !== null) {
+    gradeFilter.gradeId = gradeParam || null
+  }
+
   try {
     const serials = await prisma.inventorySerial.findMany({
-      where: { productId, locationId, status: 'IN_STOCK' },
+      where: { productId, locationId, status: 'IN_STOCK', ...gradeFilter },
       select: { id: true, serialNumber: true, binLocation: true, createdAt: true },
       orderBy: { serialNumber: 'asc' },
     })

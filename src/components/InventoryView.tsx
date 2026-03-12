@@ -1506,10 +1506,12 @@ function RegradeModal({ warehouses, onClose }: {
 function SerialsModal({
   product,
   location,
+  gradeId,
   onClose,
 }: {
   product: Product
   location: Location
+  gradeId: string | null
   onClose: () => void
 }) {
   const [serials, setSerials] = useState<Serial[]>([])
@@ -1531,7 +1533,8 @@ function SerialsModal({
       setLoading(true)
       setErr('')
       try {
-        const res  = await fetch(`/api/inventory/serials?productId=${product.id}&locationId=${location.id}`)
+        const gradeParam = gradeId ? `&gradeId=${gradeId}` : '&gradeId='
+        const res  = await fetch(`/api/inventory/serials?productId=${product.id}&locationId=${location.id}${gradeParam}`)
         const data = await res.json()
         if (cancelled) return
         if (!res.ok) throw new Error(data.error ?? 'Failed to load')
@@ -1544,7 +1547,7 @@ function SerialsModal({
     }
     load()
     return () => { cancelled = true }
-  }, [product.id, location.id])
+  }, [product.id, location.id, gradeId])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -2170,7 +2173,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   const [warehouseId,  setWarehouseId]  = useState('')
   const [locationId,   setLocationId]   = useState('')
   const [search,       setSearch]       = useState('')
-  const [serialTarget,  setSerialTarget]  = useState<{ product: Product; location: Location } | null>(null)
+  const [serialTarget,  setSerialTarget]  = useState<{ product: Product; location: Location; gradeId: string | null } | null>(null)
   const [showLookup,    setShowLookup]    = useState(false)
   const [showMove,      setShowMove]      = useState(false)
   const [showConvert,   setShowConvert]   = useState(false)
@@ -2437,7 +2440,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                     {item.product.isSerializable ? (
                       <button
                         type="button"
-                        onClick={() => setSerialTarget({ product: item.product, location: item.location })}
+                        onClick={() => setSerialTarget({ product: item.product, location: item.location, gradeId: item.grade?.id ?? null })}
                         className="font-semibold text-amazon-blue hover:underline tabular-nums"
                       >
                         {item.onHand}
@@ -2497,6 +2500,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
         <SerialsModal
           product={serialTarget.product}
           location={serialTarget.location}
+          gradeId={serialTarget.gradeId}
           onClose={() => setSerialTarget(null)}
         />
       )}
