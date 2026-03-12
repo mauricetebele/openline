@@ -2270,7 +2270,7 @@ function OrderDetailModal({
                                   <button
                                     onClick={isPendingOrder ? () => { setEditingSkuItemId(item.id); setEditingSkuValue(item.sellerSku ?? '') } : undefined}
                                     className={clsx(
-                                      'font-mono text-[11px] text-gray-700 text-left',
+                                      'font-mono text-[13px] font-semibold text-gray-900 text-left',
                                       isPendingOrder && 'group inline-flex items-center gap-1.5 hover:text-indigo-600 cursor-pointer',
                                     )}
                                   >
@@ -2283,17 +2283,17 @@ function OrderDetailModal({
                                   </button>
                                   {/* Grade badge from pending change or MSKU mapping */}
                                   {pendingSkuChanges.get(item.id)?.gradeId ? (
-                                    <span className="block text-[9px] font-semibold text-purple-700 mt-0.5">
+                                    <span className="block text-[10px] font-semibold text-purple-700 mt-0.5">
                                       Grade {grades.find(g => g.id === pendingSkuChanges.get(item.id)?.gradeId)?.grade ?? ''}
                                     </span>
                                   ) : item.mappedGradeName ? (
-                                    <span className="block text-[9px] font-semibold text-purple-700 mt-0.5">
+                                    <span className="block text-[10px] font-semibold text-purple-700 mt-0.5">
                                       Grade {item.mappedGradeName}
                                     </span>
                                   ) : null}
                                   {/* Show marketplace SKU underneath when internal SKU differs */}
                                   {item.internalSku && item.sellerSku && item.internalSku !== item.sellerSku && (
-                                    <span className="block font-mono text-[9px] text-gray-400 mt-0.5">{item.sellerSku}</span>
+                                    <span className="block font-mono text-[10px] text-gray-400 mt-0.5">{item.sellerSku}</span>
                                   )}
                                 </div>
                               )}
