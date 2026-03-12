@@ -1005,52 +1005,9 @@ export default function MarketplaceSkuManager() {
                   <th className="px-4 py-3 w-12" />
                 </tr>
               </thead>
-              <tbody>
-                {(() => {
-                  // Sort by parent SKU so same-product rows are adjacent, then by grade
-                  const sorted = [...filteredSkus].sort((a, b) => {
-                    const skuCmp = a.product.sku.localeCompare(b.product.sku)
-                    if (skuCmp !== 0) return skuCmp
-                    return (a.grade?.grade ?? '').localeCompare(b.grade?.grade ?? '')
-                  })
-                  // Build group lookup: productId → count of rows
-                  const groupCount = new Map<string, number>()
-                  for (const s of sorted) groupCount.set(s.productId, (groupCount.get(s.productId) ?? 0) + 1)
-                  // Assign alternating group colors for multi-grade products
-                  const GROUP_COLORS = ['border-l-blue-400 bg-blue-50/30', 'border-l-violet-400 bg-violet-50/30', 'border-l-amber-400 bg-amber-50/30', 'border-l-emerald-400 bg-emerald-50/30']
-                  let colorIdx = 0
-                  const groupColorMap = new Map<string, string>()
-                  let lastProductId = ''
-                  for (const s of sorted) {
-                    if (s.productId !== lastProductId) {
-                      if ((groupCount.get(s.productId) ?? 0) > 1) {
-                        groupColorMap.set(s.productId, GROUP_COLORS[colorIdx % GROUP_COLORS.length])
-                        colorIdx++
-                      }
-                      lastProductId = s.productId
-                    }
-                  }
-
-                  let prevProductId = ''
-                  return sorted.map(s => {
-                    const isGrouped = groupColorMap.has(s.productId)
-                    const groupStyle = groupColorMap.get(s.productId) ?? ''
-                    const isFirstInGroup = isGrouped && s.productId !== prevProductId
-                    const nextIdx = sorted.indexOf(s) + 1
-                    const isLastInGroup = isGrouped && (nextIdx >= sorted.length || sorted[nextIdx].productId !== s.productId)
-                    prevProductId = s.productId
-                    return (
-                  <tr
-                    key={s.id}
-                    className={clsx(
-                      'group border-l-4 transition-colors',
-                      isGrouped ? groupStyle : 'border-l-transparent hover:bg-gray-50',
-                      isGrouped && 'hover:bg-gray-100/60',
-                      isFirstInGroup && 'border-t-2 border-t-gray-200',
-                      isLastInGroup && 'border-b-2 border-b-gray-200',
-                      !isFirstInGroup && !isLastInGroup && 'border-b border-b-gray-100',
-                    )}
-                  >
+              <tbody className="divide-y divide-gray-100">
+                {filteredSkus.map(s => (
+                  <tr key={s.id} className="hover:bg-gray-50 group">
                     <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-700">{s.product.sku}</td>
                     <td className="px-4 py-3 text-xs text-gray-600">{s.grade?.grade ?? '—'}</td>
@@ -1129,9 +1086,7 @@ export default function MarketplaceSkuManager() {
                       </button>
                     </td>
                   </tr>
-                    )
-                  })
-                })()}
+                ))}
               </tbody>
             </table>
           </div>
