@@ -678,13 +678,11 @@ export default function BulkListingCreator() {
                           return (
                             <tr key={group.productId} className="border-b last:border-0">
                               <td colSpan={colCount} className="p-0">
-                                <div className={clsx(isMulti && 'border-2 border-blue-200 rounded-lg bg-blue-50/20 m-1')}>
-                                  {isMulti && (
-                                    <div className="px-3 py-1.5 border-b border-blue-200 bg-blue-50/50 rounded-t-lg">
-                                      <span className="text-xs font-semibold text-blue-700">{group.internalSku}</span>
-                                      <span className="text-xs text-blue-500 ml-2">{group.rows.length} grades</span>
-                                    </div>
-                                  )}
+                                <div className="border-2 border-blue-200 rounded-lg bg-blue-50/20 m-1">
+                                  <div className="px-3 py-1.5 border-b border-blue-200 bg-blue-50/50 rounded-t-lg">
+                                    <span className="text-xs font-semibold text-blue-700">{group.internalSku}</span>
+                                    {isMulti && <span className="text-xs text-blue-500 ml-2">{group.rows.length} grades</span>}
+                                  </div>
                                   <table className="w-full text-sm">
                                     <tbody>
                                       {group.rows.map(({ row, origIdx: i }) => {
