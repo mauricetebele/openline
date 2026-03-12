@@ -73,6 +73,7 @@ const NAV: NavItem[] = [
     icon: Package,
     children: [
       { href: '/unshipped-orders',    label: 'Order Fulfillment', icon: Package },
+      { href: '/fba-shipments',       label: 'FBA Shipments',     icon: Truck },
     ],
   },
   { href: '/cases',            label: 'Cases',       icon: FolderOpen },
