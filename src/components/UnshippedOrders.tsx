@@ -84,6 +84,7 @@ interface Order {
   isBuyerRequestedCancel: boolean
   buyerCancelReason: string | null
   latestShipDate: string | null
+  latestDeliveryDate: string | null
   presetRateAmount: string | null
   presetRateCarrier: string | null
   presetRateService: string | null
@@ -5905,6 +5906,7 @@ export default function UnshippedOrders() {
                 ['olmNumber',            'Order ID',    'left'],
                 ['purchaseDate',         'Date',        'left'],
                 ['latestShipDate',       'Ship By',     'left'],
+                ['latestDeliveryDate',  'Deliver By',  'left'],
               ] as [string, string, string][]).map(([field, label, align]) => (
                 <th key={field}
                   onClick={() => handleSort(field)}
@@ -6150,7 +6152,14 @@ export default function UnshippedOrders() {
                       )
                     })() : <span className="text-gray-300 text-[11px]">—</span>}
                   </td>
-                  {/* SKUs */}
+                  {/* Deliver By */}
+                  <td className="px-3 py-1.5 whitespace-nowrap">
+                    {order.latestDeliveryDate ? (() => {
+                      const [dy, dm, dd] = pstDateStr(order.latestDeliveryDate).split('-').map(Number)
+                      const label = new Date(dy, dm - 1, dd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                      return <span className="text-[11px] text-gray-600">{label}</span>
+                    })() : <span className="text-gray-300 text-[11px]">—</span>}
+                  </td>
                   {/* SKUs */}
                   <td className="px-3 py-1.5 whitespace-nowrap">
                     <div className={clsx('flex flex-col', multi && 'gap-0.5')}>

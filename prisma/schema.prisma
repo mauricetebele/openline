@@ -481,6 +481,7 @@ model Order {
   isBuyerRequestedCancel Boolean                     @default(false)
   buyerCancelReason      String?
   latestShipDate         DateTime?
+  latestDeliveryDate     DateTime?
   presetRateAmount       Decimal?                    @db.Decimal(12, 2)
   presetRateCarrier      String?
   presetRateService      String?

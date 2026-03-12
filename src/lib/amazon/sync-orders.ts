@@ -49,7 +49,7 @@ interface OrderAddress {
 }
 interface AmazonOrder {
   AmazonOrderId?: string; OrderStatus?: string; PurchaseDate?: string
-  LastUpdateDate?: string; LatestShipDate?: string
+  LastUpdateDate?: string; LatestShipDate?: string; LatestDeliveryDate?: string
   OrderTotal?: { Amount?: string; CurrencyCode?: string }
   FulfillmentChannel?: string; ShipmentServiceLevelCategory?: string
   NumberOfItemsUnshipped?: number; ShippingAddress?: OrderAddress
@@ -381,6 +381,7 @@ export async function syncUnshippedOrders(
                 isBuyerRequestedCancel:  fullOrder.IsBuyerRequestedCancel ?? false,
                 buyerCancelReason:       fullOrder.BuyerRequestedCancelReason ?? null,
                 latestShipDate:          fullOrder.LatestShipDate ? new Date(fullOrder.LatestShipDate) : null,
+                latestDeliveryDate:      fullOrder.LatestDeliveryDate ? new Date(fullOrder.LatestDeliveryDate) : null,
                 lastSyncedAt:            new Date(),
               },
               update: {
@@ -391,6 +392,7 @@ export async function syncUnshippedOrders(
                 isBuyerRequestedCancel:  fullOrder.IsBuyerRequestedCancel ?? false,
                 buyerCancelReason:       fullOrder.BuyerRequestedCancelReason ?? null,
                 latestShipDate:          fullOrder.LatestShipDate ? new Date(fullOrder.LatestShipDate) : null,
+                latestDeliveryDate:      fullOrder.LatestDeliveryDate ? new Date(fullOrder.LatestDeliveryDate) : null,
                 lastSyncedAt:            new Date(),
                 ...(isNew && addr ? {
                   shipToName:     addr.Name         ?? null,
