@@ -13,6 +13,7 @@ interface EventRow {
   detailLabel:  string
   sku:          string
   description:  string
+  grade:        string | null
   qty:          number
   location:     string | null
   fromLocation: string | null
@@ -81,6 +82,10 @@ function DetailModal({ row, onClose }: { row: EventRow; onClose: () => void }) {
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Description</p>
               <p className="text-gray-700 text-xs">{row.description}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Grade</p>
+              <p className="text-gray-700">{row.grade ?? '—'}</p>
             </div>
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Type</p>
@@ -353,6 +358,7 @@ export default function InventoryEventsPage() {
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                     <th className="px-4 py-3 text-left">SKU</th>
+                    <th className="px-4 py-3 text-left">Grade</th>
                     <th className="px-4 py-3 text-left">Type</th>
                     <th className="px-4 py-3 text-right w-16">Qty</th>
                     <th className="px-4 py-3 text-left">Details</th>
@@ -372,6 +378,9 @@ export default function InventoryEventsPage() {
                     <tr key={row.key} className="hover:bg-gray-50 group">
                       <td className="px-4 py-3 font-mono text-xs text-gray-800 whitespace-nowrap">
                         {row.sku}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600">
+                        {row.grade ?? '—'}
                       </td>
                       <td className="px-4 py-3">
                         <span className={clsx(

@@ -82,6 +82,7 @@ export async function GET(req: NextRequest) {
       inventorySerial: {
         include: {
           product:  { select: { id: true, sku: true, description: true } },
+          grade:    { select: { id: true, grade: true } },
         },
       },
       location:     { select: { id: true, name: true } },
@@ -101,6 +102,7 @@ export async function GET(req: NextRequest) {
     key: string
     eventType: string
     product:   { id: string; sku: string; description: string }
+    grade:     { id: string; grade: string } | null
     location:  { id: string; name: string } | null
     fromLocation: { id: string; name: string } | null
     fromProduct:  { id: string; sku: string; description: string } | null
@@ -122,14 +124,16 @@ export async function GET(req: NextRequest) {
     const locId     = r.locationId   ?? 'none'
     const fromLocId = r.fromLocationId ?? 'none'
     const locKey    = `${locId}-${fromLocId}`
+    const gradeId   = serial.grade?.id ?? 'none'
     const sec       = Math.floor(r.createdAt.getTime() / 1000)
-    const key       = `${r.eventType}|${product.id}|${locKey}|${sec}`
+    const key       = `${r.eventType}|${product.id}|${gradeId}|${locKey}|${sec}`
 
     if (!batchMap.has(key)) {
       batchMap.set(key, {
         key,
         eventType:    r.eventType,
         product,
+        grade:        serial.grade ?? null,
         location:     r.location     ?? null,
         fromLocation: r.fromLocation ?? null,
         fromProduct:  r.fromProduct  ?? null,
@@ -247,6 +251,7 @@ export async function GET(req: NextRequest) {
     detailLabel: EVENT_LABEL[b.eventType] ?? b.eventType,
     sku:         b.product.sku,
     description: b.product.description,
+    grade:       b.grade?.grade ?? null,
     qty:         b.qty,
     location:    b.location?.name ?? b.fromLocation?.name ?? null,
     fromLocation:b.fromLocation?.name ?? null,
