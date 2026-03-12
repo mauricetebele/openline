@@ -4477,7 +4477,7 @@ export default function UnshippedOrders() {
     return () => { cancelled = true }
   }, [selectedAccountId, activeTab, page, pageSize, search, sortBy, sortDir, fetchKey])
 
-  useEffect(() => { setPage(1); setFetchKey(k => k + 1) }, [search, selectedAccountId, pageSize, activeTab, sortBy, sortDir])
+  useEffect(() => { setPage(1); setFetchKey(k => k + 1); setSelectedOrderIds(new Set()) }, [search, selectedAccountId, pageSize, activeTab, sortBy, sortDir])
 
   // Fetch tab counts whenever the account or fetchKey changes
   useEffect(() => {
