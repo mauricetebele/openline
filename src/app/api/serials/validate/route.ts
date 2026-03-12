@@ -78,6 +78,15 @@ export async function GET(req: NextRequest) {
       detail: `Serial "${sn}" is grade "${gradeName}", expected "${expectedGrade}"`,
     })
   }
+  // Ungraded item demands ungraded serial
+  if (!gradeId && serial.gradeId) {
+    const serialGrade = (await prisma.grade.findUnique({ where: { id: serial.gradeId }, select: { grade: true } }))?.grade ?? 'Unknown'
+    return NextResponse.json({
+      valid:  false,
+      reason: 'WRONG_GRADE',
+      detail: `Serial "${sn}" is grade "${serialGrade}", expected an ungraded unit`,
+    })
+  }
 
   // Already assigned to an active (non-terminal) order
   const activeAssignment = serial.orderAssignment &&

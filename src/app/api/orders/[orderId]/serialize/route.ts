@@ -114,6 +114,13 @@ export async function POST(
           { status: 422 },
         )
       }
+      if (!expectedGradeId && serial.gradeId) {
+        const serialGrade = (await prisma.grade.findUnique({ where: { id: serial.gradeId }, select: { grade: true } }))?.grade ?? 'Unknown'
+        return NextResponse.json(
+          { error: `Serial "${sn}" is grade "${serialGrade}", expected an ungraded unit` },
+          { status: 422 },
+        )
+      }
       // Only block if assigned to a different active (non-terminal) order
       const hasActiveAssignment = serial.orderAssignment &&
         serial.orderAssignment.orderId !== params.orderId &&
