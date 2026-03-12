@@ -96,6 +96,25 @@ export async function POST(
           { status: 422 },
         )
       }
+      // Enforce grade constraint: use order item's gradeId, fall back to marketplace SKU mapping
+      let expectedGradeId = orderItem.gradeId as string | null
+      if (!expectedGradeId) {
+        const msku = await prisma.productGradeMarketplaceSku.findFirst({
+          where: { sellerSku: orderItem.sellerSku! },
+          select: { gradeId: true },
+        })
+        expectedGradeId = msku?.gradeId ?? null
+      }
+      if (expectedGradeId && serial.gradeId !== expectedGradeId) {
+        const expectedGrade = await prisma.grade.findUnique({ where: { id: expectedGradeId }, select: { grade: true } })
+        const serialGrade = serial.gradeId
+          ? (await prisma.grade.findUnique({ where: { id: serial.gradeId }, select: { grade: true } }))?.grade ?? 'Unknown'
+          : 'No grade'
+        return NextResponse.json(
+          { error: `Serial "${sn}" is grade "${serialGrade}", expected "${expectedGrade?.grade ?? expectedGradeId}"` },
+          { status: 422 },
+        )
+      }
       // Only block if assigned to an active (non-terminal) order
       const hasActiveAssignment = serial.orderAssignment &&
         !['SHIPPED', 'CANCELLED'].includes(serial.orderAssignment.order.workflowStatus)

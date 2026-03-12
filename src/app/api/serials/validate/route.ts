@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   const sn      = req.nextUrl.searchParams.get('sn')?.trim()
   const sku     = req.nextUrl.searchParams.get('sku')?.trim()
-  const gradeId = req.nextUrl.searchParams.get('gradeId')?.trim() || null
+  let   gradeId = req.nextUrl.searchParams.get('gradeId')?.trim() || null
 
   if (!sn || !sku) {
     return NextResponse.json({ error: 'sn and sku query params are required' }, { status: 400 })
@@ -28,12 +28,16 @@ export async function GET(req: NextRequest) {
 
   // Find the product for the expected SKU (direct match or marketplace SKU mapping)
   let expectedProduct = await prisma.product.findUnique({ where: { sku } })
+  const msku = await prisma.productGradeMarketplaceSku.findFirst({
+    where: { sellerSku: sku },
+    include: { product: true },
+  })
   if (!expectedProduct) {
-    const msku = await prisma.productGradeMarketplaceSku.findFirst({
-      where: { sellerSku: sku },
-      include: { product: true },
-    })
     expectedProduct = msku?.product ?? null
+  }
+  // Derive grade from marketplace SKU mapping if not explicitly provided
+  if (!gradeId && msku?.gradeId) {
+    gradeId = msku.gradeId
   }
   if (!expectedProduct) {
     return NextResponse.json({ valid: false, reason: 'NOT_FOUND', detail: `No product found for SKU "${sku}"` })
