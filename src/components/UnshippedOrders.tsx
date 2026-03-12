@@ -6164,9 +6164,9 @@ export default function UnshippedOrders() {
                   <td className="px-3 py-1.5 whitespace-nowrap">
                     <div className={clsx('flex flex-col', multi && 'gap-0.5')}>
                       {order.items.map(i => (
-                        <span key={i.id} className="font-mono text-[11px] text-gray-800 leading-4">
+                        <span key={i.id} className="font-mono text-[13px] font-semibold text-gray-900 leading-5">
                           {i.internalSku ?? i.sellerSku ?? '—'}
-                          {i.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-600">Grade {i.mappedGradeName}</span>}
+                          {i.mappedGradeName && <span className="block text-[10px] font-semibold text-purple-600">Grade {i.mappedGradeName}</span>}
                         </span>
                       ))}
                     </div>
