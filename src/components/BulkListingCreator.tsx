@@ -657,14 +657,44 @@ export default function BulkListingCreator() {
                       </tr>
                     </thead>
                     <tbody>
-                      {listingRows.map((row, i) => {
-                        const rowKey = `${row.productId}::${row.gradeId}::${row.marketplaceSku}`
-                        const isLocked = lockedKeys.has(rowKey)
-                        const errs = isLocked ? [] : getRowErrors(row, i)
-                        const hasErr = errs.length > 0 && (row.marketplaceSku || row.asin || row.price)
-                        return (
+                      {(() => {
+                        // Group rows by productId to detect multi-grade SKUs
+                        const groups: { productId: string; internalSku: string; description: string; rows: { row: typeof listingRows[number]; origIdx: number }[] }[] = []
+                        const groupMap = new Map<string, number>()
+                        listingRows.forEach((row, i) => {
+                          const existing = groupMap.get(row.productId)
+                          if (existing !== undefined) {
+                            groups[existing].rows.push({ row, origIdx: i })
+                          } else {
+                            groupMap.set(row.productId, groups.length)
+                            groups.push({ productId: row.productId, internalSku: row.internalSku, description: row.description, rows: [{ row, origIdx: i }] })
+                          }
+                        })
+
+                        const colCount = fulfillment === 'MFN' ? 9 : 8
+
+                        return groups.map((group) => {
+                          const isMulti = group.rows.length > 1
+                          return (
+                            <tr key={group.productId} className="border-b last:border-0">
+                              <td colSpan={colCount} className="p-0">
+                                <div className={clsx(isMulti && 'border-2 border-blue-200 rounded-lg bg-blue-50/20 m-1')}>
+                                  {isMulti && (
+                                    <div className="px-3 py-1.5 border-b border-blue-200 bg-blue-50/50 rounded-t-lg">
+                                      <span className="text-xs font-semibold text-blue-700">{group.internalSku}</span>
+                                      <span className="text-xs text-blue-500 ml-2">{group.rows.length} grades</span>
+                                    </div>
+                                  )}
+                                  <table className="w-full text-sm">
+                                    <tbody>
+                                      {group.rows.map(({ row, origIdx: i }) => {
+                                        const rowKey = `${row.productId}::${row.gradeId}::${row.marketplaceSku}`
+                                        const isLocked = lockedKeys.has(rowKey)
+                                        const errs = isLocked ? [] : getRowErrors(row, i)
+                                        const hasErr = errs.length > 0 && (row.marketplaceSku || row.asin || row.price)
+                                        return (
                           <tr key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`} className={clsx('border-b last:border-0', isLocked && 'bg-green-50/50 opacity-60')}>
-                            <td className="px-2 py-1.5">
+                            <td className="px-2 py-1.5 w-20">
                               {isLocked ? (
                                 <CheckCircle2 size={14} className="text-green-600" />
                               ) : (
@@ -804,8 +834,16 @@ export default function BulkListingCreator() {
                               </td>
                             )}
                           </tr>
-                        )
-                      })}
+                                        )
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })
+                      })()}
                     </tbody>
                   </table>
                 </div>
