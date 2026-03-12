@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     include: {
       product:        true,
       location:       { include: { warehouse: true } },
-      orderAssignment: true,
+      orderAssignment: { include: { order: { select: { workflowStatus: true } } } },
     },
   })
 
@@ -75,8 +75,10 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  // Already assigned to an order
-  if (serial.orderAssignment) {
+  // Already assigned to an active (non-terminal) order
+  const activeAssignment = serial.orderAssignment &&
+    !['SHIPPED', 'CANCELLED'].includes(serial.orderAssignment.order.workflowStatus)
+  if (activeAssignment) {
     return NextResponse.json({
       valid:  false,
       reason: 'ALREADY_ASSIGNED',
