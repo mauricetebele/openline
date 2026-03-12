@@ -202,6 +202,9 @@ export async function POST(
     }
 
     if (isShipping) {
+      // Release inventory reservations — qty was already decremented during processing
+      await tx.orderInventoryReservation.deleteMany({ where: { orderId: params.orderId } })
+
       await tx.order.update({
         where: { id: params.orderId },
         data:  { workflowStatus: 'SHIPPED' },

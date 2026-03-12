@@ -112,6 +112,9 @@ export async function POST(
       })
     }
 
+    // Release inventory reservations — qty was already decremented during processing
+    await prisma.orderInventoryReservation.deleteMany({ where: { orderId } })
+
     // Mark order as shipped locally
     await prisma.order.update({
       where: { id: orderId },

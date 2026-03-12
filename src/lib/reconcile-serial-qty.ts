@@ -15,6 +15,8 @@ interface ReconcileResult {
   checked: number
   mismatches: Mismatch[]
   fixed: number
+  staleReservationsDeleted: number
+  staleAssignmentsDeleted: number
 }
 
 /**
@@ -24,6 +26,37 @@ interface ReconcileResult {
  * Correct formula: qty = COUNT(IN_STOCK serials) - SUM(active reservations)
  */
 export async function reconcileSerialQty(dryRun: boolean): Promise<ReconcileResult> {
+  // ── Phase 0: Clean up stale reservations & assignments from terminal orders ──
+  let staleReservationsDeleted = 0
+  let staleAssignmentsDeleted = 0
+
+  if (!dryRun) {
+    // Delete reservations from SHIPPED/CANCELLED orders (should have been cleaned on ship)
+    const delRes = await prisma.orderInventoryReservation.deleteMany({
+      where: { order: { workflowStatus: { in: ['SHIPPED', 'CANCELLED'] } } },
+    })
+    staleReservationsDeleted = delRes.count
+    if (delRes.count > 0) {
+      console.log(`[reconcile-qty] Cleaned up ${delRes.count} stale reservation(s) from shipped/cancelled orders`)
+    }
+
+    // Delete serial assignments where the serial is IN_STOCK but order is SHIPPED/CANCELLED
+    const staleAssignments = await prisma.orderSerialAssignment.findMany({
+      where: {
+        order: { workflowStatus: { in: ['SHIPPED', 'CANCELLED'] } },
+        inventorySerial: { status: 'IN_STOCK' },
+      },
+      select: { id: true },
+    })
+    if (staleAssignments.length > 0) {
+      await prisma.orderSerialAssignment.deleteMany({
+        where: { id: { in: staleAssignments.map(a => a.id) } },
+      })
+      staleAssignmentsDeleted = staleAssignments.length
+      console.log(`[reconcile-qty] Cleaned up ${staleAssignments.length} stale serial assignment(s)`)
+    }
+  }
+
   const items = await prisma.inventoryItem.findMany({
     select: { id: true, productId: true, locationId: true, gradeId: true, qty: true },
   })
@@ -90,5 +123,5 @@ export async function reconcileSerialQty(dryRun: boolean): Promise<ReconcileResu
     }
   }
 
-  return { checked: items.length, mismatches, fixed }
+  return { checked: items.length, mismatches, fixed, staleReservationsDeleted, staleAssignmentsDeleted }
 }

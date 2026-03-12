@@ -197,6 +197,9 @@ export async function POST(
       }
     }
 
+    // Release inventory reservations — qty was already decremented during processing
+    await tx.orderInventoryReservation.deleteMany({ where: { orderId: params.orderId } })
+
     // Advance workflow to SHIPPED with carrier/tracking (local only)
     await tx.order.update({
       where: { id: params.orderId },
