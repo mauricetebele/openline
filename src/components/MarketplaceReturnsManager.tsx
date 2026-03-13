@@ -17,6 +17,7 @@ interface RMASerial {
   note: string | null
   location?: { id: string; name: string; warehouse: { id: string; name: string } } | null
   grade?: { id: string; grade: string } | null
+  inventorySerial?: { gradeId: string | null; grade: { id: string; grade: string } | null } | null
 }
 
 interface RMAItem {
@@ -646,11 +647,16 @@ function CreateReturnModal({
       const rma = await res.json()
       setCreatedRma(rma)
 
-      // Initialize step 2 state
+      // Initialize step 2 state — default grade to the serial's shipped grade
+      const gradeBySerialId = new Map<string, string>()
+      for (const si of serializedItems) {
+        if (si.serial.gradeId) gradeBySerialId.set(si.serial.id, si.serial.gradeId)
+      }
       const serialRec: typeof serialReceive = {}
       for (const item of rma.items ?? []) {
         for (const s of item.serials ?? []) {
-          serialRec[s.id] = { warehouseId: '', locationId: '', gradeId: '', note: '' }
+          const shippedGradeId = s.inventorySerialId ? (gradeBySerialId.get(s.inventorySerialId) ?? '') : ''
+          serialRec[s.id] = { warehouseId: '', locationId: '', gradeId: shippedGradeId, note: '' }
         }
       }
       setSerialReceive(serialRec)
@@ -1131,7 +1137,9 @@ function ReceiveReturnModal({
                 note: s.note ?? '',
               }
             } else {
-              sr[s.id] = { warehouseId: '', locationId: '', gradeId: '', note: '' }
+              // Default grade to the serial's shipped grade
+              const shippedGradeId = s.inventorySerial?.gradeId ?? ''
+              sr[s.id] = { warehouseId: '', locationId: '', gradeId: shippedGradeId, note: '' }
             }
           }
         }

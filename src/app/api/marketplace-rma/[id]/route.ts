@@ -34,6 +34,9 @@ export async function GET(
                 include: { warehouse: { select: { id: true, name: true } } },
               },
               grade: { select: { id: true, grade: true } },
+              inventorySerial: {
+                select: { gradeId: true, grade: { select: { id: true, grade: true } } },
+              },
             },
           },
         },
