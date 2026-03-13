@@ -4,6 +4,11 @@
  * Returns profitability breakdown for shipped orders in date range.
  * Combines marketplace orders (Amazon/BackMarket) and wholesale (SalesOrder).
  *
+ * COGS is determined from the actual serial sold:
+ *   Serial → POReceiptLine → PurchaseOrderLine.unitCost
+ * Falls back to latest PO-line cost per product+grade for non-serialized items
+ * or serials without a receipt link.
+ *
  * Query params: startDate, endDate, page (default 1), pageSize (default 50),
  *               view ('order' | 'lineItem'), search (text filter)
  */
@@ -31,7 +36,7 @@ export async function GET(req: NextRequest) {
   const dateFrom = new Date(startDate + 'T00:00:00Z')
   const dateTo = new Date(endDate + 'T23:59:59.999Z')
 
-  // ── COGS lookup: latest unit cost per product+grade ─────────────────────
+  // ── Fallback COGS lookup: latest unit cost per product+grade ──────────
   const cogsRows = await prisma.$queryRaw<
     { productId: string; gradeId: string | null; unitCost: number }[]
   >(Prisma.sql`
@@ -41,16 +46,15 @@ export async function GET(req: NextRequest) {
     ORDER BY "productId", "gradeId", "createdAt" DESC
   `)
   const cogsMap = new Map<string, number>()
-  const cogsProductOnly = new Map<string, number>() // fallback ignoring grade
+  const cogsProductOnly = new Map<string, number>()
   for (const row of cogsRows) {
     cogsMap.set(`${row.productId}:${row.gradeId ?? ''}`, row.unitCost)
-    // Keep the first (most recent) entry per product as the fallback
     if (!cogsProductOnly.has(row.productId)) {
       cogsProductOnly.set(row.productId, row.unitCost)
     }
   }
 
-  // ── Cost code lookup: latest cost code amount per product+grade ────────
+  // ── Fallback cost code lookup ─────────────────────────────────────────
   const costCodeRows = await prisma.$queryRaw<
     { productId: string; gradeId: string | null; amount: number }[]
   >(Prisma.sql`
@@ -62,7 +66,7 @@ export async function GET(req: NextRequest) {
     ORDER BY pol."productId", pol."gradeId", pol."createdAt" DESC
   `)
   const costCodeMap = new Map<string, number>()
-  const costCodeProductOnly = new Map<string, number>() // fallback ignoring grade
+  const costCodeProductOnly = new Map<string, number>()
   for (const row of costCodeRows) {
     costCodeMap.set(`${row.productId}:${row.gradeId ?? ''}`, row.amount)
     if (!costCodeProductOnly.has(row.productId)) {
@@ -70,8 +74,76 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── SKU → product+grade mapping (for non-serialized items) ────────────
+  const skuMap = new Map<string, { productId: string; gradeId: string | null }>()
+  const allProducts = await prisma.product.findMany({ select: { id: true, sku: true } })
+  for (const p of allProducts) skuMap.set(p.sku, { productId: p.id, gradeId: null })
+  const mskuRows = await prisma.productGradeMarketplaceSku.findMany({
+    select: { sellerSku: true, productId: true, gradeId: true },
+  })
+  for (const m of mskuRows) skuMap.set(m.sellerSku, { productId: m.productId, gradeId: m.gradeId })
+
+  // ── Helper: resolve COGS + cost-code for a single serial assignment ───
+  type SerialAssignmentWithCost = {
+    orderItemId: string
+    unitCost: number
+    costCodeAmount: number
+  }
+
+  function resolveSerialCost(sa: {
+    orderItemId: string
+    inventorySerial: {
+      productId: string
+      gradeId: string | null
+      receiptLine: {
+        purchaseOrderLine: {
+          unitCost: unknown
+          costCode: { amount: unknown } | null
+        }
+      } | null
+    }
+  }): SerialAssignmentWithCost {
+    const serial = sa.inventorySerial
+    const polCost = serial.receiptLine?.purchaseOrderLine
+    if (polCost) {
+      return {
+        orderItemId: sa.orderItemId,
+        unitCost: Number(polCost.unitCost),
+        costCodeAmount: polCost.costCode ? Number(polCost.costCode.amount) : 0,
+      }
+    }
+    // Fallback: use latest PO line cost for this product+grade
+    const key = `${serial.productId}:${serial.gradeId ?? ''}`
+    return {
+      orderItemId: sa.orderItemId,
+      unitCost: cogsMap.get(key) ?? cogsProductOnly.get(serial.productId) ?? 0,
+      costCodeAmount: costCodeMap.get(key) ?? costCodeProductOnly.get(serial.productId) ?? 0,
+    }
+  }
+
+  // Serial assignment include shape (reused for marketplace + line-item queries)
+  const serialAssignmentInclude = {
+    include: {
+      inventorySerial: {
+        select: {
+          productId: true,
+          gradeId: true,
+          receiptLine: {
+            select: {
+              purchaseOrderLine: {
+                select: {
+                  unitCost: true,
+                  costCode: { select: { amount: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  } as const
+
   // ── Marketplace orders (SHIPPED) ────────────────────────────────────────
-  // Use shippedAt when available, fall back to purchaseDate
   const marketplaceWhere = {
     workflowStatus: 'SHIPPED' as const,
     OR: [
@@ -86,7 +158,7 @@ export async function GET(req: NextRequest) {
       include: {
         items: true,
         label: { select: { shipmentCost: true } },
-        reservations: { select: { productId: true, gradeId: true, qtyReserved: true, orderItemId: true } },
+        serialAssignments: serialAssignmentInclude,
       },
       orderBy: { purchaseDate: 'desc' },
     }),
@@ -107,7 +179,26 @@ export async function GET(req: NextRequest) {
       where: wholesaleWhere,
       include: {
         items: true,
-        inventoryReservations: { select: { productId: true, gradeId: true, qtyReserved: true, salesOrderItemId: true } },
+        serialAssignments: {
+          include: {
+            inventorySerial: {
+              select: {
+                productId: true,
+                gradeId: true,
+                receiptLine: {
+                  select: {
+                    purchaseOrderLine: {
+                      select: {
+                        unitCost: true,
+                        costCode: { select: { amount: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
       orderBy: { orderDate: 'desc' },
     }),
@@ -133,23 +224,42 @@ export async function GET(req: NextRequest) {
 
   const rows: ProfitRow[] = []
 
-  // Marketplace rows
+  // ── Marketplace rows ──────────────────────────────────────────────────
   for (const order of marketplaceOrders) {
-    // Sale value excluding tax: sum item prices only (no tax)
     const saleValue = order.items.reduce((sum, item) => sum + Number(item.itemPrice ?? 0), 0)
     const customerShipping = order.items.reduce((sum, item) => sum + Number(item.shippingPrice ?? 0), 0)
     const shippingCost = Number(order.label?.shipmentCost ?? 0)
     const commission = Number(order.marketplaceCommission ?? 0)
     const commissionSynced = !!order.commissionSyncedAt
 
+    // COGS from serial assignments (actual cost of the serial sold)
     let totalCogs = 0
     let costCodeDeductions = 0
-    for (const res of order.reservations) {
-      const key = `${res.productId}:${res.gradeId ?? ''}`
-      const unitCost = cogsMap.get(key) ?? cogsProductOnly.get(res.productId) ?? 0
-      totalCogs += unitCost * res.qtyReserved
-      const ccAmount = costCodeMap.get(key) ?? costCodeProductOnly.get(res.productId) ?? 0
-      costCodeDeductions += ccAmount * res.qtyReserved
+    const serialCostsByItem = new Map<string, { cogs: number; cc: number; count: number }>()
+    for (const sa of order.serialAssignments) {
+      const sc = resolveSerialCost(sa)
+      const existing = serialCostsByItem.get(sc.orderItemId) ?? { cogs: 0, cc: 0, count: 0 }
+      existing.cogs += sc.unitCost
+      existing.cc += sc.costCodeAmount
+      existing.count += 1
+      serialCostsByItem.set(sc.orderItemId, existing)
+    }
+
+    for (const item of order.items) {
+      const serialCosts = serialCostsByItem.get(item.id)
+      if (serialCosts && serialCosts.count > 0) {
+        // Serialized: use actual serial costs
+        totalCogs += serialCosts.cogs
+        costCodeDeductions += serialCosts.cc
+      } else {
+        // Non-serialized: fall back to SKU mapping
+        const mapping = item.sellerSku ? skuMap.get(item.sellerSku) : null
+        if (mapping) {
+          const key = `${mapping.productId}:${mapping.gradeId ?? ''}`
+          totalCogs += (cogsMap.get(key) ?? cogsProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
+          costCodeDeductions += (costCodeMap.get(key) ?? costCodeProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
+        }
+      }
     }
 
     const netProfit = saleValue + customerShipping - totalCogs - commission - shippingCost - costCodeDeductions
@@ -171,20 +281,47 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  // Wholesale rows
+  // ── Wholesale rows ────────────────────────────────────────────────────
   for (const order of wholesaleOrders) {
     const saleValue = Number(order.total ?? 0)
     const shippingCost = Number(order.shippingCost ?? 0)
-    const commission = 0 // no marketplace commission for wholesale
+    const commission = 0
 
     let totalCogs = 0
     let costCodeDeductions = 0
-    for (const res of order.inventoryReservations) {
-      const key = `${res.productId}:${res.gradeId ?? ''}`
-      const unitCost = cogsMap.get(key) ?? cogsProductOnly.get(res.productId) ?? 0
-      totalCogs += unitCost * res.qtyReserved
-      const ccAmount = costCodeMap.get(key) ?? costCodeProductOnly.get(res.productId) ?? 0
-      costCodeDeductions += ccAmount * res.qtyReserved
+    const serialCostsByItem = new Map<string, { cogs: number; cc: number; count: number }>()
+    for (const sa of order.serialAssignments) {
+      const serial = sa.inventorySerial
+      const polCost = serial.receiptLine?.purchaseOrderLine
+      const itemId = sa.salesOrderItemId ?? ''
+      const existing = serialCostsByItem.get(itemId) ?? { cogs: 0, cc: 0, count: 0 }
+      if (polCost) {
+        existing.cogs += Number(polCost.unitCost)
+        existing.cc += polCost.costCode ? Number(polCost.costCode.amount) : 0
+      } else {
+        const key = `${serial.productId}:${serial.gradeId ?? ''}`
+        existing.cogs += cogsMap.get(key) ?? cogsProductOnly.get(serial.productId) ?? 0
+        existing.cc += costCodeMap.get(key) ?? costCodeProductOnly.get(serial.productId) ?? 0
+      }
+      existing.count += 1
+      serialCostsByItem.set(itemId, existing)
+    }
+
+    for (const item of order.items) {
+      const serialCosts = serialCostsByItem.get(item.id)
+      if (serialCosts && serialCosts.count > 0) {
+        totalCogs += serialCosts.cogs
+        costCodeDeductions += serialCosts.cc
+      } else {
+        // Non-serialized: use item product directly
+        if (item.productId) {
+          const key = `${item.productId}:`
+          const unitCost = cogsMap.get(key) ?? cogsProductOnly.get(item.productId) ?? 0
+          totalCogs += unitCost * Number(item.quantity)
+          const ccAmount = costCodeMap.get(key) ?? costCodeProductOnly.get(item.productId) ?? 0
+          costCodeDeductions += ccAmount * Number(item.quantity)
+        }
+      }
     }
 
     const netProfit = saleValue - totalCogs - commission - shippingCost - costCodeDeductions
@@ -202,7 +339,7 @@ export async function GET(req: NextRequest) {
       shippingCost: Math.round(shippingCost * 100) / 100,
       costCodeDeductions: Math.round(costCodeDeductions * 100) / 100,
       netProfit: Math.round(netProfit * 100) / 100,
-      commissionSynced: true, // N/A for wholesale
+      commissionSynced: true,
     })
   }
 
@@ -226,12 +363,15 @@ export async function GET(req: NextRequest) {
       const totalShippingVal = Number(order.label?.shipmentCost ?? 0)
       const commissionSyncedVal = !!order.commissionSyncedAt
 
-      // Build reservation map keyed by orderItemId
-      const resByItemId = new Map<string, { productId: string; gradeId: string | null; qtyReserved: number }[]>()
-      for (const res of order.reservations) {
-        const list = resByItemId.get(res.orderItemId) ?? []
-        list.push(res)
-        resByItemId.set(res.orderItemId, list)
+      // Build serial cost map keyed by orderItemId
+      const serialCostsByItem = new Map<string, { cogs: number; cc: number; count: number }>()
+      for (const sa of order.serialAssignments) {
+        const sc = resolveSerialCost(sa)
+        const existing = serialCostsByItem.get(sc.orderItemId) ?? { cogs: 0, cc: 0, count: 0 }
+        existing.cogs += sc.unitCost
+        existing.cc += sc.costCodeAmount
+        existing.count += 1
+        serialCostsByItem.set(sc.orderItemId, existing)
       }
 
       const totalSale = order.items.reduce((sum, item) => sum + Number(item.itemPrice ?? 0), 0)
@@ -242,11 +382,17 @@ export async function GET(req: NextRequest) {
 
         let itemCogs = 0
         let itemCostCodes = 0
-        const reservations = resByItemId.get(item.id) ?? []
-        for (const res of reservations) {
-          const key = `${res.productId}:${res.gradeId ?? ''}`
-          itemCogs += (cogsMap.get(key) ?? cogsProductOnly.get(res.productId) ?? 0) * res.qtyReserved
-          itemCostCodes += (costCodeMap.get(key) ?? costCodeProductOnly.get(res.productId) ?? 0) * res.qtyReserved
+        const serialCosts = serialCostsByItem.get(item.id)
+        if (serialCosts && serialCosts.count > 0) {
+          itemCogs = serialCosts.cogs
+          itemCostCodes = serialCosts.cc
+        } else {
+          const mapping = item.sellerSku ? skuMap.get(item.sellerSku) : null
+          if (mapping) {
+            const key = `${mapping.productId}:${mapping.gradeId ?? ''}`
+            itemCogs = (cogsMap.get(key) ?? cogsProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
+            itemCostCodes = (costCodeMap.get(key) ?? costCodeProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
+          }
         }
 
         const itemCustomerShipping = Number(item.shippingPrice ?? 0)
@@ -282,11 +428,22 @@ export async function GET(req: NextRequest) {
       const orderTotal = Number(order.total ?? 0)
       const totalShippingVal = Number(order.shippingCost ?? 0)
 
-      const resByItemId = new Map<string, { productId: string; gradeId: string | null; qtyReserved: number }[]>()
-      for (const res of order.inventoryReservations) {
-        const list = resByItemId.get(res.salesOrderItemId) ?? []
-        list.push(res)
-        resByItemId.set(res.salesOrderItemId, list)
+      const serialCostsByItem = new Map<string, { cogs: number; cc: number; count: number }>()
+      for (const sa of order.serialAssignments) {
+        const serial = sa.inventorySerial
+        const polCost = serial.receiptLine?.purchaseOrderLine
+        const itemId = sa.salesOrderItemId ?? ''
+        const existing = serialCostsByItem.get(itemId) ?? { cogs: 0, cc: 0, count: 0 }
+        if (polCost) {
+          existing.cogs += Number(polCost.unitCost)
+          existing.cc += polCost.costCode ? Number(polCost.costCode.amount) : 0
+        } else {
+          const key = `${serial.productId}:${serial.gradeId ?? ''}`
+          existing.cogs += cogsMap.get(key) ?? cogsProductOnly.get(serial.productId) ?? 0
+          existing.cc += costCodeMap.get(key) ?? costCodeProductOnly.get(serial.productId) ?? 0
+        }
+        existing.count += 1
+        serialCostsByItem.set(itemId, existing)
       }
 
       for (const item of order.items) {
@@ -295,11 +452,14 @@ export async function GET(req: NextRequest) {
 
         let itemCogs = 0
         let itemCostCodes = 0
-        const reservations = resByItemId.get(item.id) ?? []
-        for (const res of reservations) {
-          const key = `${res.productId}:${res.gradeId ?? ''}`
-          itemCogs += (cogsMap.get(key) ?? cogsProductOnly.get(res.productId) ?? 0) * res.qtyReserved
-          itemCostCodes += (costCodeMap.get(key) ?? costCodeProductOnly.get(res.productId) ?? 0) * res.qtyReserved
+        const serialCosts = serialCostsByItem.get(item.id)
+        if (serialCosts && serialCosts.count > 0) {
+          itemCogs = serialCosts.cogs
+          itemCostCodes = serialCosts.cc
+        } else if (item.productId) {
+          const key = `${item.productId}:`
+          itemCogs = (cogsMap.get(key) ?? cogsProductOnly.get(item.productId) ?? 0) * Number(item.quantity)
+          itemCostCodes = (costCodeMap.get(key) ?? costCodeProductOnly.get(item.productId) ?? 0) * Number(item.quantity)
         }
 
         const itemShipping = totalShippingVal * proportion
