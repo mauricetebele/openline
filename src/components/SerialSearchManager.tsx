@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive, Warehouse, LocateFixed, Building2, Tag, FileText, CircleDot, Printer, Star, ArrowRightLeft } from 'lucide-react'
+import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive, Warehouse, LocateFixed, Building2, Tag, FileText, CircleDot, Printer, Star, ArrowRightLeft, Undo2 } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import JsBarcode from 'jsbarcode'
 import { clsx } from 'clsx'
@@ -11,8 +11,10 @@ interface SerialResult {
   id: string
   serialNumber: string
   status: string
+  productId: string
   sku: string
   description: string
+  vendorId: string | null
   vendor: string | null
   lastEventType: string | null
   lastEventDate: string | null
@@ -161,6 +163,10 @@ export default function SerialSearchManager() {
   const [moveWarehouseId, setMoveWarehouseId] = useState('')
   const [moveLocationId, setMoveLocationId] = useState('')
   const [moveLoading, setMoveLoading] = useState(false)
+
+  // Vendor RMA state
+  const [rmaLoading, setRmaLoading] = useState(false)
+  const [rmaBanner, setRmaBanner] = useState<{ rmaNumber: string } | null>(null)
 
   // Sort state
   const [sortCol, setSortCol] = useState<string | null>(null)
@@ -331,6 +337,34 @@ export default function SerialSearchManager() {
       setErr(e instanceof Error ? e.message : 'Failed to move inventory')
     } finally {
       setMoveLoading(false)
+    }
+  }
+
+  // Vendor RMA validation helpers
+  const rmaEligible = selectedInStock.filter(r => r.vendorId)
+  const rmaVendorIds = new Set(rmaEligible.map(r => r.vendorId))
+  const rmaMixedVendors = rmaVendorIds.size > 1
+  const rmaNoVendor = selectedInStock.filter(r => !r.vendorId)
+  const rmaReady = rmaEligible.length > 0 && !rmaMixedVendors && rmaNoVendor.length === 0
+
+  async function handleCreateVendorRMA() {
+    if (!rmaReady) return
+    setRmaLoading(true)
+    setErr(null)
+    try {
+      const res = await fetch('/api/vendor-rma/bulk-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serialIds: rmaEligible.map(r => r.id) }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to create Vendor RMA')
+      setRmaBanner({ rmaNumber: data.rmaNumber })
+      setSelectedIds(new Set())
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to create Vendor RMA')
+    } finally {
+      setRmaLoading(false)
     }
   }
 
@@ -640,7 +674,7 @@ export default function SerialSearchManager() {
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 {/* Bulk note */}
                 <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
                   <div className="flex items-center gap-2 mb-2">
@@ -729,7 +763,53 @@ export default function SerialSearchManager() {
                     </button>
                   </div>
                 </div>
+                {/* Create Vendor RMA */}
+                <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Undo2 size={18} className="text-indigo-400 shrink-0" />
+                    <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">Create Vendor RMA</p>
+                  </div>
+                  <div className="space-y-2">
+                    {selectedInStock.length === 0 && (
+                      <p className="text-[11px] text-gray-400">No IN_STOCK serials selected</p>
+                    )}
+                    {rmaNoVendor.length > 0 && (
+                      <p className="text-[11px] text-red-500">{rmaNoVendor.length} serial(s) have no vendor</p>
+                    )}
+                    {rmaMixedVendors && (
+                      <p className="text-[11px] text-red-500">Mixed vendors — select from one vendor only</p>
+                    )}
+                    {selectedInStock.length > 0 && selectedInStock.length < selectedIds.size && (
+                      <p className="text-[11px] text-amber-600">{selectedIds.size - selectedInStock.length} non-IN_STOCK excluded</p>
+                    )}
+                    {rmaReady && (
+                      <p className="text-[11px] text-indigo-600">{rmaEligible.length} serial(s) from {rmaEligible[0].vendor}</p>
+                    )}
+                    <button
+                      onClick={handleCreateVendorRMA}
+                      disabled={!rmaReady || rmaLoading}
+                      className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap w-full justify-center"
+                    >
+                      <Undo2 size={12} />
+                      {rmaLoading ? 'Creating…' : 'Create RMA'}
+                    </button>
+                  </div>
+                </div>
               </div>
+            </div>
+          )}
+
+          {/* RMA success banner */}
+          {rmaBanner && (
+            <div className="flex items-center gap-3 bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">
+              <Check size={16} className="shrink-0" />
+              <span className="flex-1">
+                Vendor RMA <span className="font-semibold">{rmaBanner.rmaNumber}</span> created successfully.{' '}
+                <a href="/vendor-rma" className="underline hover:text-green-900">View RMAs</a>
+              </span>
+              <button onClick={() => setRmaBanner(null)} className="text-green-400 hover:text-green-600">
+                <X size={14} />
+              </button>
             </div>
           )}
 

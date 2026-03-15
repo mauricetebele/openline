@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
     where,
     ...((isFilterSearch || isPartialSearch) ? { take: 500 } : {}),
     include: {
-      product: { select: { sku: true, description: true } },
+      product: { select: { id: true, sku: true, description: true } },
       grade: { select: { grade: true } },
       location: {
         select: {
@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
           purchaseOrderLine: {
             include: {
               purchaseOrder: {
-                include: { vendor: { select: { name: true } } },
+                include: { vendor: { select: { id: true, name: true } } },
               },
             },
           },
@@ -114,8 +114,10 @@ export async function GET(req: NextRequest) {
       id:            r.id,
       serialNumber:  r.serialNumber,
       status:        r.status,
+      productId:     r.product.id,
       sku:           r.product.sku,
       description:   r.product.description,
+      vendorId:      po?.vendor.id ?? null,
       vendor:        po?.vendor.name ?? null,
       lastEventType: lastHistory?.eventType ?? null,
       lastEventDate: lastHistory?.createdAt ?? null,

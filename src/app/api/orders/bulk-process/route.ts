@@ -119,6 +119,14 @@ export async function POST(req: NextRequest) {
               qtyReserved: r.qtyReserved,
             },
           })
+
+          // Stamp the grade onto the order item so serialization enforces it
+          if (r.gradeId) {
+            await tx.orderItem.update({
+              where: { id: r.orderItemId },
+              data:  { gradeId: r.gradeId },
+            })
+          }
         }
         await tx.order.update({
           where: { id: orderId },

@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, Pencil, Trash2, X, AlertCircle, Warehouse, ChevronDown, ChevronRight, MapPin, PackageCheck } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, AlertCircle, Warehouse, ChevronDown, ChevronRight, MapPin, PackageCheck, Building } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -15,6 +15,12 @@ interface Location {
 interface WarehouseWithLocations {
   id: string
   name: string
+  addressLine1?: string | null
+  addressLine2?: string | null
+  city?: string | null
+  state?: string | null
+  postalCode?: string | null
+  countryCode?: string
   locations: Location[]
 }
 
@@ -230,6 +236,17 @@ function WarehouseCard({
   const [delConfirm,   setDelConfirm]   = useState(false)
   const [deleting,     setDeleting]     = useState(false)
   const [err,          setErr]          = useState('')
+  const [editingAddr,  setEditingAddr]  = useState(false)
+  const [addrSaving,   setAddrSaving]   = useState(false)
+  const [addrErr,      setAddrErr]      = useState('')
+  const [addr, setAddr] = useState({
+    addressLine1: wh.addressLine1 ?? '',
+    addressLine2: wh.addressLine2 ?? '',
+    city: wh.city ?? '',
+    state: wh.state ?? '',
+    postalCode: wh.postalCode ?? '',
+    countryCode: wh.countryCode ?? 'US',
+  })
 
   async function renameWarehouse(name: string) {
     const res = await fetch(`/api/warehouses/${wh.id}`, {
@@ -278,6 +295,26 @@ function WarehouseCard({
       setDelConfirm(false)
     } finally {
       setDeleting(false)
+    }
+  }
+
+  async function saveAddress() {
+    setAddrSaving(true)
+    setAddrErr('')
+    try {
+      const res = await fetch(`/api/warehouses/${wh.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(addr),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Save failed')
+      onChanged({ ...wh, ...addr })
+      setEditingAddr(false)
+    } catch (e: unknown) {
+      setAddrErr(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setAddrSaving(false)
     }
   }
 
@@ -335,6 +372,49 @@ function WarehouseCard({
           </>
         )}
       </div>
+
+      {/* Address */}
+      {expanded && (
+        <div className="px-4 py-2 border-b border-gray-100">
+          {editingAddr ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 mb-1">
+                <Building size={12} className="text-gray-400" />
+                <span className="text-xs font-medium text-gray-500">Shipping Address</span>
+              </div>
+              {addrErr && <span className="text-xs text-red-500">{addrErr}</span>}
+              <input value={addr.addressLine1} onChange={e => setAddr(a => ({ ...a, addressLine1: e.target.value }))}
+                placeholder="Address line 1" className="w-full h-7 rounded border border-gray-300 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
+              <input value={addr.addressLine2} onChange={e => setAddr(a => ({ ...a, addressLine2: e.target.value }))}
+                placeholder="Address line 2" className="w-full h-7 rounded border border-gray-300 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
+              <div className="flex gap-2">
+                <input value={addr.city} onChange={e => setAddr(a => ({ ...a, city: e.target.value }))}
+                  placeholder="City" className="flex-1 h-7 rounded border border-gray-300 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
+                <input value={addr.state} onChange={e => setAddr(a => ({ ...a, state: e.target.value }))}
+                  placeholder="State" className="w-16 h-7 rounded border border-gray-300 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
+                <input value={addr.postalCode} onChange={e => setAddr(a => ({ ...a, postalCode: e.target.value }))}
+                  placeholder="ZIP" className="w-20 h-7 rounded border border-gray-300 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={saveAddress} disabled={addrSaving}
+                  className="h-7 px-3 rounded bg-amazon-blue text-white text-xs font-medium disabled:opacity-60">
+                  {addrSaving ? 'Saving…' : 'Save Address'}
+                </button>
+                <button type="button" onClick={() => { setEditingAddr(false); setAddrErr(''); setAddr({ addressLine1: wh.addressLine1 ?? '', addressLine2: wh.addressLine2 ?? '', city: wh.city ?? '', state: wh.state ?? '', postalCode: wh.postalCode ?? '', countryCode: wh.countryCode ?? 'US' }) }}
+                  className="h-7 px-3 rounded border border-gray-200 text-gray-500 text-xs hover:bg-gray-50">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setEditingAddr(true)}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-amazon-blue">
+              <Building size={11} />
+              {wh.addressLine1
+                ? <span className="text-gray-600">{wh.addressLine1}{wh.city ? `, ${wh.city}` : ''}{wh.state ? ` ${wh.state}` : ''} {wh.postalCode ?? ''}</span>
+                : <span>Add shipping address (required for FBA)</span>}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Locations */}
       {expanded && (

@@ -105,6 +105,14 @@ export async function POST(
             qtyReserved: r.qtyReserved,
           },
         })
+
+        // Stamp the grade onto the order item so serialization enforces it
+        if (gradeId) {
+          await tx.orderItem.update({
+            where: { id: r.orderItemId },
+            data:  { gradeId },
+          })
+        }
       }
 
       // Advance workflow status
