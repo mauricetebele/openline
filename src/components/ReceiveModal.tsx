@@ -581,7 +581,7 @@ export default function ReceiveModal({
                           {grades.length > 0 && (
                             <div className="mt-1">
                               <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Grade <span className="text-red-500">*</span>
+                                Grade
                               </label>
                               <select
                                 value={ls.gradeId ?? ''}
