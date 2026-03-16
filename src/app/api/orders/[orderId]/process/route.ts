@@ -36,6 +36,7 @@ export async function POST(
 
     const order = await prisma.order.findUnique({
       where: { id: params.orderId },
+      include: { items: { select: { id: true, gradeId: true } } },
     })
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     if (order.workflowStatus !== 'PENDING') {
@@ -49,6 +50,13 @@ export async function POST(
     const { reservations } = body as { reservations?: ReservationInput[] }
     if (!Array.isArray(reservations) || reservations.length === 0) {
       return NextResponse.json({ error: 'No reservations provided' }, { status: 400 })
+    }
+
+    // Enforce order item's gradeId as source of truth (prevents stale frontend data)
+    const itemGradeMap = new Map(order.items.map(i => [i.id, i.gradeId ?? null]))
+    for (const r of reservations) {
+      const authoritative = itemGradeMap.get(r.orderItemId)
+      if (authoritative !== undefined) r.gradeId = authoritative
     }
 
     // Validate all inputs before touching inventory

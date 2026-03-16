@@ -59,7 +59,10 @@ export async function POST(req: NextRequest) {
 
   for (const { orderId, reservations } of orders) {
     try {
-      const order = await prisma.order.findUnique({ where: { id: orderId } })
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { items: { select: { id: true, gradeId: true } } },
+      })
       if (!order) { results.push({ orderId, success: false, error: 'Order not found' }); continue }
       if (order.workflowStatus !== 'PENDING') {
         results.push({ orderId, success: false, error: `Order status is ${order.workflowStatus}, expected PENDING` })
@@ -67,6 +70,13 @@ export async function POST(req: NextRequest) {
       }
       if (!Array.isArray(reservations) || reservations.length === 0) {
         results.push({ orderId, success: false, error: 'No reservations provided' }); continue
+      }
+
+      // Enforce order item's gradeId as source of truth (prevents stale frontend data)
+      const itemGradeMap = new Map(order.items.map(i => [i.id, i.gradeId ?? null]))
+      for (const r of reservations) {
+        const authoritative = itemGradeMap.get(r.orderItemId)
+        if (authoritative !== undefined) r.gradeId = authoritative
       }
 
       // Validate all reservation inputs
