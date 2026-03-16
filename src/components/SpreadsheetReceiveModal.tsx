@@ -288,7 +288,6 @@ export default function SpreadsheetReceiveModal({
     if (!locationId) { setErr('Select a warehouse and location'); return }
     if (invalidRows.length > 0) { setErr('Fix all validation errors before submitting'); return }
     if (validRows.length === 0) { setErr('No valid rows to submit'); return }
-    if (allGrades.length > 0 && !gradeId) { setErr('Select a grade'); return }
     setShowConfirmation(true)
   }
 
