@@ -205,7 +205,7 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
         "fulfillmentChannel" = EXCLUDED."fulfillmentChannel",
         "shippingTemplate" = EXCLUDED."shippingTemplate",
         "listingStatus" = EXCLUDED."listingStatus",
-        quantity = EXCLUDED.quantity,
+        quantity = CASE WHEN EXCLUDED."fulfillmentChannel" = 'FBA' THEN seller_listings.quantity ELSE EXCLUDED.quantity END,
         price = EXCLUDED.price,
         "minPrice" = EXCLUDED."minPrice",
         "maxPrice" = EXCLUDED."maxPrice",
@@ -237,23 +237,27 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
     data: { listingStatus: 'Inactive' },
   })
 
-  // 9. Mark job COMPLETED
+  // 9. Sync FBA inventory quantities BEFORE marking job complete so the
+  //    frontend sees accurate FBA quantities when it refreshes.
+  try {
+    await syncFbaInventory(accountId)
+  } catch (err) {
+    console.error(
+      '[syncListings] FBA inventory sync failed:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+
+  // 10. Mark job COMPLETED
   await prisma.listingSyncJob.update({
     where: { id: jobId },
     data: { status: 'COMPLETED', totalFound, totalUpserted, completedAt: new Date() },
   })
 
-  // 9. Refresh competitive pricing + FBA inventory in the background.
+  // 11. Refresh competitive pricing in the background.
   syncCompetitivePricing(accountId).catch((err) => {
     console.error(
       '[syncListings] competitive pricing background sync failed:',
-      err instanceof Error ? err.message : err,
-    )
-  })
-
-  syncFbaInventory(accountId).catch((err) => {
-    console.error(
-      '[syncListings] FBA inventory background sync failed:',
       err instanceof Error ? err.message : err,
     )
   })
