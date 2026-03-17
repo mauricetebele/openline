@@ -7,7 +7,7 @@ import { clsx } from 'clsx'
 
 type RMAStatus = 'AWAITING_VENDOR_APPROVAL' | 'APPROVED_TO_RETURN' | 'SHIPPED_AWAITING_CREDIT' | 'CREDIT_RECEIVED'
 
-interface VendorRMASerial { id: string; serialNumber: string }
+interface VendorRMASerial { id: string; serialNumber: string; scannedOutAt: string | null }
 interface VendorRMAItem {
   id: string; productId: string; quantity: number; unitCost: string | null; notes: string | null
   product: { id: string; sku: string; description: string; isSerializable: boolean }
@@ -66,6 +66,14 @@ function ErrorBanner({ msg, onDismiss }: { msg: string; onDismiss: () => void })
       <button onClick={onDismiss} className="text-red-400 hover:text-red-600">✕</button>
     </div>
   )
+}
+
+function parseScanInput(raw: string): string[] {
+  return raw
+    .split(/[\n,;]+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .filter((s, i, arr) => arr.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
 }
 
 // ─── Approval Modal ───────────────────────────────────────────────────────────
@@ -162,6 +170,254 @@ function ShippingModal({
           >
             {saving ? 'Saving…' : 'Confirm'}
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Scan Out Modal ──────────────────────────────────────────────────────────
+
+type ScanOutResult = { serialNumber: string; status: 'scanned' | 'already_scanned' | 'not_on_rma' }
+
+function ScanOutModal({
+  rma, onUpdate, onClose,
+}: { rma: VendorRMA; onUpdate: (rma: VendorRMA) => void; onClose: () => void }) {
+  const [scannedSet, setScannedSet] = useState<Set<string>>(() => {
+    const set = new Set<string>()
+    for (const item of rma.items) {
+      for (const s of item.serials) {
+        if (s.scannedOutAt) set.add(s.serialNumber.toLowerCase())
+      }
+    }
+    return set
+  })
+
+  const [singleInput, setSingleInput] = useState('')
+  const [bulkInput, setBulkInput] = useState('')
+  const [processing, setProcessing] = useState(false)
+  const [flash, setFlash] = useState<{ type: 'success' | 'warning' | 'error'; msg: string } | null>(null)
+  const [bulkResults, setBulkResults] = useState<ScanOutResult[]>([])
+  const singleRef = useRef<HTMLInputElement>(null)
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => { singleRef.current?.focus() }, [])
+
+  // Build grid rows from all items' serials
+  const allSerials = rma.items.flatMap(item =>
+    item.serials.map(s => ({
+      serialNumber: s.serialNumber,
+      sku: item.product.sku,
+      description: item.product.description,
+      scanned: scannedSet.has(s.serialNumber.toLowerCase()),
+    })),
+  )
+  const sorted = [...allSerials].sort((a, b) => {
+    if (a.scanned !== b.scanned) return a.scanned ? 1 : -1
+    return a.serialNumber.localeCompare(b.serialNumber)
+  })
+
+  const totalSerials = allSerials.length
+  const scannedCount = allSerials.filter(s => s.scanned).length
+
+  function showFlash(type: 'success' | 'warning' | 'error', msg: string) {
+    if (flashTimer.current) clearTimeout(flashTimer.current)
+    setFlash({ type, msg })
+    flashTimer.current = setTimeout(() => setFlash(null), 2500)
+  }
+
+  async function callScanOut(serialNumbers: string[]): Promise<{ rma: VendorRMA; results: ScanOutResult[] } | null> {
+    setProcessing(true)
+    try {
+      const res = await fetch(`/api/vendor-rma/${rma.id}/scan-out`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serialNumbers }),
+      })
+      const data = await res.json()
+      if (!res.ok) { showFlash('error', data.error ?? 'Failed'); return null }
+      return data
+    } catch {
+      showFlash('error', 'Network error')
+      return null
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  async function handleSingleScan() {
+    const sn = singleInput.trim()
+    if (!sn) return
+    const data = await callScanOut([sn])
+    if (!data) return
+
+    const result = data.results[0]
+    if (result.status === 'scanned') {
+      showFlash('success', `${sn} scanned out`)
+      setScannedSet(prev => new Set(prev).add(sn.toLowerCase()))
+      onUpdate(data.rma)
+    } else if (result.status === 'already_scanned') {
+      showFlash('warning', `${sn} already scanned`)
+    } else {
+      showFlash('error', `${sn} not on this RMA`)
+    }
+    setSingleInput('')
+    singleRef.current?.focus()
+  }
+
+  async function handleBulkScan() {
+    const serials = parseScanInput(bulkInput)
+    if (serials.length === 0) return
+    const data = await callScanOut(serials)
+    if (!data) return
+
+    setBulkResults(data.results)
+    const newScanned = data.results.filter(r => r.status === 'scanned').map(r => r.serialNumber.toLowerCase())
+    if (newScanned.length > 0) {
+      setScannedSet(prev => {
+        const next = new Set(prev)
+        for (const sn of newScanned) next.add(sn)
+        return next
+      })
+      onUpdate(data.rma)
+    }
+    if (data.results.every(r => r.status === 'scanned')) setBulkInput('')
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center gap-3">
+            <h3 className="text-sm font-semibold text-gray-900">Scan Out — {rma.rmaNumber}</h3>
+            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+              {scannedCount} / {totalSerials} scanned
+            </span>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        {/* Input section */}
+        <div className="px-6 py-4 border-b border-gray-200">
+          {flash && (
+            <div className={clsx(
+              'flex items-center gap-2 px-3 py-2 rounded-lg text-xs mb-3 transition-opacity',
+              flash.type === 'success' && 'bg-green-50 border border-green-200 text-green-700',
+              flash.type === 'warning' && 'bg-yellow-50 border border-yellow-200 text-yellow-700',
+              flash.type === 'error' && 'bg-red-50 border border-red-200 text-red-700',
+            )}>
+              {flash.type === 'success' ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
+              {flash.msg}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-4">
+            {/* Single scan */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Scanner Input</label>
+              <input
+                ref={singleRef}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                placeholder="Scan or type serial #"
+                value={singleInput}
+                onChange={e => setSingleInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSingleScan() }}
+                disabled={processing}
+              />
+              <p className="text-[10px] text-gray-400 mt-1">Press Enter to scan</p>
+            </div>
+            {/* Bulk paste */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Bulk Paste</label>
+              <textarea
+                rows={2}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue resize-none"
+                placeholder="Paste serials (one per line)…"
+                value={bulkInput}
+                onChange={e => { setBulkInput(e.target.value); setBulkResults([]) }}
+                disabled={processing}
+              />
+              <button
+                onClick={handleBulkScan}
+                disabled={processing || parseScanInput(bulkInput).length === 0}
+                className="mt-1.5 text-xs bg-amazon-blue text-white px-3 py-1.5 rounded-lg hover:opacity-90 disabled:opacity-50"
+              >
+                {processing ? 'Processing…' : `Process All (${parseScanInput(bulkInput).length})`}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Grid */}
+        <div className="flex-1 overflow-y-auto px-6 py-3">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 sticky top-0">
+              <tr>
+                {['Serial #', 'SKU', 'Description', 'Status'].map(h => (
+                  <th key={h} className="px-3 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {sorted.map(row => (
+                <tr key={row.serialNumber} className={row.scanned ? 'bg-green-50' : 'bg-red-50'}>
+                  <td className="px-3 py-2 text-xs font-mono font-medium text-gray-900">{row.serialNumber}</td>
+                  <td className="px-3 py-2 text-xs font-mono text-gray-500">{row.sku}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600 max-w-[200px] truncate">{row.description}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {row.scanned
+                      ? <span className="inline-flex items-center gap-1 text-green-700"><CheckCircle2 size={13} /> Scanned</span>
+                      : <span className="text-gray-400">—</span>
+                    }
+                  </td>
+                </tr>
+              ))}
+              {sorted.length === 0 && (
+                <tr><td colSpan={4} className="px-3 py-6 text-center text-xs text-gray-400">No serials on this RMA</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-200">
+          {bulkResults.length > 0 && (
+            <div className="space-y-1 max-h-32 overflow-y-auto mb-3">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                {bulkResults.filter(r => r.status === 'scanned').length} scanned
+                {' · '}{bulkResults.filter(r => r.status === 'already_scanned').length} already scanned
+                {' · '}{bulkResults.filter(r => r.status === 'not_on_rma').length} not on RMA
+              </p>
+              {bulkResults.map(r => (
+                <div
+                  key={r.serialNumber}
+                  className={clsx(
+                    'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs',
+                    r.status === 'scanned' && 'bg-green-50 border border-green-200',
+                    r.status === 'already_scanned' && 'bg-yellow-50 border border-yellow-200',
+                    r.status === 'not_on_rma' && 'bg-red-50 border border-red-200',
+                  )}
+                >
+                  {r.status === 'scanned' && <CheckCircle2 size={13} className="text-green-600" />}
+                  {r.status === 'already_scanned' && <AlertCircle size={13} className="text-yellow-500" />}
+                  {r.status === 'not_on_rma' && <AlertCircle size={13} className="text-red-500" />}
+                  <span className="font-mono font-semibold">{r.serialNumber}</span>
+                  <span className={clsx(
+                    r.status === 'scanned' && 'text-green-700',
+                    r.status === 'already_scanned' && 'text-yellow-700',
+                    r.status === 'not_on_rma' && 'text-red-600',
+                  )}>
+                    {r.status === 'scanned' && 'Scanned out'}
+                    {r.status === 'already_scanned' && 'Already scanned'}
+                    {r.status === 'not_on_rma' && 'Not on this RMA'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end">
+            <button onClick={onClose} className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Done</button>
+          </div>
         </div>
       </div>
     </div>
@@ -280,6 +536,7 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
   // Status modals
   const [showApprovalModal, setShowApprovalModal] = useState(false)
   const [showShippingModal, setShowShippingModal] = useState(false)
+  const [showScanOutModal, setShowScanOutModal] = useState(false)
 
   // Add item
   const [addMode, setAddMode] = useState<'product' | 'serial'>('product')
@@ -361,14 +618,6 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
   }
 
   // ── Serial-scan (bulk) helpers ───────────────────────────────────────────────
-
-  function parseScanInput(raw: string): string[] {
-    return raw
-      .split(/[\n,;]+/)
-      .map(s => s.trim())
-      .filter(Boolean)
-      .filter((s, i, arr) => arr.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
-  }
 
   async function processBulkScan() {
     const serials = parseScanInput(scanInput)
@@ -606,6 +855,13 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
           saving={saving}
         />
       )}
+      {showScanOutModal && (
+        <ScanOutModal
+          rma={rma}
+          onUpdate={updated => { setRma(updated); onUpdated(updated) }}
+          onClose={() => setShowScanOutModal(false)}
+        />
+      )}
 
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
@@ -647,6 +903,20 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
           {rma.status === 'AWAITING_VENDOR_APPROVAL' && (
             <button onClick={handleDelete} className="ml-3 text-xs text-red-500 hover:text-red-700 underline">Delete Return</button>
           )}
+          {(rma.status === 'APPROVED_TO_RETURN' || rma.status === 'SHIPPED_AWAITING_CREDIT') && (() => {
+            const totalSerials = rma.items.reduce((sum, i) => sum + i.serials.length, 0)
+            const scannedCount = rma.items.reduce((sum, i) => sum + i.serials.filter(s => s.scannedOutAt).length, 0)
+            return totalSerials > 0 ? (
+              <button
+                onClick={() => setShowScanOutModal(true)}
+                className="ml-3 inline-flex items-center gap-1.5 bg-orange-500 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-orange-600"
+              >
+                <ScanLine size={14} />
+                Scan Out
+                <span className="text-xs opacity-80">({scannedCount}/{totalSerials})</span>
+              </button>
+            ) : null
+          })()}
         </div>
       )}
 

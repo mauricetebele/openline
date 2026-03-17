@@ -1616,6 +1616,7 @@ model VendorRMASerial {
   rmaItemId    String
   rmaItem      VendorRMAItem @relation(fields: [rmaItemId], references: [id], onDelete: Cascade)
   serialNumber String
+  scannedOutAt DateTime?
   createdAt    DateTime      @default(now())
 
   @@unique([rmaItemId, serialNumber])
