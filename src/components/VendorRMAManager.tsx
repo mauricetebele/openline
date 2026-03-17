@@ -522,7 +522,7 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
           r.serialNumber,
           r.quantity,
           r.cost != null ? r.cost.toFixed(2) : '',
-          r.dateReceived ? new Date(r.dateReceived).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
+          r.dateReceived ? `"${new Date(r.dateReceived).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}"` : '',
           r.poNumber ?? '',
           `"${(r.note ?? '').replace(/"/g, '""')}"`,
         ].join(','))
