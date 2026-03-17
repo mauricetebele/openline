@@ -80,6 +80,7 @@ export default function MFNReturnsManager() {
   const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 25, total: 0, totalPages: 1 })
   const [pageSize, setPageSize] = useState(25)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [trackingStatus, setTrackingStatus] = useState('')
   const [inSystemOnly, setInSystemOnly] = useState(false)
@@ -107,6 +108,7 @@ export default function MFNReturnsManager() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setError(null)
 
     const params = new URLSearchParams()
     params.set('page', String(pagination.page))
@@ -115,9 +117,12 @@ export default function MFNReturnsManager() {
     if (trackingStatus) params.set('trackingStatus', trackingStatus)
     if (inSystemOnly) params.set('inSystem', 'true')
 
-    fetch(`/api/returns?${params}`)
+    fetch(`/api/returns?${params}`, { cache: 'no-store' })
       .then(async (res) => {
-        if (!res.ok) throw new Error(`${res.status}`)
+        if (!res.ok) {
+          const body = await res.text().catch(() => '')
+          throw new Error(`API ${res.status}: ${body}`)
+        }
         return res.json()
       })
       .then((data) => {
@@ -126,7 +131,10 @@ export default function MFNReturnsManager() {
         setPagination(data.pagination)
       })
       .catch((err) => {
-        if (!cancelled) console.error('[MFNReturns] fetch failed:', err)
+        if (!cancelled) {
+          console.error('[MFNReturns] fetch failed:', err)
+          setError(String(err?.message ?? err))
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -458,6 +466,12 @@ export default function MFNReturnsManager() {
           />
         </div>
       </div>
+
+      {error && (
+        <div className="mx-6 mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-red-700 dark:text-red-400 text-xs">
+          Fetch error: {error}
+        </div>
+      )}
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
