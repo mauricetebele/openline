@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanLine, Search, CheckCircle2 } from 'lucide-react'
+import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanLine, Search, CheckCircle2, Download } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -505,6 +505,38 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
     }
   }
 
+  async function handleExport() {
+    try {
+      const res = await fetch(`/api/vendor-rma/${rma.id}/export`)
+      if (!res.ok) { setErr('Failed to export'); return }
+      const data = await res.json()
+      const rows = data.rows as { rmaNumber: string; vendor: string; sku: string; description: string; serialNumber: string; quantity: number; cost: number | null; dateReceived: string | null; poNumber: number | null; note: string }[]
+      const headers = ['VRMA #', 'Vendor', 'SKU', 'Description', 'Serial #', 'Qty', 'Cost', 'Date Received', 'PO #', 'Note']
+      const csvRows = [headers.join(',')]
+      for (const r of rows) {
+        csvRows.push([
+          r.rmaNumber,
+          `"${r.vendor.replace(/"/g, '""')}"`,
+          r.sku,
+          `"${(r.description ?? '').replace(/"/g, '""')}"`,
+          r.serialNumber,
+          r.quantity,
+          r.cost != null ? r.cost.toFixed(2) : '',
+          r.dateReceived ? new Date(r.dateReceived).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
+          r.poNumber ?? '',
+          `"${(r.note ?? '').replace(/"/g, '""')}"`,
+        ].join(','))
+      }
+      const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${rma.rmaNumber}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch { setErr('Export failed') }
+  }
+
   async function saveNotes() {
     setSaving(true)
     const res = await fetch(`/api/vendor-rma/${rma.id}`, {
@@ -582,7 +614,10 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
             {STATUS_LABEL[rma.status]}
           </span>
         </div>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1"><X size={18} /></button>
+        <div className="flex items-center gap-2">
+          <button onClick={handleExport} title="Download CSV" className="text-gray-400 hover:text-amazon-blue p-1"><Download size={17} /></button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1"><X size={18} /></button>
+        </div>
       </div>
 
       {err && <div className="mb-4"><ErrorBanner msg={err} onDismiss={() => setErr(null)} /></div>}
