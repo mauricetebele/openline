@@ -35,6 +35,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         where: { serialNumber: { in: allSerials } },
         select: {
           serialNumber: true,
+          note: true,
           receiptLine: {
             select: {
               receipt: { select: { receivedAt: true } },
@@ -54,6 +55,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     inventorySerials.map(s => [s.serialNumber, {
       dateReceived: s.receiptLine?.receipt?.receivedAt ?? null,
       poNumber: s.receiptLine?.purchaseOrderLine?.purchaseOrder?.poNumber ?? null,
+      note: s.note ?? null,
     }])
   )
 
@@ -86,7 +88,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         cost: item.unitCost != null ? Number(item.unitCost) : null,
         dateReceived: info?.dateReceived ? new Date(info.dateReceived).toISOString() : null,
         poNumber: info?.poNumber ?? null,
-        note: item.notes ?? '',
+        note: info?.note ?? '',
       }
     })
   })
