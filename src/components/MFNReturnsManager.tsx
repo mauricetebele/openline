@@ -82,6 +82,7 @@ export default function MFNReturnsManager() {
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [trackingStatus, setTrackingStatus] = useState('')
+  const [inSystemOnly, setInSystemOnly] = useState(false)
   const [fetchKey, setFetchKey] = useState(0)
 
   // Sync state
@@ -112,6 +113,7 @@ export default function MFNReturnsManager() {
     params.set('limit', String(pageSize))
     if (search) params.set('search', search)
     if (trackingStatus) params.set('trackingStatus', trackingStatus)
+    if (inSystemOnly) params.set('inSystem', 'true')
 
     fetch(`/api/returns?${params}`)
       .then(async (res) => {
@@ -131,7 +133,7 @@ export default function MFNReturnsManager() {
       })
 
     return () => { cancelled = true }
-  }, [pagination.page, pageSize, search, trackingStatus, fetchKey])
+  }, [pagination.page, pageSize, search, trackingStatus, inSystemOnly, fetchKey])
 
   function goToPage(p: number) {
     setPagination((prev) => ({ ...prev, page: p }))
@@ -429,6 +431,21 @@ export default function MFNReturnsManager() {
               {label}
             </button>
           ))}
+          <span className="mx-1 text-gray-300">|</span>
+          <button
+            onClick={() => {
+              setInSystemOnly(v => !v)
+              setPagination((prev) => ({ ...prev, page: 1 }))
+            }}
+            className={clsx(
+              'text-xs px-2.5 py-1 rounded-full border transition-colors',
+              inSystemOnly
+                ? 'bg-green-600 text-white border-green-600'
+                : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-green-400',
+            )}
+          >
+            In System Only
+          </button>
         </div>
 
         <div className="relative">

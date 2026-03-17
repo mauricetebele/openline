@@ -78,6 +78,20 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // "In System" filter: only show returns that have a matching non-cancelled internal Order
+  const inSystemFilter = searchParams.get('inSystem')
+  if (inSystemFilter === 'true') {
+    const knownOrderIds = (await prisma.order.findMany({
+      select: { amazonOrderId: true },
+      where: {
+        amazonOrderId: { not: null },
+        orderStatus: { not: 'Canceled' },
+      },
+      distinct: ['amazonOrderId'],
+    })).map(o => o.amazonOrderId!).filter(Boolean)
+    where.orderId = { in: knownOrderIds }
+  }
+
   const [returns, total] = await Promise.all([
     prisma.mFNReturn.findMany({
       where,
