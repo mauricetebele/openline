@@ -203,6 +203,9 @@ function ScanOutModal({
 
   useEffect(() => { singleRef.current?.focus() }, [])
 
+  // Track scan order so most recently scanned appears at top
+  const [scanOrder, setScanOrder] = useState<string[]>([])
+
   function playErrorBeep() {
     try {
       const ctx = new AudioContext()
@@ -219,6 +222,23 @@ function ScanOutModal({
     } catch { /* audio not available */ }
   }
 
+  function playSuccessChime() {
+    try {
+      const ctx = new AudioContext()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = 880
+      gain.gain.value = 0.2
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start()
+      osc.frequency.setValueAtTime(1174, ctx.currentTime + 0.1)
+      osc.stop(ctx.currentTime + 0.2)
+      osc.onended = () => ctx.close()
+    } catch { /* audio not available */ }
+  }
+
   // Build grid rows from all items' serials
   const allSerials = rma.items.flatMap(item =>
     item.serials.map(s => ({
@@ -229,7 +249,15 @@ function ScanOutModal({
     })),
   )
   const sorted = [...allSerials].sort((a, b) => {
-    if (a.scanned !== b.scanned) return a.scanned ? 1 : -1
+    if (a.scanned !== b.scanned) return a.scanned ? -1 : 1
+    if (a.scanned && b.scanned) {
+      // Most recently scanned first
+      const aIdx = scanOrder.indexOf(a.serialNumber.toLowerCase())
+      const bIdx = scanOrder.indexOf(b.serialNumber.toLowerCase())
+      if (aIdx !== -1 && bIdx !== -1) return bIdx - aIdx
+      if (aIdx !== -1) return -1
+      if (bIdx !== -1) return 1
+    }
     return a.serialNumber.localeCompare(b.serialNumber)
   })
 
@@ -271,6 +299,8 @@ function ScanOutModal({
     if (result.status === 'scanned') {
       showFlash('success', `${sn} scanned out`)
       setScannedSet(prev => new Set(prev).add(sn.toLowerCase()))
+      setScanOrder(prev => [...prev, sn.toLowerCase()])
+      playSuccessChime()
       onUpdate(data.rma)
     } else if (result.status === 'already_scanned') {
       showFlash('warning', `${sn} already scanned`)
@@ -290,14 +320,18 @@ function ScanOutModal({
 
     setBulkResults(data.results)
     const newScanned = data.results.filter(r => r.status === 'scanned').map(r => r.serialNumber.toLowerCase())
+    const hasErrors = data.results.some(r => r.status === 'not_on_rma')
     if (newScanned.length > 0) {
       setScannedSet(prev => {
         const next = new Set(prev)
         for (const sn of newScanned) next.add(sn)
         return next
       })
+      setScanOrder(prev => [...prev, ...newScanned])
+      if (!hasErrors) playSuccessChime()
       onUpdate(data.rma)
     }
+    if (hasErrors) playErrorBeep()
     if (data.results.every(r => r.status === 'scanned')) setBulkInput('')
   }
 
