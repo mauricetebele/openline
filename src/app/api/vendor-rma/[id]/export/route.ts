@@ -63,7 +63,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       // Non-serializable item — single row
       return [{
         rmaNumber: rma.rmaNumber,
-        vendor: `V-${rma.vendor.vendorNumber} — ${rma.vendor.name}`,
+        vendor: rma.vendor.name,
         sku: item.product.sku,
         description: item.product.description,
         serialNumber: '',
@@ -78,7 +78,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       const info = serialInfoMap.get(s.serialNumber)
       return {
         rmaNumber: rma.rmaNumber,
-        vendor: `V-${rma.vendor.vendorNumber} — ${rma.vendor.name}`,
+        vendor: rma.vendor.name,
         sku: item.product.sku,
         description: item.product.description,
         serialNumber: s.serialNumber,
