@@ -1,6 +1,7 @@
 /**
  * GET /api/cron/sync-commissions — Vercel Cron (every 6 hours)
- * Syncs Amazon marketplace commissions for all active accounts (last 30 days).
+ * Syncs Amazon marketplace commissions for all active accounts (last 30 days)
+ * and BackMarket commissions (flat 12%).
  */
 export const maxDuration = 300
 
@@ -16,20 +17,40 @@ export async function GET(req: NextRequest) {
   }
 
   const accounts = await prisma.amazonAccount.findMany({ where: { isActive: true } })
-  const results: { accountId: string; status: string; message?: string }[] = []
+  const results: { source: string; status: string; message?: string }[] = []
 
   const end = new Date(Date.now() - 5 * 60 * 1000)
-  const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000) // 7 days back
+  const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000) // 30 days back
 
   for (const account of accounts) {
     try {
       const result = await syncAmazonCommissions(account.id, start, end)
-      results.push({ accountId: account.id, status: 'ok', message: `${result.updated} orders updated` })
+      results.push({ source: `amazon:${account.id}`, status: 'ok', message: `${result.updated} orders updated` })
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       console.error(`[cron/sync-commissions] Amazon account=${account.id}`, message)
-      results.push({ accountId: account.id, status: 'error', message })
+      results.push({ source: `amazon:${account.id}`, status: 'error', message })
     }
+  }
+
+  // Backfill: set commission to 0 for wholesale orders missing commissionSyncedAt
+  try {
+    const backfilled = await prisma.order.updateMany({
+      where: {
+        orderSource: 'wholesale',
+        commissionSyncedAt: null,
+      },
+      data: {
+        marketplaceCommission: 0,
+        commissionSyncedAt: new Date(),
+      },
+    })
+    if (backfilled.count > 0) {
+      results.push({ source: 'wholesale', status: 'ok', message: `${backfilled.count} orders backfilled` })
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    results.push({ source: 'wholesale', status: 'error', message })
   }
 
   return NextResponse.json({ status: 'success', results })
