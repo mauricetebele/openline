@@ -26,7 +26,13 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: 'desc' },
     include: {
       vendor: { select: { id: true, vendorNumber: true, name: true } },
-      items: { select: { quantity: true } },
+      items: {
+        select: {
+          quantity: true,
+          unitCost: true,
+          serials: { select: { scannedOutAt: true } },
+        },
+      },
     },
   })
 
