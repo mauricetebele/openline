@@ -919,14 +919,16 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
             const totalSerials = rma.items.reduce((sum, i) => sum + i.serials.length, 0)
             const scannedCount = rma.items.reduce((sum, i) => sum + i.serials.filter(s => s.scannedOutAt).length, 0)
             return totalSerials > 0 ? (
-              <button
-                onClick={() => setShowScanOutModal(true)}
-                className="ml-3 inline-flex items-center gap-1.5 bg-orange-500 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-orange-600"
-              >
-                <ScanLine size={14} />
-                Scan Out
-                <span className="text-xs opacity-80">({scannedCount}/{totalSerials})</span>
-              </button>
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  onClick={() => setShowScanOutModal(true)}
+                  className="inline-flex items-center gap-1.5 bg-orange-500 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-orange-600"
+                >
+                  <ScanLine size={14} />
+                  Scan Out
+                  <span className="text-xs opacity-80">({scannedCount}/{totalSerials})</span>
+                </button>
+              </div>
             ) : null
           })()}
         </div>
