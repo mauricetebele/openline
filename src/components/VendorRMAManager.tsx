@@ -204,6 +204,28 @@ function ScanOutModal({
 
   useEffect(() => { singleRef.current?.focus() }, [])
 
+  // Poll for real-time updates from other users
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (processing) return
+      try {
+        const res = await fetch(`/api/vendor-rma/${rma.id}`)
+        if (!res.ok) return
+        const updated: VendorRMA = await res.json()
+        // Sync scannedSet from server without overwriting local scanOrder
+        const serverScanned = new Set<string>()
+        for (const item of updated.items) {
+          for (const s of item.serials) {
+            if (s.scannedOutAt) serverScanned.add(s.serialNumber.toLowerCase())
+          }
+        }
+        setScannedSet(serverScanned)
+        onUpdate(updated)
+      } catch { /* ignore poll errors */ }
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [rma.id, processing])
+
   // Track scan order so most recently scanned appears at top
   const [scanOrder, setScanOrder] = useState<string[]>([])
 
@@ -655,6 +677,22 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
   const scanTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const readonly = rma.status === 'CREDIT_RECEIVED'
+
+  // Poll for real-time scan-out updates from other users
+  useEffect(() => {
+    if (showScanOutModal) return // modal has its own polling
+    if (rma.status !== 'APPROVED_TO_RETURN' && rma.status !== 'SHIPPED_AWAITING_CREDIT') return
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/vendor-rma/${rma.id}`)
+        if (!res.ok) return
+        const updated: VendorRMA = await res.json()
+        setRma(updated)
+        onUpdated(updated)
+      } catch { /* ignore */ }
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [rma.id, rma.status, showScanOutModal])
 
   // Product search
   useEffect(() => {
