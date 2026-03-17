@@ -201,7 +201,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
                 <div className="flex flex-col items-center gap-2 text-gray-400">
                   <Upload size={28} />
                   <p className="text-sm font-medium text-gray-600">Drop a file here or click to browse</p>
-                  <p className="text-xs">CSV, XLSX, or XLS · existing SKUs will be updated</p>
+                  <p className="text-xs">CSV, XLSX, or XLS · existing SKUs will be skipped</p>
                 </div>
               )}
             </div>
