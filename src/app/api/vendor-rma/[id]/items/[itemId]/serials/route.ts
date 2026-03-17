@@ -16,11 +16,14 @@ export async function POST(
     return NextResponse.json({ error: 'Serial number is required' }, { status: 400 })
   }
 
-  const existing = await prisma.vendorRMASerial.findUnique({
-    where: { rmaItemId_serialNumber: { rmaItemId: params.itemId, serialNumber: serialNumber.trim() } },
+  // Check if serial exists on ANY vendor RMA (not just this item)
+  const existingOnAnyRma = await prisma.vendorRMASerial.findFirst({
+    where: { serialNumber: serialNumber.trim() },
+    include: { rmaItem: { include: { rma: { select: { rmaNumber: true } } } } },
   })
-  if (existing) {
-    return NextResponse.json({ error: 'Serial already added to this item' }, { status: 409 })
+  if (existingOnAnyRma) {
+    const vrmaNum = existingOnAnyRma.rmaItem.rma.rmaNumber
+    return NextResponse.json({ error: `Serial "${serialNumber.trim()}" is already on ${vrmaNum}` }, { status: 409 })
   }
 
   const serial = await prisma.vendorRMASerial.create({

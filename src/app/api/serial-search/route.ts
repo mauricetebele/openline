@@ -105,6 +105,16 @@ export async function GET(req: NextRequest) {
     ? requested.filter(s => !foundSerials.has(s.toLowerCase()))
     : []
 
+  // Look up VRMA associations for all found serials
+  const allSerialNumbers = records.map(r => r.serialNumber)
+  const vrmaSerials = allSerialNumbers.length > 0
+    ? await prisma.vendorRMASerial.findMany({
+        where: { serialNumber: { in: allSerialNumbers } },
+        include: { rmaItem: { include: { rma: { select: { rmaNumber: true } } } } },
+      })
+    : []
+  const vrmaBySerial = new Map(vrmaSerials.map(v => [v.serialNumber, v.rmaItem.rma.rmaNumber]))
+
   const found = records.map(r => {
     const pol = r.receiptLine?.purchaseOrderLine
     const po  = pol?.purchaseOrder
@@ -131,6 +141,7 @@ export async function GET(req: NextRequest) {
       grade:         r.grade?.grade ?? null,
       note:          r.note ?? null,
       binLocation:   r.binLocation ?? null,
+      vrma:          vrmaBySerial.get(r.serialNumber) ?? null,
     }
   })
 

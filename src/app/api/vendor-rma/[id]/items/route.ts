@@ -20,6 +20,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!Array.isArray(serials) || serials.length === 0) {
       return NextResponse.json({ error: 'At least one serial number is required for serializable products' }, { status: 400 })
     }
+
+    // Check if any serial already exists on another vendor RMA
+    const trimmedSerials = (serials as string[]).map((sn: string) => sn.trim())
+    const existingVrmaSerials = await prisma.vendorRMASerial.findMany({
+      where: { serialNumber: { in: trimmedSerials } },
+      include: { rmaItem: { include: { rma: { select: { rmaNumber: true } } } } },
+    })
+    if (existingVrmaSerials.length > 0) {
+      const dupes = existingVrmaSerials.map(s => `${s.serialNumber} (${s.rmaItem.rma.rmaNumber})`)
+      return NextResponse.json({ error: `Serial(s) already on a Vendor RMA: ${dupes.join(', ')}` }, { status: 409 })
+    }
   } else {
     if (!quantity || quantity < 1) {
       return NextResponse.json({ error: 'Quantity must be at least 1' }, { status: 400 })

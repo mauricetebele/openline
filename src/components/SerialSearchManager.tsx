@@ -28,6 +28,7 @@ interface SerialResult {
   cost: number | null
   grade: string | null
   note: string | null
+  vrma: string | null
 }
 
 interface WarehouseWithLocations {
@@ -64,7 +65,7 @@ function parseSNs(raw: string) {
 }
 
 function exportCSV(found: SerialResult[], notFound: string[]) {
-  const headers = ['Serial #', 'Status', 'SKU', 'Grade', 'Description', 'Vendor', 'Last Event Type', 'Date of Last Event', 'Last Movement', 'Date of Last Movement', 'Current Location', 'Bin', 'PO #', 'Cost', 'Note']
+  const headers = ['Serial #', 'Status', 'SKU', 'Grade', 'Description', 'Vendor', 'Last Event Type', 'Date of Last Event', 'Last Movement', 'Date of Last Movement', 'Current Location', 'Bin', 'PO #', 'VRMA', 'Cost', 'Note']
   const rows = found.map(r => [
     r.serialNumber,
     r.status.replace('_', ' '),
@@ -79,10 +80,11 @@ function exportCSV(found: SerialResult[], notFound: string[]) {
     r.location ?? '',
     r.binLocation ?? '',
     r.poNumber ?? '',
+    r.vrma ?? '',
     r.cost != null ? r.cost.toFixed(2) : '',
     r.note ?? '',
   ])
-  notFound.forEach(sn => rows.push([sn, 'NOT FOUND', '', '', '', '', '', '', '', '', '', '', '', '', '']))
+  notFound.forEach(sn => rows.push([sn, 'NOT FOUND', '', '', '', '', '', '', '', '', '', '', '', '', '', '']))
 
   const csv = [headers, ...rows]
     .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -465,6 +467,7 @@ export default function SerialSearchManager() {
     if (sortCol === 'poNumber')       { av = a.poNumber;       bv = b.poNumber }
     if (sortCol === 'cost')           { av = a.cost ?? -Infinity; bv = b.cost ?? -Infinity }
     if (sortCol === 'note')           { av = a.note;           bv = b.note }
+    if (sortCol === 'vrma')           { av = a.vrma;           bv = b.vrma }
     // Nulls to bottom
     if (av == null && bv == null) return 0
     if (av == null) return 1
@@ -915,6 +918,7 @@ export default function SerialSearchManager() {
                       ['location',         'Location'],
                       ['binLocation',   'Bin'],
                       ['poNumber',      'PO #'],
+                      ['vrma',          'VRMA'],
                       ['cost',          'Cost'],
                       ['note',          'Note'],
                     ] as [string, string][]).map(([col, label]) => (
@@ -975,6 +979,7 @@ export default function SerialSearchManager() {
                       <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{r.location ?? <span className="text-gray-300">—</span>}</td>
                       <td className="px-3 py-2.5 text-xs font-mono text-gray-500 whitespace-nowrap">{r.binLocation ?? <span className="text-gray-300">—</span>}</td>
                       <td className="px-3 py-2.5 text-xs font-mono text-gray-600 whitespace-nowrap">{r.poNumber ?? <span className="text-gray-300">—</span>}</td>
+                      <td className="px-3 py-2.5 text-xs font-mono text-gray-600 whitespace-nowrap">{r.vrma ? <span className="font-semibold text-orange-600">{r.vrma}</span> : <span className="text-gray-300">—</span>}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">
                         {r.cost != null ? `$${r.cost.toFixed(2)}` : <span className="text-gray-300">—</span>}
                       </td>

@@ -41,6 +41,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No matching serials found' }, { status: 400 })
   }
 
+  // Check if any serial already exists on another vendor RMA
+  const serialNumbers = serials.map(s => s.serialNumber)
+  const existingVrmaSerials = await prisma.vendorRMASerial.findMany({
+    where: { serialNumber: { in: serialNumbers } },
+    include: { rmaItem: { include: { rma: { select: { rmaNumber: true } } } } },
+  })
+  if (existingVrmaSerials.length > 0) {
+    const dupes = existingVrmaSerials.map(s => `${s.serialNumber} (${s.rmaItem.rma.rmaNumber})`)
+    return NextResponse.json({
+      error: `${existingVrmaSerials.length} serial(s) already on a Vendor RMA: ${dupes.join(', ')}`,
+    }, { status: 409 })
+  }
+
   // Validate all serials are IN_STOCK
   const notInStock = serials.filter(s => s.status !== 'IN_STOCK')
   if (notInStock.length > 0) {
