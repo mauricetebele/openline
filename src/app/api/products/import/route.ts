@@ -88,7 +88,9 @@ export async function POST(req: NextRequest) {
 
   let created = 0
   let skipped = 0
+  let existing = 0
   const errors: RowError[] = []
+  const existingSkus: string[] = []
 
   for (let i = 0; i < rows.length; i++) {
     const rowNum = i + 2 // +2: 1-indexed + header row
@@ -115,10 +117,16 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      await prisma.product.upsert({
-        where:  { sku },
-        update: { description, isSerializable },
-        create: { description, sku, isSerializable },
+      // Skip if SKU already exists
+      const exists = await prisma.product.findUnique({ where: { sku }, select: { id: true } })
+      if (exists) {
+        existing++
+        existingSkus.push(sku)
+        continue
+      }
+
+      await prisma.product.create({
+        data: { description, sku, isSerializable },
       })
       created++
     } catch (e: unknown) {
@@ -128,5 +136,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ created, skipped, errors })
+  return NextResponse.json({ created, skipped, existing, existingSkus, errors })
 }

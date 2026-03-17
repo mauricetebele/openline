@@ -75,6 +75,8 @@ function ErrorBanner({ msg, onClose }: { msg: string; onClose: () => void }) {
 interface ImportResult {
   created: number
   skipped: number
+  existing: number
+  existingSkus: string[]
   errors: { row: number; sku: string; reason: string }[]
 }
 
@@ -215,14 +217,29 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
                 <div className="flex items-center gap-3 px-4 py-3">
                   <CheckCircle2 size={16} className="text-green-500 shrink-0" />
                   <span className="text-sm font-medium text-gray-800">
-                    {result.created} product{result.created !== 1 ? 's' : ''} created / updated
+                    {result.created} new SKU{result.created !== 1 ? 's' : ''} added
                   </span>
                 </div>
+                {result.existing > 0 && (
+                  <div className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <AlertCircle size={16} className="text-blue-500 shrink-0" />
+                      <span className="text-sm text-gray-700">
+                        {result.existing} SKU{result.existing !== 1 ? 's' : ''} already existed and {result.existing !== 1 ? 'were' : 'was'} skipped
+                      </span>
+                    </div>
+                    {result.existingSkus.length > 0 && (
+                      <div className="mt-1.5 ml-7 text-xs text-gray-500 max-h-24 overflow-y-auto">
+                        {result.existingSkus.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {result.skipped > 0 && (
                   <div className="flex items-center gap-3 px-4 py-3">
                     <AlertCircle size={16} className="text-amber-500 shrink-0" />
                     <span className="text-sm text-gray-700">
-                      {result.skipped} row{result.skipped !== 1 ? 's' : ''} skipped
+                      {result.skipped} row{result.skipped !== 1 ? 's' : ''} skipped due to errors
                     </span>
                   </div>
                 )}
