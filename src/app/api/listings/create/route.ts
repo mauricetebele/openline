@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createListing, resolveTemplateGroupId } from '@/lib/amazon/listings'
+import { fetchFnsku } from '@/lib/amazon/fba-inbound'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
@@ -74,6 +75,28 @@ export async function POST(req: NextRequest) {
         )
       } catch (upsertErr) {
         console.error('[POST /api/listings/create] MSKU upsert failed (non-fatal):', upsertErr)
+      }
+    }
+
+    // For FBA listings, fetch FNSKU and update records (non-blocking)
+    if (fulfillmentChannel === 'FBA') {
+      try {
+        const account = await prisma.amazonAccount.findUnique({ where: { id: accountId } })
+        if (account) {
+          const fnskuResult = await fetchFnsku(accountId, account.marketplaceId, sku)
+          // Update MSKU record if one exists
+          await prisma.productGradeMarketplaceSku.updateMany({
+            where: { sellerSku: sku, marketplace: 'amazon', accountId },
+            data: { fnsku: fnskuResult.fnsku },
+          })
+          // Update/create SellerListing with fnsku
+          await prisma.sellerListing.updateMany({
+            where: { accountId, sku },
+            data: { fnsku: fnskuResult.fnsku, ...(fnskuResult.asin ? { asin: fnskuResult.asin } : {}) },
+          })
+        }
+      } catch (fnskuErr) {
+        console.error('[POST /api/listings/create] FNSKU fetch failed (non-fatal):', fnskuErr)
       }
     }
 

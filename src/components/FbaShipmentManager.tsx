@@ -1,6 +1,6 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
-import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -12,7 +12,7 @@ interface FbaShipment {
   status: FbaStatus
   name: string | null
   accountId: string
-  warehouseId: string
+  warehouseId: string | null
   inboundPlanId: string | null
   shipmentId: string | null
   packingGroupId: string | null
@@ -23,7 +23,7 @@ interface FbaShipment {
   lastErrorAt: string | null
   createdAt: string
   account: { id: string; sellerId: string; marketplaceName: string; marketplaceId?: string }
-  warehouse: { id: string; name: string; addressLine1?: string | null; city?: string | null; state?: string | null; postalCode?: string | null; countryCode?: string }
+  warehouse: { id: string; name: string; addressLine1?: string | null; city?: string | null; state?: string | null; postalCode?: string | null; countryCode?: string } | null
   items: FbaShipmentItem[]
   boxes?: FbaShipmentBox[]
   reservations?: Array<{ id: string; productId: string; locationId: string; gradeId: string | null; qtyReserved: number }>
@@ -32,7 +32,7 @@ interface FbaShipment {
 
 interface FbaShipmentItem {
   id: string
-  mskuId: string
+  mskuId: string | null
   sellerSku: string
   fnsku: string
   asin: string | null
@@ -41,7 +41,7 @@ interface FbaShipmentItem {
     sellerSku: string
     product: { id: string; sku: string; description: string }
     grade?: { id: string; grade: string } | null
-  }
+  } | null
   boxItems?: Array<{ boxId: string; quantity: number }>
 }
 
@@ -72,13 +72,19 @@ interface Warehouse {
   countryCode?: string
 }
 
-interface MskuOption {
+interface FbaListingResult {
   id: string
-  sellerSku: string
-  productId: string
-  product: { sku: string; description: string }
-  grade: { id: string; grade: string } | null
+  sku: string
   fnsku: string | null
+  asin: string | null
+  productTitle: string | null
+  quantity: number
+  mskuId: string | null
+  productId: string | null
+  gradeId: string | null
+  grade: string | null
+  productSku: string | null
+  productDescription: string | null
 }
 
 interface PlacementOption {
@@ -202,7 +208,7 @@ function ListView({
                     {s.name || s.id.slice(-8)}
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">{s.account.marketplaceName}</td>
-                  <td className="px-4 py-2.5 text-gray-600">{s.warehouse.name}</td>
+                  <td className="px-4 py-2.5 text-gray-600">{s.warehouse?.name ?? 'Not assigned'}</td>
                   <td className="px-4 py-2.5 text-center text-gray-600">{s._count?.items ?? s.items.length}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
                   <td className="px-4 py-2.5 text-gray-500">{new Date(s.createdAt).toLocaleDateString()}</td>
@@ -216,18 +222,18 @@ function ListView({
   )
 }
 
-// ─── Create Form ──────────────────────────────────────────────────────────────
+// ─── Create Form (2-Step Wizard) ─────────────────────────────────────────────
 
 interface DraftItem {
-  mskuId: string
+  mskuId: string | null
   sellerSku: string
-  productSku: string
-  description: string
+  fnsku: string | null
+  asin: string | null
+  productTitle: string | null
+  productSku: string | null
   grade: string | null
   quantity: number
-  productId: string
-  locationId: string
-  gradeId: string | null
+  fbaQty: number
 }
 
 interface InventoryOption {
@@ -246,86 +252,91 @@ function CreateForm({
   onCreated: (id: string) => void
   onCancel: () => void
 }) {
+  // Wizard step: 1 = add items, 2 = assign inventory
+  const [wizardStep, setWizardStep] = useState<1 | 2>(1)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-  const [mskus, setMskus] = useState<MskuOption[]>([])
   const [accountId, setAccountId] = useState('')
-  const [warehouseId, setWarehouseId] = useState('')
   const [name, setName] = useState('')
   const [draftItems, setDraftItems] = useState<DraftItem[]>([])
-  const [selectedMsku, setSelectedMsku] = useState('')
-  const [qty, setQty] = useState(1)
-  const [invOptions, setInvOptions] = useState<InventoryOption[]>([])
-  const [selectedInv, setSelectedInv] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
-  const [loadingInv, setLoadingInv] = useState(false)
+
+  // Search state (Step 1)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<FbaListingResult[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Step 2 state
+  const [createdShipmentId, setCreatedShipmentId] = useState('')
+  const [createdItems, setCreatedItems] = useState<FbaShipmentItem[]>([])
+  const [warehouseId, setWarehouseId] = useState('')
+  const [invByItem, setInvByItem] = useState<Record<string, InventoryOption[]>>({})
+  const [assignments, setAssignments] = useState<Record<string, { productId: string; locationId: string; gradeId: string | null; quantity: number }>>({})
+  const [loadingInv, setLoadingInv] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     fetch('/api/amazon-accounts').then(r => r.json()).then(d => setAccounts(d.data ?? d ?? []))
     fetch('/api/warehouses').then(r => r.json()).then(d => setWarehouses(d.data ?? d ?? []))
-    fetch('/api/marketplace-skus?marketplace=amazon').then(r => r.json()).then(d => setMskus(d.data ?? d ?? []))
   }, [])
 
-  // Load inventory when MSKU is selected
+  // Debounced search
   useEffect(() => {
-    if (!selectedMsku) { setInvOptions([]); return }
-    const msku = mskus.find(m => m.id === selectedMsku)
-    if (!msku) return
-    setLoadingInv(true)
-    fetch(`/api/inventory?productId=${msku.productId}${msku.grade ? `&gradeId=${msku.grade.id}` : ''}`)
-      .then(r => r.json())
-      .then(d => {
-        const items = (d.data ?? d ?? []) as Array<{ productId: string; locationId: string; location: { name: string }; gradeId: string | null; grade: { grade: string } | null; qty: number }>
-        setInvOptions(items.filter(i => i.qty > 0).map(i => ({
-          productId: i.productId,
-          locationId: i.locationId,
-          locationName: i.location?.name ?? i.locationId,
-          gradeId: i.gradeId,
-          grade: i.grade?.grade ?? null,
-          qty: i.qty,
-        })))
-      })
-      .finally(() => setLoadingInv(false))
-  }, [selectedMsku, mskus])
+    if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    if (!accountId || !searchQuery || searchQuery.length < 2) {
+      setSearchResults([])
+      return
+    }
+    searchTimeout.current = setTimeout(async () => {
+      setSearchLoading(true)
+      try {
+        const res = await fetch(`/api/fba-listings/search?q=${encodeURIComponent(searchQuery)}&accountId=${accountId}`)
+        const data = await res.json()
+        setSearchResults(data.data ?? [])
+      } catch {
+        setSearchResults([])
+      } finally {
+        setSearchLoading(false)
+      }
+    }, 300)
+    return () => { if (searchTimeout.current) clearTimeout(searchTimeout.current) }
+  }, [searchQuery, accountId])
 
-  function addItem() {
-    const msku = mskus.find(m => m.id === selectedMsku)
-    const inv = invOptions.find(i => `${i.productId}|${i.locationId}|${i.gradeId}` === selectedInv)
-    if (!msku || !inv || qty < 1) return
-    if (qty > inv.qty) { setErr(`Only ${inv.qty} available`); return }
-
+  function addItemFromSearch(listing: FbaListingResult) {
+    // Don't add duplicate
+    if (draftItems.some(d => d.sellerSku === listing.sku)) {
+      setErr(`"${listing.sku}" is already added`)
+      return
+    }
     setDraftItems(prev => [...prev, {
-      mskuId: msku.id,
-      sellerSku: msku.sellerSku,
-      productSku: msku.product.sku,
-      description: msku.product.description,
-      grade: msku.grade?.grade ?? null,
-      quantity: qty,
-      productId: inv.productId,
-      locationId: inv.locationId,
-      gradeId: inv.gradeId,
+      mskuId: listing.mskuId,
+      sellerSku: listing.sku,
+      fnsku: listing.fnsku,
+      asin: listing.asin,
+      productTitle: listing.productTitle,
+      productSku: listing.productSku,
+      grade: listing.grade,
+      quantity: 1,
+      fbaQty: listing.quantity,
     }])
-    setSelectedMsku('')
-    setQty(1)
-    setSelectedInv('')
+    setSearchQuery('')
+    setSearchResults([])
     setErr('')
+  }
+
+  function updateItemQty(idx: number, qty: number) {
+    setDraftItems(prev => prev.map((item, i) => i === idx ? { ...item, quantity: Math.max(1, qty) } : item))
   }
 
   function removeItem(idx: number) {
     setDraftItems(prev => prev.filter((_, i) => i !== idx))
   }
 
-  async function handleCreate() {
+  // Step 1 → create shipment, move to Step 2
+  async function handleCreateDraft() {
     if (!accountId) { setErr('Select an account'); return }
-    if (!warehouseId) { setErr('Select a warehouse'); return }
     if (draftItems.length === 0) { setErr('Add at least one item'); return }
-
-    const wh = warehouses.find(w => w.id === warehouseId)
-    if (wh && (!wh.addressLine1 || !wh.city || !wh.state || !wh.postalCode)) {
-      setErr('Selected warehouse has no shipping address. Edit the warehouse first.')
-      return
-    }
 
     setSaving(true)
     setErr('')
@@ -333,11 +344,23 @@ function CreateForm({
       const res = await fetch('/api/fba-shipments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId, warehouseId, name: name || undefined, items: draftItems }),
+        body: JSON.stringify({
+          accountId,
+          name: name || undefined,
+          items: draftItems.map(d => ({
+            mskuId: d.mskuId || undefined,
+            sellerSku: d.sellerSku,
+            fnsku: d.fnsku || undefined,
+            asin: d.asin || undefined,
+            quantity: d.quantity,
+          })),
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Create failed')
-      onCreated(data.id)
+      setCreatedShipmentId(data.id)
+      setCreatedItems(data.items ?? [])
+      setWizardStep(2)
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Create failed')
     } finally {
@@ -345,26 +368,247 @@ function CreateForm({
     }
   }
 
+  // Step 2: Load inventory for an item when warehouse changes or on demand
+  async function loadInventoryForItem(item: FbaShipmentItem) {
+    if (!item.msku) return
+    const productId = item.msku.product.id
+    const gradeId = item.msku.grade?.id
+    setLoadingInv(prev => ({ ...prev, [item.id]: true }))
+    try {
+      const params = new URLSearchParams({ productId })
+      if (gradeId) params.set('gradeId', gradeId)
+      if (warehouseId) params.set('warehouseId', warehouseId)
+      const res = await fetch(`/api/inventory?${params}`)
+      const data = await res.json()
+      const items = (data.data ?? data ?? []) as Array<{
+        productId: string; locationId: string; location: { name: string; warehouseId: string }
+        gradeId: string | null; grade: { grade: string } | null; qty: number
+      }>
+      // Filter to selected warehouse
+      const filtered = warehouseId
+        ? items.filter(i => i.location?.warehouseId === warehouseId && i.qty > 0)
+        : items.filter(i => i.qty > 0)
+      setInvByItem(prev => ({
+        ...prev,
+        [item.id]: filtered.map(i => ({
+          productId: i.productId,
+          locationId: i.locationId,
+          locationName: i.location?.name ?? i.locationId,
+          gradeId: i.gradeId,
+          grade: i.grade?.grade ?? null,
+          qty: i.qty,
+        })),
+      }))
+    } catch {
+      // silent
+    } finally {
+      setLoadingInv(prev => ({ ...prev, [item.id]: false }))
+    }
+  }
+
+  // When warehouse changes, reload inventory for all items
+  useEffect(() => {
+    if (wizardStep !== 2 || !warehouseId) return
+    for (const item of createdItems) {
+      if (item.msku) loadInventoryForItem(item)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warehouseId, wizardStep])
+
+  function setItemAssignment(itemId: string, locationKey: string) {
+    const item = createdItems.find(i => i.id === itemId)
+    if (!item) return
+    const options = invByItem[itemId] ?? []
+    const inv = options.find(o => `${o.productId}|${o.locationId}|${o.gradeId}` === locationKey)
+    if (!inv) return
+    setAssignments(prev => ({
+      ...prev,
+      [itemId]: { productId: inv.productId, locationId: inv.locationId, gradeId: inv.gradeId, quantity: item.quantity },
+    }))
+  }
+
+  // Step 2: confirm & reserve
+  async function handleAssignInventory() {
+    if (!warehouseId) { setErr('Select a warehouse'); return }
+
+    const wh = warehouses.find(w => w.id === warehouseId)
+    if (wh && (!wh.addressLine1 || !wh.city || !wh.state || !wh.postalCode)) {
+      setErr('Selected warehouse has no shipping address. Edit the warehouse first.')
+      return
+    }
+
+    // Check all items have assignments
+    const unassigned = createdItems.filter(i => i.msku && !assignments[i.id])
+    if (unassigned.length > 0) {
+      setErr('All items with product mappings must have inventory assignments')
+      return
+    }
+
+    setSaving(true)
+    setErr('')
+    try {
+      const assignmentList = Object.entries(assignments).map(([shipmentItemId, a]) => ({
+        shipmentItemId,
+        productId: a.productId,
+        locationId: a.locationId,
+        gradeId: a.gradeId,
+        quantity: a.quantity,
+      }))
+
+      const res = await fetch(`/api/fba-shipments/${createdShipmentId}/assign-inventory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ warehouseId, assignments: assignmentList }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Assignment failed')
+      onCreated(createdShipmentId)
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Assignment failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Items with MSKU mappings (need inventory assignment)
+  const mappedItems = createdItems.filter(i => i.msku)
+  const unmappedItems = createdItems.filter(i => !i.msku)
+
   return (
     <div className="flex-1 overflow-auto px-6 py-4 max-w-3xl">
       <button type="button" onClick={onCancel} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4">
         <ArrowLeft size={14} /> Back
       </button>
 
-      <h2 className="text-lg font-bold text-gray-900 mb-4">Create FBA Shipment</h2>
+      <h2 className="text-lg font-bold text-gray-900 mb-2">Create FBA Shipment</h2>
+
+      {/* Step indicator */}
+      <div className="flex items-center gap-2 mb-4">
+        <div className={clsx('flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium',
+          wizardStep === 1 ? 'bg-amazon-blue text-white' : 'bg-green-100 text-green-700')}>
+          {wizardStep > 1 ? <Check size={12} /> : '1'}
+          <span>Add Items</span>
+        </div>
+        <ChevronRight size={14} className="text-gray-300" />
+        <div className={clsx('flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium',
+          wizardStep === 2 ? 'bg-amazon-blue text-white' : 'bg-gray-100 text-gray-400')}>
+          2
+          <span>Assign Inventory</span>
+        </div>
+      </div>
 
       {err && <ErrorBanner msg={err} onClose={() => setErr('')} />}
 
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Amazon Account</label>
-            <select value={accountId} onChange={e => setAccountId(e.target.value)}
-              className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm">
-              <option value="">Select account...</option>
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.marketplaceName} ({a.sellerId})</option>)}
-            </select>
+      {/* ─── Step 1: Add Items ──────────────────────────────────── */}
+      {wizardStep === 1 && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Amazon Account</label>
+              <select value={accountId} onChange={e => { setAccountId(e.target.value); setSearchResults([]); setSearchQuery('') }}
+                className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm">
+                <option value="">Select account...</option>
+                {accounts.map(a => <option key={a.id} value={a.id}>{a.marketplaceName} ({a.sellerId})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Shipment Name (optional)</label>
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. March Restock"
+                className="w-full h-9 rounded-md border border-gray-300 px-3 text-sm" />
+            </div>
           </div>
+
+          {/* Search FBA listings */}
+          <div className="border border-gray-200 rounded-lg p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-gray-700">Search FBA Listings</h3>
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder={accountId ? 'Search by SKU, FNSKU, ASIN, or title...' : 'Select an account first'}
+                disabled={!accountId}
+                className="w-full h-9 rounded-md border border-gray-300 pl-9 pr-3 text-sm disabled:bg-gray-50"
+              />
+              {searchLoading && <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-gray-400" />}
+            </div>
+
+            {/* Search results dropdown */}
+            {searchResults.length > 0 && (
+              <div className="border border-gray-200 rounded-md max-h-60 overflow-auto divide-y divide-gray-100">
+                {searchResults.map(r => (
+                  <button key={r.id} type="button" onClick={() => addItemFromSearch(r)}
+                    className="w-full text-left px-3 py-2.5 hover:bg-gray-50 space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-800">{r.sku}</span>
+                      {r.fnsku && <span className="text-xs font-mono text-gray-400">{r.fnsku}</span>}
+                      {r.asin && <span className="text-xs text-gray-400">ASIN: {r.asin}</span>}
+                    </div>
+                    <div className="text-xs text-gray-500 truncate">
+                      {r.productTitle ?? r.productDescription ?? 'No title'}
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      FBA Qty: {r.quantity}
+                      {r.productSku && <span className="ml-2">Product: {r.productSku}</span>}
+                      {r.grade && <span className="ml-2">Grade: {r.grade}</span>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            {searchQuery.length >= 2 && !searchLoading && searchResults.length === 0 && (
+              <p className="text-xs text-gray-400">No FBA listings found</p>
+            )}
+          </div>
+
+          {/* Draft items list */}
+          {draftItems.length > 0 && (
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-gray-500 text-xs">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium">Seller SKU</th>
+                    <th className="text-left px-3 py-2 font-medium">FNSKU</th>
+                    <th className="text-left px-3 py-2 font-medium">Title</th>
+                    <th className="text-center px-3 py-2 font-medium">FBA Qty</th>
+                    <th className="text-center px-3 py-2 font-medium">Ship Qty</th>
+                    <th className="w-8"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {draftItems.map((item, i) => (
+                    <tr key={i}>
+                      <td className="px-3 py-2 text-gray-800 text-xs font-medium">{item.sellerSku}</td>
+                      <td className="px-3 py-2 text-gray-500 font-mono text-xs">{item.fnsku ?? '—'}</td>
+                      <td className="px-3 py-2 text-gray-600 text-xs truncate max-w-[200px]">{item.productTitle ?? item.productSku ?? '—'}</td>
+                      <td className="px-3 py-2 text-center text-gray-400 text-xs">{item.fbaQty}</td>
+                      <td className="px-3 py-2 text-center">
+                        <input type="number" min={1} value={item.quantity}
+                          onChange={e => updateItemQty(i, parseInt(e.target.value) || 1)}
+                          className="w-16 h-7 rounded border border-gray-300 px-1 text-xs text-center" />
+                      </td>
+                      <td className="px-2 py-2">
+                        <button type="button" onClick={() => removeItem(i)} className="text-gray-300 hover:text-red-500">
+                          <X size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <button type="button" onClick={handleCreateDraft} disabled={saving || draftItems.length === 0}
+            className="flex items-center gap-2 h-10 px-6 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
+            {saving ? <><Loader2 size={14} className="animate-spin" /> Creating...</> : <>Next: Assign Inventory <ChevronRight size={14} /></>}
+          </button>
+        </div>
+      )}
+
+      {/* ─── Step 2: Assign Inventory ──────────────────────────── */}
+      {wizardStep === 2 && (
+        <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Source Warehouse</label>
             <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)}
@@ -373,98 +617,78 @@ function CreateForm({
               {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </div>
-        </div>
 
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Shipment Name (optional)</label>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. March Restock"
-            className="w-full h-9 rounded-md border border-gray-300 px-3 text-sm" />
-        </div>
+          {/* Items needing inventory assignment */}
+          {mappedItems.length > 0 && (
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-gray-500 text-xs">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium">Seller SKU</th>
+                    <th className="text-left px-3 py-2 font-medium">Product</th>
+                    <th className="text-center px-3 py-2 font-medium">Qty</th>
+                    <th className="text-left px-3 py-2 font-medium">Location</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {mappedItems.map(item => {
+                    const options = invByItem[item.id] ?? []
+                    const isLoading = loadingInv[item.id]
+                    const assigned = assignments[item.id]
+                    const selectedKey = assigned ? `${assigned.productId}|${assigned.locationId}|${assigned.gradeId}` : ''
+                    return (
+                      <tr key={item.id}>
+                        <td className="px-3 py-2 text-gray-800 text-xs font-medium">{item.sellerSku}</td>
+                        <td className="px-3 py-2 text-gray-600 text-xs">{item.msku?.product?.sku ?? '—'}</td>
+                        <td className="px-3 py-2 text-center text-xs">{item.quantity}</td>
+                        <td className="px-3 py-2">
+                          {isLoading ? (
+                            <div className="flex items-center text-xs text-gray-400"><Loader2 size={12} className="animate-spin mr-1" /> Loading...</div>
+                          ) : !warehouseId ? (
+                            <span className="text-xs text-gray-400">Select warehouse first</span>
+                          ) : options.length === 0 ? (
+                            <span className="text-xs text-amber-500">No inventory available</span>
+                          ) : (
+                            <select value={selectedKey} onChange={e => setItemAssignment(item.id, e.target.value)}
+                              className="w-full h-7 rounded border border-gray-300 px-1 text-xs">
+                              <option value="">Select location...</option>
+                              {options.map(inv => (
+                                <option key={`${inv.productId}|${inv.locationId}|${inv.gradeId}`}
+                                  value={`${inv.productId}|${inv.locationId}|${inv.gradeId}`}>
+                                  {inv.locationName}{inv.grade ? ` (${inv.grade})` : ''} — {inv.qty} avail
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-        {/* Add item form */}
-        <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-gray-700">Add Items</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Marketplace SKU</label>
-              <select value={selectedMsku} onChange={e => setSelectedMsku(e.target.value)}
-                className="w-full h-8 rounded border border-gray-300 px-2 text-sm">
-                <option value="">Select SKU...</option>
-                {mskus.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.sellerSku} — {m.product.description}{m.grade ? ` (${m.grade.grade})` : ''}
-                  </option>
-                ))}
-              </select>
+          {/* Items without product mapping — no inventory to assign */}
+          {unmappedItems.length > 0 && (
+            <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+              {unmappedItems.length} item{unmappedItems.length !== 1 ? 's' : ''} without product mapping — inventory will not be reserved for: {unmappedItems.map(i => i.sellerSku).join(', ')}
             </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Source Location</label>
-              {loadingInv ? (
-                <div className="h-8 flex items-center text-xs text-gray-400"><Loader2 size={12} className="animate-spin mr-1" /> Loading...</div>
-              ) : (
-                <select value={selectedInv} onChange={e => setSelectedInv(e.target.value)}
-                  className="w-full h-8 rounded border border-gray-300 px-2 text-sm" disabled={!selectedMsku}>
-                  <option value="">Select location...</option>
-                  {invOptions.map(inv => (
-                    <option key={`${inv.productId}|${inv.locationId}|${inv.gradeId}`}
-                      value={`${inv.productId}|${inv.locationId}|${inv.gradeId}`}>
-                      {inv.locationName}{inv.grade ? ` (${inv.grade})` : ''} — {inv.qty} avail
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </div>
-          <div className="flex items-end gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Quantity</label>
-              <input type="number" min={1} value={qty} onChange={e => setQty(parseInt(e.target.value) || 1)}
-                className="w-24 h-8 rounded border border-gray-300 px-2 text-sm" />
-            </div>
-            <button type="button" onClick={addItem} disabled={!selectedMsku || !selectedInv || qty < 1}
-              className="h-8 px-4 rounded bg-amazon-blue text-white text-xs font-medium disabled:opacity-40">
-              Add
+          )}
+
+          <div className="flex gap-3">
+            <button type="button" onClick={() => onCreated(createdShipmentId)}
+              className="h-10 px-4 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              Skip (No Reservation)
+            </button>
+            <button type="button" onClick={handleAssignInventory}
+              disabled={saving || !warehouseId || (mappedItems.length > 0 && Object.keys(assignments).length === 0)}
+              className="flex items-center gap-2 h-10 px-6 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
+              {saving ? <><Loader2 size={14} className="animate-spin" /> Reserving...</> : 'Confirm & Reserve'}
             </button>
           </div>
         </div>
-
-        {/* Items table */}
-        {draftItems.length > 0 && (
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 text-xs">
-                <tr>
-                  <th className="text-left px-3 py-2 font-medium">SKU</th>
-                  <th className="text-left px-3 py-2 font-medium">Seller SKU</th>
-                  <th className="text-left px-3 py-2 font-medium">Grade</th>
-                  <th className="text-center px-3 py-2 font-medium">Qty</th>
-                  <th className="w-8"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {draftItems.map((item, i) => (
-                  <tr key={i}>
-                    <td className="px-3 py-2 text-gray-800">{item.productSku}</td>
-                    <td className="px-3 py-2 text-gray-600">{item.sellerSku}</td>
-                    <td className="px-3 py-2 text-gray-600">{item.grade ?? '—'}</td>
-                    <td className="px-3 py-2 text-center">{item.quantity}</td>
-                    <td className="px-2 py-2">
-                      <button type="button" onClick={() => removeItem(i)} className="text-gray-300 hover:text-red-500">
-                        <X size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <button type="button" onClick={handleCreate} disabled={saving || draftItems.length === 0}
-          className="h-10 px-6 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
-          {saving ? 'Creating...' : 'Create Shipment'}
-        </button>
-      </div>
+      )}
     </div>
   )
 }
@@ -537,7 +761,6 @@ function WizardView({
   }
 
   async function handleSetBoxes() {
-    // Validate all items are assigned to boxes
     if (boxes.length === 0) { setErr('Add at least one box'); return }
     const result = await doAction('set-boxes', { boxes })
     if (result) {
@@ -583,24 +806,12 @@ function WizardView({
     if (result) { await loadShipment(); onRefreshList() }
   }
 
-  // Box management helpers
   function addBox() {
     setBoxes(prev => [...prev, { weightLb: 0, lengthIn: 0, widthIn: 0, heightIn: 0, items: [] }])
   }
 
   function updateBox(idx: number, field: string, value: number) {
     setBoxes(prev => prev.map((b, i) => i === idx ? { ...b, [field]: value } : b))
-  }
-
-  function addBoxItem(boxIdx: number, shipmentItemId: string, quantity: number) {
-    setBoxes(prev => prev.map((b, i) => {
-      if (i !== boxIdx) return b
-      const existing = b.items.find(bi => bi.shipmentItemId === shipmentItemId)
-      if (existing) {
-        return { ...b, items: b.items.map(bi => bi.shipmentItemId === shipmentItemId ? { ...bi, quantity: bi.quantity + quantity } : bi) }
-      }
-      return { ...b, items: [...b.items, { shipmentItemId, quantity }] }
-    }))
   }
 
   function removeBox(idx: number) {
@@ -610,7 +821,6 @@ function WizardView({
   if (loading) return <div className="flex-1 flex items-center justify-center text-sm text-gray-400"><Loader2 size={16} className="animate-spin mr-2" /> Loading...</div>
   if (!shipment) return <div className="flex-1 flex items-center justify-center text-sm text-red-500">Shipment not found</div>
 
-  const step = STATUS_CONFIG[shipment.status].step
   const isTerminal = shipment.status === 'SHIPPED' || shipment.status === 'CANCELLED'
 
   return (
@@ -631,7 +841,6 @@ function WizardView({
         )}
       </div>
 
-      {/* Error from shipment or action */}
       {err && <ErrorBanner msg={err} onClose={() => setErr('')} />}
       {shipment.lastError && (
         <div className="mb-3 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-700">
@@ -647,7 +856,7 @@ function WizardView({
         </div>
         <div className="rounded-lg border border-gray-200 p-3">
           <div className="text-xs text-gray-400 mb-1">Warehouse</div>
-          <div className="font-medium text-gray-700">{shipment.warehouse.name}</div>
+          <div className="font-medium text-gray-700">{shipment.warehouse?.name ?? 'Not assigned'}</div>
         </div>
         <div className="rounded-lg border border-gray-200 p-3">
           <div className="text-xs text-gray-400 mb-1">Items</div>
@@ -682,9 +891,12 @@ function WizardView({
       {/* Step-specific actions */}
       {shipment.status === 'DRAFT' && (
         <div className="border border-gray-200 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Step 2: Create Inbound Plan</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Create Inbound Plan</h3>
+          {!shipment.warehouseId && (
+            <p className="text-xs text-amber-600 mb-3">Warehouse must be assigned before creating a plan.</p>
+          )}
           <p className="text-xs text-gray-500 mb-3">This will create a plan at Amazon, generate packing options, and auto-confirm. This can take 30-60 seconds.</p>
-          <button type="button" onClick={handleCreatePlan} disabled={actionLoading}
+          <button type="button" onClick={handleCreatePlan} disabled={actionLoading || !shipment.warehouseId}
             className="flex items-center gap-2 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
             {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Creating Plan...</> : 'Create Inbound Plan'}
           </button>
@@ -693,7 +905,7 @@ function WizardView({
 
       {shipment.status === 'PLAN_CREATED' && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-4">
-          <h3 className="text-sm font-semibold text-gray-700">Step 3: Box Contents</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Box Contents</h3>
           <p className="text-xs text-gray-500">Add boxes with dimensions/weight and assign items to each box. Totals must match shipment quantities.</p>
 
           {boxes.map((box, boxIdx) => (
@@ -725,7 +937,6 @@ function WizardView({
                     className="w-full h-7 rounded border border-gray-300 px-2 text-sm" />
                 </div>
               </div>
-              {/* Assign items to this box */}
               <div className="space-y-1">
                 {shipment.items.map(item => {
                   const assigned = box.items.find(bi => bi.shipmentItemId === item.id)?.quantity ?? 0
@@ -766,7 +977,7 @@ function WizardView({
 
       {shipment.status === 'PACKING_SET' && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-gray-700">Step 4: Confirm Placement</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Confirm Placement</h3>
           <p className="text-xs text-gray-500">Select which fulfillment center(s) to ship to.</p>
 
           {placementOptions.length === 0 && (
@@ -776,12 +987,11 @@ function WizardView({
                 const res = await fetch(`/api/fba-shipments/${shipmentId}`)
                 const data = await res.json()
                 if (data.inboundPlanId) {
-                  const pRes = await fetch(`/api/fba-shipments/${shipmentId}/confirm-placement`, {
+                  await fetch(`/api/fba-shipments/${shipmentId}/confirm-placement`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ placementOptionId: '__reload__' }),
                   })
-                  // We need to reload placement options - fetch them fresh
                 }
               } finally {
                 setActionLoading(false)
@@ -823,7 +1033,7 @@ function WizardView({
 
       {shipment.status === 'PLACEMENT_CONFIRMED' && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-gray-700">Step 5: Confirm Transportation</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Confirm Transportation</h3>
           <p className="text-xs text-gray-500">Select a shipping option for your shipment.</p>
 
           {transportOptions.length === 0 && (
@@ -860,7 +1070,7 @@ function WizardView({
 
       {shipment.status === 'TRANSPORT_CONFIRMED' && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-gray-700">Step 6: Download Labels</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Download Labels</h3>
           <p className="text-xs text-gray-500">Download shipping labels for your boxes.</p>
           <button type="button" onClick={handleDownloadLabels} disabled={actionLoading}
             className="flex items-center gap-2 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
@@ -871,7 +1081,7 @@ function WizardView({
 
       {shipment.status === 'LABELS_READY' && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-gray-700">Step 7: Mark as Shipped</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Mark as Shipped</h3>
           <p className="text-xs text-gray-500">Confirm that all boxes have been shipped.</p>
           <div className="flex gap-2">
             {shipment.labelData && (

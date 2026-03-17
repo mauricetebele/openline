@@ -23,6 +23,8 @@ function sleep(ms: number) {
 
 interface InventorySummary {
   sellerSku?: string
+  fnSku?: string
+  asin?: string
   inventoryDetails?: {
     fulfillableQuantity?: number
   }
@@ -42,7 +44,7 @@ export async function syncFbaInventory(accountId: string): Promise<{ updated: nu
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
 
-  const inventoryMap = new Map<string, number>() // SKU → fulfillableQuantity
+  const inventoryMap = new Map<string, { qty: number; fnsku?: string; asin?: string }>() // SKU → data
   let nextToken: string | undefined
   let page = 0
 
@@ -67,7 +69,7 @@ export async function syncFbaInventory(accountId: string): Promise<{ updated: nu
         if (!item.sellerSku) continue
         // fulfillableQuantity is the count available to ship to customers
         const qty = item.inventoryDetails?.fulfillableQuantity ?? item.totalQuantity ?? 0
-        inventoryMap.set(item.sellerSku, qty)
+        inventoryMap.set(item.sellerSku, { qty, fnsku: item.fnSku, asin: item.asin })
       }
 
       nextToken = response?.pagination?.nextToken
@@ -93,12 +95,12 @@ export async function syncFbaInventory(accountId: string): Promise<{ updated: nu
 
   console.log(`[FbaInventory] Updating ${inventoryMap.size} FBA SKU quantities`)
 
-  // Bulk-update all FBA listings with their fresh fulfillable quantities
+  // Bulk-update all FBA listings with their fresh fulfillable quantities + FNSKU/ASIN
   let updated = 0
-  for (const [sku, quantity] of inventoryMap) {
+  for (const [sku, { qty: quantity, fnsku, asin }] of Array.from(inventoryMap.entries())) {
     const result = await prisma.sellerListing.updateMany({
       where: { accountId, sku, fulfillmentChannel: 'FBA' },
-      data: { quantity },
+      data: { quantity, ...(fnsku ? { fnsku } : {}), ...(asin ? { asin } : {}) },
     })
     updated += result.count
   }

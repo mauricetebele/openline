@@ -1880,8 +1880,8 @@ model FbaShipment {
   id                     String            @id @default(cuid())
   accountId              String
   account                AmazonAccount     @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  warehouseId            String
-  warehouse              Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  warehouseId            String?
+  warehouse              Warehouse?        @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   status                 FbaShipmentStatus @default(DRAFT)
   name                   String?           // user-provided label
   // Amazon API IDs
@@ -1917,8 +1917,8 @@ model FbaShipmentItem {
   id        String                     @id @default(cuid())
   shipmentId String
   shipment  FbaShipment                @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
-  mskuId    String
-  msku      ProductGradeMarketplaceSku @relation(fields: [mskuId], references: [id], onDelete: Restrict)
+  mskuId    String?
+  msku      ProductGradeMarketplaceSku? @relation(fields: [mskuId], references: [id], onDelete: Restrict)
   sellerSku String
   fnsku     String
   asin      String?

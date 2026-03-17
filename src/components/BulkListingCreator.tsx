@@ -355,6 +355,11 @@ export default function BulkListingCreator() {
           }
 
           setProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'success' } : r))
+
+          // Fire-and-forget FNSKU fetch for FBA listings
+          if (fulfillment === 'FBA') {
+            fetch(`/api/fba-shipments/fetch-fnsku?accountId=${accountId}&sellerSku=${encodeURIComponent(row.marketplaceSku.trim())}`).catch(() => {})
+          }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err)
           setProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'error', error: msg } : r))
