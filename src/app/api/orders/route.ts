@@ -114,7 +114,7 @@ export async function GET(req: NextRequest) {
     const mskuMappings = allSkus.length > 0
       ? await prisma.productGradeMarketplaceSku.findMany({
           where: { sellerSku: { in: allSkus } },
-          include: { product: { select: { sku: true } }, grade: { select: { grade: true } } },
+          include: { product: { select: { sku: true, isSerializable: true } }, grade: { select: { grade: true } } },
         })
       : []
     const mskuMap = new Map(mskuMappings.map(m => [m.sellerSku, m]))
@@ -125,9 +125,11 @@ export async function GET(req: NextRequest) {
       requiresTransparency: order.items.some(item => item.isTransparency),
       items: order.items.map(item => {
         const mapping = item.sellerSku ? mskuMap.get(item.sellerSku) : undefined
+        const directMatch = item.sellerSku ? serializableSkus.has(item.sellerSku) : false
+        const mappedMatch = mapping?.product.isSerializable ?? false
         return {
           ...item,
-          isSerializable: item.sellerSku ? serializableSkus.has(item.sellerSku) : false,
+          isSerializable: directMatch || mappedMatch,
           internalSku:    mapping?.product.sku ?? null,
           mappedGradeName: mapping?.grade?.grade ?? item.grade?.grade ?? null,
         }
