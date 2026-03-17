@@ -1511,36 +1511,51 @@ export default function VendorRMAManager() {
         <table className="w-full text-left">
           <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
             <tr>
-              {['RMA #', 'Vendor', 'Units', 'Status', 'Created', ''].map(h => (
+              {['RMA #', 'Vendor', 'Units', 'Scanned Out', 'Total Cost', 'Status', 'Created', ''].map(h => (
                 <th key={h} className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">Loading…</td></tr>
             ) : rmas.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-gray-400">
+              <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
                 {search || statusFilter !== 'ALL' ? 'No returns match your filter.' : 'No vendor returns yet — click "New Return" to get started.'}
               </td></tr>
-            ) : rmas.map(rma => (
-              <tr
-                key={rma.id}
-                onClick={() => openDetail(rma)}
-                className="hover:bg-gray-50 cursor-pointer transition-colors"
-              >
-                <td className="px-4 py-3 font-mono text-sm text-amazon-orange font-semibold">{rma.rmaNumber}</td>
-                <td className="px-4 py-3 text-sm text-gray-900">V-{rma.vendor.vendorNumber} — {rma.vendor.name}</td>
-                <td className="px-4 py-3 text-sm text-gray-600 text-center">{rma.items.reduce((s, i) => s + i.quantity, 0)}</td>
-                <td className="px-4 py-3">
-                  <span className={clsx('px-2 py-0.5 rounded-full text-xs font-medium', STATUS_COLOR[rma.status])}>
-                    {STATUS_LABEL[rma.status]}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-500">{fmt(rma.createdAt)}</td>
-                <td className="px-4 py-3 text-xs text-amazon-blue">View →</td>
-              </tr>
-            ))}
+            ) : rmas.map(rma => {
+              const totalSerials = rma.items.reduce((sum, i) => sum + i.serials.length, 0)
+              const scannedCount = rma.items.reduce((sum, i) => sum + i.serials.filter(s => s.scannedOutAt).length, 0)
+              const totalCost = rma.items.reduce((sum, i) => sum + (i.unitCost ? parseFloat(i.unitCost) * i.quantity : 0), 0)
+              return (
+                <tr
+                  key={rma.id}
+                  onClick={() => openDetail(rma)}
+                  className="hover:bg-gray-50 cursor-pointer transition-colors"
+                >
+                  <td className="px-4 py-3 font-mono text-sm text-amazon-orange font-semibold">{rma.rmaNumber}</td>
+                  <td className="px-4 py-3 text-sm text-gray-900">V-{rma.vendor.vendorNumber} — {rma.vendor.name}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600 text-center">{rma.items.reduce((s, i) => s + i.quantity, 0)}</td>
+                  <td className="px-4 py-3 text-sm text-center">
+                    {totalSerials > 0 ? (
+                      <span className={clsx('text-xs font-medium', scannedCount === totalSerials ? 'text-green-600' : 'text-gray-500')}>
+                        {scannedCount}/{totalSerials}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{totalCost > 0 ? `$${totalCost.toFixed(2)}` : '—'}</td>
+                  <td className="px-4 py-3">
+                    <span className={clsx('px-2 py-0.5 rounded-full text-xs font-medium', STATUS_COLOR[rma.status])}>
+                      {STATUS_LABEL[rma.status]}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-500">{fmt(rma.createdAt)}</td>
+                  <td className="px-4 py-3 text-xs text-amazon-blue">View →</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
