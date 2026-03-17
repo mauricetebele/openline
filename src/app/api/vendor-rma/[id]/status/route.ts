@@ -17,7 +17,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const body = await req.json()
   const { newStatus, vendorApprovalNumber, carrier, trackingNumber } = body
 
-  const rma = await prisma.vendorRMA.findUnique({ where: { id: params.id } })
+  const rma = await prisma.vendorRMA.findUnique({
+    where: { id: params.id },
+    include: { items: { include: { serials: true } } },
+  })
   if (!rma) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   if (TRANSITIONS[rma.status] !== newStatus) {
@@ -30,6 +33,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (newStatus === 'SHIPPED_AWAITING_CREDIT') {
     if (!carrier?.trim()) return NextResponse.json({ error: 'Carrier is required' }, { status: 400 })
     if (!trackingNumber?.trim()) return NextResponse.json({ error: 'Tracking number is required' }, { status: 400 })
+
+    // All serials must be scanned out before shipping
+    const allSerials = rma.items.flatMap(i => i.serials)
+    const unscanned = allSerials.filter(s => !s.scannedOutAt)
+    if (allSerials.length > 0 && unscanned.length > 0) {
+      return NextResponse.json(
+        { error: `All serials must be scanned out before marking as shipped (${unscanned.length} of ${allSerials.length} not scanned)` },
+        { status: 400 },
+      )
+    }
   }
 
   const updated = await prisma.vendorRMA.update({

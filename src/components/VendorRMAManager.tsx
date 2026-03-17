@@ -889,17 +889,29 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
       {!readonly && next && (
         <div className="mb-5 p-4 bg-gray-50 rounded-xl border border-gray-200">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Status</p>
-          <button
-            disabled={saving}
-            onClick={() => {
-              if (next === 'APPROVED_TO_RETURN') setShowApprovalModal(true)
-              else if (next === 'SHIPPED_AWAITING_CREDIT') setShowShippingModal(true)
-              else handleStatusChange(next)
-            }}
-            className="inline-flex items-center gap-2 bg-amazon-blue text-white text-sm font-medium px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50"
-          >
-            {NEXT_LABEL[rma.status]}
-          </button>
+          {(() => {
+            const allSerialsCount = rma.items.reduce((s, i) => s + i.serials.length, 0)
+            const allScanned = allSerialsCount > 0 && rma.items.every(i => i.serials.every(s => s.scannedOutAt))
+            const needsScanOut = next === 'SHIPPED_AWAITING_CREDIT' && allSerialsCount > 0 && !allScanned
+            return (
+              <>
+                <button
+                  disabled={saving || needsScanOut}
+                  onClick={() => {
+                    if (next === 'APPROVED_TO_RETURN') setShowApprovalModal(true)
+                    else if (next === 'SHIPPED_AWAITING_CREDIT') setShowShippingModal(true)
+                    else handleStatusChange(next)
+                  }}
+                  className="inline-flex items-center gap-2 bg-amazon-blue text-white text-sm font-medium px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50"
+                >
+                  {NEXT_LABEL[rma.status]}
+                </button>
+                {needsScanOut && (
+                  <span className="ml-2 text-xs text-orange-600">All serials must be scanned out first</span>
+                )}
+              </>
+            )
+          })()}
           {rma.status === 'AWAITING_VENDOR_APPROVAL' && (
             <button onClick={handleDelete} className="ml-3 text-xs text-red-500 hover:text-red-700 underline">Delete Return</button>
           )}
