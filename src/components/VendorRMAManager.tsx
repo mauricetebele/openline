@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanLine, Search, CheckCircle2, Download } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -990,12 +991,13 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
           saving={saving}
         />
       )}
-      {showScanOutModal && (
+      {showScanOutModal && createPortal(
         <ScanOutModal
           rma={rma}
           onUpdate={updated => { setRma(updated); onUpdated(updated) }}
           onClose={() => setShowScanOutModal(false)}
-        />
+        />,
+        document.body,
       )}
 
       <div className="flex items-center justify-between mb-5">
