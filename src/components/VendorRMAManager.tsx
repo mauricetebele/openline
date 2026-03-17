@@ -199,6 +199,7 @@ function ScanOutModal({
   const [flash, setFlash] = useState<{ type: 'success' | 'warning' | 'error'; msg: string } | null>(null)
   const [bulkResults, setBulkResults] = useState<ScanOutResult[]>([])
   const singleRef = useRef<HTMLInputElement>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { singleRef.current?.focus() }, [])
@@ -286,6 +287,7 @@ function ScanOutModal({
       return null
     } finally {
       setProcessing(false)
+      setTimeout(() => singleRef.current?.focus(), 0)
     }
   }
 
@@ -302,6 +304,7 @@ function ScanOutModal({
       setScanOrder(prev => [...prev, sn.toLowerCase()])
       playSuccessChime()
       onUpdate(data.rma)
+      setTimeout(() => gridRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 0)
     } else if (result.status === 'already_scanned') {
       showFlash('warning', `${sn} already scanned`)
     } else {
@@ -309,7 +312,7 @@ function ScanOutModal({
       playErrorBeep()
     }
     setSingleInput('')
-    singleRef.current?.focus()
+    setTimeout(() => singleRef.current?.focus(), 0)
   }
 
   async function handleUnscan(serialNumber: string) {
@@ -333,6 +336,7 @@ function ScanOutModal({
       showFlash('error', 'Network error')
     } finally {
       setProcessing(false)
+      setTimeout(() => singleRef.current?.focus(), 0)
     }
   }
 
@@ -424,7 +428,7 @@ function ScanOutModal({
         </div>
 
         {/* Grid */}
-        <div className="flex-1 overflow-y-auto px-6 py-3">
+        <div ref={gridRef} className="flex-1 overflow-y-auto px-6 py-3">
           <table className="w-full text-left">
             <thead className="bg-gray-50 sticky top-0">
               <tr>
