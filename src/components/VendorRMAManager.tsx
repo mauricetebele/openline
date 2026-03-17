@@ -312,6 +312,30 @@ function ScanOutModal({
     singleRef.current?.focus()
   }
 
+  async function handleUnscan(serialNumber: string) {
+    setProcessing(true)
+    try {
+      const res = await fetch(`/api/vendor-rma/${rma.id}/scan-out`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serialNumber }),
+      })
+      const data = await res.json()
+      if (!res.ok) { showFlash('error', data.error ?? 'Failed'); return }
+      setScannedSet(prev => {
+        const next = new Set(prev)
+        next.delete(serialNumber.toLowerCase())
+        return next
+      })
+      setScanOrder(prev => prev.filter(sn => sn !== serialNumber.toLowerCase()))
+      onUpdate(data.rma)
+    } catch {
+      showFlash('error', 'Network error')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
   async function handleBulkScan() {
     const serials = parseScanInput(bulkInput)
     if (serials.length === 0) return
@@ -404,7 +428,7 @@ function ScanOutModal({
           <table className="w-full text-left">
             <thead className="bg-gray-50 sticky top-0">
               <tr>
-                {['Serial #', 'SKU', 'Description', 'Status'].map(h => (
+                {['Serial #', 'SKU', 'Description', 'Status', ''].map(h => (
                   <th key={h} className="px-3 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
@@ -421,10 +445,22 @@ function ScanOutModal({
                       : <span className="text-gray-400">—</span>
                     }
                   </td>
+                  <td className="px-3 py-2 text-xs">
+                    {row.scanned && (
+                      <button
+                        onClick={() => handleUnscan(row.serialNumber)}
+                        disabled={processing}
+                        className="text-gray-300 hover:text-red-500 disabled:opacity-50"
+                        title="Unscan"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
               {sorted.length === 0 && (
-                <tr><td colSpan={4} className="px-3 py-6 text-center text-xs text-gray-400">No serials on this RMA</td></tr>
+                <tr><td colSpan={5} className="px-3 py-6 text-center text-xs text-gray-400">No serials on this RMA</td></tr>
               )}
             </tbody>
           </table>

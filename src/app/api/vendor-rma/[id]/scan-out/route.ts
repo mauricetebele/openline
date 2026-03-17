@@ -91,3 +91,55 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   return NextResponse.json({ rma: updated, results })
 }
+
+export async function DELETE(req: NextRequest, { params }: Ctx) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json()
+  const { serialNumber } = body as { serialNumber: string }
+
+  if (!serialNumber) {
+    return NextResponse.json({ error: 'serialNumber is required' }, { status: 400 })
+  }
+
+  const rma = await prisma.vendorRMA.findUnique({
+    where: { id: params.id },
+    include: { items: { include: { serials: true } } },
+  })
+
+  if (!rma) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  if (!ALLOWED_STATUSES.includes(rma.status)) {
+    return NextResponse.json({ error: 'Cannot unscan in this status' }, { status: 400 })
+  }
+
+  const match = rma.items
+    .flatMap(i => i.serials)
+    .find(s => s.serialNumber.toLowerCase() === serialNumber.toLowerCase())
+
+  if (!match) {
+    return NextResponse.json({ error: 'Serial not found on this RMA' }, { status: 404 })
+  }
+
+  await prisma.vendorRMASerial.update({
+    where: { id: match.id },
+    data: { scannedOutAt: null },
+  })
+
+  const updated = await prisma.vendorRMA.findUnique({
+    where: { id: params.id },
+    include: {
+      vendor: { select: { id: true, vendorNumber: true, name: true } },
+      items: {
+        orderBy: { createdAt: 'asc' },
+        include: {
+          product: { select: { id: true, sku: true, description: true, isSerializable: true } },
+          serials: { orderBy: { createdAt: 'asc' } },
+        },
+      },
+    },
+  })
+
+  return NextResponse.json({ rma: updated })
+}
