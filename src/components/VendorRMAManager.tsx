@@ -1089,7 +1089,7 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-sm font-mono text-gray-900">{rma.vendorApprovalNumber || '—'}</span>
+              <span className="text-lg font-mono font-bold text-gray-900">{rma.vendorApprovalNumber || '—'}</span>
               <button onClick={() => { setApprovalEdit(rma.vendorApprovalNumber ?? ''); setEditingApproval(true) }} className="text-xs text-amazon-blue hover:underline">Edit</button>
             </div>
           )}
