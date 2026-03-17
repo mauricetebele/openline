@@ -203,6 +203,22 @@ function ScanOutModal({
 
   useEffect(() => { singleRef.current?.focus() }, [])
 
+  function playErrorBeep() {
+    try {
+      const ctx = new AudioContext()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'square'
+      osc.frequency.value = 200
+      gain.gain.value = 0.3
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.25)
+      osc.onended = () => ctx.close()
+    } catch { /* audio not available */ }
+  }
+
   // Build grid rows from all items' serials
   const allSerials = rma.items.flatMap(item =>
     item.serials.map(s => ({
@@ -260,6 +276,7 @@ function ScanOutModal({
       showFlash('warning', `${sn} already scanned`)
     } else {
       showFlash('error', `${sn} not on this RMA`)
+      playErrorBeep()
     }
     setSingleInput('')
     singleRef.current?.focus()
