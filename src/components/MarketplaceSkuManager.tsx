@@ -26,6 +26,7 @@ interface MarketplaceSku {
   marketplace: string
   accountId: string | null
   sellerSku: string
+  asin: string | null
   syncQty: boolean
   maxQty: number | null
 }
@@ -994,6 +995,7 @@ export default function MarketplaceSkuManager() {
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Parent SKU</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
@@ -1009,6 +1011,7 @@ export default function MarketplaceSkuManager() {
                 {filteredSkus.map(s => (
                   <tr key={s.id} className="hover:bg-gray-50 group">
                     <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{s.asin ?? '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-700">{s.product.sku}</td>
                     <td className="px-4 py-3 text-xs text-gray-600">{s.grade?.grade ?? '—'}</td>
                     <td className="px-4 py-3 text-xs text-gray-600 max-w-[200px] truncate" title={s.product.description}>{s.product.description}</td>

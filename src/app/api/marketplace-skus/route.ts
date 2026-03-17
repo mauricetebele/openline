@@ -26,7 +26,23 @@ export async function GET(req: NextRequest) {
       orderBy: [{ marketplace: 'asc' }, { sellerSku: 'asc' }],
     })
 
-    return NextResponse.json({ data: skus })
+    // Enrich with ASIN from SellerListing
+    const sellerSkus = skus.map(s => s.sellerSku)
+    const listings = sellerSkus.length > 0
+      ? await prisma.sellerListing.findMany({
+          where: { sku: { in: sellerSkus } },
+          select: { sku: true, asin: true },
+          distinct: ['sku'],
+        })
+      : []
+    const asinMap = new Map(listings.map(l => [l.sku, l.asin]))
+
+    const enriched = skus.map(s => ({
+      ...s,
+      asin: asinMap.get(s.sellerSku) ?? null,
+    }))
+
+    return NextResponse.json({ data: enriched })
   } catch (err) {
     console.error('[marketplace-skus GET]', err)
     return NextResponse.json(
