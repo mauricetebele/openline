@@ -10,12 +10,14 @@ export async function GET(req: NextRequest) {
   const warehouseId = searchParams.get('warehouseId')
   const locationId  = searchParams.get('locationId')
   const search      = searchParams.get('search')?.trim()
+  const gradeId     = searchParams.get('gradeId')
 
   const [items, reservationGroups, costRows] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: {
         ...(locationId  ? { locationId } : {}),
         ...(warehouseId ? { location: { warehouseId } } : {}),
+        ...(gradeId === 'none' ? { gradeId: null } : gradeId ? { gradeId } : {}),
         ...(search
           ? {
               OR: [

@@ -2173,6 +2173,8 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   const [warehouseId,  setWarehouseId]  = useState('')
   const [locationId,   setLocationId]   = useState('')
   const [search,       setSearch]       = useState('')
+  const [gradeId,      setGradeId]      = useState('')
+  const [allGrades,    setAllGrades]    = useState<{ id: string; grade: string }[]>([])
   const [serialTarget,  setSerialTarget]  = useState<{ product: Product; location: Location; gradeId: string | null } | null>(null)
   const [showLookup,    setShowLookup]    = useState(false)
   const [showMove,      setShowMove]      = useState(false)
@@ -2240,6 +2242,10 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
       .then(r => r.json())
       .then(d => setWarehouses(d.data ?? []))
       .catch(() => {})
+    fetch('/api/grades')
+      .then(r => r.json())
+      .then(d => setAllGrades(d.data ?? []))
+      .catch(() => {})
   }, [])
 
 
@@ -2255,6 +2261,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
       if (warehouseId) params.set('warehouseId', warehouseId)
       if (locationId)  params.set('locationId',  locationId)
       if (search)      params.set('search',       search)
+      if (gradeId)     params.set('gradeId',      gradeId)
       const res  = await fetch(`/api/inventory?${params}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to load')
@@ -2264,7 +2271,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
     } finally {
       setLoading(false)
     }
-  }, [warehouseId, locationId, search])
+  }, [warehouseId, locationId, search, gradeId])
 
   useEffect(() => {
     const t = setTimeout(load, search ? 300 : 0)
@@ -2297,6 +2304,18 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
           <option value="">All locations</option>
           {filteredLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
         </select>
+
+        {allGrades.length > 0 && (
+          <select
+            value={gradeId}
+            onChange={e => setGradeId(e.target.value)}
+            className="h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+          >
+            <option value="">All grades</option>
+            {allGrades.map(g => <option key={g.id} value={g.id}>{g.grade}</option>)}
+            <option value="none">Ungraded</option>
+          </select>
+        )}
 
         <input
           type="text"
