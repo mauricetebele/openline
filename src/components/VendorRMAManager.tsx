@@ -574,6 +574,9 @@ function ItemRow({ item, onRemove, onAddSerial, onRemoveSerial, readonly }: {
           </span>
         </td>
         <td className="px-3 py-2.5 text-sm text-center text-gray-700">{item.quantity}</td>
+        <td className="px-3 py-2.5 text-xs text-gray-700">
+          {item.unitCost ? `$${(parseFloat(item.unitCost) * item.quantity).toFixed(2)}` : '—'}
+        </td>
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-1 justify-end">
             {item.product.isSerializable && (
@@ -591,7 +594,7 @@ function ItemRow({ item, onRemove, onAddSerial, onRemoveSerial, readonly }: {
       </tr>
       {expanded && item.product.isSerializable && (
         <tr className="bg-gray-50">
-          <td colSpan={5} className="px-5 pb-3 pt-1">
+          <td colSpan={6} className="px-5 pb-3 pt-1">
             {err && <p className="text-xs text-red-500 mb-1">{err}</p>}
             <div className="flex flex-wrap gap-1.5 mb-2">
               {item.serials.map(s => (
@@ -650,6 +653,9 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
   const [showApprovalModal, setShowApprovalModal] = useState(false)
   const [showShippingModal, setShowShippingModal] = useState(false)
   const [showScanOutModal, setShowScanOutModal] = useState(false)
+
+  // Items view toggle
+  const [itemsView, setItemsView] = useState<'lines' | 'serials'>('lines')
 
   // Add item
   const [addMode, setAddMode] = useState<'product' | 'serial'>('product')
@@ -1104,16 +1110,36 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
 
       {/* Items */}
       <div className="mb-5">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-          Items ({rma.items.reduce((s, i) => s + i.quantity, 0)} units)
-        </p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Items ({rma.items.reduce((s, i) => s + i.quantity, 0)} units)
+          </p>
+          {rma.items.length > 0 && (
+            <div className="flex gap-1 p-0.5 bg-gray-200 rounded-lg">
+              <button
+                onClick={() => setItemsView('lines')}
+                className={clsx(
+                  'px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors',
+                  itemsView === 'lines' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700',
+                )}
+              >Line Items</button>
+              <button
+                onClick={() => setItemsView('serials')}
+                className={clsx(
+                  'px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors',
+                  itemsView === 'serials' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700',
+                )}
+              >Serials</button>
+            </div>
+          )}
+        </div>
 
-        {rma.items.length > 0 && (
+        {rma.items.length > 0 && itemsView === 'lines' && (
           <div className="border border-gray-200 rounded-xl overflow-hidden mb-3">
             <table className="w-full text-left">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['SKU', 'Product', 'Type', 'Qty', ''].map(h => (
+                  {['SKU', 'Product', 'Type', 'Qty', 'Cost', ''].map(h => (
                     <th key={h} className="px-3 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -1133,6 +1159,52 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
             </table>
           </div>
         )}
+
+        {rma.items.length > 0 && itemsView === 'serials' && (() => {
+          const flatSerials = rma.items.flatMap(item =>
+            item.serials.map(s => ({
+              serialNumber: s.serialNumber,
+              sku: item.product.sku,
+              description: item.product.description,
+              unitCost: item.unitCost,
+            })),
+          ).sort((a, b) => a.sku.localeCompare(b.sku) || a.serialNumber.localeCompare(b.serialNumber))
+          const totalCost = flatSerials.reduce((sum, s) => sum + (s.unitCost ? parseFloat(s.unitCost) : 0), 0)
+          return (
+            <div className="border border-gray-200 rounded-xl overflow-hidden mb-3">
+              <table className="w-full text-left">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    {['Serial #', 'SKU', 'Description', 'Cost'].map(h => (
+                      <th key={h} className="px-3 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {flatSerials.map(s => (
+                    <tr key={s.serialNumber} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 text-xs font-mono font-medium text-gray-900">{s.serialNumber}</td>
+                      <td className="px-3 py-2 text-xs font-mono text-gray-500">{s.sku}</td>
+                      <td className="px-3 py-2 text-xs text-gray-600">{s.description}</td>
+                      <td className="px-3 py-2 text-xs text-gray-700">{s.unitCost ? `$${parseFloat(s.unitCost).toFixed(2)}` : '—'}</td>
+                    </tr>
+                  ))}
+                  {flatSerials.length === 0 && (
+                    <tr><td colSpan={4} className="px-3 py-6 text-center text-xs text-gray-400">No serials on this RMA</td></tr>
+                  )}
+                </tbody>
+                {flatSerials.length > 0 && (
+                  <tfoot className="bg-gray-50 border-t border-gray-200">
+                    <tr>
+                      <td colSpan={3} className="px-3 py-2 text-xs font-semibold text-gray-500 text-right">Total</td>
+                      <td className="px-3 py-2 text-xs font-semibold text-gray-900">{totalCost > 0 ? `$${totalCost.toFixed(2)}` : '—'}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          )
+        })()}
 
         {/* Add Item */}
         {!readonly && (
