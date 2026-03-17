@@ -1055,6 +1055,7 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
           {(rma.status === 'APPROVED_TO_RETURN' || rma.status === 'SHIPPED_AWAITING_CREDIT') && (() => {
             const totalSerials = rma.items.reduce((sum, i) => sum + i.serials.length, 0)
             const scannedCount = rma.items.reduce((sum, i) => sum + i.serials.filter(s => s.scannedOutAt).length, 0)
+            const fullyScanned = totalSerials > 0 && scannedCount === totalSerials
             return totalSerials > 0 ? (
               <div className="mt-3 flex items-center gap-2">
                 <button
@@ -1065,6 +1066,12 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
                   Scan Out
                   <span className="text-xs opacity-80">({scannedCount}/{totalSerials})</span>
                 </button>
+                {fullyScanned && (
+                  <span className="inline-flex items-center gap-1.5 text-green-600 font-semibold text-sm">
+                    <CheckCircle2 size={18} />
+                    Fully Scanned — Ready to Ship!
+                  </span>
+                )}
               </div>
             ) : null
           })()}
