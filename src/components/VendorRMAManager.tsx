@@ -976,20 +976,22 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
 
   return (
     <>
-      {showApprovalModal && (
+      {showApprovalModal && createPortal(
         <ApprovalModal
           current={rma.vendorApprovalNumber}
           onConfirm={val => handleStatusChange('APPROVED_TO_RETURN', { vendorApprovalNumber: val })}
           onCancel={() => setShowApprovalModal(false)}
           saving={saving}
-        />
+        />,
+        document.body,
       )}
-      {showShippingModal && (
+      {showShippingModal && createPortal(
         <ShippingModal
           onConfirm={(carrier, trackingNumber) => handleStatusChange('SHIPPED_AWAITING_CREDIT', { carrier, trackingNumber })}
           onCancel={() => setShowShippingModal(false)}
           saving={saving}
-        />
+        />,
+        document.body,
       )}
       {showScanOutModal && createPortal(
         <ScanOutModal
