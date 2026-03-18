@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight } from 'lucide-react'
+import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight, Copy } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -845,6 +845,10 @@ function WizardView({
     setBoxes(prev => prev.filter((_, i) => i !== idx))
   }
 
+  function copyBox(idx: number) {
+    setBoxes(prev => [...prev, { ...prev[idx], items: prev[idx].items.map(i => ({ ...i })) }])
+  }
+
   if (loading) return <div className="flex-1 flex items-center justify-center text-sm text-gray-400"><Loader2 size={16} className="animate-spin mr-2" /> Loading...</div>
   if (!shipment) return <div className="flex-1 flex items-center justify-center text-sm text-red-500">Shipment not found</div>
 
@@ -940,7 +944,8 @@ function WizardView({
               <div className="flex items-center gap-2">
                 <Package size={14} className="text-gray-400" />
                 <span className="text-sm font-medium text-gray-700">Box {boxIdx + 1}</span>
-                <button type="button" onClick={() => removeBox(boxIdx)} className="ml-auto text-gray-300 hover:text-red-500"><X size={14} /></button>
+                <button type="button" onClick={() => copyBox(boxIdx)} className="ml-auto text-gray-300 hover:text-amazon-blue" title="Copy box"><Copy size={14} /></button>
+                <button type="button" onClick={() => removeBox(boxIdx)} className="text-gray-300 hover:text-red-500" title="Remove box"><X size={14} /></button>
               </div>
               <div className="grid grid-cols-4 gap-2">
                 <div>
