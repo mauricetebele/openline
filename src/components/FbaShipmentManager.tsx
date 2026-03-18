@@ -1229,7 +1229,31 @@ function WizardView({
           <p className="text-xs text-gray-500">Select a shipping option for your shipment.</p>
 
           {transportOptions.length === 0 && (
-            <p className="text-xs text-gray-400">No transport options loaded. Try refreshing the page.</p>
+            <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-2">
+              <p className="text-sm text-amber-700">Transportation options are not available via the API.</p>
+              <p className="text-xs text-amber-600">
+                Your SP-API app may need the <strong>Amazon Shipping</strong> role, or you can complete this step in Seller Central.
+              </p>
+              <div className="flex items-center gap-2 pt-1">
+                <button type="button" onClick={async () => {
+                  setActionLoading(true)
+                  try {
+                    const res = await fetch(`/api/fba-shipments/${shipment.id}/retry-transport`)
+                    const data = await res.json()
+                    if (data.transportOptions?.length) {
+                      setTransportOptions(data.transportOptions)
+                    }
+                  } catch { /* silent */ } finally { setActionLoading(false) }
+                }} disabled={actionLoading}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-md border border-amber-300 text-amber-700 text-xs font-medium hover:bg-amber-100 disabled:opacity-50">
+                  {actionLoading ? <><Loader2 size={12} className="animate-spin" /> Retrying...</> : 'Retry Fetch'}
+                </button>
+                <a href="https://sellercentral.amazon.com/fba/sendtoamazon" target="_blank" rel="noopener noreferrer"
+                  className="px-3 py-1.5 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50">
+                  Open Seller Central
+                </a>
+              </div>
+            </div>
           )}
 
           {transportOptions.map(opt => (
