@@ -388,16 +388,27 @@ function CreateForm({
       const filtered = warehouseId
         ? items.filter(i => i.location?.warehouseId === warehouseId && i.qty > 0)
         : items.filter(i => i.qty > 0)
+      // Aggregate by product+location+grade to avoid duplicate entries
+      const aggregated = new Map<string, { productId: string; locationId: string; locationName: string; gradeId: string | null; grade: string | null; qty: number }>()
+      for (const i of filtered) {
+        const key = `${i.productId}|${i.locationId}|${i.gradeId}`
+        const existing = aggregated.get(key)
+        if (existing) {
+          existing.qty += i.qty
+        } else {
+          aggregated.set(key, {
+            productId: i.productId,
+            locationId: i.locationId,
+            locationName: i.location?.name ?? i.locationId,
+            gradeId: i.gradeId,
+            grade: i.grade?.grade ?? null,
+            qty: i.qty,
+          })
+        }
+      }
       setInvByItem(prev => ({
         ...prev,
-        [item.id]: filtered.map(i => ({
-          productId: i.productId,
-          locationId: i.locationId,
-          locationName: i.location?.name ?? i.locationId,
-          gradeId: i.gradeId,
-          grade: i.grade?.grade ?? null,
-          qty: i.qty,
-        })),
+        [item.id]: Array.from(aggregated.values()),
       }))
     } catch {
       // silent
