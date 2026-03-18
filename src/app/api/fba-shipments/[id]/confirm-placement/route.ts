@@ -108,24 +108,35 @@ export async function POST(
     )
     await pollOperationStatus(shipment.accountId, dwConfirmResp.operationId)
 
-    // 4. Generate transportation options
-    step = 'generate-transportation-options'
-    const transportResp = await generateTransportationOptions(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      amazonShipmentId,
-      body.placementOptionId,
-    )
-    step = 'poll-generate-transport'
-    await pollOperationStatus(shipment.accountId, transportResp.operationId)
+    // 4. Transportation options — try listing first, generate only if empty
+    let transportOptions: Awaited<ReturnType<typeof listTransportationOptions>> = []
 
-    // 5. List transportation options
     step = 'list-transportation-options'
-    const transportOptions = await listTransportationOptions(
+    transportOptions = await listTransportationOptions(
       shipment.accountId,
       shipment.inboundPlanId,
       amazonShipmentId,
     )
+
+    if (transportOptions.length === 0) {
+      // Only generate if none exist yet
+      step = 'generate-transportation-options'
+      const transportResp = await generateTransportationOptions(
+        shipment.accountId,
+        shipment.inboundPlanId,
+        amazonShipmentId,
+        body.placementOptionId,
+      )
+      step = 'poll-generate-transport'
+      await pollOperationStatus(shipment.accountId, transportResp.operationId)
+
+      step = 'list-transportation-options-after-generate'
+      transportOptions = await listTransportationOptions(
+        shipment.accountId,
+        shipment.inboundPlanId,
+        amazonShipmentId,
+      )
+    }
 
     // Extract placement fee
     const fee = selectedOption?.fees?.[0]?.amount?.amount ?? null
