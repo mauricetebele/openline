@@ -798,6 +798,7 @@ export default function BulkListingCreator() {
                       <th className="px-3 py-2">Price</th>
                       <th className="px-3 py-2">Condition</th>
                       <th className="px-3 py-2 w-12">Qty</th>
+                      {uploadFulfillment === 'MFN' && <th className="px-3 py-2">Template</th>}
                       <th className="px-3 py-2 w-16">Status</th>
                     </tr>
                   </thead>
@@ -824,6 +825,9 @@ export default function BulkListingCreator() {
                           <td className="px-3 py-2 text-xs">{row.price != null ? `$${row.price.toFixed(2)}` : '—'}</td>
                           <td className="px-3 py-2 text-xs">{row.condition}</td>
                           <td className="px-3 py-2 text-xs text-center">{row.quantity}</td>
+                          {uploadFulfillment === 'MFN' && (
+                            <td className="px-3 py-2 text-xs text-gray-600">{row.shippingTemplate || '—'}</td>
+                          )}
                           <td className="px-3 py-2">
                             {hasErrors ? (
                               <span title={row.errors.join('; ')}>
