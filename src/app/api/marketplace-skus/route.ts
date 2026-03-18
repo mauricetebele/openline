@@ -26,20 +26,30 @@ export async function GET(req: NextRequest) {
       orderBy: [{ marketplace: 'asc' }, { sellerSku: 'asc' }],
     })
 
-    // Enrich with ASIN from SellerListing
+    // Enrich with ASIN from SellerListing + fulfillmentChannel from MarketplaceListing
     const sellerSkus = skus.map(s => s.sellerSku)
-    const listings = sellerSkus.length > 0
+    const sellerListings = sellerSkus.length > 0
       ? await prisma.sellerListing.findMany({
           where: { sku: { in: sellerSkus } },
           select: { sku: true, asin: true },
           distinct: ['sku'],
         })
       : []
-    const asinMap = new Map(listings.map(l => [l.sku, l.asin]))
+    const asinMap = new Map(sellerListings.map(l => [l.sku, l.asin]))
+
+    const mskuIds = skus.map(s => s.id)
+    const mpListings = mskuIds.length > 0
+      ? await prisma.marketplaceListing.findMany({
+          where: { mskuId: { in: mskuIds } },
+          select: { mskuId: true, fulfillmentChannel: true },
+        })
+      : []
+    const fcMap = new Map(mpListings.map(l => [l.mskuId, l.fulfillmentChannel]))
 
     const enriched = skus.map(s => ({
       ...s,
       asin: asinMap.get(s.sellerSku) ?? null,
+      fulfillmentChannel: fcMap.get(s.id) ?? null,
     }))
 
     return NextResponse.json({ data: enriched })

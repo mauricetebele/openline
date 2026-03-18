@@ -139,15 +139,19 @@ export async function pushAllQuantities(): Promise<PushResult[]> {
     include: {
       product: { select: { id: true, sku: true } },
       grade: { select: { id: true, grade: true } },
+      marketplaceListing: { select: { fulfillmentChannel: true } },
     },
   })
 
   if (mskus.length === 0) return []
 
-  const { bmClient, bmListingsCache } = await getBmContext(mskus)
+  // Filter out FBA SKUs — Amazon manages FBA inventory
+  const filteredMskus = mskus.filter(m => m.marketplaceListing?.fulfillmentChannel !== 'FBA')
+
+  const { bmClient, bmListingsCache } = await getBmContext(filteredMskus)
   const results: PushResult[] = []
 
-  for (const msku of mskus) {
+  for (const msku of filteredMskus) {
     try {
       results.push(await pushOneQuantity(msku, bmClient, bmListingsCache))
     } catch (err) {
@@ -169,8 +173,14 @@ export async function pushSingleQuantity(mskuId: string): Promise<PushResult> {
     include: {
       product: { select: { id: true, sku: true } },
       grade: { select: { id: true, grade: true } },
+      marketplaceListing: { select: { fulfillmentChannel: true } },
     },
   })
+
+  // Skip FBA SKUs — Amazon manages FBA inventory
+  if ((msku as typeof msku & { marketplaceListing?: { fulfillmentChannel: string | null } | null }).marketplaceListing?.fulfillmentChannel === 'FBA') {
+    return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: -1, error: 'FBA inventory is managed by Amazon' }
+  }
 
   const { bmClient, bmListingsCache } = await getBmContext([msku])
   return pushOneQuantity(msku, bmClient, bmListingsCache)

@@ -29,6 +29,7 @@ interface MarketplaceSku {
   asin: string | null
   syncQty: boolean
   maxQty: number | null
+  fulfillmentChannel: string | null
 }
 
 interface MarketplaceListing {
@@ -1027,6 +1028,9 @@ export default function MarketplaceSkuManager() {
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.accountId ?? '—'}</td>
                     <td className="px-4 py-3 text-center">
+                      {s.fulfillmentChannel === 'FBA' ? (
+                        <span className="text-[10px] text-gray-400" title="FBA inventory is managed by Amazon">N/A</span>
+                      ) : (
                       <button
                         type="button"
                         onClick={() => handleToggleSyncQty(s.id, s.syncQty)}
@@ -1043,8 +1047,12 @@ export default function MarketplaceSkuManager() {
                           )}
                         />
                       </button>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center">
+                      {s.fulfillmentChannel === 'FBA' ? (
+                        <span className="text-[10px] text-gray-400">—</span>
+                      ) : (
                       <input
                         type="number"
                         min={0}
@@ -1070,9 +1078,12 @@ export default function MarketplaceSkuManager() {
                           s.syncQty ? 'border-gray-300 bg-white text-gray-900' : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed',
                         )}
                       />
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {s.syncQty && qtyMap[s.id] ? (
+                      {s.fulfillmentChannel === 'FBA' ? (
+                        <span className="text-[10px] text-gray-400">—</span>
+                      ) : s.syncQty && qtyMap[s.id] ? (
                         <QtyBadge breakdown={qtyMap[s.id]} />
                       ) : (
                         <span className="text-xs text-gray-300">—</span>
