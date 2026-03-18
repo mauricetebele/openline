@@ -93,11 +93,34 @@ export async function POST(
     )
     await pollOperationStatus(shipment.accountId, confirmResp.operationId)
 
-    // Fetch packing groups after confirming packing option
-    const packingGroups = await listPackingGroups(shipment.accountId, planResp.inboundPlanId)
-    const packingGroupId = packingGroups[0]?.packingGroupId ?? firstOption.packingGroups?.[0]?.packingGroupId ?? null
+    // Extract packing group ID from packing option
+    let packingGroupId = firstOption.packingGroups?.[0]?.packingGroupId ?? null
+
+    // If not in packing option, try listing packing groups separately
     if (!packingGroupId) {
-      throw new Error('No packing group returned by Amazon after confirming packing option')
+      try {
+        const packingGroups = await listPackingGroups(shipment.accountId, planResp.inboundPlanId)
+        packingGroupId = packingGroups[0]?.packingGroupId ?? null
+      } catch (pgErr) {
+        console.warn('[create-plan] listPackingGroups failed, trying to extract from options:', pgErr)
+      }
+    }
+
+    // Last resort: re-list packing options after confirmation (Amazon populates packingGroups after confirm)
+    if (!packingGroupId) {
+      const refreshedOptions = await listPackingOptions(shipment.accountId, planResp.inboundPlanId)
+      for (const opt of refreshedOptions) {
+        if (opt.packingGroups?.length > 0) {
+          packingGroupId = opt.packingGroups[0].packingGroupId
+          break
+        }
+      }
+    }
+
+    if (!packingGroupId) {
+      // Log full response for debugging
+      console.error('[create-plan] No packing group found. Packing options:', JSON.stringify(packingOptions))
+      throw new Error('No packing group returned by Amazon. Please try again.')
     }
 
     // Update shipment
