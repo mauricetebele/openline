@@ -1021,17 +1021,19 @@ export default function MarketplaceSkuManager() {
                     <td className="px-4 py-3 text-xs text-gray-600">{s.grade?.grade ?? '—'}</td>
                     <td className="px-4 py-3 text-xs text-gray-600 max-w-[200px] truncate" title={s.product.description}>{s.product.description}</td>
                     <td className="px-4 py-3">
-                      <span className={clsx(
-                        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
-                        s.marketplace === 'amazon' && 'bg-orange-100 text-orange-700',
-                        s.marketplace === 'backmarket' && 'bg-green-100 text-green-700',
-                        s.marketplace === 'wholesale' && 'bg-blue-100 text-blue-700',
-                      )}>
-                        {s.marketplace === 'backmarket' ? 'Back Market' : s.marketplace}
-                      </span>
-                      {s.fulfillmentChannel === 'FBA' && (
-                        <span className="ml-1.5 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">FBA</span>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        <span className={clsx(
+                          'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
+                          s.marketplace === 'amazon' && 'bg-orange-100 text-orange-700',
+                          s.marketplace === 'backmarket' && 'bg-green-100 text-green-700',
+                          s.marketplace === 'wholesale' && 'bg-blue-100 text-blue-700',
+                        )}>
+                          {s.marketplace === 'backmarket' ? 'Back Market' : s.marketplace}
+                        </span>
+                        {s.fulfillmentChannel === 'FBA' && (
+                          <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">FBA</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.accountId ?? '—'}</td>
                     <td className="px-4 py-3 text-center">
