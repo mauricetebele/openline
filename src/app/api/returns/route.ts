@@ -85,7 +85,9 @@ export async function GET(req: NextRequest) {
       try {
         const knownOrders = await prisma.$queryRaw<{ amazonOrderId: string }[]>`
           SELECT DISTINCT "amazonOrderId" FROM "orders"
-          WHERE "amazonOrderId" IS NOT NULL AND "orderStatus" != 'Canceled'
+          WHERE "amazonOrderId" IS NOT NULL
+            AND "orderStatus" != 'Canceled'
+            AND "workflowStatus" != 'CANCELLED'
         `
         const knownOrderIds = knownOrders.map(o => o.amazonOrderId)
         where.orderId = { in: knownOrderIds }
