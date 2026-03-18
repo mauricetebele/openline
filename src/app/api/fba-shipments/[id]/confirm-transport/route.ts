@@ -47,14 +47,23 @@ export async function POST(
   }
 
   try {
-    // 1. Confirm transport
-    const confirmResp = await confirmTransportationOptions(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      shipment.shipmentId,
-      body.transportOptionId,
-    )
-    await pollOperationStatus(shipment.accountId, confirmResp.operationId)
+    // 1. Confirm transport (skip if already confirmed from a prior attempt)
+    try {
+      const confirmResp = await confirmTransportationOptions(
+        shipment.accountId,
+        shipment.inboundPlanId,
+        shipment.shipmentId,
+        body.transportOptionId,
+      )
+      await pollOperationStatus(shipment.accountId, confirmResp.operationId)
+    } catch (confirmErr) {
+      const msg = confirmErr instanceof Error ? confirmErr.message : String(confirmErr)
+      if (msg.includes('already') || msg.includes('ConfirmTransportationOptions cannot be processed')) {
+        // Already confirmed — continue to update status
+      } else {
+        throw confirmErr
+      }
+    }
 
     // 2. Delivery window — may already be confirmed from confirm-placement step.
     //    Try to generate + confirm, but don't fail the whole flow if it errors.
