@@ -36,31 +36,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Check if a mapping already exists for this product+grade+marketplace+account
   const normalizedGradeId = gradeId || null
-  const existing = await prisma.productGradeMarketplaceSku.findFirst({
-    where: {
-      productId,
-      gradeId: normalizedGradeId,
-      marketplace: listing.marketplace,
-      accountId: listing.accountId,
-    },
-    include: {
-      product: { select: { id: true, sku: true, description: true } },
-      grade: { select: { id: true, grade: true } },
-    },
-  })
-
-  // If mapping already exists, just link the listing to it
-  if (existing) {
-    if (!listing.mskuId) {
-      await prisma.marketplaceListing.update({
-        where: { id: listingId },
-        data: { mskuId: existing.id },
-      })
-    }
-    return NextResponse.json(existing, { status: 201 })
-  }
 
   // Create the MSKU mapping and link to listing in a transaction
   try {

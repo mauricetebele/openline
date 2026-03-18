@@ -879,8 +879,7 @@ model ProductGradeMarketplaceSku {
   marketplaceListing MarketplaceListing?
   fbaShipmentItems   FbaShipmentItem[]
 
-  @@unique([productId, gradeId, marketplace, accountId])
-  @@index([sellerSku])
+  @@unique([sellerSku, marketplace, accountId])
   @@map("product_grade_marketplace_skus")
 }
 

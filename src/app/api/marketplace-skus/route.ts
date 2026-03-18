@@ -110,24 +110,6 @@ export async function POST(req: NextRequest) {
   const normalizedAccountId = accountId?.trim() || null
   const normalizedMarketplace = marketplace.toLowerCase()
 
-  // For ungraded MSKUs, do application-level duplicate check (partial index handles DB level)
-  if (!gradeId) {
-    const existing = await prisma.productGradeMarketplaceSku.findFirst({
-      where: {
-        productId,
-        gradeId: null,
-        marketplace: normalizedMarketplace,
-        accountId: normalizedAccountId,
-      },
-    })
-    if (existing) {
-      return NextResponse.json(
-        { error: 'A marketplace SKU already exists for this product/marketplace/account combination' },
-        { status: 409 },
-      )
-    }
-  }
-
   try {
     const created = await prisma.productGradeMarketplaceSku.create({
       data: {
@@ -147,7 +129,7 @@ export async function POST(req: NextRequest) {
     const e = err as { code?: string }
     if (e.code === 'P2002') {
       return NextResponse.json(
-        { error: 'A marketplace SKU already exists for this product/grade/marketplace/account combination' },
+        { error: 'This Seller SKU already exists for this marketplace/account combination' },
         { status: 409 },
       )
     }
