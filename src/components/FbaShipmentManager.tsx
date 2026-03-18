@@ -1655,8 +1655,8 @@ function WizardView({
             </div>
           )}
 
-          {/* Re-download labels */}
-          {shipment.labelData && (() => {
+          {/* Labels */}
+          {shipment.labelData ? (() => {
             let labels: Array<{ confirmationId?: string; url: string }> = []
             try {
               const parsed = JSON.parse(shipment.labelData!)
@@ -1684,7 +1684,15 @@ function WizardView({
                 <Download size={12} /> Re-download Labels
               </a>
             )
-          })()}
+          })() : (
+            <button type="button" onClick={async () => {
+              const result = await doAction('labels')
+              if (result) await loadShipment()
+            }} disabled={actionLoading}
+              className="flex items-center gap-2 text-xs text-blue-600 hover:underline disabled:opacity-50">
+              {actionLoading ? <><Loader2 size={12} className="animate-spin" /> Fetching...</> : <><Download size={12} /> Fetch Labels</>}
+            </button>
+          )}
 
           {/* Shipped items with serials */}
           {shipment.items.length > 0 && (

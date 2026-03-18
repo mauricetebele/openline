@@ -51,9 +51,9 @@ export async function GET(
     }
   }
 
-  const allowed = new Set(['TRANSPORT_CONFIRMED', 'LABELS_READY'])
+  const allowed = new Set(['TRANSPORT_CONFIRMED', 'LABELS_READY', 'SHIPPED'])
   if (!allowed.has(shipment.status)) {
-    return NextResponse.json({ error: 'Shipment must be in TRANSPORT_CONFIRMED or LABELS_READY status' }, { status: 409 })
+    return NextResponse.json({ error: 'Shipment must be in TRANSPORT_CONFIRMED, LABELS_READY, or SHIPPED status' }, { status: 409 })
   }
 
   try {
@@ -142,7 +142,7 @@ export async function GET(
       where: { id: params.id },
       data: {
         labelData: JSON.stringify(shipmentLabels),
-        status: 'LABELS_READY',
+        ...(shipment.status !== 'SHIPPED' ? { status: 'LABELS_READY' } : {}),
         lastError: errors.length > 0
           ? `Labels fetched for ${downloadUrls.length}/${allShipmentIds.length} shipments. Skipped: ${errors.join('; ')}`
           : null,
