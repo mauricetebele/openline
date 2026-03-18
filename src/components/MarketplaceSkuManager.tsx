@@ -1013,7 +1013,7 @@ export default function MarketplaceSkuManager() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredSkus.map(s => (
-                  <tr key={s.id} className="hover:bg-gray-50 group">
+                  <tr key={s.id} className={clsx('group', s.fulfillmentChannel === 'FBA' ? 'bg-blue-50/60 hover:bg-blue-100/60' : 'hover:bg-gray-50')}>
                     <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">{s.asin ?? '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">{s.fnsku ?? '—'}</td>
@@ -1029,6 +1029,9 @@ export default function MarketplaceSkuManager() {
                       )}>
                         {s.marketplace === 'backmarket' ? 'Back Market' : s.marketplace}
                       </span>
+                      {s.fulfillmentChannel === 'FBA' && (
+                        <span className="ml-1.5 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">FBA</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.accountId ?? '—'}</td>
                     <td className="px-4 py-3 text-center">
