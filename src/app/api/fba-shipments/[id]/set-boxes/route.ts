@@ -93,7 +93,7 @@ export async function POST(
           fnSku: item.fnsku,
           quantity: bi.quantity,
           prepOwner: 'SELLER' as const,
-          labelOwner: 'AMAZON' as const,
+          labelOwner: 'SELLER' as const,
         }
       }),
       contentInformationSource: 'BOX_CONTENT_PROVIDED' as const,

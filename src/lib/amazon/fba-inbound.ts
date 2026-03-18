@@ -257,8 +257,13 @@ export async function setPackingInformation(
 ): Promise<{ operationId: string }> {
   const client = new SpApiClient(accountId)
   return client.post<{ operationId: string }>(
-    `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/packingGroups/${packingGroupId}/packingInformation`,
-    { packageGroupings: boxes.map(box => ({ boxes: [box] })) },
+    `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/packingInformation`,
+    {
+      packageGroupings: [{
+        packingGroupId,
+        boxes: boxes.map(box => ({ ...box })),
+      }],
+    },
   )
 }
 
