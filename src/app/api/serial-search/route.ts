@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
   const vendorId = req.nextUrl.searchParams.get('vendorId')
   const sku = req.nextUrl.searchParams.get('sku')
   const grade = req.nextUrl.searchParams.get('grade')
+  const vrma = req.nextUrl.searchParams.get('vrma')
 
   const requested = raw
     .split(/[\n,;]+/)
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
     .filter(Boolean)
     .filter((s, i, arr) => arr.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
 
-  const hasFilter = locationId || warehouseId || poNumber || status || vendorId || sku || grade
+  const hasFilter = locationId || warehouseId || poNumber || status || vendorId || sku || grade || vrma
   const isFilterSearch = !requested.length && hasFilter
 
   if (requested.length === 0 && !isFilterSearch) return NextResponse.json({ found: [], notFound: [] })
@@ -115,7 +116,7 @@ export async function GET(req: NextRequest) {
     : []
   const vrmaBySerial = new Map(vrmaSerials.map(v => [v.serialNumber, v.rmaItem.rma.rmaNumber]))
 
-  const found = records.map(r => {
+  let found = records.map(r => {
     const pol = r.receiptLine?.purchaseOrderLine
     const po  = pol?.purchaseOrder
     const lastHistory = r.history[0] ?? null
@@ -144,6 +145,10 @@ export async function GET(req: NextRequest) {
       vrma:          vrmaBySerial.get(r.serialNumber) ?? null,
     }
   })
+
+  // Apply VRMA filter
+  if (vrma === 'on_vrma') found = found.filter(r => r.vrma != null)
+  else if (vrma === 'not_on_vrma') found = found.filter(r => r.vrma == null)
 
   return NextResponse.json({ found, notFound })
 }

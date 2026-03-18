@@ -119,6 +119,7 @@ export default function SerialSearchManager() {
   const [filterVendor, setFilterVendor] = useState<string>('')
   const [filterSku, setFilterSku] = useState('')
   const [filterGrade, setFilterGrade] = useState<string>('')
+  const [filterVrma, setFilterVrma] = useState<string>('')
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([])
   const [grades, setGrades] = useState<string[]>([])
 
@@ -196,7 +197,7 @@ export default function SerialSearchManager() {
 
   async function handleSearch() {
     const sns = parseSNs(input)
-    const hasFilter = filterWarehouseId || filterLocationId || filterPo.trim() || filterStatus || filterVendor || filterSku.trim() || filterGrade
+    const hasFilter = filterWarehouseId || filterLocationId || filterPo.trim() || filterStatus || filterVendor || filterSku.trim() || filterGrade || filterVrma
     if (!sns.length && !hasFilter) return
     setLoading(true)
     setErr(null)
@@ -215,6 +216,7 @@ export default function SerialSearchManager() {
       if (filterVendor) params.set('vendorId', filterVendor)
       if (filterSku.trim()) params.set('sku', filterSku.trim())
       if (filterGrade) params.set('grade', filterGrade)
+      if (filterVrma) params.set('vrma', filterVrma)
       const res = await fetch(`/api/serial-search?${params}`)
       const data = await res.json()
       if (!res.ok) { setErr(data.error ?? 'Search failed'); return }
@@ -525,9 +527,9 @@ export default function SerialSearchManager() {
                 <span className="text-xs font-semibold text-blue-700 flex items-center gap-1.5">
                   <Search size={13} /> Filters
                 </span>
-                {(filterWarehouseId || filterLocationId || filterPo || filterStatus || filterVendor || filterSku || filterGrade) && (
+                {(filterWarehouseId || filterLocationId || filterPo || filterStatus || filterVendor || filterSku || filterGrade || filterVrma) && (
                   <button
-                    onClick={() => { setFilterWarehouseId(''); setFilterLocationId(''); setFilterPo(''); setFilterStatus(''); setFilterVendor(''); setFilterSku(''); setFilterGrade('') }}
+                    onClick={() => { setFilterWarehouseId(''); setFilterLocationId(''); setFilterPo(''); setFilterStatus(''); setFilterVendor(''); setFilterSku(''); setFilterGrade(''); setFilterVrma('') }}
                     className="text-xs text-blue-400 hover:text-blue-600 flex items-center gap-1"
                   >
                     <X size={12} /> Clear all
@@ -579,6 +581,14 @@ export default function SerialSearchManager() {
                     {grades.map(g => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Archive size={11} /> On VRMA</label>
+                  <select className="input w-full text-xs" value={filterVrma} onChange={e => setFilterVrma(e.target.value)}>
+                    <option value="">All</option>
+                    <option value="not_on_vrma">Not on a Vendor RMA</option>
+                    <option value="on_vrma">Exists on a Vendor RMA</option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -586,7 +596,7 @@ export default function SerialSearchManager() {
               <span className="text-xs text-gray-400">
                 {count > 0
                   ? `${count} serial${count !== 1 ? 's' : ''} detected`
-                  : (filterWarehouseId || filterPo || filterStatus || filterVendor || filterSku || filterGrade)
+                  : (filterWarehouseId || filterPo || filterStatus || filterVendor || filterSku || filterGrade || filterVrma)
                     ? 'Filters set — hit Search'
                     : 'Paste serial numbers above or use filters'}
                 {count > 0 && <span className="ml-2 text-gray-300">·</span>}
@@ -603,7 +613,7 @@ export default function SerialSearchManager() {
                 )}
                 <button
                   onClick={handleSearch}
-                  disabled={(count === 0 && !filterWarehouseId && !filterPo.trim() && !filterStatus && !filterVendor && !filterSku.trim() && !filterGrade) || loading}
+                  disabled={(count === 0 && !filterWarehouseId && !filterPo.trim() && !filterStatus && !filterVendor && !filterSku.trim() && !filterGrade && !filterVrma) || loading}
                   className="flex items-center gap-2 bg-amazon-blue text-white text-sm font-medium px-4 py-1.5 rounded-lg hover:opacity-90 disabled:opacity-50"
                 >
                   <Search size={14} />
