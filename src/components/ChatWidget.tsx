@@ -19,6 +19,7 @@ interface ChatUser {
   id: string
   name: string
   email: string
+  lastSeenAt?: string | null
 }
 
 interface LastMessage {
@@ -87,6 +88,30 @@ function getDateKey(dateStr: string) {
   return new Date(dateStr).toDateString()
 }
 
+function isOnline(lastSeenAt?: string | null) {
+  if (!lastSeenAt) return false
+  return Date.now() - new Date(lastSeenAt).getTime() < 3 * 60 * 1000
+}
+
+function lastSeenLabel(lastSeenAt?: string | null) {
+  if (!lastSeenAt) return 'Offline'
+  if (isOnline(lastSeenAt)) return 'Online'
+  const diff = Date.now() - new Date(lastSeenAt).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 60) return `Last seen ${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `Last seen ${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `Last seen ${days}d ago`
+}
+
+function OnlineDot({ user }: { user: ChatUser }) {
+  if (!isOnline(user.lastSeenAt)) return null
+  return (
+    <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-gray-900" />
+  )
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 type View = 'list' | 'thread' | 'new'
@@ -104,6 +129,10 @@ export default function ChatWidget() {
   const [unreadTotal, setUnreadTotal] = useState(0)
   const [allUsers, setAllUsers] = useState<ChatUser[]>([])
   const [userSearch, setUserSearch] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<Message[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const lastMessageTime = useRef<string | null>(null)
@@ -188,6 +217,15 @@ export default function ChatWidget() {
     }
   }, [messages])
 
+  // Heartbeat — update lastSeenAt every 60s while panel is open
+  useEffect(() => {
+    if (!user || !open) return
+    const fire = () => fetch('/api/chat/heartbeat', { method: 'POST' })
+    fire()
+    const iv = setInterval(fire, 60000)
+    return () => clearInterval(iv)
+  }, [user, open])
+
   // ─── Handlers ────────────────────────────────────────────────────────────
 
   const openConversation = (convId: string) => {
@@ -238,6 +276,19 @@ export default function ChatWidget() {
     const res = await fetch('/api/chat/users')
     if (res.ok) setAllUsers(await res.json())
   }
+
+  const searchMessages = useCallback(async (convId: string, q: string) => {
+    if (!q.trim()) { setSearchResults([]); return }
+    setSearchLoading(true)
+    try {
+      const res = await fetch(
+        `/api/chat/conversations/${convId}/search?q=${encodeURIComponent(q)}`
+      )
+      if (res.ok) setSearchResults(await res.json())
+    } finally {
+      setSearchLoading(false)
+    }
+  }, [])
 
   const activeConv = conversations.find((c) => c.id === activeConvId)
 
@@ -294,8 +345,11 @@ export default function ChatWidget() {
                     onClick={() => openConversation(c.id)}
                     className="flex w-full items-center gap-3 border-b px-4 py-3 text-left hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
                   >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                      {c.otherUser.name.charAt(0).toUpperCase()}
+                    <div className="relative shrink-0">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                        {c.otherUser.name.charAt(0).toUpperCase()}
+                      </div>
+                      <OnlineDot user={c.otherUser} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
@@ -342,15 +396,35 @@ export default function ChatWidget() {
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </button>
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                  {activeConv?.otherUser.name.charAt(0).toUpperCase() ?? '?'}
+                <div className="relative">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                    {activeConv?.otherUser.name.charAt(0).toUpperCase() ?? '?'}
+                  </div>
+                  {activeConv?.otherUser && <OnlineDot user={activeConv.otherUser} />}
                 </div>
-                <span className="text-sm font-semibold truncate">
-                  {activeConv?.otherUser.name ?? 'Chat'}
-                </span>
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm font-semibold truncate block">
+                    {activeConv?.otherUser.name ?? 'Chat'}
+                  </span>
+                  {activeConv?.otherUser && (
+                    <span className={`text-[10px] ${isOnline(activeConv.otherUser.lastSeenAt) ? 'text-green-500' : 'text-gray-400'}`}>
+                      {lastSeenLabel(activeConv.otherUser.lastSeenAt)}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setSearchOpen(true)
+                    setSearchQuery('')
+                    setSearchResults([])
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <Search className="h-4 w-4" />
+                </button>
                 <button
                   onClick={() => setOpen(false)}
-                  className="ml-auto text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -533,8 +607,11 @@ export default function ChatWidget() {
                       onClick={() => startNewConversation(u.id)}
                       className="flex w-full items-center gap-3 border-b px-4 py-3 text-left hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
                     >
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                        {u.name.charAt(0).toUpperCase()}
+                      <div className="relative">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                          {u.name.charAt(0).toUpperCase()}
+                        </div>
+                        <OnlineDot user={u} />
                       </div>
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate">
@@ -549,6 +626,72 @@ export default function ChatWidget() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ──── Search Modal ──── */}
+      {searchOpen && activeConvId && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
+          <div className="flex h-[80vh] w-full max-w-lg flex-col rounded-xl bg-white shadow-2xl dark:bg-gray-900">
+            {/* Header */}
+            <div className="flex items-center gap-3 border-b px-4 py-3 dark:border-gray-700">
+              <Search className="h-5 w-5 text-gray-400" />
+              <input
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value)
+                  if (activeConvId) searchMessages(activeConvId, e.target.value)
+                }}
+                placeholder="Search messages..."
+                className="flex-1 bg-transparent text-sm outline-none"
+                autoFocus
+              />
+              <button
+                onClick={() => setSearchOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {/* Results */}
+            <div className="flex-1 overflow-y-auto px-4 py-2">
+              {searchLoading && (
+                <p className="py-8 text-center text-sm text-gray-400">Searching...</p>
+              )}
+              {!searchLoading && searchQuery && searchResults.length === 0 && (
+                <p className="py-8 text-center text-sm text-gray-400">No results found</p>
+              )}
+              {!searchLoading && !searchQuery && (
+                <p className="py-8 text-center text-sm text-gray-400">Type to search chat history</p>
+              )}
+              {searchResults.map((msg) => {
+                const isMine = msg.senderId === user.dbId
+                return (
+                  <div key={msg.id} className="border-b py-3 dark:border-gray-700 last:border-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                        {isMine ? 'You' : msg.sender.name}
+                      </span>
+                      <span className="text-[10px] text-gray-400">
+                        {formatDate(msg.createdAt)} {formatTime(msg.createdAt)}
+                      </span>
+                    </div>
+                    {msg.body && (
+                      <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">
+                        {msg.body}
+                      </p>
+                    )}
+                    {msg.fileName && (
+                      <div className="mt-1 flex items-center gap-1 text-xs text-gray-500">
+                        <FileText className="h-3 w-3" />
+                        <span>{msg.fileName}</span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         </div>
       )}
     </>

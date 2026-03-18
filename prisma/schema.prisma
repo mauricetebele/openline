@@ -19,6 +19,7 @@ model User {
   role         UserRole @default(REVIEWER)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  lastSeenAt   DateTime?
 
   reviews     Review[]
   auditEvents AuditEvent[]

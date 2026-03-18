@@ -9,7 +9,7 @@ export async function GET() {
 
   const users = await prisma.user.findMany({
     where: { id: { not: user.dbId } },
-    select: { id: true, name: true, email: true },
+    select: { id: true, name: true, email: true, lastSeenAt: true },
     orderBy: { name: 'asc' },
   })
 

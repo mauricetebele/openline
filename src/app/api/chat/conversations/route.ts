@@ -12,8 +12,8 @@ export async function GET() {
       OR: [{ user1Id: user.dbId }, { user2Id: user.dbId }],
     },
     include: {
-      user1: { select: { id: true, name: true, email: true } },
-      user2: { select: { id: true, name: true, email: true } },
+      user1: { select: { id: true, name: true, email: true, lastSeenAt: true } },
+      user2: { select: { id: true, name: true, email: true, lastSeenAt: true } },
       messages: {
         orderBy: { createdAt: 'desc' },
         take: 1,
@@ -68,8 +68,8 @@ export async function POST(req: Request) {
     create: { user1Id, user2Id },
     update: {},
     include: {
-      user1: { select: { id: true, name: true, email: true } },
-      user2: { select: { id: true, name: true, email: true } },
+      user1: { select: { id: true, name: true, email: true, lastSeenAt: true } },
+      user2: { select: { id: true, name: true, email: true, lastSeenAt: true } },
     },
   })
 
