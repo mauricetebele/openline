@@ -201,11 +201,14 @@ export async function generatePackingOptions(
 export async function listPackingOptions(
   accountId: string,
   inboundPlanId: string,
-): Promise<PackingOption[]> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
   const client = new SpApiClient(accountId)
-  const resp = await client.get<{ packingOptions: PackingOption[] }>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp = await client.get<any>(
     `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/packingOptions`,
   )
+  console.log('[listPackingOptions] Raw response:', JSON.stringify(resp))
   return resp.packingOptions ?? []
 }
 

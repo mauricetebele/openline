@@ -118,12 +118,10 @@ export async function POST(
     }
 
     if (!packingGroupId) {
-      // Log full response for debugging
-      console.error('[create-plan] No packing group found. Packing options:', JSON.stringify(packingOptions))
-      throw new Error('No packing group returned by Amazon. Please try again.')
+      console.error('[create-plan] No packing group found. Full packing options:', JSON.stringify(packingOptions))
     }
 
-    // Update shipment
+    // Update shipment — save plan even if packingGroupId is null so we don't lose the inbound plan
     await prisma.fbaShipment.update({
       where: { id: params.id },
       data: {
@@ -131,8 +129,8 @@ export async function POST(
         inboundPlanId: planResp.inboundPlanId,
         packingOptionId: firstOption.packingOptionId,
         packingGroupId,
-        lastError: null,
-        lastErrorAt: null,
+        lastError: packingGroupId ? null : 'Packing group not resolved — check logs',
+        lastErrorAt: packingGroupId ? null : new Date(),
       },
     })
 
