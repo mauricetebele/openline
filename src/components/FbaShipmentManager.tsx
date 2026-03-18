@@ -1559,24 +1559,29 @@ function WizardView({
           )}
 
           {shipment.labelData && (() => {
-            let urls: string[] = []
+            let labels: Array<{ confirmationId?: string; url: string }> = []
             try {
               const parsed = JSON.parse(shipment.labelData!)
-              if (Array.isArray(parsed)) urls = parsed
-              else urls = [shipment.labelData!]
-            } catch { urls = [shipment.labelData!] }
-            return urls.length > 1 ? (
+              if (Array.isArray(parsed)) {
+                if (parsed.length > 0 && typeof parsed[0] === 'object' && parsed[0].url) {
+                  labels = parsed
+                } else {
+                  labels = parsed.map((u: string) => ({ url: u }))
+                }
+              }
+            } catch { labels = [{ url: shipment.labelData! }] }
+            return labels.length > 1 ? (
               <div className="space-y-1">
-                <div className="text-xs font-medium text-gray-500">Download Labels ({urls.length} shipments)</div>
-                {urls.map((url, i) => (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                <div className="text-xs font-medium text-gray-500">Download Labels ({labels.length} shipments)</div>
+                {labels.map((sl, i) => (
+                  <a key={i} href={sl.url} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
-                    <Download size={12} /> Shipment {i + 1} Labels
+                    <Download size={12} /> {sl.confirmationId ? `${sl.confirmationId}` : `Shipment ${i + 1}`} Labels
                   </a>
                 ))}
               </div>
             ) : (
-              <a href={urls[0]} target="_blank" rel="noopener noreferrer"
+              <a href={labels[0]?.url} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-2 h-9 px-4 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 w-fit">
                 <Download size={14} /> Re-download Labels
               </a>
@@ -1599,12 +1604,36 @@ function WizardView({
             <div>
               <div className="text-sm font-semibold text-green-800">Shipment Completed</div>
               <div className="text-xs text-green-600">This shipment has been marked as shipped.</div>
-              {shipment.shipmentConfirmationId && (
-                <div className="text-xs text-gray-500 font-mono mt-0.5">Amazon Shipment ID: {shipment.shipmentConfirmationId}</div>
-              )}
-              {!shipment.shipmentConfirmationId && shipment.shipmentId && (
-                <div className="text-xs text-gray-500 font-mono mt-0.5">Shipment ID: {shipment.shipmentId}</div>
-              )}
+              {(() => {
+                // Try to get all shipment IDs from labelData
+                let labels: Array<{ shipmentId: string; confirmationId: string }> = []
+                try {
+                  const parsed = JSON.parse(shipment.labelData ?? '[]')
+                  if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.confirmationId) {
+                    labels = parsed
+                  }
+                } catch { /* ignore */ }
+
+                if (labels.length > 1) {
+                  return (
+                    <div className="mt-1 space-y-0.5">
+                      <div className="text-xs text-gray-500">Amazon Shipment IDs:</div>
+                      {labels.map((sl, i) => (
+                        <div key={sl.shipmentId} className="text-xs text-gray-500 font-mono pl-2">
+                          {i + 1}. {sl.confirmationId}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
+                if (shipment.shipmentConfirmationId) {
+                  return <div className="text-xs text-gray-500 font-mono mt-0.5">Amazon Shipment ID: {shipment.shipmentConfirmationId}</div>
+                }
+                if (shipment.shipmentId) {
+                  return <div className="text-xs text-gray-500 font-mono mt-0.5">Shipment ID: {shipment.shipmentId}</div>
+                }
+                return null
+              })()}
             </div>
           </div>
 
@@ -1628,24 +1657,29 @@ function WizardView({
 
           {/* Re-download labels */}
           {shipment.labelData && (() => {
-            let urls: string[] = []
+            let labels: Array<{ confirmationId?: string; url: string }> = []
             try {
               const parsed = JSON.parse(shipment.labelData!)
-              if (Array.isArray(parsed)) urls = parsed
-              else urls = [shipment.labelData!]
-            } catch { urls = [shipment.labelData!] }
-            return urls.length > 1 ? (
+              if (Array.isArray(parsed)) {
+                if (parsed.length > 0 && typeof parsed[0] === 'object' && parsed[0].url) {
+                  labels = parsed
+                } else {
+                  labels = parsed.map((u: string) => ({ url: u }))
+                }
+              }
+            } catch { labels = [{ url: shipment.labelData! }] }
+            return labels.length > 1 ? (
               <div className="space-y-1">
-                <div className="text-xs font-medium text-gray-500">Labels ({urls.length} shipments)</div>
-                {urls.map((url, i) => (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                <div className="text-xs font-medium text-gray-500">Labels ({labels.length} shipments)</div>
+                {labels.map((sl, i) => (
+                  <a key={i} href={sl.url} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-2 text-xs text-blue-600 hover:underline">
-                    <Download size={12} /> Shipment {i + 1} Labels
+                    <Download size={12} /> {sl.confirmationId ? `${sl.confirmationId}` : `Shipment ${i + 1}`} Labels
                   </a>
                 ))}
               </div>
             ) : (
-              <a href={urls[0]} target="_blank" rel="noopener noreferrer"
+              <a href={labels[0]?.url} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-2 text-xs text-blue-600 hover:underline w-fit">
                 <Download size={12} /> Re-download Labels
               </a>

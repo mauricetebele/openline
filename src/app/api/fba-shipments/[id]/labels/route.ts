@@ -37,6 +37,12 @@ export async function GET(
     try {
       const parsed = JSON.parse(shipment.labelData)
       if (Array.isArray(parsed)) {
+        // New format: array of {shipmentId, confirmationId, boxCount, url}
+        if (parsed.length > 0 && typeof parsed[0] === 'object' && parsed[0].url) {
+          const urls = parsed.map((sl: { url: string }) => sl.url)
+          return NextResponse.json({ downloadUrls: urls, downloadUrl: urls[0], shipmentLabels: parsed, totalShipments: parsed.length, labelsFound: parsed.length })
+        }
+        // Legacy format: array of URL strings
         return NextResponse.json({ downloadUrls: parsed, downloadUrl: parsed[0] })
       }
     } catch {
@@ -135,7 +141,7 @@ export async function GET(
     await prisma.fbaShipment.update({
       where: { id: params.id },
       data: {
-        labelData: JSON.stringify(downloadUrls),
+        labelData: JSON.stringify(shipmentLabels),
         status: 'LABELS_READY',
         lastError: errors.length > 0
           ? `Labels fetched for ${downloadUrls.length}/${allShipmentIds.length} shipments. Skipped: ${errors.join('; ')}`
