@@ -65,7 +65,7 @@ export async function POST(
         msku: item.sellerSku,
         fnsku: item.fnsku,
         asin: item.asin ?? '',
-        labelOwner: 'AMAZON' as const,
+        labelOwner: 'SELLER' as const,
         quantity: item.quantity,
         prepOwner: 'SELLER' as const,
       })),
