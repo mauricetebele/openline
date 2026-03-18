@@ -711,6 +711,7 @@ export default function MarketplaceSkuManager() {
         s.product.description.toLowerCase().includes(q) ||
         (s.grade?.grade ?? '').toLowerCase().includes(q) ||
         (s.accountId ?? '').toLowerCase().includes(q) ||
+        (s.asin ?? '').toLowerCase().includes(q) ||
         (s.fnsku ?? '').toLowerCase().includes(q)
       )
     }
