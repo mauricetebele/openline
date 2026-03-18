@@ -1599,6 +1599,12 @@ function WizardView({
             <div>
               <div className="text-sm font-semibold text-green-800">Shipment Completed</div>
               <div className="text-xs text-green-600">This shipment has been marked as shipped.</div>
+              {shipment.shipmentConfirmationId && (
+                <div className="text-xs text-gray-500 font-mono mt-0.5">Amazon Shipment ID: {shipment.shipmentConfirmationId}</div>
+              )}
+              {!shipment.shipmentConfirmationId && shipment.shipmentId && (
+                <div className="text-xs text-gray-500 font-mono mt-0.5">Shipment ID: {shipment.shipmentId}</div>
+              )}
             </div>
           </div>
 
