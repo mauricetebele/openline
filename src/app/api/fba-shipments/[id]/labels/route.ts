@@ -1,15 +1,15 @@
 /**
  * GET /api/fba-shipments/[id]/labels
  *
- * Downloads shipment labels via the v0 API and returns the download URL.
- * Caches the URL on the shipment record.
+ * Downloads shipment labels via the v0 API using the shipmentConfirmationId
+ * from the v2024-03-20 shipment details.
  *
  * Status: TRANSPORT_CONFIRMED → LABELS_READY
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { getShipmentLabels } from '@/lib/amazon/fba-inbound'
+import { getShipment, getShipmentLabels } from '@/lib/amazon/fba-inbound'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -23,7 +23,7 @@ export async function GET(
 
   const shipment = await prisma.fbaShipment.findUnique({ where: { id: params.id } })
   if (!shipment) return NextResponse.json({ error: 'Shipment not found' }, { status: 404 })
-  if (!shipment.shipmentId) {
+  if (!shipment.shipmentId || !shipment.inboundPlanId) {
     return NextResponse.json({ error: 'No Amazon shipment ID on this shipment' }, { status: 400 })
   }
 
@@ -38,7 +38,23 @@ export async function GET(
   }
 
   try {
-    const downloadUrl = await getShipmentLabels(shipment.accountId, shipment.shipmentId)
+    // Get the shipmentConfirmationId from v2024-03-20 shipment details
+    // The v0 labels API needs this ID (format: FBA1234ABCD), not the v2024 ID (sh-xxxx)
+    const shipmentDetails = await getShipment(
+      shipment.accountId,
+      shipment.inboundPlanId,
+      shipment.shipmentId,
+    )
+
+    const confirmationId = shipmentDetails.shipmentConfirmationId
+      ?? shipmentDetails.amazonReferenceId
+      ?? shipmentDetails.shipmentId
+
+    if (!confirmationId) {
+      throw new Error('No shipmentConfirmationId found in shipment details')
+    }
+
+    const downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId)
 
     // Cache and advance status
     await prisma.fbaShipment.update({
