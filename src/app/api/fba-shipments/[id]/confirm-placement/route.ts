@@ -70,53 +70,56 @@ export async function POST(
       }
     }
 
-    // 2. Get the shipment ID from the placement option
+    // 2. Get ALL shipment IDs from the placement option
     step = 'list-placement-options'
     const placementOptions = await listPlacementOptions(shipment.accountId, shipment.inboundPlanId)
     const selectedOption = placementOptions.find(p => p.placementOptionId === body.placementOptionId)
-    const amazonShipmentId = selectedOption?.shipmentIds?.[0] ?? null
+    const allShipmentIds = selectedOption?.shipmentIds ?? []
+    const amazonShipmentId = allShipmentIds[0] ?? null
 
     if (!amazonShipmentId) {
       throw new Error('No shipment ID returned from placement confirmation')
     }
 
-    // 3. Generate & confirm delivery window (required before transport options)
-    step = 'generate-delivery-window'
-    try {
-      const dwGenResp = await generateDeliveryWindowOptions(
-        shipment.accountId,
-        shipment.inboundPlanId,
-        amazonShipmentId,
-      )
-      await pollOperationStatus(shipment.accountId, dwGenResp.operationId)
-
-      step = 'list-delivery-window'
-      const deliveryWindows = await listDeliveryWindowOptions(
-        shipment.accountId,
-        shipment.inboundPlanId,
-        amazonShipmentId,
-      )
-
-      if (deliveryWindows.length > 0) {
-        step = 'confirm-delivery-window'
-        const selectedWindow = deliveryWindows[0]
-        const dwConfirmResp = await confirmDeliveryWindowOptions(
+    // 3. Generate & confirm delivery window for each shipment (required before transport options)
+    for (const sid of allShipmentIds) {
+      step = `generate-delivery-window(${sid})`
+      try {
+        const dwGenResp = await generateDeliveryWindowOptions(
           shipment.accountId,
           shipment.inboundPlanId,
-          amazonShipmentId,
-          selectedWindow.deliveryWindowOptionId,
+          sid,
         )
-        await pollOperationStatus(shipment.accountId, dwConfirmResp.operationId)
-      }
-    } catch (dwErr) {
-      const msg = dwErr instanceof Error ? dwErr.message : String(dwErr)
-      // Delivery window may already be confirmed or not required — continue
-      if (!msg.includes('already') && !msg.includes('cannot be processed')) {
-        console.warn('[confirm-placement] Delivery window step failed (continuing):', msg)
+        await pollOperationStatus(shipment.accountId, dwGenResp.operationId)
+
+        step = `list-delivery-window(${sid})`
+        const deliveryWindows = await listDeliveryWindowOptions(
+          shipment.accountId,
+          shipment.inboundPlanId,
+          sid,
+        )
+
+        if (deliveryWindows.length > 0) {
+          step = `confirm-delivery-window(${sid})`
+          const selectedWindow = deliveryWindows[0]
+          const dwConfirmResp = await confirmDeliveryWindowOptions(
+            shipment.accountId,
+            shipment.inboundPlanId,
+            sid,
+            selectedWindow.deliveryWindowOptionId,
+          )
+          await pollOperationStatus(shipment.accountId, dwConfirmResp.operationId)
+        }
+      } catch (dwErr) {
+        const msg = dwErr instanceof Error ? dwErr.message : String(dwErr)
+        // Delivery window may already be confirmed or not required — continue
+        if (!msg.includes('already') && !msg.includes('cannot be processed')) {
+          console.warn(`[confirm-placement] Delivery window step failed for ${sid} (continuing):`, msg)
+        }
       }
     }
 
-    // 4. Generate transportation options
+    // 4. Generate transportation options (must include ALL shipments in placement)
     let transportOptions: Awaited<ReturnType<typeof listTransportationOptions>> = []
     let transportWarning: string | null = null
 
@@ -140,7 +143,7 @@ export async function POST(
           shipment.inboundPlanId,
           {
             placementOptionId: body.placementOptionId,
-            shipmentId: amazonShipmentId,
+            shipmentIds: allShipmentIds,
             contactInformation: {
               name: shipment.warehouse?.name ?? 'Warehouse',
               phoneNumber: shipment.warehouse?.phone || '5551234567',

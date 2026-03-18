@@ -357,7 +357,7 @@ export async function generateTransportationOptions(
   inboundPlanId: string,
   opts: {
     placementOptionId: string
-    shipmentId: string
+    shipmentIds: string[]
     contactInformation: TransportContactInfo
     readyToShipDate: string  // ISO 8601
   },
@@ -367,15 +367,13 @@ export async function generateTransportationOptions(
     `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/transportationOptions`,
     {
       placementOptionId: opts.placementOptionId,
-      shipmentTransportationConfigurations: [
-        {
-          contactInformation: opts.contactInformation,
-          shipmentId: opts.shipmentId,
-          readyToShipWindow: {
-            start: opts.readyToShipDate,
-          },
+      shipmentTransportationConfigurations: opts.shipmentIds.map((sid) => ({
+        contactInformation: opts.contactInformation,
+        shipmentId: sid,
+        readyToShipWindow: {
+          start: opts.readyToShipDate,
         },
-      ],
+      })),
     },
   )
 }

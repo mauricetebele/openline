@@ -9,6 +9,7 @@ import { prisma } from '@/lib/prisma'
 import {
   generateTransportationOptions,
   listTransportationOptions,
+  listPlacementOptions,
   pollOperationStatus,
 } from '@/lib/amazon/fba-inbound'
 
@@ -40,6 +41,11 @@ export async function GET(
     )
 
     if (transportOptions.length === 0 && shipment.placementOptionId) {
+      // Get all shipment IDs for the placement option
+      const placementOptions = await listPlacementOptions(shipment.accountId, shipment.inboundPlanId)
+      const selected = placementOptions.find(p => p.placementOptionId === shipment.placementOptionId)
+      const allShipmentIds = selected?.shipmentIds ?? [shipment.shipmentId]
+
       const readyDate = new Date()
       readyDate.setDate(readyDate.getDate() + 5)
 
@@ -48,7 +54,7 @@ export async function GET(
         shipment.inboundPlanId,
         {
           placementOptionId: shipment.placementOptionId,
-          shipmentId: shipment.shipmentId,
+          shipmentIds: allShipmentIds,
           contactInformation: {
             name: shipment.warehouse?.name ?? 'Warehouse',
             phoneNumber: shipment.warehouse?.phone || '5551234567',
