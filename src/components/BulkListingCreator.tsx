@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   AlertCircle, CheckCircle2, XCircle, Loader2, ChevronRight, ArrowLeft, X, Plus, Trash2,
+  Upload, FileSpreadsheet, Download,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { AmazonAccountDTO } from '@/types'
@@ -63,9 +64,40 @@ interface ProgressRow extends ListingRow {
   error?: string
 }
 
+// ─── Upload Types ─────────────────────────────────────────────────────────
+
+interface UploadParsedRow {
+  rowNum: number
+  sku: string
+  grade: string
+  sellerSku: string
+  asin: string
+  price: number | null
+  condition: string
+  quantity: number
+  shippingTemplate: string
+  productId: string | null
+  gradeId: string | null
+  gradeName: string | null
+  description: string | null
+  errors: string[]
+}
+
+interface UploadProgressRow extends UploadParsedRow {
+  status: RowStatus
+  error?: string
+}
+
+const TEMPLATE_CSV = `SKU,Grade,Seller SKU,ASIN,Price,Condition,Quantity,Shipping Template
+IPHONE-15-128,A,IP15-128-AMZ-A,B0XXXXXXXXX,299.99,Used - Like New,1,US Standard
+IPHONE-14-256,,IP14-256-AMZ,B0YYYYYYYYY,199.99,New,5,`
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function BulkListingCreator() {
+  // Mode toggle
+  const [mode, setMode] = useState<'manual' | 'upload'>('manual')
+
   // Step: 0=page textarea, 1=staging, 2=form, 3=progress
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0)
 
@@ -73,6 +105,19 @@ export default function BulkListingCreator() {
   const [rawText, setRawText] = useState('')
   const [lookupLoading, setLookupLoading] = useState(false)
   const [lookupError, setLookupError] = useState<string | null>(null)
+
+  // Upload flow state
+  const [uploadStep, setUploadStep] = useState<'upload' | 'review' | 'progress'>('upload')
+  const [uploadParsedRows, setUploadParsedRows] = useState<UploadParsedRow[]>([])
+  const [uploadSummary, setUploadSummary] = useState<{ total: number; valid: number; errors: number } | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadLoading, setUploadLoading] = useState(false)
+  const [uploadProgressRows, setUploadProgressRows] = useState<UploadProgressRow[]>([])
+  const [uploadIsCreating, setUploadIsCreating] = useState(false)
+  const uploadCreatingRef = useRef(false)
+  const [uploadAccountId, setUploadAccountId] = useState('')
+  const [uploadFulfillment, setUploadFulfillment] = useState<'MFN' | 'FBA'>('MFN')
+  const [dragging, setDragging] = useState(false)
 
   // Step 1 — staging
   const [stagingRows, setStagingRows] = useState<StagingRow[]>([])
@@ -113,6 +158,7 @@ export default function BulkListingCreator() {
         }
         setAccounts(data)
         setAccountId(data[0].id)
+        setUploadAccountId(data[0].id)
       })
       .catch((err) => setAccountsError(err.message))
 
@@ -384,6 +430,136 @@ export default function BulkListingCreator() {
   const failedCount = progressRows.filter(r => r.status === 'error').length
   const checkedCount = stagingRows.filter(r => r.checked).length
 
+  // ─── Upload: file handler ───────────────────────────────────────────────
+
+  const handleUploadFile = useCallback(async (file: File) => {
+    if (!uploadAccountId) {
+      setUploadError('Please select an account first.')
+      return
+    }
+
+    setUploadLoading(true)
+    setUploadError(null)
+
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('accountId', uploadAccountId)
+
+      const res = await fetch('/api/listings/bulk-upload', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Upload failed')
+
+      setUploadParsedRows(data.rows)
+      setUploadSummary(data.summary)
+      setUploadStep('review')
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUploadLoading(false)
+    }
+  }, [uploadAccountId])
+
+  const handleDownloadTemplate = useCallback(() => {
+    const blob = new Blob([TEMPLATE_CSV], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'bulk-listing-template.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [])
+
+  const handleUploadSubmit = useCallback(() => {
+    const validRows = uploadParsedRows.filter(r => r.errors.length === 0)
+    const rows: UploadProgressRow[] = validRows.map(r => ({ ...r, status: 'pending' as RowStatus }))
+    setUploadProgressRows(rows)
+    setUploadIsCreating(true)
+    setUploadStep('progress')
+  }, [uploadParsedRows])
+
+  // ─── Upload: sequential creation ──────────────────────────────────────
+
+  useEffect(() => {
+    if (!uploadIsCreating || uploadCreatingRef.current) return
+    uploadCreatingRef.current = true
+
+    const templateCache = new Map<string, string>()
+
+    async function createAll() {
+      const rows = [...uploadProgressRows]
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+
+        setUploadProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'creating' } : r))
+
+        try {
+          const body: Record<string, unknown> = {
+            accountId: uploadAccountId,
+            sku: row.sellerSku,
+            asin: row.asin,
+            price: row.price,
+            condition: row.condition,
+            fulfillmentChannel: uploadFulfillment,
+            quantity: row.quantity,
+            productId: row.productId,
+            gradeId: row.gradeId,
+          }
+          if (uploadFulfillment === 'MFN' && row.shippingTemplate) {
+            const cached = templateCache.get(row.shippingTemplate)
+            if (cached) {
+              body.shippingTemplateGroupId = cached
+            } else {
+              body.shippingTemplate = row.shippingTemplate
+            }
+          }
+
+          const res = await fetch('/api/listings/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+          const data = await res.json()
+          if (!res.ok) throw new Error(data.error ?? 'Failed')
+
+          if (data.shippingTemplateGroupId && row.shippingTemplate && !templateCache.has(row.shippingTemplate)) {
+            templateCache.set(row.shippingTemplate, data.shippingTemplateGroupId)
+          }
+
+          setUploadProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'success' } : r))
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err)
+          setUploadProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'error', error: msg } : r))
+        }
+
+        if (i < rows.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 400))
+        }
+      }
+
+      setUploadIsCreating(false)
+      uploadCreatingRef.current = false
+    }
+
+    createAll()
+  }, [uploadIsCreating]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Upload: computed ─────────────────────────────────────────────────
+
+  const uploadSucceeded = uploadProgressRows.filter(r => r.status === 'success').length
+  const uploadFailed = uploadProgressRows.filter(r => r.status === 'error').length
+
+  const handleUploadReset = () => {
+    setUploadStep('upload')
+    setUploadParsedRows([])
+    setUploadSummary(null)
+    setUploadError(null)
+    setUploadProgressRows([])
+    setUploadIsCreating(false)
+    uploadCreatingRef.current = false
+  }
+
   const handleClose = () => {
     setStep(0)
     setRawText('')
@@ -394,6 +570,7 @@ export default function BulkListingCreator() {
     setLockedKeys(new Set())
     setIsCreating(false)
     creatingRef.current = false
+    handleUploadReset()
   }
 
   // ─── Render: Error state ─────────────────────────────────────────────────
@@ -409,45 +586,360 @@ export default function BulkListingCreator() {
     )
   }
 
-  // ─── Render: Step 0 — Textarea ───────────────────────────────────────────
+  // ─── Render: Step 0 — Entry point (Manual / Upload toggle) ──────────────
 
   if (step === 0) {
-    return (
-      <div className="p-6 max-w-2xl space-y-4">
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
-            Internal Product SKUs (one per line)
-          </label>
-          <textarea
-            value={rawText}
-            onChange={(e) => setRawText(e.target.value)}
-            placeholder={`SKU-001\nSKU-002\nSKU-003`}
-            rows={8}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue resize-y"
-          />
-        </div>
+    const isUploadMode = mode === 'upload'
 
-        {lookupError && (
-          <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-            <AlertCircle size={14} className="shrink-0 mt-0.5" />
-            <span>{lookupError}</span>
+    const modeToggle = (
+      <div className="flex gap-0 rounded-md border border-gray-300 overflow-hidden w-fit">
+        <button
+          type="button"
+          onClick={() => setMode('manual')}
+          className={clsx(
+            'px-4 py-2 text-sm font-medium transition-colors',
+            !isUploadMode ? 'bg-amazon-blue text-white' : 'bg-white text-gray-600 hover:bg-gray-50',
+          )}
+        >
+          Manual Entry
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('upload')}
+          className={clsx(
+            'px-4 py-2 text-sm font-medium transition-colors border-l border-gray-300',
+            isUploadMode ? 'bg-amazon-blue text-white' : 'bg-white text-gray-600 hover:bg-gray-50',
+          )}
+        >
+          <span className="flex items-center gap-1.5"><Upload size={14} /> Spreadsheet Upload</span>
+        </button>
+      </div>
+    )
+
+    if (!isUploadMode) {
+      return (
+        <div className="p-6 max-w-2xl space-y-4">
+          {modeToggle}
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+              Internal Product SKUs (one per line)
+            </label>
+            <textarea
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              placeholder={`SKU-001\nSKU-002\nSKU-003`}
+              rows={8}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue resize-y"
+            />
+          </div>
+
+          {lookupError && (
+            <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+              <AlertCircle size={14} className="shrink-0 mt-0.5" />
+              <span>{lookupError}</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleLoadSkus}
+            disabled={!rawText.trim() || lookupLoading}
+            className={clsx(
+              'flex items-center justify-center gap-2 h-10 px-6 rounded-md text-sm font-semibold transition-colors',
+              rawText.trim() && !lookupLoading
+                ? 'bg-amazon-blue text-white hover:bg-amazon-blue/90'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed',
+            )}
+          >
+            {lookupLoading && <Loader2 size={14} className="animate-spin" />}
+            {lookupLoading ? 'Loading…' : 'Load SKUs'}
+          </button>
+        </div>
+      )
+    }
+
+    // ─── Render: Upload mode ──────────────────────────────────────────────
+
+    return (
+      <div className="p-6 max-w-3xl space-y-4">
+        {modeToggle}
+
+        {/* ── Upload Step 1: File Upload ───────────────────────────────── */}
+        {uploadStep === 'upload' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              {/* Account */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Account</label>
+                <select
+                  value={uploadAccountId}
+                  onChange={(e) => setUploadAccountId(e.target.value)}
+                  className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                >
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>{a.marketplaceName} — {a.sellerId}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Fulfillment */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Fulfillment</label>
+                <div className="flex gap-0 rounded-md border border-gray-300 overflow-hidden w-fit h-9">
+                  <button
+                    type="button"
+                    onClick={() => setUploadFulfillment('MFN')}
+                    className={clsx(
+                      'px-3 text-sm font-medium transition-colors',
+                      uploadFulfillment === 'MFN' ? 'bg-amazon-blue text-white' : 'bg-white text-gray-600 hover:bg-gray-50',
+                    )}
+                  >
+                    MFN
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUploadFulfillment('FBA')}
+                    className={clsx(
+                      'px-3 text-sm font-medium transition-colors border-l border-gray-300',
+                      uploadFulfillment === 'FBA' ? 'bg-amazon-blue text-white' : 'bg-white text-gray-600 hover:bg-gray-50',
+                    )}
+                  >
+                    FBA
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Template download */}
+            <button
+              type="button"
+              onClick={handleDownloadTemplate}
+              className="flex items-center gap-1.5 text-sm text-amazon-blue hover:underline font-medium"
+            >
+              <Download size={14} /> Download Template CSV
+            </button>
+
+            {/* Drag-and-drop zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDragging(false)
+                const file = e.dataTransfer.files[0]
+                if (file) handleUploadFile(file)
+              }}
+              className={clsx(
+                'border-2 border-dashed rounded-lg p-8 text-center transition-colors',
+                dragging ? 'border-amazon-blue bg-blue-50' : 'border-gray-300 bg-gray-50',
+                uploadLoading && 'opacity-50 pointer-events-none',
+              )}
+            >
+              <FileSpreadsheet size={32} className="mx-auto text-gray-400 mb-3" />
+              <p className="text-sm text-gray-600 mb-2">
+                Drag and drop your CSV or Excel file here
+              </p>
+              <p className="text-xs text-gray-400 mb-3">or</p>
+              <label className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-semibold cursor-pointer hover:bg-amazon-blue/90">
+                <Upload size={14} />
+                Choose File
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) handleUploadFile(file)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </div>
+
+            {uploadLoading && (
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <Loader2 size={14} className="animate-spin" />
+                Parsing and validating file…
+              </div>
+            )}
+
+            {uploadError && (
+              <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                <span>{uploadError}</span>
+              </div>
+            )}
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={handleLoadSkus}
-          disabled={!rawText.trim() || lookupLoading}
-          className={clsx(
-            'flex items-center justify-center gap-2 h-10 px-6 rounded-md text-sm font-semibold transition-colors',
-            rawText.trim() && !lookupLoading
-              ? 'bg-amazon-blue text-white hover:bg-amazon-blue/90'
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed',
-          )}
-        >
-          {lookupLoading && <Loader2 size={14} className="animate-spin" />}
-          {lookupLoading ? 'Loading…' : 'Load SKUs'}
-        </button>
+        {/* ── Upload Step 2: Review ───────────────────────────────────── */}
+        {uploadStep === 'review' && uploadSummary && (
+          <div className="space-y-4">
+            {/* Summary bar */}
+            <div className="flex items-center gap-4 text-sm">
+              <span className="text-green-700 font-medium">{uploadSummary.valid} valid</span>
+              {uploadSummary.errors > 0 && (
+                <span className="text-red-600 font-medium">{uploadSummary.errors} errors</span>
+              )}
+              <span className="text-gray-500">out of {uploadSummary.total} rows</span>
+            </div>
+
+            {/* Review table */}
+            <div className="border rounded-lg overflow-hidden">
+              <div className="max-h-[500px] overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0">
+                    <tr className="bg-gray-50 border-b text-left text-xs font-semibold text-gray-500 uppercase">
+                      <th className="px-3 py-2 w-12">Row</th>
+                      <th className="px-3 py-2">SKU</th>
+                      <th className="px-3 py-2">Grade</th>
+                      <th className="px-3 py-2">Seller SKU</th>
+                      <th className="px-3 py-2">ASIN</th>
+                      <th className="px-3 py-2">Price</th>
+                      <th className="px-3 py-2">Condition</th>
+                      <th className="px-3 py-2 w-12">Qty</th>
+                      <th className="px-3 py-2 w-16">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uploadParsedRows.map((row) => {
+                      const hasErrors = row.errors.length > 0
+                      return (
+                        <tr key={row.rowNum} className={clsx('border-b last:border-0', hasErrors && 'bg-red-50/50')}>
+                          <td className="px-3 py-2 text-xs text-gray-400">{row.rowNum}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{row.sku}</td>
+                          <td className="px-3 py-2 text-xs">
+                            {row.gradeName ? (
+                              <span className="inline-block px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
+                                {row.gradeName}
+                              </span>
+                            ) : row.grade ? (
+                              <span className="text-xs text-gray-500">{row.grade}</span>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">{row.sellerSku}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{row.asin}</td>
+                          <td className="px-3 py-2 text-xs">{row.price != null ? `$${row.price.toFixed(2)}` : '—'}</td>
+                          <td className="px-3 py-2 text-xs">{row.condition}</td>
+                          <td className="px-3 py-2 text-xs text-center">{row.quantity}</td>
+                          <td className="px-3 py-2">
+                            {hasErrors ? (
+                              <span title={row.errors.join('; ')}>
+                                <XCircle size={14} className="text-red-500" />
+                              </span>
+                            ) : (
+                              <CheckCircle2 size={14} className="text-green-600" />
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={handleUploadReset}
+                className="flex items-center gap-1.5 h-9 px-4 rounded-md border border-gray-300 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              >
+                <ArrowLeft size={14} /> Back
+              </button>
+              <button
+                type="button"
+                onClick={handleUploadSubmit}
+                disabled={uploadSummary.valid === 0}
+                className={clsx(
+                  'flex items-center gap-2 h-9 px-5 rounded-md text-sm font-semibold transition-colors',
+                  uploadSummary.valid > 0
+                    ? 'bg-amazon-blue text-white hover:bg-amazon-blue/90'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed',
+                )}
+              >
+                Create {uploadSummary.valid} Valid Listings
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Upload Step 3: Progress ─────────────────────────────────── */}
+        {uploadStep === 'progress' && (
+          <div className="space-y-4">
+            <div className="text-sm text-gray-600">
+              {uploadIsCreating
+                ? `Processing… ${uploadSucceeded + uploadFailed} of ${uploadProgressRows.length}`
+                : `Done — ${uploadSucceeded} created, ${uploadFailed} failed`}
+            </div>
+
+            <div className="border rounded-lg overflow-hidden">
+              <div className="max-h-[500px] overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0">
+                    <tr className="bg-gray-50 border-b text-left text-xs font-semibold text-gray-500 uppercase">
+                      <th className="px-3 py-2">SKU</th>
+                      <th className="px-3 py-2">Seller SKU</th>
+                      <th className="px-3 py-2">ASIN</th>
+                      <th className="px-3 py-2">Price</th>
+                      <th className="px-3 py-2 w-16">Status</th>
+                      <th className="px-3 py-2">Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uploadProgressRows.map((row, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                        <td className="px-3 py-2 font-mono text-xs">{row.sku}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{row.sellerSku}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{row.asin}</td>
+                        <td className="px-3 py-2 text-xs">${row.price?.toFixed(2)}</td>
+                        <td className="px-3 py-2">
+                          {row.status === 'pending' && <span className="text-xs text-gray-400">Pending</span>}
+                          {row.status === 'creating' && <Loader2 size={14} className="animate-spin text-amazon-blue" />}
+                          {row.status === 'success' && <CheckCircle2 size={14} className="text-green-600" />}
+                          {row.status === 'error' && <XCircle size={14} className="text-red-500" />}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-red-600 max-w-[200px] truncate" title={row.error}>
+                          {row.error ?? ''}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Summary + actions */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                {uploadSucceeded > 0 && (
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-green-700">
+                    <CheckCircle2 size={14} /> {uploadSucceeded} created
+                  </div>
+                )}
+                {uploadFailed > 0 && (
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-red-600">
+                    <XCircle size={14} /> {uploadFailed} failed
+                  </div>
+                )}
+              </div>
+              {!uploadIsCreating && (
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleUploadReset}
+                    className="h-9 px-4 rounded-md border border-gray-300 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                  >
+                    Upload Another
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     )
   }
