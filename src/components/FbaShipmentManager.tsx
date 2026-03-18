@@ -688,12 +688,8 @@ function CreateForm({
           )}
 
           <div className="flex gap-3">
-            <button type="button" onClick={() => onCreated(createdShipmentId)}
-              className="h-10 px-4 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              Skip (No Reservation)
-            </button>
             <button type="button" onClick={handleAssignInventory}
-              disabled={saving || !warehouseId || (mappedItems.length > 0 && Object.keys(assignments).length === 0)}
+              disabled={saving || !warehouseId || mappedItems.length === 0 || Object.keys(assignments).length < mappedItems.length}
               className="flex items-center gap-2 h-10 px-6 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
               {saving ? <><Loader2 size={14} className="animate-spin" /> Reserving...</> : 'Confirm & Reserve'}
             </button>
