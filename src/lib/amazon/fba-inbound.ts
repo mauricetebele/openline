@@ -388,11 +388,25 @@ export async function listTransportationOptions(
   shipmentId: string,
 ): Promise<TransportationOption[]> {
   const client = new SpApiClient(accountId)
-  const resp = await client.get<{ transportationOptions: TransportationOption[] }>(
-    `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/transportationOptions`,
-    { shipmentId },
-  )
-  return resp.transportationOptions ?? []
+  let allOptions: TransportationOption[] = []
+  let paginationToken: string | undefined
+
+  do {
+    const params: Record<string, string> = { shipmentId }
+    if (paginationToken) params.paginationToken = paginationToken
+
+    const resp = await client.get<{
+      transportationOptions: TransportationOption[]
+      pagination?: { nextToken?: string }
+    }>(
+      `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/transportationOptions`,
+      params,
+    )
+    allOptions = allOptions.concat(resp.transportationOptions ?? [])
+    paginationToken = resp.pagination?.nextToken
+  } while (paginationToken)
+
+  return allOptions
 }
 
 // ─── 11. Confirm Transportation Options ─────────────────────────────────────

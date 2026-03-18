@@ -131,9 +131,9 @@ export async function POST(
 
       if (transportOptions.length === 0) {
         step = 'generate-transportation-options'
-        // Ready to ship = tomorrow
+        // Ready to ship = 3 business days out (increases chance of partnered carrier options)
         const readyDate = new Date()
-        readyDate.setDate(readyDate.getDate() + 1)
+        readyDate.setDate(readyDate.getDate() + 5)
 
         const transportResp = await generateTransportationOptions(
           shipment.accountId,
@@ -143,7 +143,7 @@ export async function POST(
             shipmentId: amazonShipmentId,
             contactInformation: {
               name: shipment.warehouse?.name ?? 'Warehouse',
-              phoneNumber: '0000000000',
+              phoneNumber: shipment.warehouse?.phone || '5551234567',
               email: user.email,
             },
             readyToShipDate: readyDate.toISOString(),

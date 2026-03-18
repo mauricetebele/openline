@@ -1228,66 +1228,89 @@ function WizardView({
           <h3 className="text-sm font-semibold text-gray-700">Confirm Transportation</h3>
           <p className="text-xs text-gray-500">Select a shipping option for your shipment.</p>
 
-          {(transportOptions ?? []).filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL').length === 0 && (
-            <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-2">
-              <p className="text-sm text-amber-700">
-                {transportOptions.length > 0
-                  ? 'No Small Parcel (SPD) options available. Only LTL/freight options were returned.'
-                  : 'Transportation options are not available via the API.'}
-              </p>
-              <p className="text-xs text-amber-600">
-                Try retrying or complete this step in Seller Central.
-              </p>
-              <div className="flex items-center gap-2 pt-1">
-                <button type="button" onClick={async () => {
-                  setActionLoading(true)
-                  try {
-                    const res = await fetch(`/api/fba-shipments/${shipment.id}/retry-transport`)
-                    const data = await res.json()
-                    if (data.transportOptions?.length) {
-                      setTransportOptions(data.transportOptions)
-                    }
-                  } catch { /* silent */ } finally { setActionLoading(false) }
-                }} disabled={actionLoading}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-md border border-amber-300 text-amber-700 text-xs font-medium hover:bg-amber-100 disabled:opacity-50">
-                  {actionLoading ? <><Loader2 size={12} className="animate-spin" /> Retrying...</> : 'Retry Fetch'}
-                </button>
-                <a href="https://sellercentral.amazon.com/fba/sendtoamazon" target="_blank" rel="noopener noreferrer"
-                  className="px-3 py-1.5 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50">
-                  Open Seller Central
-                </a>
-              </div>
-            </div>
-          )}
-
-          {(transportOptions ?? [])
-            .filter(opt => opt.shippingMode === 'GROUND_SMALL_PARCEL')
-            .map(opt => (
-            <label key={opt.transportationOptionId}
-              className={clsx('flex items-start gap-3 p-3 rounded-lg border cursor-pointer',
-                selectedTransport === opt.transportationOptionId ? 'border-amazon-blue bg-blue-50' : 'border-gray-200 hover:border-gray-300')}>
-              <input type="radio" name="transport" value={opt.transportationOptionId}
-                checked={selectedTransport === opt.transportationOptionId}
-                onChange={e => setSelectedTransport(e.target.value)}
-                className="mt-0.5" />
-              <div>
-                <div className="text-sm font-medium text-gray-700">
-                  {opt.carrier?.name ?? 'Amazon Partner'} — {opt.shippingSolution}
+          {(() => {
+            const opts = transportOptions ?? []
+            const spdPartnered = opts.filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL' && o.shippingSolution === 'AMAZON_PARTNERED_CARRIER')
+            const spdNonPartnered = opts.filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL' && o.shippingSolution !== 'AMAZON_PARTNERED_CARRIER')
+            const ltlOptions = opts.filter(o => o.shippingMode !== 'GROUND_SMALL_PARCEL')
+            // Show partnered first, then non-partnered SPD
+            const displayOptions = [...spdPartnered, ...spdNonPartnered]
+            return <>
+              {displayOptions.length === 0 && (
+                <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-2">
+                  <p className="text-sm text-amber-700">
+                    {opts.length > 0
+                      ? `No Small Parcel (SPD) options returned. ${ltlOptions.length} LTL/freight option(s) available.`
+                      : 'No transportation options returned from the API.'}
+                  </p>
+                  <p className="text-xs text-amber-600">
+                    Amazon may not return partnered carrier options via the API for all shipments.
+                    You can select UPS (SPD) partnered carrier in Seller Central instead.
+                  </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button type="button" onClick={async () => {
+                      setActionLoading(true)
+                      try {
+                        const res = await fetch(`/api/fba-shipments/${shipment.id}/retry-transport`)
+                        const data = await res.json()
+                        if (data.transportOptions?.length) {
+                          setTransportOptions(data.transportOptions)
+                        }
+                      } catch { /* silent */ } finally { setActionLoading(false) }
+                    }} disabled={actionLoading}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-md border border-amber-300 text-amber-700 text-xs font-medium hover:bg-amber-100 disabled:opacity-50">
+                      {actionLoading ? <><Loader2 size={12} className="animate-spin" /> Retrying...</> : 'Retry Fetch'}
+                    </button>
+                    <a href="https://sellercentral.amazon.com/fba/sendtoamazon" target="_blank" rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50">
+                      Open Seller Central
+                    </a>
+                  </div>
                 </div>
-                <div className="text-xs text-gray-400">Small Parcel (SPD)</div>
-                {opt.quote?.price && (
-                  <div className="text-xs text-gray-500">${Number(opt.quote.price.amount).toFixed(2)} {opt.quote.price.code}</div>
-                )}
-              </div>
-            </label>
-          ))}
+              )}
 
-          {(transportOptions ?? []).filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL').length > 0 && (
-            <button type="button" onClick={handleConfirmTransport} disabled={actionLoading || !selectedTransport}
-              className="flex items-center gap-2 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
-              {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Confirming...</> : 'Confirm Transport'}
-            </button>
-          )}
+              {spdNonPartnered.length > 0 && spdPartnered.length === 0 && (
+                <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                  Only non-partnered (use your own carrier) options returned. For Amazon-partnered UPS rates with shipping labels included, use Seller Central.
+                </div>
+              )}
+
+              {displayOptions.map(opt => {
+                const isPartnered = opt.shippingSolution === 'AMAZON_PARTNERED_CARRIER'
+                return (
+                  <label key={opt.transportationOptionId}
+                    className={clsx('flex items-start gap-3 p-3 rounded-lg border cursor-pointer',
+                      selectedTransport === opt.transportationOptionId ? 'border-amazon-blue bg-blue-50' : 'border-gray-200 hover:border-gray-300')}>
+                    <input type="radio" name="transport" value={opt.transportationOptionId}
+                      checked={selectedTransport === opt.transportationOptionId}
+                      onChange={e => setSelectedTransport(e.target.value)}
+                      className="mt-0.5" />
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">
+                        {opt.carrier?.name ?? 'Carrier'} — SPD
+                      </div>
+                      <div className={clsx('text-xs font-medium', isPartnered ? 'text-green-600' : 'text-amber-600')}>
+                        {isPartnered ? 'Amazon Partnered Carrier' : 'Use Your Own Carrier'}
+                      </div>
+                      {opt.quote?.price && (
+                        <div className="text-xs text-gray-500 mt-0.5">${Number(opt.quote.price.amount).toFixed(2)} {opt.quote.price.code}</div>
+                      )}
+                      {!opt.quote?.price && !isPartnered && (
+                        <div className="text-xs text-gray-400 mt-0.5">No shipping cost (you pay carrier directly)</div>
+                      )}
+                    </div>
+                  </label>
+                )
+              })}
+
+              {displayOptions.length > 0 && (
+                <button type="button" onClick={handleConfirmTransport} disabled={actionLoading || !selectedTransport}
+                  className="flex items-center gap-2 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
+                  {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Confirming...</> : 'Confirm Transport'}
+                </button>
+              )}
+            </>
+          })()}
         </div>
       )}
 

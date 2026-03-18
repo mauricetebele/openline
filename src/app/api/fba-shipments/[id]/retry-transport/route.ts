@@ -41,7 +41,7 @@ export async function GET(
 
     if (transportOptions.length === 0 && shipment.placementOptionId) {
       const readyDate = new Date()
-      readyDate.setDate(readyDate.getDate() + 1)
+      readyDate.setDate(readyDate.getDate() + 5)
 
       const resp = await generateTransportationOptions(
         shipment.accountId,
@@ -51,7 +51,7 @@ export async function GET(
           shipmentId: shipment.shipmentId,
           contactInformation: {
             name: shipment.warehouse?.name ?? 'Warehouse',
-            phoneNumber: '0000000000',
+            phoneNumber: shipment.warehouse?.phone || '5551234567',
             email: user.email,
           },
           readyToShipDate: readyDate.toISOString(),
