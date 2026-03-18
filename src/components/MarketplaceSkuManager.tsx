@@ -1,7 +1,7 @@
 'use client'
 import { createPortal } from 'react-dom'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload } from 'lucide-react'
+import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -616,6 +616,30 @@ export default function MarketplaceSkuManager() {
     }
   }
 
+  const [syncingFba, setSyncingFba] = useState(false)
+
+  async function handleSyncFbaInventory() {
+    setSyncingFba(true)
+    setErr('')
+    try {
+      const accounts = await apiFetch('/api/accounts')
+      const active = (accounts.data ?? accounts).filter((a: { isActive: boolean }) => a.isActive)
+      if (active.length === 0) throw new Error('No active Amazon account found')
+
+      let totalUpdated = 0
+      for (const account of active) {
+        const res = await apiPost('/api/pricing/sync-fba-inventory', { accountId: account.id })
+        totalUpdated += res.updated ?? 0
+      }
+      setToast(`Synced FBA inventory — ${totalUpdated} listings updated with FNSKU`)
+      loadAll()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'FBA inventory sync failed')
+    } finally {
+      setSyncingFba(false)
+    }
+  }
+
   async function handleAdd() {
     if (!selectedProduct) { setErr('Product is required'); return }
     if (!formSellerSku.trim()) { setErr('Seller SKU is required'); return }
@@ -796,6 +820,15 @@ export default function MarketplaceSkuManager() {
         >
           <RefreshCw size={14} className={clsx(syncing === 'backmarket' && 'animate-spin')} />
           Sync Back Market
+        </button>
+        <button
+          type="button"
+          onClick={handleSyncFbaInventory}
+          disabled={syncing !== null || syncingFba}
+          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-blue-300 text-blue-700 text-sm font-medium hover:bg-blue-50 disabled:opacity-50"
+        >
+          <Package size={14} className={clsx(syncingFba && 'animate-pulse')} />
+          {syncingFba ? 'Syncing FBA…' : 'Sync FBA Inventory'}
         </button>
 
         {syncProgress && (
