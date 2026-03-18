@@ -76,16 +76,34 @@ export async function GET(
       downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId, boxIds, false)
     }
 
-    // Cache and advance status
+    // Persist shipmentConfirmationId and parse per-box tracking numbers
+    const updateData: Record<string, unknown> = {
+      labelData: downloadUrl,
+      status: 'LABELS_READY',
+      lastError: null,
+      lastErrorAt: null,
+    }
+    if (confirmationId && !shipment.shipmentConfirmationId) {
+      updateData.shipmentConfirmationId = confirmationId
+    }
+
     await prisma.fbaShipment.update({
       where: { id: params.id },
-      data: {
-        labelData: downloadUrl,
-        status: 'LABELS_READY',
-        lastError: null,
-        lastErrorAt: null,
-      },
+      data: updateData as never,
     })
+
+    // Try to extract per-box tracking numbers from shipment details
+    // Amazon may return trackingId on each box in getShipment or listShipmentBoxes
+    for (let i = 0; i < boxes.length; i++) {
+      const box = boxes[i] as Record<string, unknown>
+      const tracking = (box.trackingId ?? box.trackingNumber ?? null) as string | null
+      if (tracking) {
+        await prisma.fbaShipmentBox.updateMany({
+          where: { shipmentId: params.id, boxNumber: i + 1, trackingNumber: null },
+          data: { trackingNumber: tracking },
+        })
+      }
+    }
 
     return NextResponse.json({ downloadUrl })
   } catch (err) {

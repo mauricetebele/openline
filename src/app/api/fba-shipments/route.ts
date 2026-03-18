@@ -21,7 +21,11 @@ export async function GET(req: NextRequest) {
 
   const shipments = await prisma.fbaShipment.findMany({
     where,
-    include: {
+    select: {
+      id: true, status: true, shipmentNumber: true, name: true, accountId: true,
+      warehouseId: true, inboundPlanId: true, shipmentId: true, shipmentConfirmationId: true,
+      packingGroupId: true, placementFee: true, shippingEstimate: true, labelData: true,
+      lastError: true, lastErrorAt: true, createdAt: true, updatedAt: true,
       account: { select: { id: true, sellerId: true, marketplaceName: true } },
       warehouse: { select: { id: true, name: true } },
       items: { include: { msku: { select: { sellerSku: true, product: { select: { sku: true, description: true } } } } } },
@@ -145,10 +149,24 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Generate sequential shipment number (FBA-0001)
+  const lastShipment = await prisma.fbaShipment.findFirst({
+    where: { shipmentNumber: { not: null } },
+    orderBy: { shipmentNumber: 'desc' },
+    select: { shipmentNumber: true },
+  })
+  let nextNum = 1
+  if (lastShipment?.shipmentNumber) {
+    const match = lastShipment.shipmentNumber.match(/FBA-(\d+)/)
+    if (match) nextNum = parseInt(match[1]) + 1
+  }
+  const shipmentNumber = `FBA-${String(nextNum).padStart(4, '0')}`
+
   // Create shipment with items only (no warehouse, no inventory reservation)
   const shipment = await prisma.fbaShipment.create({
     data: {
       accountId,
+      shipmentNumber,
       name: name || null,
       status: 'DRAFT',
       items: {

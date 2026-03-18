@@ -1190,10 +1190,11 @@ model InventorySerial {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  history               SerialHistory[]
-  orderAssignment       OrderSerialAssignment?
-  salesOrderAssignment  SalesOrderSerialAssignment?
-  marketplaceRMASerials MarketplaceRMASerial[]
+  history                SerialHistory[]
+  orderAssignment        OrderSerialAssignment?
+  salesOrderAssignment   SalesOrderSerialAssignment?
+  fbaShipmentAssignment  FbaShipmentSerialAssignment?
+  marketplaceRMASerials  MarketplaceRMASerial[]
 
   @@unique([productId, serialNumber])
   @@index([productId, locationId])
@@ -1223,6 +1224,9 @@ model SerialHistory {
   // Sale context (populated for SALE events)
   orderId           String?
   order             Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  // FBA shipment context (populated for FBA_SHIPMENT events)
+  fbaShipmentId     String?
+  fbaShipment       FbaShipment?    @relation(fields: [fbaShipmentId], references: [id], onDelete: SetNull)
   locationId        String?
   location          Location?       @relation("SHToLocation", fields: [locationId], references: [id], onDelete: SetNull)
   fromLocationId    String?
@@ -1254,6 +1258,7 @@ enum SerialEventType {
   MANUAL_REMOVE
   MIGRATION
   MP_RMA_RETURN
+  FBA_SHIPMENT
 }
 
 // ─── RMA (Return Merchandise Authorization) ───────────────────────────────────
@@ -1821,6 +1826,7 @@ enum TodoPriority {
 
 enum FbaShipmentStatus {
   DRAFT
+  SERIALIZED
   PLAN_CREATED
   PACKING_SET
   PLACEMENT_CONFIRMED
@@ -1884,6 +1890,7 @@ model FbaShipment {
   warehouseId            String?
   warehouse              Warehouse?        @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   status                 FbaShipmentStatus @default(DRAFT)
+  shipmentNumber         String?           @unique // FBA-0001
   name                   String?           // user-provided label
   // Amazon API IDs
   inboundPlanId          String?
@@ -1905,9 +1912,11 @@ model FbaShipment {
   createdAt              DateTime          @default(now())
   updatedAt              DateTime          @updatedAt
 
-  items        FbaShipmentItem[]
-  boxes        FbaShipmentBox[]
-  reservations FbaInventoryReservation[]
+  items             FbaShipmentItem[]
+  boxes             FbaShipmentBox[]
+  reservations      FbaInventoryReservation[]
+  serialAssignments FbaShipmentSerialAssignment[]
+  serialHistory     SerialHistory[]
 
   @@index([accountId])
   @@index([status])
@@ -1925,7 +1934,8 @@ model FbaShipmentItem {
   asin      String?
   quantity  Int
 
-  boxItems  FbaShipmentBoxItem[]
+  boxItems          FbaShipmentBoxItem[]
+  serialAssignments FbaShipmentSerialAssignment[]
 
   @@index([shipmentId])
   @@map("fba_shipment_items")
@@ -1939,7 +1949,8 @@ model FbaShipmentBox {
   weightLb   Decimal     @db.Decimal(8, 2)
   lengthIn   Decimal     @db.Decimal(8, 2)
   widthIn    Decimal     @db.Decimal(8, 2)
-  heightIn   Decimal     @db.Decimal(8, 2)
+  heightIn       Decimal     @db.Decimal(8, 2)
+  trackingNumber String?
 
   items FbaShipmentBoxItem[]
 
@@ -1975,4 +1986,21 @@ model FbaInventoryReservation {
 
   @@index([fbaShipmentId])
   @@map("fba_inventory_reservations")
+}
+
+// ─── FBA Shipment Serial Assignments ─────────────────────────────────────────
+// Tracks which specific serial numbers were scanned out for each FBA shipment item.
+
+model FbaShipmentSerialAssignment {
+  id                String          @id @default(cuid())
+  fbaShipmentId     String
+  fbaShipment       FbaShipment     @relation(fields: [fbaShipmentId], references: [id], onDelete: Cascade)
+  fbaShipmentItemId String
+  fbaShipmentItem   FbaShipmentItem @relation(fields: [fbaShipmentItemId], references: [id], onDelete: Cascade)
+  inventorySerialId String          @unique
+  inventorySerial   InventorySerial @relation(fields: [inventorySerialId], references: [id], onDelete: Restrict)
+  assignedAt        DateTime        @default(now())
+
+  @@index([fbaShipmentId])
+  @@map("fba_shipment_serial_assignments")
 }

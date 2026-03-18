@@ -29,6 +29,13 @@ export async function GET(
             },
           },
           boxItems: { include: { box: true } },
+          serialAssignments: {
+            include: {
+              inventorySerial: {
+                select: { id: true, serialNumber: true, productId: true, gradeId: true },
+              },
+            },
+          },
         },
       },
       boxes: {

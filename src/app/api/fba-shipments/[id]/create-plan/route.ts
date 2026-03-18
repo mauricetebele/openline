@@ -37,8 +37,8 @@ export async function POST(
     },
   })
   if (!shipment) return NextResponse.json({ error: 'Shipment not found' }, { status: 404 })
-  if (shipment.status !== 'DRAFT') {
-    return NextResponse.json({ error: 'Shipment must be in DRAFT status' }, { status: 409 })
+  if (shipment.status !== 'SERIALIZED') {
+    return NextResponse.json({ error: 'Shipment must be in SERIALIZED status (all serials scanned)' }, { status: 409 })
   }
   if (!shipment.warehouseId || !shipment.warehouse) {
     return NextResponse.json({ error: 'Warehouse must be assigned before creating a plan. Complete Step 2 first.' }, { status: 400 })

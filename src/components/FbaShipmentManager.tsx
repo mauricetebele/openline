@@ -7,16 +7,18 @@ import { jsPDF } from 'jspdf'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type FbaStatus = 'DRAFT' | 'PLAN_CREATED' | 'PACKING_SET' | 'PLACEMENT_CONFIRMED' | 'TRANSPORT_CONFIRMED' | 'LABELS_READY' | 'SHIPPED' | 'CANCELLED'
+type FbaStatus = 'DRAFT' | 'SERIALIZED' | 'PLAN_CREATED' | 'PACKING_SET' | 'PLACEMENT_CONFIRMED' | 'TRANSPORT_CONFIRMED' | 'LABELS_READY' | 'SHIPPED' | 'CANCELLED'
 
 interface FbaShipment {
   id: string
   status: FbaStatus
+  shipmentNumber: string | null
   name: string | null
   accountId: string
   warehouseId: string | null
   inboundPlanId: string | null
   shipmentId: string | null
+  shipmentConfirmationId: string | null
   packingGroupId: string | null
   placementFee: string | null
   shippingEstimate: string | null
@@ -32,6 +34,12 @@ interface FbaShipment {
   _count?: { items: number; boxes: number }
 }
 
+interface FbaSerialAssignment {
+  id: string
+  fbaShipmentItemId: string
+  inventorySerial: { id: string; serialNumber: string; productId: string; gradeId: string | null }
+}
+
 interface FbaShipmentItem {
   id: string
   mskuId: string | null
@@ -45,6 +53,7 @@ interface FbaShipmentItem {
     grade?: { id: string; grade: string } | null
   } | null
   boxItems?: Array<{ boxId: string; quantity: number }>
+  serialAssignments?: FbaSerialAssignment[]
 }
 
 interface FbaShipmentBox {
@@ -54,6 +63,7 @@ interface FbaShipmentBox {
   lengthIn: string
   widthIn: string
   heightIn: string
+  trackingNumber: string | null
   items: Array<{ shipmentItemId: string; quantity: number }>
 }
 
@@ -113,12 +123,13 @@ interface TransportOption {
 
 const STATUS_CONFIG: Record<FbaStatus, { label: string; color: string; step: number }> = {
   DRAFT:               { label: 'Draft',             color: 'bg-gray-100 text-gray-700',   step: 0 },
-  PLAN_CREATED:        { label: 'Plan Created',      color: 'bg-blue-100 text-blue-700',   step: 1 },
-  PACKING_SET:         { label: 'Packing Set',       color: 'bg-indigo-100 text-indigo-700', step: 2 },
-  PLACEMENT_CONFIRMED: { label: 'Placement Confirmed', color: 'bg-purple-100 text-purple-700', step: 3 },
-  TRANSPORT_CONFIRMED: { label: 'Transport Confirmed', color: 'bg-amber-100 text-amber-700',  step: 4 },
-  LABELS_READY:        { label: 'Labels Ready',      color: 'bg-emerald-100 text-emerald-700', step: 5 },
-  SHIPPED:             { label: 'Shipped',           color: 'bg-green-100 text-green-700', step: 6 },
+  SERIALIZED:          { label: 'Serialized',        color: 'bg-cyan-100 text-cyan-700',   step: 1 },
+  PLAN_CREATED:        { label: 'Plan Created',      color: 'bg-blue-100 text-blue-700',   step: 2 },
+  PACKING_SET:         { label: 'Packing Set',       color: 'bg-indigo-100 text-indigo-700', step: 3 },
+  PLACEMENT_CONFIRMED: { label: 'Placement Confirmed', color: 'bg-purple-100 text-purple-700', step: 4 },
+  TRANSPORT_CONFIRMED: { label: 'Transport Confirmed', color: 'bg-amber-100 text-amber-700',  step: 5 },
+  LABELS_READY:        { label: 'Labels Ready',      color: 'bg-emerald-100 text-emerald-700', step: 6 },
+  SHIPPED:             { label: 'Shipped',           color: 'bg-green-100 text-green-700', step: 7 },
   CANCELLED:           { label: 'Cancelled',         color: 'bg-red-100 text-red-700',     step: -1 },
 }
 
@@ -200,9 +211,10 @@ function ListView({
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-500 text-xs">
               <tr>
+                <th className="text-left px-4 py-2 font-medium">FBA #</th>
                 <th className="text-left px-4 py-2 font-medium">Name</th>
                 <th className="text-left px-4 py-2 font-medium">Account</th>
-                <th className="text-left px-4 py-2 font-medium">Warehouse</th>
+                <th className="text-left px-4 py-2 font-medium">Amazon ID</th>
                 <th className="text-center px-4 py-2 font-medium">Items</th>
                 <th className="text-left px-4 py-2 font-medium">Status</th>
                 <th className="text-left px-4 py-2 font-medium">Created</th>
@@ -212,11 +224,12 @@ function ListView({
               {filtered.map(s => (
                 <tr key={s.id} onClick={() => onSelect(s.id)}
                   className="hover:bg-gray-50 cursor-pointer">
+                  <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{s.shipmentNumber ?? '—'}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">
                     {s.name || s.id.slice(-8)}
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">{s.account.marketplaceName}</td>
-                  <td className="px-4 py-2.5 text-gray-600">{s.warehouse?.name ?? 'Not assigned'}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{s.shipmentConfirmationId ?? '—'}</td>
                   <td className="px-4 py-2.5 text-center text-gray-600">{s._count?.items ?? s.items.length}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
                   <td className="px-4 py-2.5 text-gray-500">{new Date(s.createdAt).toLocaleDateString()}</td>
@@ -928,7 +941,10 @@ function WizardView({
 
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
-        <h2 className="text-lg font-bold text-gray-900">{shipment.name || `Shipment ${shipment.id.slice(-8)}`}</h2>
+        <h2 className="text-lg font-bold text-gray-900">
+          {shipment.shipmentNumber && <span className="text-gray-400 mr-1">{shipment.shipmentNumber}</span>}
+          {shipment.name || `Shipment ${shipment.id.slice(-8)}`}
+        </h2>
         <StatusBadge status={shipment.status} />
         {!isTerminal && (
           <button type="button" onClick={handleCancel} disabled={actionLoading}
@@ -997,14 +1013,130 @@ function WizardView({
       )}
 
       {/* Step-specific actions */}
-      {shipment.status === 'DRAFT' && (
-        <div className="border border-gray-200 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Create Inbound Plan</h3>
-          {!shipment.warehouseId && (
-            <p className="text-xs text-amber-600 mb-3">Warehouse must be assigned before creating a plan.</p>
+      {shipment.status === 'DRAFT' && shipment.warehouseId && (shipment.reservations?.length ?? 0) > 0 && (
+        <div className="border border-gray-200 rounded-lg p-4 space-y-4">
+          <h3 className="text-sm font-semibold text-gray-700">Scan Serial Numbers</h3>
+          <p className="text-xs text-gray-500">Scan each unit&apos;s serial number before proceeding. Serials are validated against SKU and grade.</p>
+
+          {shipment.items.map(item => {
+            const scanned = item.serialAssignments ?? []
+            const isComplete = scanned.length >= item.quantity
+            return (
+              <div key={item.id} className={clsx('border rounded-lg p-3', isComplete ? 'border-green-200 bg-green-50/50' : 'border-amber-200 bg-amber-50/30')}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm font-medium text-gray-800">{item.msku?.product?.sku ?? item.sellerSku}</span>
+                  {item.msku?.grade && <span className="text-xs text-gray-500">({item.msku.grade.grade})</span>}
+                  <span className={clsx('ml-auto text-xs font-medium', isComplete ? 'text-green-600' : 'text-amber-600')}>
+                    {scanned.length} / {item.quantity}
+                  </span>
+                </div>
+
+                {!isComplete && (
+                  <form onSubmit={async (e) => {
+                    e.preventDefault()
+                    const input = (e.target as HTMLFormElement).elements.namedItem('serial') as HTMLInputElement
+                    const sn = input.value.trim()
+                    if (!sn) return
+                    setActionLoading(true)
+                    setErr('')
+                    try {
+                      const res = await fetch(`/api/fba-shipments/${shipmentId}/scan-serial`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ serialNumber: sn }),
+                      })
+                      const data = await res.json()
+                      if (!res.ok) throw new Error(data.error ?? 'Scan failed')
+                      input.value = ''
+                      await loadShipment()
+                    } catch (e: unknown) {
+                      setErr(e instanceof Error ? e.message : 'Scan failed')
+                    } finally {
+                      setActionLoading(false)
+                      input.focus()
+                    }
+                  }} className="flex gap-2 mb-2">
+                    <input name="serial" type="text" autoFocus placeholder="Scan serial number..."
+                      className="flex-1 h-8 px-3 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-amazon-blue focus:border-amazon-blue" />
+                    <button type="submit" disabled={actionLoading}
+                      className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium disabled:opacity-50">
+                      {actionLoading ? <Loader2 size={12} className="animate-spin" /> : 'Scan'}
+                    </button>
+                  </form>
+                )}
+
+                {scanned.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {scanned.map(sa => (
+                      <span key={sa.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-gray-200 text-xs text-gray-700">
+                        {sa.inventorySerial.serialNumber}
+                        {shipment.status === 'DRAFT' && (
+                          <button type="button" onClick={async () => {
+                            setErr('')
+                            try {
+                              const res = await fetch(`/api/fba-shipments/${shipmentId}/scan-serial`, {
+                                method: 'DELETE',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ serialNumber: sa.inventorySerial.serialNumber }),
+                              })
+                              const data = await res.json()
+                              if (!res.ok) throw new Error(data.error ?? 'Remove failed')
+                              await loadShipment()
+                            } catch (e: unknown) {
+                              setErr(e instanceof Error ? e.message : 'Remove failed')
+                            }
+                          }} className="text-gray-300 hover:text-red-500"><X size={10} /></button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {shipment.items.every(item => (item.serialAssignments?.length ?? 0) >= item.quantity) && (
+            <button type="button" onClick={async () => {
+              const result = await doAction('complete-serialization', {})
+              if (result) { await loadShipment(); onRefreshList() }
+            }} disabled={actionLoading}
+              className="flex items-center gap-2 h-9 px-4 rounded-md bg-cyan-600 text-white text-sm font-medium disabled:opacity-50">
+              {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Completing...</> : <><Check size={14} /> Complete Serialization</>}
+            </button>
           )}
-          <p className="text-xs text-gray-500 mb-3">This will create a plan at Amazon, generate packing options, and auto-confirm. This can take 30-60 seconds.</p>
-          <button type="button" onClick={handleCreatePlan} disabled={actionLoading || !shipment.warehouseId}
+        </div>
+      )}
+
+      {shipment.status === 'DRAFT' && (!shipment.warehouseId || (shipment.reservations?.length ?? 0) === 0) && (
+        <div className="border border-gray-200 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Awaiting Inventory</h3>
+          {!shipment.warehouseId && (
+            <p className="text-xs text-amber-600 mb-2">Warehouse must be assigned first.</p>
+          )}
+          {shipment.warehouseId && (shipment.reservations?.length ?? 0) === 0 && (
+            <p className="text-xs text-amber-600 mb-2">Inventory must be reserved before scanning serials.</p>
+          )}
+        </div>
+      )}
+
+      {shipment.status === 'SERIALIZED' && (
+        <div className="border border-gray-200 rounded-lg p-4 space-y-4">
+          <h3 className="text-sm font-semibold text-gray-700">Create Inbound Plan</h3>
+          <p className="text-xs text-gray-500 mb-1">All serials scanned. This will create a plan at Amazon, generate packing options, and auto-confirm. This can take 30-60 seconds.</p>
+
+          {/* Read-only scanned serials */}
+          <div className="space-y-2">
+            {shipment.items.map(item => (
+              <div key={item.id} className="text-xs text-gray-600">
+                <span className="font-medium">{item.msku?.product?.sku ?? item.sellerSku}</span>
+                {item.msku?.grade && <span className="text-gray-400 ml-1">({item.msku.grade.grade})</span>}
+                <span className="text-gray-400 mx-1">&mdash;</span>
+                {(item.serialAssignments ?? []).map(sa => sa.inventorySerial.serialNumber).join(', ')}
+              </div>
+            ))}
+          </div>
+
+          <button type="button" onClick={handleCreatePlan} disabled={actionLoading}
             className="flex items-center gap-2 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
             {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Creating Plan...</> : 'Create Inbound Plan'}
           </button>
@@ -1326,6 +1458,25 @@ function WizardView({
         <div className="border border-gray-200 rounded-lg p-4 space-y-3">
           <h3 className="text-sm font-semibold text-gray-700">Mark as Shipped</h3>
           <p className="text-xs text-gray-500">Confirm that all boxes have been shipped.</p>
+
+          {/* Per-box tracking */}
+          {shipment.boxes && shipment.boxes.some(b => b.trackingNumber) && (
+            <div className="space-y-1">
+              <div className="text-xs font-medium text-gray-500">Box Tracking</div>
+              {shipment.boxes.map(b => (
+                <div key={b.id} className="flex items-center gap-2 text-xs">
+                  <span className="text-gray-600">Box {b.boxNumber}:</span>
+                  {b.trackingNumber ? (
+                    <a href={`https://www.ups.com/track?tracknum=${b.trackingNumber}`} target="_blank" rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline font-mono">{b.trackingNumber}</a>
+                  ) : (
+                    <span className="text-gray-400">No tracking</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-2">
             {shipment.labelData && (
               <button type="button" onClick={() => window.open(shipment.labelData!, '_blank')}
@@ -1342,12 +1493,32 @@ function WizardView({
       )}
 
       {shipment.status === 'SHIPPED' && (
-        <div className="border border-green-200 bg-green-50 rounded-lg p-4 flex items-center gap-3">
-          <Check size={20} className="text-green-600" />
-          <div>
-            <div className="text-sm font-semibold text-green-800">Shipment Completed</div>
-            <div className="text-xs text-green-600">This shipment has been marked as shipped.</div>
+        <div className="border border-green-200 bg-green-50 rounded-lg p-4 space-y-3">
+          <div className="flex items-center gap-3">
+            <Check size={20} className="text-green-600" />
+            <div>
+              <div className="text-sm font-semibold text-green-800">Shipment Completed</div>
+              <div className="text-xs text-green-600">This shipment has been marked as shipped.</div>
+            </div>
           </div>
+
+          {/* Per-box tracking in shipped state */}
+          {shipment.boxes && shipment.boxes.some(b => b.trackingNumber) && (
+            <div className="space-y-1">
+              <div className="text-xs font-medium text-gray-500">Box Tracking</div>
+              {shipment.boxes.map(b => (
+                <div key={b.id} className="flex items-center gap-2 text-xs">
+                  <span className="text-gray-600">Box {b.boxNumber}:</span>
+                  {b.trackingNumber ? (
+                    <a href={`https://www.ups.com/track?tracknum=${b.trackingNumber}`} target="_blank" rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline font-mono">{b.trackingNumber}</a>
+                  ) : (
+                    <span className="text-gray-400">No tracking</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

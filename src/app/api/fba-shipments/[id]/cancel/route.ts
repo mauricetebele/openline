@@ -23,7 +23,10 @@ export async function POST(
 
   const shipment = await prisma.fbaShipment.findUnique({
     where: { id: params.id },
-    include: { reservations: true },
+    include: {
+      reservations: true,
+      serialAssignments: { include: { inventorySerial: { select: { id: true, locationId: true } } } },
+    },
   })
   if (!shipment) return NextResponse.json({ error: 'Shipment not found' }, { status: 404 })
   if (TERMINAL.has(shipment.status)) {
@@ -45,6 +48,22 @@ export async function POST(
     // Remove reservations
     if (shipment.reservations.length > 0) {
       await tx.fbaInventoryReservation.deleteMany({ where: { fbaShipmentId: params.id } })
+    }
+
+    // Clean up serial assignments + create UNASSIGNED history
+    if (shipment.serialAssignments.length > 0) {
+      for (const sa of shipment.serialAssignments) {
+        await tx.serialHistory.create({
+          data: {
+            inventorySerialId: sa.inventorySerialId,
+            eventType: 'UNASSIGNED',
+            fbaShipmentId: params.id,
+            locationId: sa.inventorySerial.locationId,
+            notes: `Cancelled ${shipment.shipmentNumber ?? 'FBA shipment'}`,
+          },
+        })
+      }
+      await tx.fbaShipmentSerialAssignment.deleteMany({ where: { fbaShipmentId: params.id } })
     }
 
     // Mark cancelled
