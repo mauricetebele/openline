@@ -45,34 +45,28 @@ export async function POST(
     return NextResponse.json({ error: 'placementOptionId is required' }, { status: 400 })
   }
 
+  let step = 'confirm-placement'
   try {
     // 1. Confirm placement (skip if already confirmed)
     try {
-      console.log('[confirm-placement] Confirming placement option:', {
-        accountId: shipment.accountId,
-        inboundPlanId: shipment.inboundPlanId,
-        placementOptionId: body.placementOptionId,
-      })
       const confirmResp = await confirmPlacementOption(
         shipment.accountId,
         shipment.inboundPlanId,
         body.placementOptionId,
       )
-      console.log('[confirm-placement] Confirm response:', JSON.stringify(confirmResp))
       await pollOperationStatus(shipment.accountId, confirmResp.operationId)
     } catch (confirmErr) {
       const msg = confirmErr instanceof Error ? confirmErr.message : String(confirmErr)
       if (msg.includes('already confirmed') || msg.includes('ConfirmPlacementOption cannot be processed')) {
-        console.log('[confirm-placement] Placement already confirmed, proceeding to next steps')
+        // Already confirmed from a prior attempt — continue
       } else {
         throw confirmErr
       }
     }
 
     // 2. Get the shipment ID from the placement option
-    console.log('[confirm-placement] Step 2: listing placement options...')
+    step = 'list-placement-options'
     const placementOptions = await listPlacementOptions(shipment.accountId, shipment.inboundPlanId)
-    console.log('[confirm-placement] Got placement options:', JSON.stringify(placementOptions.map(p => ({ id: p.placementOptionId, shipmentIds: p.shipmentIds }))))
     const selectedOption = placementOptions.find(p => p.placementOptionId === body.placementOptionId)
     const amazonShipmentId = selectedOption?.shipmentIds?.[0] ?? null
 
@@ -81,17 +75,17 @@ export async function POST(
     }
 
     // 3. Generate transportation options
-    console.log('[confirm-placement] Step 3: generating transport options for shipment:', amazonShipmentId)
+    step = 'generate-transportation-options'
     const transportResp = await generateTransportationOptions(
       shipment.accountId,
       shipment.inboundPlanId,
       amazonShipmentId,
     )
-    console.log('[confirm-placement] Step 3b: polling operation:', transportResp.operationId)
+    step = 'poll-generate-transport'
     await pollOperationStatus(shipment.accountId, transportResp.operationId)
 
     // 4. List transportation options
-    console.log('[confirm-placement] Step 4: listing transport options...')
+    step = 'list-transportation-options'
     const transportOptions = await listTransportationOptions(
       shipment.accountId,
       shipment.inboundPlanId,
@@ -117,10 +111,11 @@ export async function POST(
     return NextResponse.json({ success: true, shipmentId: amazonShipmentId, transportOptions })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+    const fullMessage = `[${step}] ${message}`
     await prisma.fbaShipment.update({
       where: { id: params.id },
-      data: { lastError: message, lastErrorAt: new Date() },
+      data: { lastError: fullMessage, lastErrorAt: new Date() },
     })
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json({ error: fullMessage }, { status: 500 })
   }
 }
