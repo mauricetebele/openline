@@ -1268,6 +1268,7 @@ enum SerialEventType {
   MIGRATION
   MP_RMA_RETURN
   FBA_SHIPMENT
+  VENDOR_RMA_SHIPPED
 }
 
 // ─── RMA (Return Merchandise Authorization) ───────────────────────────────────

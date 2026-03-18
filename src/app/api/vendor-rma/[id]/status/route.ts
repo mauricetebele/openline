@@ -45,14 +45,84 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
   }
 
-  const updated = await prisma.vendorRMA.update({
+  // ── When shipping: mark serials as RETURNED and decrement inventory ──
+  if (newStatus === 'SHIPPED_AWAITING_CREDIT') {
+    await prisma.$transaction(async (tx) => {
+      // Update the RMA status
+      await tx.vendorRMA.update({
+        where: { id: params.id },
+        data: {
+          status: newStatus,
+          carrier: carrier.trim(),
+          trackingNumber: trackingNumber.trim(),
+        },
+      })
+
+      const allSerials = rma.items.flatMap((item) =>
+        item.serials.map((s) => ({ ...s, productId: item.productId }))
+      )
+
+      for (const s of allSerials) {
+        // Find the matching inventory serial
+        const invSerial = await tx.inventorySerial.findFirst({
+          where: { serialNumber: s.serialNumber, productId: s.productId },
+          select: { id: true, locationId: true, gradeId: true },
+        })
+        if (!invSerial) continue
+
+        // Mark as RETURNED
+        await tx.inventorySerial.update({
+          where: { id: invSerial.id },
+          data: { status: 'RETURNED' },
+        })
+
+        // Decrement inventory qty
+        await tx.inventoryItem.updateMany({
+          where: {
+            productId: s.productId,
+            locationId: invSerial.locationId,
+            gradeId: invSerial.gradeId ?? null,
+          },
+          data: { qty: { decrement: 1 } },
+        })
+
+        // Create serial history entry
+        await tx.serialHistory.create({
+          data: {
+            inventorySerialId: invSerial.id,
+            eventType: 'VENDOR_RMA_SHIPPED',
+            locationId: invSerial.locationId,
+            userId: user.dbId,
+            notes: `Vendor RMA ${rma.rmaNumber} shipped — ${carrier.trim()} ${trackingNumber.trim()}`,
+          },
+        })
+      }
+
+      // Also decrement qty for non-serializable items (no serials assigned)
+      for (const item of rma.items) {
+        if (item.serials.length === 0 && item.quantity > 0) {
+          await tx.inventoryItem.updateMany({
+            where: { productId: item.productId },
+            data: { qty: { decrement: item.quantity } },
+          })
+        }
+      }
+    })
+  } else {
+    // Other transitions: just update the RMA
+    await prisma.vendorRMA.update({
+      where: { id: params.id },
+      data: {
+        status: newStatus,
+        ...(vendorApprovalNumber && { vendorApprovalNumber: vendorApprovalNumber.trim() }),
+        ...(carrier && { carrier: carrier.trim() }),
+        ...(trackingNumber && { trackingNumber: trackingNumber.trim() }),
+      },
+    })
+  }
+
+  const updated = await prisma.vendorRMA.findUnique({
     where: { id: params.id },
-    data: {
-      status: newStatus,
-      ...(vendorApprovalNumber && { vendorApprovalNumber: vendorApprovalNumber.trim() }),
-      ...(carrier && { carrier: carrier.trim() }),
-      ...(trackingNumber && { trackingNumber: trackingNumber.trim() }),
-    },
     include: {
       vendor: { select: { id: true, vendorNumber: true, name: true } },
       items: {
