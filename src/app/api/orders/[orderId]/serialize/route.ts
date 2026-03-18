@@ -180,7 +180,7 @@ export async function POST(
       if (isShipping) {
         await tx.inventorySerial.update({
           where: { id: r.serialId },
-          data:  { status: 'SOLD' },
+          data:  { status: 'OUT_OF_STOCK' },
         })
       }
 

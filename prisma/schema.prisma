@@ -1211,9 +1211,7 @@ model InventorySerial {
 
 enum SerialStatus {
   IN_STOCK
-  SOLD
-  RETURNED
-  DAMAGED
+  OUT_OF_STOCK
 }
 
 // ─── Serial Number History ────────────────────────────────────────────────────

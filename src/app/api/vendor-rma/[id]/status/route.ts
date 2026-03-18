@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         // Mark as RETURNED
         await tx.inventorySerial.update({
           where: { id: invSerial.id },
-          data: { status: 'RETURNED' },
+          data: { status: 'OUT_OF_STOCK' },
         })
 
         // Decrement inventory qty

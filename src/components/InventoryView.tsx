@@ -372,8 +372,8 @@ function SKUConvertModal({ onClose }: { onClose: () => void }) {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Lookup failed')
       setResults(data)
-      // Auto-select only IN_STOCK / RETURNED / DAMAGED — not SOLD
-      const eligible = (data.found as BulkSerial[]).filter(s => s.status !== 'SOLD')
+      // Auto-select only IN_STOCK serials
+      const eligible = (data.found as BulkSerial[]).filter(s => s.status === 'IN_STOCK')
       setSelected(new Set(eligible.map(s => s.id)))
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Lookup failed')
@@ -382,7 +382,7 @@ function SKUConvertModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const eligible    = results?.found.filter(s => s.status !== 'SOLD') ?? []
+  const eligible    = results?.found.filter(s => s.status === 'IN_STOCK') ?? []
   const allSelected = eligible.length > 0 && selected.size === eligible.length
   const someSelected = selected.size > 0
 
@@ -509,16 +509,16 @@ function SKUConvertModal({ onClose }: { onClose: () => void }) {
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {results.found.map(serial => {
-                        const isSold    = serial.status === 'SOLD'
+                        const isOOS     = serial.status !== 'IN_STOCK'
                         const checked   = selected.has(serial.id)
                         return (
                           <tr
                             key={serial.id}
-                            onClick={() => !isSold && toggleOne(serial.id)}
-                            className={`transition-colors ${isSold ? 'opacity-50 cursor-not-allowed bg-gray-50' : checked ? 'bg-blue-50 hover:bg-blue-100 cursor-pointer' : 'hover:bg-gray-50 cursor-pointer'}`}
+                            onClick={() => !isOOS && toggleOne(serial.id)}
+                            className={`transition-colors ${isOOS ? 'opacity-50 cursor-not-allowed bg-gray-50' : checked ? 'bg-blue-50 hover:bg-blue-100 cursor-pointer' : 'hover:bg-gray-50 cursor-pointer'}`}
                           >
                             <td className="px-3 py-2.5 text-center">
-                              {isSold ? (
+                              {isOOS ? (
                                 <span className="flex items-center justify-center text-gray-200"><Square size={15} /></span>
                               ) : (
                                 <span className={`flex items-center justify-center ${checked ? 'text-amazon-blue' : 'text-gray-300'}`}>
@@ -530,12 +530,9 @@ function SKUConvertModal({ onClose }: { onClose: () => void }) {
                             <td className="px-3 py-2.5 font-mono text-sm text-gray-900 font-medium">{serial.serialNumber}</td>
                             <td className="px-3 py-2.5">
                               <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                                serial.status === 'IN_STOCK'  ? 'bg-green-100 text-green-700' :
-                                serial.status === 'SOLD'      ? 'bg-gray-100 text-gray-500'   :
-                                serial.status === 'RETURNED'  ? 'bg-blue-100 text-blue-700'   :
-                                                                'bg-red-100 text-red-700'
+                                serial.status === 'IN_STOCK' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
                               }`}>
-                                {serial.status === 'IN_STOCK' ? 'In Stock' : serial.status === 'SOLD' ? 'Sold — ineligible' : serial.status === 'RETURNED' ? 'Returned' : 'Damaged'}
+                                {serial.status === 'IN_STOCK' ? 'In Stock' : 'Out of Stock'}
                               </span>
                             </td>
                             <td className="px-3 py-2.5 text-gray-700">

@@ -50,10 +50,8 @@ function fmtEventType(e: string | null) {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  IN_STOCK:  'bg-green-100 text-green-700',
-  SOLD:      'bg-blue-100 text-blue-700',
-  RETURNED:  'bg-yellow-100 text-yellow-700',
-  DAMAGED:   'bg-red-100 text-red-600',
+  IN_STOCK:     'bg-green-100 text-green-700',
+  OUT_OF_STOCK: 'bg-gray-100 text-gray-500',
 }
 
 function parseSNs(raw: string) {

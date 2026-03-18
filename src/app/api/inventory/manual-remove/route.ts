@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
       // Mark serial as DAMAGED (removed from usable stock)
       await tx.inventorySerial.update({
         where: { id: serial.id },
-        data:  { status: 'DAMAGED' },
+        data:  { status: 'OUT_OF_STOCK' },
       })
 
       // Create MANUAL_REMOVE history event

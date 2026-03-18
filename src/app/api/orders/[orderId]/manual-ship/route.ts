@@ -159,7 +159,7 @@ export async function POST(
 
       await tx.inventorySerial.update({
         where: { id: r.serialId },
-        data: { status: 'SOLD' },
+        data: { status: 'OUT_OF_STOCK' },
       })
 
       // Clean up stale assignment from a completed order before creating new one
@@ -212,7 +212,7 @@ export async function POST(
       if (sa.inventorySerial.status === 'IN_STOCK') {
         await tx.inventorySerial.update({
           where: { id: sa.inventorySerialId },
-          data: { status: 'SOLD' },
+          data: { status: 'OUT_OF_STOCK' },
         })
         await tx.serialHistory.create({
           data: {

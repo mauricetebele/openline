@@ -36,7 +36,7 @@ export async function POST(
     for (const sa of shipment.serialAssignments) {
       await tx.inventorySerial.update({
         where: { id: sa.inventorySerialId },
-        data: { status: 'SOLD' },
+        data: { status: 'OUT_OF_STOCK' },
       })
 
       await tx.serialHistory.create({

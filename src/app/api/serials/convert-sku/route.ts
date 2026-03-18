@@ -35,12 +35,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'One or more serial numbers not found' }, { status: 404 })
   }
 
-  // Reject any SOLD serials
-  const soldSerials = serials.filter(s => s.status === 'SOLD')
-  if (soldSerials.length > 0) {
-    const sns = soldSerials.map(s => s.serialNumber).join(', ')
+  // Reject any out-of-stock serials
+  const oosSerials = serials.filter(s => s.status !== 'IN_STOCK')
+  if (oosSerials.length > 0) {
+    const sns = oosSerials.map(s => s.serialNumber).join(', ')
     return NextResponse.json(
-      { error: `The following serials have been shipped out and cannot be converted: ${sns}` },
+      { error: `The following serials are out of stock and cannot be converted: ${sns}` },
       { status: 400 },
     )
   }

@@ -43,16 +43,12 @@ interface PartialMatch {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_LABEL: Record<string, string> = {
-  IN_STOCK: 'In Stock',
-  SOLD:     'Sold',
-  RETURNED: 'Returned',
-  DAMAGED:  'Damaged',
+  IN_STOCK:     'In Stock',
+  OUT_OF_STOCK: 'Out of Stock',
 }
 const STATUS_COLOR: Record<string, string> = {
-  IN_STOCK: 'bg-green-100 text-green-700',
-  SOLD:     'bg-gray-100 text-gray-500',
-  RETURNED: 'bg-blue-100 text-blue-700',
-  DAMAGED:  'bg-red-100 text-red-700',
+  IN_STOCK:     'bg-green-100 text-green-700',
+  OUT_OF_STOCK: 'bg-gray-100 text-gray-500',
 }
 const EVENT_LABEL: Record<string, string> = {
   PO_RECEIPT:     'PO Receipt',
