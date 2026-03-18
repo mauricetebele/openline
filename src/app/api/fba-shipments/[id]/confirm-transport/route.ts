@@ -56,32 +56,39 @@ export async function POST(
     )
     await pollOperationStatus(shipment.accountId, confirmResp.operationId)
 
-    // 2. Generate delivery window options
-    const dwResp = await generateDeliveryWindowOptions(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      shipment.shipmentId,
-    )
-    await pollOperationStatus(shipment.accountId, dwResp.operationId)
+    // 2. Delivery window — may already be confirmed from confirm-placement step.
+    //    Try to generate + confirm, but don't fail the whole flow if it errors.
+    let deliveryWindowId: string | null = null
+    try {
+      const dwResp = await generateDeliveryWindowOptions(
+        shipment.accountId,
+        shipment.inboundPlanId,
+        shipment.shipmentId,
+      )
+      await pollOperationStatus(shipment.accountId, dwResp.operationId)
 
-    // 3. List and auto-confirm first delivery window
-    const windows = await listDeliveryWindowOptions(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      shipment.shipmentId,
-    )
-    if (windows.length === 0) {
-      throw new Error('No delivery window options available')
+      const windows = await listDeliveryWindowOptions(
+        shipment.accountId,
+        shipment.inboundPlanId,
+        shipment.shipmentId,
+      )
+
+      if (windows.length > 0) {
+        const firstWindow = windows[0]
+        deliveryWindowId = firstWindow.deliveryWindowOptionId
+        const dwConfirmResp = await confirmDeliveryWindowOptions(
+          shipment.accountId,
+          shipment.inboundPlanId,
+          shipment.shipmentId,
+          firstWindow.deliveryWindowOptionId,
+        )
+        await pollOperationStatus(shipment.accountId, dwConfirmResp.operationId)
+      }
+    } catch (dwErr) {
+      // Delivery window may already be confirmed or expired — continue
+      const msg = dwErr instanceof Error ? dwErr.message : String(dwErr)
+      console.warn('[confirm-transport] Delivery window step skipped:', msg)
     }
-
-    const firstWindow = windows[0]
-    const dwConfirmResp = await confirmDeliveryWindowOptions(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      shipment.shipmentId,
-      firstWindow.deliveryWindowOptionId,
-    )
-    await pollOperationStatus(shipment.accountId, dwConfirmResp.operationId)
 
     // Update shipment
     await prisma.fbaShipment.update({
@@ -89,7 +96,7 @@ export async function POST(
       data: {
         status: 'TRANSPORT_CONFIRMED',
         transportOptionId: body.transportOptionId,
-        deliveryWindowOptionId: firstWindow.deliveryWindowOptionId,
+        ...(deliveryWindowId ? { deliveryWindowOptionId: deliveryWindowId } : {}),
         lastError: null,
         lastErrorAt: null,
       },
