@@ -1,7 +1,7 @@
 /**
  * POST /api/fba-shipments/[id]/confirm-placement
  *
- * Confirms a placement option → extracts shipmentId → generates transport options.
+ * Confirms a placement option → confirms delivery window → generates transport options.
  *
  * Body: { placementOptionId: string }
  * Status: PACKING_SET → PLACEMENT_CONFIRMED
@@ -12,6 +12,9 @@ import { prisma } from '@/lib/prisma'
 import {
   confirmPlacementOption,
   pollOperationStatus,
+  generateDeliveryWindowOptions,
+  listDeliveryWindowOptions,
+  confirmDeliveryWindowOptions,
   generateTransportationOptions,
   listTransportationOptions,
   listPlacementOptions,
@@ -74,7 +77,38 @@ export async function POST(
       throw new Error('No shipment ID returned from placement confirmation')
     }
 
-    // 3. Generate transportation options
+    // 3. Generate & confirm delivery window (required before transport options)
+    step = 'generate-delivery-window'
+    const dwGenResp = await generateDeliveryWindowOptions(
+      shipment.accountId,
+      shipment.inboundPlanId,
+      amazonShipmentId,
+    )
+    await pollOperationStatus(shipment.accountId, dwGenResp.operationId)
+
+    step = 'list-delivery-window'
+    const deliveryWindows = await listDeliveryWindowOptions(
+      shipment.accountId,
+      shipment.inboundPlanId,
+      amazonShipmentId,
+    )
+
+    if (deliveryWindows.length === 0) {
+      throw new Error('No delivery window options returned from Amazon')
+    }
+
+    // Auto-select first available delivery window
+    step = 'confirm-delivery-window'
+    const selectedWindow = deliveryWindows[0]
+    const dwConfirmResp = await confirmDeliveryWindowOptions(
+      shipment.accountId,
+      shipment.inboundPlanId,
+      amazonShipmentId,
+      selectedWindow.deliveryWindowOptionId,
+    )
+    await pollOperationStatus(shipment.accountId, dwConfirmResp.operationId)
+
+    // 4. Generate transportation options
     step = 'generate-transportation-options'
     const transportResp = await generateTransportationOptions(
       shipment.accountId,
@@ -85,7 +119,7 @@ export async function POST(
     step = 'poll-generate-transport'
     await pollOperationStatus(shipment.accountId, transportResp.operationId)
 
-    // 4. List transportation options
+    // 5. List transportation options
     step = 'list-transportation-options'
     const transportOptions = await listTransportationOptions(
       shipment.accountId,
@@ -109,7 +143,15 @@ export async function POST(
       },
     })
 
-    return NextResponse.json({ success: true, shipmentId: amazonShipmentId, transportOptions })
+    return NextResponse.json({
+      success: true,
+      shipmentId: amazonShipmentId,
+      transportOptions,
+      deliveryWindow: {
+        start: selectedWindow.startDate,
+        end: selectedWindow.endDate,
+      },
+    })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     const fullMessage = `[${step}] ${message}`
