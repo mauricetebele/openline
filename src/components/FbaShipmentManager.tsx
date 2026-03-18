@@ -167,6 +167,8 @@ function ListView({
   onSelect,
   onCreate,
   onDelete,
+  search,
+  onSearch,
 }: {
   shipments: FbaShipment[]
   loading: boolean
@@ -175,6 +177,8 @@ function ListView({
   onSelect: (id: string) => void
   onCreate: () => void
   onDelete: (id: string) => void
+  search: string
+  onSearch: (q: string) => void
 }) {
   const filtered = shipments.filter(s => {
     if (!tab) return true
@@ -194,7 +198,22 @@ function ListView({
             </button>
           ))}
         </div>
-        <div className="flex-1" />
+        <div className="relative flex-1 max-w-xs">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search SKU, FNSKU, FBA #, Amazon ID..."
+            value={search}
+            onChange={e => onSearch(e.target.value)}
+            className="w-full h-8 pl-8 pr-8 rounded-md border border-gray-200 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+          />
+          {search && (
+            <button type="button" onClick={() => onSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              <X size={14} />
+            </button>
+          )}
+        </div>
         <button type="button" onClick={onCreate}
           className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90">
           <Plus size={14} /> New Shipment
@@ -1766,11 +1785,14 @@ export default function FbaShipmentManager() {
   const [shipments, setShipments] = useState<FbaShipment[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (q?: string) => {
     setLoading(true)
     try {
-      const res = await fetch('/api/fba-shipments')
+      const params = new URLSearchParams()
+      if (q) params.set('q', q)
+      const res = await fetch(`/api/fba-shipments?${params}`)
       const data = await res.json()
       setShipments(data.data ?? [])
     } catch {
@@ -1781,6 +1803,13 @@ export default function FbaShipmentManager() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Debounced search
+  useEffect(() => {
+    const t = setTimeout(() => { load(search || undefined) }, 300)
+    return () => clearTimeout(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
 
   if (view.type === 'create') {
     return (
@@ -1809,6 +1838,8 @@ export default function FbaShipmentManager() {
       onTabChange={setTab}
       onSelect={id => setView({ type: 'detail', id })}
       onCreate={() => setView({ type: 'create' })}
+      search={search}
+      onSearch={setSearch}
       onDelete={async (id) => {
         if (!confirm('Delete this shipment? Inventory reservations will be released.')) return
         try {

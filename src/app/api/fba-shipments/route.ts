@@ -17,7 +17,25 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const status = req.nextUrl.searchParams.get('status')
-  const where = status ? { status: status as never } : {}
+  const q = req.nextUrl.searchParams.get('q')?.trim()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const where: any = {}
+  if (status) where.status = status
+
+  if (q) {
+    where.OR = [
+      { shipmentNumber: { contains: q, mode: 'insensitive' } },
+      { name: { contains: q, mode: 'insensitive' } },
+      { shipmentConfirmationId: { contains: q, mode: 'insensitive' } },
+      { shipmentId: { contains: q, mode: 'insensitive' } },
+      { labelData: { contains: q, mode: 'insensitive' } },
+      { items: { some: { sellerSku: { contains: q, mode: 'insensitive' } } } },
+      { items: { some: { fnsku: { contains: q, mode: 'insensitive' } } } },
+      { items: { some: { asin: { contains: q, mode: 'insensitive' } } } },
+      { items: { some: { msku: { product: { sku: { contains: q, mode: 'insensitive' } } } } } },
+    ]
+  }
 
   const shipments = await prisma.fbaShipment.findMany({
     where,
