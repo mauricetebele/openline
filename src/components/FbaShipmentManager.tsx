@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight, Copy, Printer } from 'lucide-react'
+import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight, Copy, Printer, ClipboardPaste } from 'lucide-react'
 import { clsx } from 'clsx'
 import JsBarcode from 'jsbarcode'
 import { jsPDF } from 'jspdf'
@@ -1016,7 +1016,50 @@ function WizardView({
       {shipment.status === 'DRAFT' && shipment.warehouseId && (shipment.reservations?.length ?? 0) > 0 && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-4">
           <h3 className="text-sm font-semibold text-gray-700">Scan Serial Numbers</h3>
-          <p className="text-xs text-gray-500">Scan each unit&apos;s serial number before proceeding. Serials are validated against SKU and grade.</p>
+          <p className="text-xs text-gray-500">Scan one at a time or paste a list (one per line). Serials are validated against SKU and grade.</p>
+
+          {/* Bulk paste area */}
+          <div className="space-y-2">
+            <button type="button" onClick={() => {
+              const el = document.getElementById('fba-bulk-paste') as HTMLTextAreaElement | null
+              if (el) { el.classList.toggle('hidden'); if (!el.classList.contains('hidden')) el.focus() }
+            }} className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-amazon-blue">
+              <ClipboardPaste size={13} /> Paste multiple serials
+            </button>
+            <div id="fba-bulk-paste-wrap">
+              <textarea id="fba-bulk-paste" rows={4} placeholder="Paste serial numbers here (one per line)..."
+                className="hidden w-full px-3 py-2 text-sm border border-gray-300 rounded-md font-mono focus:ring-1 focus:ring-amazon-blue focus:border-amazon-blue" />
+              <button type="button" onClick={async () => {
+                const ta = document.getElementById('fba-bulk-paste') as HTMLTextAreaElement
+                const lines = ta.value.split(/[\n\r,\t]+/).map(s => s.trim()).filter(Boolean)
+                if (lines.length === 0) return
+                setActionLoading(true)
+                setErr('')
+                try {
+                  const res = await fetch(`/api/fba-shipments/${shipmentId}/scan-serial`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ serialNumbers: lines }),
+                  })
+                  const data = await res.json()
+                  if (!res.ok) throw new Error(data.error ?? 'Bulk scan failed')
+                  ta.value = ''
+                  ta.classList.add('hidden')
+                  if (data.errors?.length > 0) {
+                    setErr(`${data.scannedCount} scanned. Errors: ${data.errors.join('; ')}`)
+                  }
+                  await loadShipment()
+                } catch (e: unknown) {
+                  setErr(e instanceof Error ? e.message : 'Bulk scan failed')
+                } finally {
+                  setActionLoading(false)
+                }
+              }} disabled={actionLoading}
+                className="mt-1 h-8 px-4 rounded-md bg-amazon-blue text-white text-xs font-medium disabled:opacity-50">
+                {actionLoading ? <Loader2 size={12} className="animate-spin" /> : 'Submit All'}
+              </button>
+            </div>
+          </div>
 
           {shipment.items.map(item => {
             const scanned = item.serialAssignments ?? []
@@ -1035,19 +1078,25 @@ function WizardView({
                   <form onSubmit={async (e) => {
                     e.preventDefault()
                     const input = (e.target as HTMLFormElement).elements.namedItem('serial') as HTMLInputElement
-                    const sn = input.value.trim()
-                    if (!sn) return
+                    const raw = input.value.trim()
+                    if (!raw) return
+                    // Detect pasted multi-line input
+                    const lines = raw.split(/[\n\r,\t]+/).map(s => s.trim()).filter(Boolean)
                     setActionLoading(true)
                     setErr('')
                     try {
+                      const payload = lines.length > 1 ? { serialNumbers: lines } : { serialNumber: lines[0] }
                       const res = await fetch(`/api/fba-shipments/${shipmentId}/scan-serial`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ serialNumber: sn }),
+                        body: JSON.stringify(payload),
                       })
                       const data = await res.json()
                       if (!res.ok) throw new Error(data.error ?? 'Scan failed')
                       input.value = ''
+                      if (data.errors?.length > 0) {
+                        setErr(`${data.scannedCount} scanned. Errors: ${data.errors.join('; ')}`)
+                      }
                       await loadShipment()
                     } catch (e: unknown) {
                       setErr(e instanceof Error ? e.message : 'Scan failed')
@@ -1056,7 +1105,7 @@ function WizardView({
                       input.focus()
                     }
                   }} className="flex gap-2 mb-2">
-                    <input name="serial" type="text" autoFocus placeholder="Scan serial number..."
+                    <input name="serial" type="text" autoFocus placeholder="Scan or paste serial(s)..."
                       className="flex-1 h-8 px-3 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-amazon-blue focus:border-amazon-blue" />
                     <button type="submit" disabled={actionLoading}
                       className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium disabled:opacity-50">

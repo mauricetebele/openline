@@ -1,6 +1,7 @@
 /**
  * POST /api/fba-shipments/[id]/scan-serial
- * Scan a single serial number into an FBA shipment item.
+ * Scan serial(s) into an FBA shipment item.
+ * Body: { serialNumber: string } OR { serialNumbers: string[] }
  *
  * DELETE /api/fba-shipments/[id]/scan-serial
  * Remove a scanned serial assignment.
@@ -18,9 +19,15 @@ export async function POST(
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { serialNumber } = await req.json()
-  if (!serialNumber || typeof serialNumber !== 'string') {
-    return NextResponse.json({ error: 'serialNumber is required' }, { status: 400 })
+  const body = await req.json()
+
+  // Accept single or bulk
+  const inputSerials: string[] = Array.isArray(body.serialNumbers)
+    ? body.serialNumbers.map((s: string) => s.trim()).filter(Boolean)
+    : body.serialNumber ? [body.serialNumber.trim()] : []
+
+  if (inputSerials.length === 0) {
+    return NextResponse.json({ error: 'serialNumber or serialNumbers is required' }, { status: 400 })
   }
 
   const shipment = await prisma.fbaShipment.findUnique({
@@ -51,88 +58,106 @@ export async function POST(
     return NextResponse.json({ error: 'Inventory must be reserved before scanning serials' }, { status: 400 })
   }
 
-  // Find the serial (case-insensitive)
-  const serial = await prisma.inventorySerial.findFirst({
-    where: { serialNumber: { equals: serialNumber, mode: 'insensitive' } },
-    include: {
-      product: { select: { sku: true } },
-      grade: { select: { grade: true } },
-      fbaShipmentAssignment: { select: { fbaShipmentId: true } },
-    },
-  })
+  // Track current scanned counts per item (mutated as we assign)
+  const scannedCounts = new Map(
+    shipment.items.map(item => [item.id, item.serialAssignments.length]),
+  )
 
-  if (!serial) {
-    return NextResponse.json({ error: `Serial "${serialNumber}" not found in inventory` }, { status: 422 })
-  }
-  if (serial.status !== 'IN_STOCK') {
-    return NextResponse.json({ error: `Serial "${serialNumber}" is not in stock (status: ${serial.status})` }, { status: 422 })
-  }
-  if (serial.fbaShipmentAssignment && serial.fbaShipmentAssignment.fbaShipmentId !== params.id) {
-    return NextResponse.json({ error: `Serial "${serialNumber}" is already assigned to another FBA shipment` }, { status: 422 })
-  }
-  if (serial.fbaShipmentAssignment?.fbaShipmentId === params.id) {
-    return NextResponse.json({ error: `Serial "${serialNumber}" is already scanned for this shipment` }, { status: 422 })
-  }
+  // Validate all serials before writing
+  const resolved: Array<{
+    serialId: string
+    serialNumber: string
+    locationId: string
+    itemId: string
+  }> = []
+  const errors: string[] = []
 
-  // Find a matching item (by product + grade via MSKU)
-  let matchedItem = null
-  for (const item of shipment.items) {
-    if (!item.msku) continue
-    const productMatch = item.msku.productId === serial.productId
-    const gradeMatch = item.msku.gradeId === serial.gradeId
-    if (!productMatch || !gradeMatch) continue
-
-    // Check item not fully scanned
-    const scannedCount = item.serialAssignments.length
-    if (scannedCount < item.quantity) {
-      matchedItem = item
-      break
-    }
-  }
-
-  if (!matchedItem) {
-    // Provide specific error
-    const itemByProduct = shipment.items.find(i => i.msku?.productId === serial.productId)
-    if (!itemByProduct) {
-      return NextResponse.json(
-        { error: `Serial "${serialNumber}" belongs to SKU "${serial.product.sku}", which is not in this shipment` },
-        { status: 422 },
-      )
-    }
-    if (itemByProduct.msku && itemByProduct.msku.gradeId !== serial.gradeId) {
-      return NextResponse.json(
-        { error: `Serial "${serialNumber}" is grade "${serial.grade?.grade ?? 'No grade'}", expected "${itemByProduct.msku.grade?.grade ?? 'No grade'}"` },
-        { status: 422 },
-      )
-    }
-    return NextResponse.json(
-      { error: `All units for "${serial.product.sku}" are already scanned` },
-      { status: 422 },
-    )
-  }
-
-  // Transaction: create assignment + history
-  await prisma.$transaction(async tx => {
-    await tx.fbaShipmentSerialAssignment.create({
-      data: {
-        fbaShipmentId: params.id,
-        fbaShipmentItemId: matchedItem!.id,
-        inventorySerialId: serial.id,
+  for (const sn of inputSerials) {
+    const serial = await prisma.inventorySerial.findFirst({
+      where: { serialNumber: { equals: sn, mode: 'insensitive' } },
+      include: {
+        product: { select: { sku: true } },
+        grade: { select: { grade: true } },
+        fbaShipmentAssignment: { select: { fbaShipmentId: true } },
       },
     })
 
-    await tx.serialHistory.create({
-      data: {
-        inventorySerialId: serial.id,
-        eventType: 'FBA_SHIPMENT',
-        fbaShipmentId: params.id,
-        locationId: serial.locationId,
-        notes: `Scanned for ${shipment.shipmentNumber ?? 'FBA shipment'}`,
-      },
-    })
-  })
+    if (!serial) { errors.push(`"${sn}" not found`); continue }
+    if (serial.status !== 'IN_STOCK') { errors.push(`"${sn}" not in stock (${serial.status})`); continue }
+    if (serial.fbaShipmentAssignment && serial.fbaShipmentAssignment.fbaShipmentId !== params.id) {
+      errors.push(`"${sn}" assigned to another shipment`); continue
+    }
+    if (serial.fbaShipmentAssignment?.fbaShipmentId === params.id) {
+      errors.push(`"${sn}" already scanned`); continue
+    }
+    // Check not already in this batch
+    if (resolved.some(r => r.serialId === serial.id)) {
+      errors.push(`"${sn}" duplicate in batch`); continue
+    }
 
-  return NextResponse.json({ success: true, serialNumber: serial.serialNumber, itemId: matchedItem.id })
+    // Find matching item with remaining capacity
+    let matchedItem = null
+    for (const item of shipment.items) {
+      if (!item.msku) continue
+      if (item.msku.productId !== serial.productId) continue
+      if (item.msku.gradeId !== serial.gradeId) continue
+      if ((scannedCounts.get(item.id) ?? 0) < item.quantity) {
+        matchedItem = item
+        break
+      }
+    }
+
+    if (!matchedItem) {
+      const itemByProduct = shipment.items.find(i => i.msku?.productId === serial.productId)
+      if (!itemByProduct) {
+        errors.push(`"${sn}" SKU "${serial.product.sku}" not in shipment`)
+      } else if (itemByProduct.msku && itemByProduct.msku.gradeId !== serial.gradeId) {
+        errors.push(`"${sn}" grade "${serial.grade?.grade ?? 'No grade'}", expected "${itemByProduct.msku.grade?.grade ?? 'No grade'}"`)
+      } else {
+        errors.push(`"${sn}" — all units for "${serial.product.sku}" already scanned`)
+      }
+      continue
+    }
+
+    resolved.push({ serialId: serial.id, serialNumber: serial.serialNumber, locationId: serial.locationId, itemId: matchedItem.id })
+    scannedCounts.set(matchedItem.id, (scannedCounts.get(matchedItem.id) ?? 0) + 1)
+  }
+
+  // For single-serial mode, fail on any error
+  if (inputSerials.length === 1 && errors.length > 0) {
+    return NextResponse.json({ error: errors[0] }, { status: 422 })
+  }
+
+  // For bulk, write what we can and report errors
+  if (resolved.length > 0) {
+    await prisma.$transaction(async tx => {
+      for (const r of resolved) {
+        await tx.fbaShipmentSerialAssignment.create({
+          data: {
+            fbaShipmentId: params.id,
+            fbaShipmentItemId: r.itemId,
+            inventorySerialId: r.serialId,
+          },
+        })
+        await tx.serialHistory.create({
+          data: {
+            inventorySerialId: r.serialId,
+            eventType: 'FBA_SHIPMENT',
+            fbaShipmentId: params.id,
+            locationId: r.locationId,
+            notes: `Scanned for ${shipment.shipmentNumber ?? 'FBA shipment'}`,
+          },
+        })
+      }
+    })
+  }
+
+  return NextResponse.json({
+    success: true,
+    scanned: resolved.map(r => r.serialNumber),
+    scannedCount: resolved.length,
+    errors,
+  })
 }
 
 export async function DELETE(
