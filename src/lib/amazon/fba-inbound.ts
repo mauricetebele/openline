@@ -107,6 +107,7 @@ export interface SourceAddress {
   stateOrProvinceCode: string
   postalCode: string
   countryCode: string
+  phoneNumber?: string
 }
 
 export interface InboundItem {

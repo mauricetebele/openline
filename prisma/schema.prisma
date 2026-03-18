@@ -1084,6 +1084,7 @@ model Warehouse {
   state        String?
   postalCode   String?
   countryCode  String   @default("US")
+  phone        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

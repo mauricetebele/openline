@@ -28,7 +28,7 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const allowed = ['addressLine1', 'addressLine2', 'city', 'state', 'postalCode', 'countryCode'] as const
+  const allowed = ['addressLine1', 'addressLine2', 'city', 'state', 'postalCode', 'countryCode', 'phone'] as const
   const data: Record<string, string | null> = {}
   for (const key of allowed) {
     if (key in body) data[key] = body[key] ?? null

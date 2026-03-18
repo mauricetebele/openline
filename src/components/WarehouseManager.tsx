@@ -21,6 +21,7 @@ interface WarehouseWithLocations {
   state?: string | null
   postalCode?: string | null
   countryCode?: string
+  phone?: string | null
   locations: Location[]
 }
 
@@ -246,6 +247,7 @@ function WarehouseCard({
     state: wh.state ?? '',
     postalCode: wh.postalCode ?? '',
     countryCode: wh.countryCode ?? 'US',
+    phone: wh.phone ?? '',
   })
 
   async function renameWarehouse(name: string) {
@@ -395,12 +397,14 @@ function WarehouseCard({
                 <input value={addr.postalCode} onChange={e => setAddr(a => ({ ...a, postalCode: e.target.value }))}
                   placeholder="ZIP" className="w-20 h-7 rounded border border-gray-300 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
               </div>
+              <input value={addr.phone} onChange={e => setAddr(a => ({ ...a, phone: e.target.value }))}
+                placeholder="Phone number" className="w-full h-7 rounded border border-gray-300 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
               <div className="flex items-center gap-2">
                 <button type="button" onClick={saveAddress} disabled={addrSaving}
                   className="h-7 px-3 rounded bg-amazon-blue text-white text-xs font-medium disabled:opacity-60">
                   {addrSaving ? 'Saving…' : 'Save Address'}
                 </button>
-                <button type="button" onClick={() => { setEditingAddr(false); setAddrErr(''); setAddr({ addressLine1: wh.addressLine1 ?? '', addressLine2: wh.addressLine2 ?? '', city: wh.city ?? '', state: wh.state ?? '', postalCode: wh.postalCode ?? '', countryCode: wh.countryCode ?? 'US' }) }}
+                <button type="button" onClick={() => { setEditingAddr(false); setAddrErr(''); setAddr({ addressLine1: wh.addressLine1 ?? '', addressLine2: wh.addressLine2 ?? '', city: wh.city ?? '', state: wh.state ?? '', postalCode: wh.postalCode ?? '', countryCode: wh.countryCode ?? 'US', phone: wh.phone ?? '' }) }}
                   className="h-7 px-3 rounded border border-gray-200 text-gray-500 text-xs hover:bg-gray-50">Cancel</button>
               </div>
             </div>

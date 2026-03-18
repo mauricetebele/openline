@@ -59,6 +59,7 @@ export async function POST(
         stateOrProvinceCode: wh.state,
         postalCode: wh.postalCode,
         countryCode: wh.countryCode,
+        phoneNumber: wh.phone ?? undefined,
       },
       items: shipment.items.map(item => ({
         msku: item.sellerSku,
