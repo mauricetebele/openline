@@ -1230,18 +1230,15 @@ function WizardView({
 
           {(() => {
             const opts = transportOptions ?? []
-            const spdPartnered = opts.filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL' && o.shippingSolution === 'AMAZON_PARTNERED_CARRIER')
-            const spdNonPartnered = opts.filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL' && o.shippingSolution !== 'AMAZON_PARTNERED_CARRIER')
-            const ltlOptions = opts.filter(o => o.shippingMode !== 'GROUND_SMALL_PARCEL')
-            // Show partnered first, then non-partnered SPD
-            const displayOptions = [...spdPartnered, ...spdNonPartnered]
+            // Partnered first, then non-partnered, regardless of shippingMode
+            const partnered = opts.filter(o => o.shippingSolution === 'AMAZON_PARTNERED_CARRIER')
+            const nonPartnered = opts.filter(o => o.shippingSolution !== 'AMAZON_PARTNERED_CARRIER')
+            const displayOptions = [...partnered, ...nonPartnered]
             return <>
               {displayOptions.length === 0 && (
                 <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-2">
                   <p className="text-sm text-amber-700">
-                    {opts.length > 0
-                      ? `No Small Parcel (SPD) options returned. ${ltlOptions.length} LTL/freight option(s) available.`
-                      : 'No transportation options returned from the API.'}
+                    No transportation options returned from the API.
                   </p>
                   <p className="text-xs text-amber-600">
                     Amazon may not return partnered carrier options via the API for all shipments.
@@ -1269,7 +1266,7 @@ function WizardView({
                 </div>
               )}
 
-              {spdNonPartnered.length > 0 && spdPartnered.length === 0 && (
+              {nonPartnered.length > 0 && partnered.length === 0 && (
                 <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
                   Only non-partnered (use your own carrier) options returned. For Amazon-partnered UPS rates with shipping labels included, use Seller Central.
                 </div>
@@ -1287,7 +1284,7 @@ function WizardView({
                       className="mt-0.5" />
                     <div>
                       <div className="text-sm font-medium text-gray-700">
-                        {opt.carrier?.name ?? 'Carrier'} — SPD
+                        {opt.carrier?.name ?? 'Carrier'} — {opt.shippingMode === 'GROUND_SMALL_PARCEL' ? 'SPD' : opt.shippingMode}
                       </div>
                       <div className={clsx('text-xs font-medium', isPartnered ? 'text-green-600' : 'text-amber-600')}>
                         {isPartnered ? 'Amazon Partnered Carrier' : 'Use Your Own Carrier'}
