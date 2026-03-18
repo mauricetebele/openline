@@ -1597,10 +1597,11 @@ function UnserializeModal({ order, onClose, onUnserialized }: {
 function ManualShipModal({ order, onClose, onShipped }: {
   order: Order; onClose: () => void; onShipped: () => void
 }) {
-  const [carrier, setCarrier]   = useState('')
-  const [tracking, setTracking] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [submitErr, setSubmitErr]   = useState<string | null>(null)
+  const [carrier, setCarrier]           = useState('')
+  const [tracking, setTracking]         = useState('')
+  const [shippingCost, setShippingCost] = useState('')
+  const [submitting, setSubmitting]     = useState(false)
+  const [submitErr, setSubmitErr]       = useState<string | null>(null)
 
   const canSubmit = carrier.trim() && tracking.trim()
 
@@ -1611,7 +1612,7 @@ function ManualShipModal({ order, onClose, onShipped }: {
       const res = await fetch(`/api/orders/${order.id}/manual-ship`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ carrier: carrier.trim(), tracking: tracking.trim() }),
+        body: JSON.stringify({ carrier: carrier.trim(), tracking: tracking.trim(), ...(shippingCost ? { shippingCost: parseFloat(shippingCost) } : {}) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `${res.status}`)
@@ -1660,6 +1661,21 @@ function ManualShipModal({ order, onClose, onShipped }: {
                     onChange={e => setTracking(e.target.value)}
                     placeholder="Tracking number…"
                     className="w-full h-8 rounded border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  />
+                </div>
+              </div>
+              <div className="w-1/2">
+                <label className="block text-[10px] font-medium text-gray-600 mb-1">Shipping Cost</label>
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={shippingCost}
+                    onChange={e => setShippingCost(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full h-8 rounded border border-gray-300 pl-5 pr-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500"
                   />
                 </div>
               </div>

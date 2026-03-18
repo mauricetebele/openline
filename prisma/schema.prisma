@@ -508,6 +508,7 @@ model Order {
   serialAssignments      OrderSerialAssignment[]
   labelBatchItems        LabelBatchItem[]
   serialHistory          SerialHistory[]
+  manualShipCost         Decimal?                    @db.Decimal(12, 2)
   marketplaceCommission  Decimal?                    @db.Decimal(12, 2)
   commissionSyncedAt     DateTime?
   marketplaceRMAs        MarketplaceRMA[]

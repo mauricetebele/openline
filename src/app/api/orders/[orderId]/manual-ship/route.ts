@@ -8,6 +8,7 @@
  * Body: {
  *   carrier:  string
  *   tracking: string
+ *   shippingCost?: number       // optional manual shipping cost for profitability
  *   assignments: Array<{
  *     orderItemId:   string
  *     serialNumbers: string[]   // one per qty (for serializable products)
@@ -49,9 +50,10 @@ export async function POST(
   const body = await req.json() as {
     carrier: string
     tracking: string
+    shippingCost?: number
     assignments: AssignmentInput[]
   }
-  const { carrier, tracking, assignments = [] } = body
+  const { carrier, tracking, shippingCost, assignments = [] } = body
 
   if (!carrier?.trim()) return NextResponse.json({ error: 'carrier is required' }, { status: 400 })
   if (!tracking?.trim()) return NextResponse.json({ error: 'tracking is required' }, { status: 400 })
@@ -236,6 +238,7 @@ export async function POST(
         shipCarrier: carrier.trim(),
         shipTracking: tracking.trim(),
         shippedAt: new Date(),
+        ...(shippingCost != null && shippingCost > 0 ? { manualShipCost: shippingCost } : {}),
       },
     })
   })

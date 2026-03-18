@@ -108,7 +108,7 @@ async function handleMarketplace(
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
   const totalCommission = Number(order.marketplaceCommission ?? 0)
-  const totalShipping = Number(order.label?.shipmentCost ?? 0)
+  const totalShipping = Number(order.label?.shipmentCost ?? order.manualShipCost ?? 0)
 
   // Build serial cost map keyed by orderItemId
   const serialCostsByItem = new Map<string, { cogs: number; cc: number; count: number }>()

@@ -228,7 +228,7 @@ export async function GET(req: NextRequest) {
   for (const order of marketplaceOrders) {
     const saleValue = order.items.reduce((sum, item) => sum + Number(item.itemPrice ?? 0), 0)
     const customerShipping = order.items.reduce((sum, item) => sum + Number(item.shippingPrice ?? 0), 0)
-    const shippingCost = Number(order.label?.shipmentCost ?? 0)
+    const shippingCost = Number(order.label?.shipmentCost ?? order.manualShipCost ?? 0)
     const commission = Number(order.marketplaceCommission ?? 0)
     const commissionSynced = !!order.commissionSyncedAt
 
@@ -360,7 +360,7 @@ export async function GET(req: NextRequest) {
     // Flatten marketplace orders
     for (const order of marketplaceOrders) {
       const totalCommissionVal = Number(order.marketplaceCommission ?? 0)
-      const totalShippingVal = Number(order.label?.shipmentCost ?? 0)
+      const totalShippingVal = Number(order.label?.shipmentCost ?? order.manualShipCost ?? 0)
       const commissionSyncedVal = !!order.commissionSyncedAt
 
       // Build serial cost map keyed by orderItemId
