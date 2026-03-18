@@ -38,8 +38,40 @@ export async function POST(req: NextRequest) {
 
   const normalizedGradeId = gradeId || null
 
-  // Create the MSKU mapping and link to listing in a transaction
+  // Check if an MSKU already exists for this sellerSku+marketplace+account
+  const existing = await prisma.productGradeMarketplaceSku.findFirst({
+    where: {
+      sellerSku: listing.sellerSku,
+      marketplace: listing.marketplace,
+      accountId: listing.accountId,
+    },
+  })
+
   try {
+    if (existing) {
+      // Update the existing MSKU mapping with new product+grade and link the listing
+      const result = await prisma.$transaction(async (tx) => {
+        const msku = await tx.productGradeMarketplaceSku.update({
+          where: { id: existing.id },
+          data: { productId, gradeId: normalizedGradeId },
+          include: {
+            product: { select: { id: true, sku: true, description: true } },
+            grade: { select: { id: true, grade: true } },
+          },
+        })
+
+        await tx.marketplaceListing.update({
+          where: { id: listingId },
+          data: { mskuId: msku.id },
+        })
+
+        return msku
+      })
+
+      return NextResponse.json(result, { status: 201 })
+    }
+
+    // Create a new MSKU mapping and link to listing
     const result = await prisma.$transaction(async (tx) => {
       const msku = await tx.productGradeMarketplaceSku.create({
         data: {
@@ -66,13 +98,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result, { status: 201 })
   } catch (err: unknown) {
-    const e = err as { code?: string }
-    if (e.code === 'P2002') {
-      return NextResponse.json(
-        { error: 'A marketplace SKU mapping already exists for this product/grade/marketplace/account combination' },
-        { status: 409 },
-      )
-    }
     console.error('[POST /api/marketplace-skus/map] Error:', err)
     const message = err instanceof Error ? err.message : 'Failed to create mapping'
     return NextResponse.json({ error: message }, { status: 500 })
