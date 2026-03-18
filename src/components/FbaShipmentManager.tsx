@@ -1228,7 +1228,7 @@ function WizardView({
           <h3 className="text-sm font-semibold text-gray-700">Confirm Transportation</h3>
           <p className="text-xs text-gray-500">Select a shipping option for your shipment.</p>
 
-          {transportOptions.filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL').length === 0 && (
+          {(transportOptions ?? []).filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL').length === 0 && (
             <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-2">
               <p className="text-sm text-amber-700">
                 {transportOptions.length > 0
@@ -1260,7 +1260,7 @@ function WizardView({
             </div>
           )}
 
-          {transportOptions
+          {(transportOptions ?? [])
             .filter(opt => opt.shippingMode === 'GROUND_SMALL_PARCEL')
             .map(opt => (
             <label key={opt.transportationOptionId}
@@ -1275,14 +1275,14 @@ function WizardView({
                   {opt.carrier?.name ?? 'Amazon Partner'} — {opt.shippingSolution}
                 </div>
                 <div className="text-xs text-gray-400">Small Parcel (SPD)</div>
-                {opt.quote && (
-                  <div className="text-xs text-gray-500">${opt.quote.price.amount.toFixed(2)} {opt.quote.price.code}</div>
+                {opt.quote?.price && (
+                  <div className="text-xs text-gray-500">${Number(opt.quote.price.amount).toFixed(2)} {opt.quote.price.code}</div>
                 )}
               </div>
             </label>
           ))}
 
-          {transportOptions.filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL').length > 0 && (
+          {(transportOptions ?? []).filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL').length > 0 && (
             <button type="button" onClick={handleConfirmTransport} disabled={actionLoading || !selectedTransport}
               className="flex items-center gap-2 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
               {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Confirming...</> : 'Confirm Transport'}
