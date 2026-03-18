@@ -80,6 +80,7 @@ export async function POST(
       shipment.accountId,
       shipment.inboundPlanId,
       amazonShipmentId,
+      body.placementOptionId,
     )
     step = 'poll-generate-transport'
     await pollOperationStatus(shipment.accountId, transportResp.operationId)
