@@ -2,7 +2,8 @@
  * POST /api/fba-shipments/[id]/mark-shipped
  *
  * Marks shipment as shipped. Updates serials to OUT_OF_STOCK,
- * decrements inventory qty, and creates history events.
+ * releases inventory reservations (qty already subtracted),
+ * and creates history events.
  * Status: LABELS_READY → SHIPPED
  */
 import { NextRequest, NextResponse } from 'next/server'
@@ -29,6 +30,7 @@ export async function POST(
           },
         },
       },
+      reservations: true,
     },
   })
   if (!shipment) return NextResponse.json({ error: 'Shipment not found' }, { status: 404 })
@@ -42,22 +44,15 @@ export async function POST(
   const shipLabel = shipment.shipmentNumber ?? 'FBA shipment'
 
   await prisma.$transaction(async tx => {
-    // Track inventory decrements to batch them
-    const decrements = new Map<string, number>()
-
+    // Mark serials as OUT_OF_STOCK + create history
     for (const sa of shipment.serialAssignments) {
       const serial = sa.inventorySerial
 
-      // Only update serials that are still IN_STOCK
       if (serial.status === 'IN_STOCK') {
         await tx.inventorySerial.update({
           where: { id: serial.id },
           data: { status: 'OUT_OF_STOCK' },
         })
-
-        // Track inventory decrement by product+location+grade
-        const key = `${serial.productId}|${serial.locationId}|${serial.gradeId ?? ''}`
-        decrements.set(key, (decrements.get(key) ?? 0) + 1)
       }
 
       await tx.serialHistory.create({
@@ -72,18 +67,12 @@ export async function POST(
       })
     }
 
-    // Decrement inventory quantities
-    for (const [key, qty] of decrements) {
-      const [productId, locationId, gradeId] = key.split('|')
-      await tx.inventoryItem.updateMany({
-        where: {
-          productId,
-          locationId,
-          gradeId: gradeId || null,
-        },
-        data: { qty: { decrement: qty } },
-      })
-    }
+    // Release inventory reservations.
+    // InventoryItem.qty already has reservations subtracted, so deleting
+    // the reservation is all that's needed — no qty decrement required.
+    await tx.fbaInventoryReservation.deleteMany({
+      where: { fbaShipmentId: params.id },
+    })
 
     await tx.fbaShipment.update({
       where: { id: params.id },
