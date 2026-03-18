@@ -7,15 +7,28 @@ export async function GET() {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const count = await prisma.chatMessage.count({
-    where: {
-      conversation: {
-        OR: [{ user1Id: user.dbId }, { user2Id: user.dbId }],
-      },
-      senderId: { not: user.dbId },
-      readAt: null,
+  const where = {
+    conversation: {
+      OR: [{ user1Id: user.dbId }, { user2Id: user.dbId }],
     },
-  })
+    senderId: { not: user.dbId },
+    readAt: null,
+  }
 
-  return NextResponse.json({ count })
+  const [count, latest] = await Promise.all([
+    prisma.chatMessage.count({ where }),
+    prisma.chatMessage.findFirst({
+      where,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        body: true,
+        fileName: true,
+        createdAt: true,
+        sender: { select: { name: true } },
+      },
+    }),
+  ])
+
+  return NextResponse.json({ count, latest })
 }

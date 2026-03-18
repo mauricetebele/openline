@@ -133,9 +133,11 @@ export default function ChatWidget() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Message[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
+  const [toast, setToast] = useState<{ sender: string; body: string } | null>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const lastMessageTime = useRef<string | null>(null)
+  const lastSeenMsgId = useRef<string | null>(null)
 
   // ─── Fetch helpers ───────────────────────────────────────────────────────
 
@@ -147,8 +149,18 @@ export default function ChatWidget() {
   const fetchUnreadCount = useCallback(async () => {
     const res = await fetch('/api/chat/unread-count')
     if (res.ok) {
-      const { count } = await res.json()
+      const { count, latest } = await res.json()
       setUnreadTotal(count)
+      // Show toast if there's a new unread message we haven't seen
+      if (latest && latest.id !== lastSeenMsgId.current) {
+        const isFirstLoad = lastSeenMsgId.current === null
+        lastSeenMsgId.current = latest.id
+        if (!isFirstLoad) {
+          const body = latest.fileName ? `Sent a file: ${latest.fileName}` : (latest.body ?? '')
+          setToast({ sender: latest.sender.name, body })
+          setTimeout(() => setToast(null), 5000)
+        }
+      }
     }
   }, [])
 
@@ -310,6 +322,30 @@ export default function ChatWidget() {
           </span>
         )}
       </button>
+
+      {/* Toast notification for new messages */}
+      {toast && !open && (
+        <button
+          onClick={() => { setToast(null); setOpen(true) }}
+          className="fixed bottom-[88px] right-6 z-50 w-72 animate-in slide-in-from-bottom-2 rounded-xl border border-gray-200 bg-white p-3 shadow-xl dark:border-gray-700 dark:bg-gray-900 text-left transition-all hover:shadow-2xl"
+        >
+          <div className="flex items-start gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+              {toast.sender.charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">{toast.sender}</p>
+              <p className="text-xs text-gray-500 truncate">{toast.body}</p>
+            </div>
+            <span
+              onClick={(e) => { e.stopPropagation(); setToast(null) }}
+              className="text-gray-300 hover:text-gray-500 mt-0.5"
+            >
+              <X className="h-3 w-3" />
+            </span>
+          </div>
+        </button>
+      )}
 
       {/* Panel */}
       {open && (
