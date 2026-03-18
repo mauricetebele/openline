@@ -1,15 +1,20 @@
 /**
  * GET /api/fba-shipments/[id]/labels
  *
- * Downloads shipment labels via the v0 API using the shipmentConfirmationId
- * and box IDs from the v2024-03-20 API.
+ * Downloads shipment labels for ALL shipments in the placement option.
+ * Uses the v0 API with shipmentConfirmationId and box IDs from v2024-03-20.
  *
  * Status: TRANSPORT_CONFIRMED → LABELS_READY
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { getShipment, listShipmentBoxes, getShipmentLabels } from '@/lib/amazon/fba-inbound'
+import {
+  getShipment,
+  listShipmentBoxes,
+  getShipmentLabels,
+  listPlacementOptions,
+} from '@/lib/amazon/fba-inbound'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -27,9 +32,17 @@ export async function GET(
     return NextResponse.json({ error: 'No Amazon shipment ID on this shipment' }, { status: 400 })
   }
 
-  // Return cached label if available
+  // Return cached labels if available
   if (shipment.labelData) {
-    return NextResponse.json({ downloadUrl: shipment.labelData })
+    try {
+      const parsed = JSON.parse(shipment.labelData)
+      if (Array.isArray(parsed)) {
+        return NextResponse.json({ downloadUrls: parsed, downloadUrl: parsed[0] })
+      }
+    } catch {
+      // Legacy single URL
+      return NextResponse.json({ downloadUrl: shipment.labelData })
+    }
   }
 
   const allowed = new Set(['TRANSPORT_CONFIRMED', 'LABELS_READY'])
@@ -38,74 +51,95 @@ export async function GET(
   }
 
   try {
-    // 1. Get the shipmentConfirmationId (FBA1234ABCD format) from v2024-03-20
-    const shipmentDetails = await getShipment(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      shipment.shipmentId,
-    )
-
-    const confirmationId = shipmentDetails.shipmentConfirmationId
-      ?? shipmentDetails.amazonReferenceId
-      ?? shipmentDetails.shipmentId
-
-    if (!confirmationId) {
-      throw new Error('No shipmentConfirmationId found in shipment details')
-    }
-
-    // 2. Get box IDs from v2024-03-20 (required for UNIQUE label type)
-    const boxes = await listShipmentBoxes(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      shipment.shipmentId,
-    )
-
-    const boxIds = boxes.map(b => b.boxId ?? b.packageId).filter(Boolean) as string[]
-
-    if (boxIds.length === 0) {
-      throw new Error('No box IDs found for this shipment')
-    }
-
-    // 3. Fetch labels from v0 API with box IDs
-    //    Try partnered format first (PackageLabel_Letter_2 = FBA + UPS on same page).
-    //    Fall back to non-partnered (PackageLabel_Letter_6 = FBA only) if it fails.
-    let downloadUrl: string
-    try {
-      downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId, boxIds, true)
-    } catch {
-      downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId, boxIds, false)
-    }
-
-    // Persist shipmentConfirmationId and parse per-box tracking numbers
-    const updateData: Record<string, unknown> = {
-      labelData: downloadUrl,
-      status: 'LABELS_READY',
-      lastError: null,
-      lastErrorAt: null,
-    }
-    if (confirmationId && !shipment.shipmentConfirmationId) {
-      updateData.shipmentConfirmationId = confirmationId
-    }
-
-    await prisma.fbaShipment.update({
-      where: { id: params.id },
-      data: updateData as never,
-    })
-
-    // Try to extract per-box tracking numbers from shipment details
-    // Amazon may return trackingId on each box in getShipment or listShipmentBoxes
-    for (let i = 0; i < boxes.length; i++) {
-      const box = boxes[i] as Record<string, unknown>
-      const tracking = (box.trackingId ?? box.trackingNumber ?? null) as string | null
-      if (tracking) {
-        await prisma.fbaShipmentBox.updateMany({
-          where: { shipmentId: params.id, boxNumber: i + 1, trackingNumber: null },
-          data: { trackingNumber: tracking },
-        })
+    // Get ALL shipment IDs from the placement option
+    let allShipmentIds = [shipment.shipmentId]
+    if (shipment.placementOptionId) {
+      const placementOptions = await listPlacementOptions(shipment.accountId, shipment.inboundPlanId)
+      const selectedOption = placementOptions.find(p => p.placementOptionId === shipment.placementOptionId)
+      if (selectedOption?.shipmentIds?.length) {
+        allShipmentIds = selectedOption.shipmentIds
       }
     }
 
-    return NextResponse.json({ downloadUrl })
+    const downloadUrls: string[] = []
+
+    for (const sid of allShipmentIds) {
+      try {
+        // 1. Get the shipmentConfirmationId from v2024-03-20
+        const shipmentDetails = await getShipment(
+          shipment.accountId,
+          shipment.inboundPlanId,
+          sid,
+        )
+
+        const confirmationId = shipmentDetails.shipmentConfirmationId
+          ?? shipmentDetails.amazonReferenceId
+          ?? shipmentDetails.shipmentId
+
+        if (!confirmationId) {
+          console.warn(`[labels] No confirmationId for shipment ${sid}, skipping`)
+          continue
+        }
+
+        // 2. Get box IDs
+        const boxes = await listShipmentBoxes(
+          shipment.accountId,
+          shipment.inboundPlanId,
+          sid,
+        )
+
+        const boxIds = boxes.map(b => b.boxId ?? b.packageId).filter(Boolean) as string[]
+
+        if (boxIds.length === 0) {
+          console.warn(`[labels] No box IDs for shipment ${sid}, skipping`)
+          continue
+        }
+
+        // 3. Fetch labels — try partnered format first, fallback to non-partnered
+        let downloadUrl: string
+        try {
+          downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId, boxIds, true)
+        } catch {
+          downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId, boxIds, false)
+        }
+
+        downloadUrls.push(downloadUrl)
+
+        // Try to extract per-box tracking numbers
+        for (let i = 0; i < boxes.length; i++) {
+          const box = boxes[i] as Record<string, unknown>
+          const tracking = (box.trackingId ?? box.trackingNumber ?? null) as string | null
+          if (tracking) {
+            await prisma.fbaShipmentBox.updateMany({
+              where: { shipmentId: params.id, boxNumber: i + 1, trackingNumber: null },
+              data: { trackingNumber: tracking },
+            })
+          }
+        }
+      } catch (shipErr) {
+        const msg = shipErr instanceof Error ? shipErr.message : String(shipErr)
+        console.error(`[labels] Failed to get labels for shipment ${sid}:`, msg)
+        // Continue with other shipments
+      }
+    }
+
+    if (downloadUrls.length === 0) {
+      throw new Error('Could not fetch labels for any shipment in the placement')
+    }
+
+    // Persist all label URLs and update status
+    await prisma.fbaShipment.update({
+      where: { id: params.id },
+      data: {
+        labelData: JSON.stringify(downloadUrls),
+        status: 'LABELS_READY',
+        lastError: null,
+        lastErrorAt: null,
+        ...(!shipment.shipmentConfirmationId ? {} : {}),
+      },
+    })
+
+    return NextResponse.json({ downloadUrls, downloadUrl: downloadUrls[0] })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     await prisma.fbaShipment.update({

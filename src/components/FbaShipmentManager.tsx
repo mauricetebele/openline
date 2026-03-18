@@ -837,8 +837,11 @@ function WizardView({
 
   async function handleDownloadLabels() {
     const result = await doAction('labels')
-    if (result?.downloadUrl) {
-      window.open(result.downloadUrl, '_blank')
+    if (result) {
+      const urls: string[] = result.downloadUrls ?? (result.downloadUrl ? [result.downloadUrl] : [])
+      for (const url of urls) {
+        window.open(url, '_blank')
+      }
       await loadShipment()
       onRefreshList()
     }
@@ -1540,7 +1543,13 @@ function WizardView({
 
           <div className="flex gap-2">
             {shipment.labelData && (
-              <button type="button" onClick={() => window.open(shipment.labelData!, '_blank')}
+              <button type="button" onClick={() => {
+                try {
+                  const urls = JSON.parse(shipment.labelData!)
+                  if (Array.isArray(urls)) { urls.forEach((u: string) => window.open(u, '_blank')) }
+                  else { window.open(shipment.labelData!, '_blank') }
+                } catch { window.open(shipment.labelData!, '_blank') }
+              }}
                 className="flex items-center gap-2 h-9 px-4 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">
                 <Download size={14} /> Re-download Labels
               </button>
