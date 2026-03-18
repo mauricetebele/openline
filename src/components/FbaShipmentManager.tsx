@@ -1593,7 +1593,7 @@ function WizardView({
       )}
 
       {shipment.status === 'SHIPPED' && (
-        <div className="border border-green-200 bg-green-50 rounded-lg p-4 space-y-3">
+        <div className="border border-green-200 bg-green-50 rounded-lg p-4 space-y-4">
           <div className="flex items-center gap-3">
             <Check size={20} className="text-green-600" />
             <div>
@@ -1617,6 +1617,60 @@ function WizardView({
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Re-download labels */}
+          {shipment.labelData && (() => {
+            let urls: string[] = []
+            try {
+              const parsed = JSON.parse(shipment.labelData!)
+              if (Array.isArray(parsed)) urls = parsed
+              else urls = [shipment.labelData!]
+            } catch { urls = [shipment.labelData!] }
+            return urls.length > 1 ? (
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-gray-500">Labels ({urls.length} shipments)</div>
+                {urls.map((url, i) => (
+                  <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-xs text-blue-600 hover:underline">
+                    <Download size={12} /> Shipment {i + 1} Labels
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <a href={urls[0]} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 text-xs text-blue-600 hover:underline w-fit">
+                <Download size={12} /> Re-download Labels
+              </a>
+            )
+          })()}
+
+          {/* Shipped items with serials */}
+          {shipment.items.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-gray-500">Items &amp; Serials ({shipment.items.reduce((s, i) => s + (i.serialAssignments?.length ?? 0), 0)} units)</div>
+              {shipment.items.map(item => {
+                const serials = item.serialAssignments ?? []
+                return (
+                  <div key={item.id} className="bg-white/60 border border-green-100 rounded-md p-2.5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-medium text-gray-800">{item.msku?.product?.sku ?? item.sellerSku}</span>
+                      {item.msku?.grade && <span className="text-xs text-gray-500">({item.msku.grade.grade})</span>}
+                      <span className="ml-auto text-xs text-green-600 font-medium">{serials.length} / {item.quantity}</span>
+                    </div>
+                    {serials.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {serials.map(sa => (
+                          <span key={sa.id} className="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-xs font-mono text-gray-600">
+                            {sa.inventorySerial.serialNumber}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
