@@ -139,6 +139,8 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       )
     }
-    throw err
+    console.error('[POST /api/marketplace-skus] Error:', err)
+    const message = err instanceof Error ? err.message : 'Failed to create marketplace SKU'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

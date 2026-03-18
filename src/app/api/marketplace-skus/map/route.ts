@@ -36,30 +36,69 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Create the MSKU mapping and link to listing in a transaction
-  const result = await prisma.$transaction(async (tx) => {
-    const msku = await tx.productGradeMarketplaceSku.create({
-      data: {
-        productId,
-        gradeId: gradeId || null,
-        marketplace: listing.marketplace,
-        accountId: listing.accountId,
-        sellerSku: listing.sellerSku,
-        isSynced: true,
-      },
-      include: {
-        product: { select: { id: true, sku: true, description: true } },
-        grade: { select: { id: true, grade: true } },
-      },
-    })
-
-    await tx.marketplaceListing.update({
-      where: { id: listingId },
-      data: { mskuId: msku.id },
-    })
-
-    return msku
+  // Check if a mapping already exists for this product+grade+marketplace+account
+  const normalizedGradeId = gradeId || null
+  const existing = await prisma.productGradeMarketplaceSku.findFirst({
+    where: {
+      productId,
+      gradeId: normalizedGradeId,
+      marketplace: listing.marketplace,
+      accountId: listing.accountId,
+    },
+    include: {
+      product: { select: { id: true, sku: true, description: true } },
+      grade: { select: { id: true, grade: true } },
+    },
   })
 
-  return NextResponse.json(result, { status: 201 })
+  // If mapping already exists, just link the listing to it
+  if (existing) {
+    if (!listing.mskuId) {
+      await prisma.marketplaceListing.update({
+        where: { id: listingId },
+        data: { mskuId: existing.id },
+      })
+    }
+    return NextResponse.json(existing, { status: 201 })
+  }
+
+  // Create the MSKU mapping and link to listing in a transaction
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const msku = await tx.productGradeMarketplaceSku.create({
+        data: {
+          productId,
+          gradeId: normalizedGradeId,
+          marketplace: listing.marketplace,
+          accountId: listing.accountId,
+          sellerSku: listing.sellerSku,
+          isSynced: true,
+        },
+        include: {
+          product: { select: { id: true, sku: true, description: true } },
+          grade: { select: { id: true, grade: true } },
+        },
+      })
+
+      await tx.marketplaceListing.update({
+        where: { id: listingId },
+        data: { mskuId: msku.id },
+      })
+
+      return msku
+    })
+
+    return NextResponse.json(result, { status: 201 })
+  } catch (err: unknown) {
+    const e = err as { code?: string }
+    if (e.code === 'P2002') {
+      return NextResponse.json(
+        { error: 'A marketplace SKU mapping already exists for this product/grade/marketplace/account combination' },
+        { status: 409 },
+      )
+    }
+    console.error('[POST /api/marketplace-skus/map] Error:', err)
+    const message = err instanceof Error ? err.message : 'Failed to create mapping'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }
