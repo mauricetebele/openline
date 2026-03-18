@@ -465,6 +465,7 @@ export interface ShipmentLabelsResponse {
 /**
  * Fetch shipment labels via the v0 Inbound API.
  * The v2024-03-20 API has no label endpoint, so we fall back to v0.
+ * Uses shipmentConfirmationId (the Amazon shipment ID) and default label type.
  */
 export async function getShipmentLabels(
   accountId: string,
@@ -475,7 +476,7 @@ export async function getShipmentLabels(
     `/fba/inbound/v0/shipments/${amazonShipmentId}/labels`,
     {
       PageType: 'PackageLabel_Letter_6',
-      LabelType: 'UNIQUE',
+      LabelType: 'SELLER_LABEL',
     },
   )
   const url = resp.payload?.DownloadURL ?? resp.DownloadURL
