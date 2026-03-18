@@ -232,7 +232,27 @@ function ListView({
                     {s.name || s.id.slice(-8)}
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">{s.account.marketplaceName}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{s.shipmentConfirmationId ?? '—'}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-gray-500">
+                    {(() => {
+                      let ids: string[] = []
+                      try {
+                        const parsed = JSON.parse(s.labelData ?? '[]')
+                        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.confirmationId) {
+                          ids = parsed.map((sl: { confirmationId: string }) => sl.confirmationId)
+                        }
+                      } catch { /* ignore */ }
+                      if (ids.length > 1) {
+                        return (
+                          <div className="flex flex-col gap-0.5">
+                            {ids.map((id, i) => (
+                              <span key={i} className="whitespace-nowrap">{id}</span>
+                            ))}
+                          </div>
+                        )
+                      }
+                      return s.shipmentConfirmationId ?? '—'
+                    })()}
+                  </td>
                   <td className="px-4 py-2.5 text-center text-gray-600">{s._count?.items ?? s.items.length}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
                   <td className="px-4 py-2.5 text-gray-500">{new Date(s.createdAt).toLocaleDateString()}</td>
