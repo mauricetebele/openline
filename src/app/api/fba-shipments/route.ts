@@ -161,7 +161,19 @@ export async function POST(req: NextRequest) {
         })),
       },
     },
-    include: { items: true },
+    include: {
+      items: {
+        include: {
+          msku: {
+            select: {
+              sellerSku: true,
+              product: { select: { id: true, sku: true, description: true } },
+              grade: { select: { id: true, grade: true } },
+            },
+          },
+        },
+      },
+    },
   })
 
   return NextResponse.json(shipment, { status: 201 })
