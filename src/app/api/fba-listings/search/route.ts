@@ -63,23 +63,26 @@ export async function GET(req: NextRequest) {
 
   const mskuBySku = new Map(mskuMappings.map(m => [m.sellerSku, m]))
 
-  const data = listings.map(l => {
-    const msku = mskuBySku.get(l.sku)
-    return {
-      id: l.id,
-      sku: l.sku,
-      fnsku: l.fnsku,
-      asin: l.asin,
-      productTitle: l.productTitle,
-      quantity: l.quantity,
-      mskuId: msku?.id ?? null,
-      productId: msku?.productId ?? null,
-      gradeId: msku?.gradeId ?? null,
-      grade: msku?.grade?.grade ?? null,
-      productSku: msku?.product?.sku ?? null,
-      productDescription: msku?.product?.description ?? null,
-    }
-  })
+  // Only return listings that have an MSKU mapping (mapped FBA SKUs)
+  const data = listings
+    .filter(l => mskuBySku.has(l.sku))
+    .map(l => {
+      const msku = mskuBySku.get(l.sku)!
+      return {
+        id: l.id,
+        sku: l.sku,
+        fnsku: l.fnsku,
+        asin: l.asin,
+        productTitle: l.productTitle,
+        quantity: l.quantity,
+        mskuId: msku.id,
+        productId: msku.productId,
+        gradeId: msku.gradeId ?? null,
+        grade: msku.grade?.grade ?? null,
+        productSku: msku.product?.sku ?? null,
+        productDescription: msku.product?.description ?? null,
+      }
+    })
 
   return NextResponse.json({ data })
 }
