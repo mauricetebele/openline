@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight, Copy, Printer, ClipboardPaste } from 'lucide-react'
+import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight, Copy, Printer, ClipboardPaste, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import JsBarcode from 'jsbarcode'
 import { jsPDF } from 'jspdf'
@@ -166,6 +166,7 @@ function ListView({
   onTabChange,
   onSelect,
   onCreate,
+  onDelete,
 }: {
   shipments: FbaShipment[]
   loading: boolean
@@ -173,6 +174,7 @@ function ListView({
   onTabChange: (t: string | null) => void
   onSelect: (id: string) => void
   onCreate: () => void
+  onDelete: (id: string) => void
 }) {
   const filtered = shipments.filter(s => {
     if (!tab) return true
@@ -218,6 +220,7 @@ function ListView({
                 <th className="text-center px-4 py-2 font-medium">Items</th>
                 <th className="text-left px-4 py-2 font-medium">Status</th>
                 <th className="text-left px-4 py-2 font-medium">Created</th>
+                <th className="w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -233,6 +236,15 @@ function ListView({
                   <td className="px-4 py-2.5 text-center text-gray-600">{s._count?.items ?? s.items.length}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
                   <td className="px-4 py-2.5 text-gray-500">{new Date(s.createdAt).toLocaleDateString()}</td>
+                  <td className="px-4 py-2.5">
+                    {s.status !== 'SHIPPED' && (
+                      <button type="button" title="Delete shipment"
+                        onClick={(e) => { e.stopPropagation(); onDelete(s.id) }}
+                        className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1636,6 +1648,15 @@ export default function FbaShipmentManager() {
       onTabChange={setTab}
       onSelect={id => setView({ type: 'detail', id })}
       onCreate={() => setView({ type: 'create' })}
+      onDelete={async (id) => {
+        if (!confirm('Delete this shipment? Inventory reservations will be released.')) return
+        try {
+          const res = await fetch(`/api/fba-shipments/${id}`, { method: 'DELETE' })
+          const data = await res.json()
+          if (!res.ok) { alert(data.error ?? 'Delete failed'); return }
+          load()
+        } catch { alert('Delete failed') }
+      }}
     />
   )
 }
