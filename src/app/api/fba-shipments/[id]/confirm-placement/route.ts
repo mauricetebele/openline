@@ -30,7 +30,10 @@ export async function POST(
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const shipment = await prisma.fbaShipment.findUnique({ where: { id: params.id } })
+  const shipment = await prisma.fbaShipment.findUnique({
+    where: { id: params.id },
+    include: { warehouse: true },
+  })
   if (!shipment) return NextResponse.json({ error: 'Shipment not found' }, { status: 404 })
   if (shipment.status !== 'PACKING_SET') {
     return NextResponse.json({ error: 'Shipment must be in PACKING_SET status' }, { status: 409 })
@@ -79,40 +82,46 @@ export async function POST(
 
     // 3. Generate & confirm delivery window (required before transport options)
     step = 'generate-delivery-window'
-    const dwGenResp = await generateDeliveryWindowOptions(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      amazonShipmentId,
-    )
-    await pollOperationStatus(shipment.accountId, dwGenResp.operationId)
+    try {
+      const dwGenResp = await generateDeliveryWindowOptions(
+        shipment.accountId,
+        shipment.inboundPlanId,
+        amazonShipmentId,
+      )
+      await pollOperationStatus(shipment.accountId, dwGenResp.operationId)
 
-    step = 'list-delivery-window'
-    const deliveryWindows = await listDeliveryWindowOptions(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      amazonShipmentId,
-    )
+      step = 'list-delivery-window'
+      const deliveryWindows = await listDeliveryWindowOptions(
+        shipment.accountId,
+        shipment.inboundPlanId,
+        amazonShipmentId,
+      )
 
-    if (deliveryWindows.length === 0) {
-      throw new Error('No delivery window options returned from Amazon')
+      if (deliveryWindows.length > 0) {
+        step = 'confirm-delivery-window'
+        const selectedWindow = deliveryWindows[0]
+        const dwConfirmResp = await confirmDeliveryWindowOptions(
+          shipment.accountId,
+          shipment.inboundPlanId,
+          amazonShipmentId,
+          selectedWindow.deliveryWindowOptionId,
+        )
+        await pollOperationStatus(shipment.accountId, dwConfirmResp.operationId)
+      }
+    } catch (dwErr) {
+      const msg = dwErr instanceof Error ? dwErr.message : String(dwErr)
+      // Delivery window may already be confirmed or not required — continue
+      if (!msg.includes('already') && !msg.includes('cannot be processed')) {
+        console.warn('[confirm-placement] Delivery window step failed (continuing):', msg)
+      }
     }
 
-    // Auto-select first available delivery window
-    step = 'confirm-delivery-window'
-    const selectedWindow = deliveryWindows[0]
-    const dwConfirmResp = await confirmDeliveryWindowOptions(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      amazonShipmentId,
-      selectedWindow.deliveryWindowOptionId,
-    )
-    await pollOperationStatus(shipment.accountId, dwConfirmResp.operationId)
-
-    // 4. Transportation options — best-effort, don't block shipment progress
+    // 4. Generate transportation options
     let transportOptions: Awaited<ReturnType<typeof listTransportationOptions>> = []
     let transportWarning: string | null = null
 
     try {
+      // Try listing first (may already exist)
       step = 'list-transportation-options'
       transportOptions = await listTransportationOptions(
         shipment.accountId,
@@ -122,11 +131,23 @@ export async function POST(
 
       if (transportOptions.length === 0) {
         step = 'generate-transportation-options'
+        // Ready to ship = tomorrow
+        const readyDate = new Date()
+        readyDate.setDate(readyDate.getDate() + 1)
+
         const transportResp = await generateTransportationOptions(
           shipment.accountId,
           shipment.inboundPlanId,
-          amazonShipmentId,
-          body.placementOptionId,
+          {
+            placementOptionId: body.placementOptionId,
+            shipmentId: amazonShipmentId,
+            contactInformation: {
+              name: shipment.warehouse?.name ?? 'Warehouse',
+              phoneNumber: '0000000000',
+              email: user.email,
+            },
+            readyToShipDate: readyDate.toISOString(),
+          },
         )
         await pollOperationStatus(shipment.accountId, transportResp.operationId)
 
@@ -163,10 +184,6 @@ export async function POST(
       shipmentId: amazonShipmentId,
       transportOptions,
       transportWarning,
-      deliveryWindow: {
-        start: selectedWindow.startDate,
-        end: selectedWindow.endDate,
-      },
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

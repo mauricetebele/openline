@@ -346,16 +346,37 @@ export async function confirmPlacementOption(
 
 // ─── 9. Generate Transportation Options ─────────────────────────────────────
 
+export interface TransportContactInfo {
+  name: string
+  phoneNumber: string
+  email: string
+}
+
 export async function generateTransportationOptions(
   accountId: string,
   inboundPlanId: string,
-  shipmentId: string,
-  placementOptionId: string,
+  opts: {
+    placementOptionId: string
+    shipmentId: string
+    contactInformation: TransportContactInfo
+    readyToShipDate: string  // ISO 8601
+  },
 ): Promise<{ operationId: string }> {
   const client = new SpApiClient(accountId)
   return client.post<{ operationId: string }>(
-    `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/shipments/${shipmentId}/transportationOptions`,
-    { placementOptionId, shipmentId },
+    `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/transportationOptions`,
+    {
+      placementOptionId: opts.placementOptionId,
+      shipmentTransportationConfigurations: [
+        {
+          contactInformation: opts.contactInformation,
+          shipmentId: opts.shipmentId,
+          readyToShipWindow: {
+            start: opts.readyToShipDate,
+          },
+        },
+      ],
+    },
   )
 }
 
@@ -368,7 +389,8 @@ export async function listTransportationOptions(
 ): Promise<TransportationOption[]> {
   const client = new SpApiClient(accountId)
   const resp = await client.get<{ transportationOptions: TransportationOption[] }>(
-    `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/shipments/${shipmentId}/transportationOptions`,
+    `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/transportationOptions`,
+    { shipmentId },
   )
   return resp.transportationOptions ?? []
 }
