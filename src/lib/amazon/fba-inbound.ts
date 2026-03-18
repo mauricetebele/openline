@@ -141,21 +141,8 @@ export interface PlacementOption {
   expiration?: string
 }
 
-export interface InboundShipment {
-  shipmentId: string
-  shipmentConfirmationId?: string
-  destination?: {
-    destinationType?: string
-    warehouseId?: string
-    address?: {
-      name?: string
-      city?: string
-      stateOrProvinceCode?: string
-    }
-  }
-  status?: string
-  selectedDeliveryWindow?: { startDate: string; endDate: string }
-}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type InboundShipment = Record<string, any>
 
 export interface TransportationOption {
   transportationOptionId: string
@@ -311,7 +298,21 @@ export async function listShipments(
     `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/shipments`,
   )
   console.log('[listShipments] Raw response:', JSON.stringify(resp))
-  return resp.shipments ?? []
+  return resp.shipments ?? resp.body?.shipments ?? []
+}
+
+export async function getShipment(
+  accountId: string,
+  inboundPlanId: string,
+  shipmentId: string,
+): Promise<InboundShipment> {
+  const client = new SpApiClient(accountId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp = await client.get<any>(
+    `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/shipments/${shipmentId}`,
+  )
+  console.log(`[getShipment] ${shipmentId} raw:`, JSON.stringify(resp))
+  return resp
 }
 
 // ─── 7. List Placement Options ──────────────────────────────────────────────

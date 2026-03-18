@@ -15,6 +15,7 @@ import {
   generatePlacementOptions,
   listPlacementOptions,
   listShipments,
+  getShipment,
   type BoxInput,
 } from '@/lib/amazon/fba-inbound'
 
@@ -118,11 +119,15 @@ export async function POST(
     const placementOptions = await listPlacementOptions(shipment.accountId, shipment.inboundPlanId)
 
     // 4. Fetch shipment details (destination FCs) for enrichment
-    let shipments: Array<{ shipmentId: string; destination?: { warehouseId?: string; address?: { city?: string; stateOrProvinceCode?: string } }; status?: string }> = []
-    try {
-      shipments = await listShipments(shipment.accountId, shipment.inboundPlanId)
-    } catch (e) {
-      console.warn('[set-boxes] listShipments failed (non-fatal):', e)
+    const allShipmentIds = Array.from(new Set(placementOptions.flatMap(o => o.shipmentIds ?? [])))
+    let shipments = await listShipments(shipment.accountId, shipment.inboundPlanId).catch(() => [])
+    if (shipments.length === 0 && allShipmentIds.length > 0) {
+      const results = await Promise.allSettled(
+        allShipmentIds.map(sid => getShipment(shipment.accountId, shipment.inboundPlanId!, sid))
+      )
+      shipments = results
+        .filter((r): r is PromiseFulfilledResult<Record<string, unknown>> => r.status === 'fulfilled')
+        .map(r => r.value)
     }
 
     // Save boxes to DB

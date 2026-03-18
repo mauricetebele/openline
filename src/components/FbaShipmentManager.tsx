@@ -87,15 +87,8 @@ interface FbaListingResult {
   productDescription: string | null
 }
 
-interface ShipmentInfo {
-  shipmentId: string
-  destination?: {
-    destinationType?: string
-    warehouseId?: string
-    address?: { name?: string; city?: string; stateOrProvinceCode?: string }
-  }
-  status?: string
-}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ShipmentInfo = Record<string, any>
 
 interface PlacementOption {
   placementOptionId: string
@@ -786,6 +779,8 @@ function WizardView({
     const result = await doAction('set-boxes', { boxes })
     if (result) {
       setPlacementOptions(result.placementOptions ?? [])
+      console.log('[FBA] Placement options:', result.placementOptions)
+      console.log('[FBA] Shipments:', result.shipments)
       // Build shipment info map for destination display
       const sMap = new Map<string, ShipmentInfo>()
       for (const s of (result.shipments ?? [])) {
@@ -1021,6 +1016,8 @@ function WizardView({
                 const data = await res.json()
                 if (res.ok) {
                   setPlacementOptions(data.placementOptions ?? [])
+                  console.log('[FBA] Placement options:', data.placementOptions)
+                  console.log('[FBA] Shipments:', data.shipments)
                   const sMap = new Map<string, ShipmentInfo>()
                   for (const s of (data.shipments ?? [])) sMap.set(s.shipmentId, s)
                   setShipmentInfoMap(sMap)
@@ -1066,13 +1063,27 @@ function WizardView({
                     <div className="space-y-1">
                       {opt.shipmentIds.map(sid => {
                         const info = shipmentInfoMap.get(sid)
-                        const dest = info?.destination
-                        const fcLabel = dest?.warehouseId
-                          ? `${dest.warehouseId}${dest.address?.city ? ` (${dest.address.city}, ${dest.address.stateOrProvinceCode ?? ''})` : ''}`
-                          : sid
+                        // Try multiple possible response structures
+                        const dest = info?.destination ?? info?.destinationAddress ?? info?.fulfillmentCenter
+                        const warehouseId = dest?.warehouseId ?? dest?.fulfillmentCenterId ?? info?.amazonReferenceId ?? info?.warehouseId
+                        const city = dest?.address?.city ?? dest?.city ?? info?.address?.city
+                        const state = dest?.address?.stateOrProvinceCode ?? dest?.stateOrProvinceCode ?? info?.address?.stateOrProvinceCode
+                        const name = dest?.address?.name ?? dest?.name ?? info?.name
+
+                        let fcLabel: string
+                        if (warehouseId) {
+                          const loc = [city, state].filter(Boolean).join(', ')
+                          fcLabel = loc ? `FC: ${warehouseId} (${loc})` : `FC: ${warehouseId}`
+                        } else if (name || city) {
+                          fcLabel = [name, city, state].filter(Boolean).join(', ')
+                        } else {
+                          // Show truncated shipment ID
+                          fcLabel = `Shipment ${sid.length > 12 ? '...' + sid.slice(-8) : sid}`
+                        }
+
                         return (
                           <div key={sid} className="flex items-center gap-2 text-xs text-gray-600">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-gray-400" />
+                            <Truck size={12} className="text-gray-400 flex-shrink-0" />
                             <span className="font-medium">{fcLabel}</span>
                           </div>
                         )

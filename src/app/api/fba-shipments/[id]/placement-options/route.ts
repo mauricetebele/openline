@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { listPlacementOptions, listShipments } from '@/lib/amazon/fba-inbound'
+import { listPlacementOptions, listShipments, getShipment } from '@/lib/amazon/fba-inbound'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,10 +27,25 @@ export async function GET(
   }
 
   try {
-    const [placementOptions, shipments] = await Promise.all([
-      listPlacementOptions(shipment.accountId, shipment.inboundPlanId),
-      listShipments(shipment.accountId, shipment.inboundPlanId).catch(() => []),
-    ])
+    const placementOptions = await listPlacementOptions(shipment.accountId, shipment.inboundPlanId)
+
+    // Collect all unique shipment IDs across all placement options
+    const allShipmentIds = Array.from(new Set(placementOptions.flatMap(o => o.shipmentIds ?? [])))
+
+    // Try list endpoint first, then fall back to individual fetches
+    let shipments = await listShipments(shipment.accountId, shipment.inboundPlanId).catch(() => [])
+
+    // If list didn't return shipments, try fetching individually
+    if (shipments.length === 0 && allShipmentIds.length > 0) {
+      const results = await Promise.allSettled(
+        allShipmentIds.map(sid =>
+          getShipment(shipment.accountId, shipment.inboundPlanId!, sid)
+        )
+      )
+      shipments = results
+        .filter((r): r is PromiseFulfilledResult<Record<string, unknown>> => r.status === 'fulfilled')
+        .map(r => r.value)
+    }
 
     return NextResponse.json({ placementOptions, shipments })
   } catch (err) {
