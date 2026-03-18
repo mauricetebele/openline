@@ -94,31 +94,43 @@ export async function POST(
     await pollOperationStatus(shipment.accountId, confirmResp.operationId)
 
     // Extract packing group ID from packing option
-    let packingGroupId = firstOption.packingGroups?.[0]?.packingGroupId ?? null
+    // Amazon may return packingGroups as array of objects OR array of strings
+    let packingGroupId: string | null = null
+    const pg = firstOption.packingGroups
+    if (Array.isArray(pg) && pg.length > 0) {
+      packingGroupId = typeof pg[0] === 'string' ? pg[0] : pg[0]?.packingGroupId ?? null
+    }
+    // Also check packingGroupIds (alternative field name)
+    if (!packingGroupId && Array.isArray(firstOption.packingGroupIds) && firstOption.packingGroupIds.length > 0) {
+      packingGroupId = firstOption.packingGroupIds[0]
+    }
 
-    // If not in packing option, try listing packing groups separately
+    // Fallback: list packing groups separately
     if (!packingGroupId) {
       try {
-        const packingGroups = await listPackingGroups(shipment.accountId, planResp.inboundPlanId)
-        packingGroupId = packingGroups[0]?.packingGroupId ?? null
+        const groups = await listPackingGroups(shipment.accountId, planResp.inboundPlanId)
+        packingGroupId = groups[0]?.packingGroupId ?? (typeof groups[0] === 'string' ? groups[0] : null)
       } catch (pgErr) {
-        console.warn('[create-plan] listPackingGroups failed, trying to extract from options:', pgErr)
+        console.warn('[create-plan] listPackingGroups failed:', pgErr)
       }
     }
 
-    // Last resort: re-list packing options after confirmation (Amazon populates packingGroups after confirm)
+    // Fallback: re-list packing options after confirmation
     if (!packingGroupId) {
       const refreshedOptions = await listPackingOptions(shipment.accountId, planResp.inboundPlanId)
+      console.log('[create-plan] Refreshed packing options:', JSON.stringify(refreshedOptions))
       for (const opt of refreshedOptions) {
-        if (opt.packingGroups?.length > 0) {
-          packingGroupId = opt.packingGroups[0].packingGroupId
-          break
+        const rpg = opt.packingGroups ?? opt.packingGroupIds
+        if (Array.isArray(rpg) && rpg.length > 0) {
+          packingGroupId = typeof rpg[0] === 'string' ? rpg[0] : rpg[0]?.packingGroupId ?? null
+          if (packingGroupId) break
         }
       }
     }
 
     if (!packingGroupId) {
-      console.error('[create-plan] No packing group found. Full packing options:', JSON.stringify(packingOptions))
+      console.error('[create-plan] No packing group found. Raw first option:', JSON.stringify(firstOption))
+      console.error('[create-plan] All keys on first option:', Object.keys(firstOption))
     }
 
     // Update shipment — save plan even if packingGroupId is null so we don't lose the inbound plan
