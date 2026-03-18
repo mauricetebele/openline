@@ -1228,11 +1228,15 @@ function WizardView({
           <h3 className="text-sm font-semibold text-gray-700">Confirm Transportation</h3>
           <p className="text-xs text-gray-500">Select a shipping option for your shipment.</p>
 
-          {transportOptions.length === 0 && (
+          {transportOptions.filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL').length === 0 && (
             <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-2">
-              <p className="text-sm text-amber-700">Transportation options are not available via the API.</p>
+              <p className="text-sm text-amber-700">
+                {transportOptions.length > 0
+                  ? 'No Small Parcel (SPD) options available. Only LTL/freight options were returned.'
+                  : 'Transportation options are not available via the API.'}
+              </p>
               <p className="text-xs text-amber-600">
-                Your SP-API app may need the <strong>Amazon Shipping</strong> role, or you can complete this step in Seller Central.
+                Try retrying or complete this step in Seller Central.
               </p>
               <div className="flex items-center gap-2 pt-1">
                 <button type="button" onClick={async () => {
@@ -1256,7 +1260,9 @@ function WizardView({
             </div>
           )}
 
-          {transportOptions.map(opt => (
+          {transportOptions
+            .filter(opt => opt.shippingMode === 'GROUND_SMALL_PARCEL')
+            .map(opt => (
             <label key={opt.transportationOptionId}
               className={clsx('flex items-start gap-3 p-3 rounded-lg border cursor-pointer',
                 selectedTransport === opt.transportationOptionId ? 'border-amazon-blue bg-blue-50' : 'border-gray-200 hover:border-gray-300')}>
@@ -1268,6 +1274,7 @@ function WizardView({
                 <div className="text-sm font-medium text-gray-700">
                   {opt.carrier?.name ?? 'Amazon Partner'} — {opt.shippingSolution}
                 </div>
+                <div className="text-xs text-gray-400">Small Parcel (SPD)</div>
                 {opt.quote && (
                   <div className="text-xs text-gray-500">${opt.quote.price.amount.toFixed(2)} {opt.quote.price.code}</div>
                 )}
@@ -1275,7 +1282,7 @@ function WizardView({
             </label>
           ))}
 
-          {transportOptions.length > 0 && (
+          {transportOptions.filter(o => o.shippingMode === 'GROUND_SMALL_PARCEL').length > 0 && (
             <button type="button" onClick={handleConfirmTransport} disabled={actionLoading || !selectedTransport}
               className="flex items-center gap-2 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
               {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Confirming...</> : 'Confirm Transport'}
