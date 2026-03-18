@@ -15,6 +15,7 @@ import {
   generatePackingOptions,
   listPackingOptions,
   confirmPackingOption,
+  listPackingGroups,
 } from '@/lib/amazon/fba-inbound'
 
 export const dynamic = 'force-dynamic'
@@ -92,8 +93,12 @@ export async function POST(
     )
     await pollOperationStatus(shipment.accountId, confirmResp.operationId)
 
-    // Extract packing group ID
-    const packingGroupId = firstOption.packingGroups?.[0]?.packingGroupId ?? null
+    // Fetch packing groups after confirming packing option
+    const packingGroups = await listPackingGroups(shipment.accountId, planResp.inboundPlanId)
+    const packingGroupId = packingGroups[0]?.packingGroupId ?? firstOption.packingGroups?.[0]?.packingGroupId ?? null
+    if (!packingGroupId) {
+      throw new Error('No packing group returned by Amazon after confirming packing option')
+    }
 
     // Update shipment
     await prisma.fbaShipment.update({

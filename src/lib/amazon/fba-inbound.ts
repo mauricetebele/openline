@@ -223,6 +223,19 @@ export async function confirmPackingOption(
   )
 }
 
+// ─── 4b. List Packing Groups (after confirming packing option) ──────────────
+
+export async function listPackingGroups(
+  accountId: string,
+  inboundPlanId: string,
+): Promise<Array<{ packingGroupId: string }>> {
+  const client = new SpApiClient(accountId)
+  const resp = await client.get<{ packingGroups: Array<{ packingGroupId: string }> }>(
+    `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/packingGroups`,
+  )
+  return resp.packingGroups ?? []
+}
+
 // ─── 5. Set Packing Information ─────────────────────────────────────────────
 
 export interface BoxInput {
