@@ -494,16 +494,22 @@ export interface ShipmentLabelsResponse {
 /**
  * Fetch shipment labels via the v0 Inbound API.
  * The v2024-03-20 API has no label endpoint, so we fall back to v0.
- * Uses shipmentConfirmationId (the Amazon shipment ID) and default label type.
+ * Uses shipmentConfirmationId (the Amazon shipment ID).
+ *
+ * PageType matters:
+ *  - PackageLabel_Letter_2: Partnered carrier (PCP) — includes both FBA + UPS labels
+ *  - PackageLabel_Letter_6: Non-partnered only — FBA box labels only
+ *  - PackageLabel_Thermal: Partnered carrier on 4x6 thermal
  */
 export async function getShipmentLabels(
   accountId: string,
   amazonShipmentId: string,
   boxIds: string[],
+  isPartnered: boolean = false,
 ): Promise<string> {
   const client = new SpApiClient(accountId)
   const params: Record<string, string> = {
-    PageType: 'PackageLabel_Letter_6',
+    PageType: isPartnered ? 'PackageLabel_Letter_2' : 'PackageLabel_Letter_6',
     LabelType: 'UNIQUE',
     NumberOfPackages: String(boxIds.length),
     PackageLabelsToPrint: boxIds.join(','),

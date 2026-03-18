@@ -67,7 +67,14 @@ export async function GET(
     }
 
     // 3. Fetch labels from v0 API with box IDs
-    const downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId, boxIds)
+    //    Try partnered format first (PackageLabel_Letter_2 = FBA + UPS on same page).
+    //    Fall back to non-partnered (PackageLabel_Letter_6 = FBA only) if it fails.
+    let downloadUrl: string
+    try {
+      downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId, boxIds, true)
+    } catch {
+      downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId, boxIds, false)
+    }
 
     // Cache and advance status
     await prisma.fbaShipment.update({
