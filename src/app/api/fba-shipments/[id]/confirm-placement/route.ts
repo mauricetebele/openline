@@ -46,13 +46,28 @@ export async function POST(
   }
 
   try {
-    // 1. Confirm placement
-    const confirmResp = await confirmPlacementOption(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      body.placementOptionId,
-    )
-    await pollOperationStatus(shipment.accountId, confirmResp.operationId)
+    // 1. Confirm placement (skip if already confirmed)
+    try {
+      console.log('[confirm-placement] Confirming placement option:', {
+        accountId: shipment.accountId,
+        inboundPlanId: shipment.inboundPlanId,
+        placementOptionId: body.placementOptionId,
+      })
+      const confirmResp = await confirmPlacementOption(
+        shipment.accountId,
+        shipment.inboundPlanId,
+        body.placementOptionId,
+      )
+      console.log('[confirm-placement] Confirm response:', JSON.stringify(confirmResp))
+      await pollOperationStatus(shipment.accountId, confirmResp.operationId)
+    } catch (confirmErr) {
+      const msg = confirmErr instanceof Error ? confirmErr.message : String(confirmErr)
+      if (msg.includes('already confirmed') || msg.includes('ConfirmPlacementOption cannot be processed')) {
+        console.log('[confirm-placement] Placement already confirmed, proceeding to next steps')
+      } else {
+        throw confirmErr
+      }
+    }
 
     // 2. Get the shipment ID from the placement option
     const placementOptions = await listPlacementOptions(shipment.accountId, shipment.inboundPlanId)
