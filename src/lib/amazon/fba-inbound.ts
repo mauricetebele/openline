@@ -470,13 +470,15 @@ export interface ShipmentLabelsResponse {
 export async function getShipmentLabels(
   accountId: string,
   amazonShipmentId: string,
+  numberOfPackages: number,
 ): Promise<string> {
   const client = new SpApiClient(accountId)
   const resp = await client.get<ShipmentLabelsResponse>(
     `/fba/inbound/v0/shipments/${amazonShipmentId}/labels`,
     {
       PageType: 'PackageLabel_Letter_6',
-      LabelType: 'SELLER_LABEL',
+      LabelType: 'UNIQUE',
+      NumberOfPackages: String(numberOfPackages),
     },
   )
   const url = resp.payload?.DownloadURL ?? resp.DownloadURL

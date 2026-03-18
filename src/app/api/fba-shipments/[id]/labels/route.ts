@@ -21,7 +21,10 @@ export async function GET(
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const shipment = await prisma.fbaShipment.findUnique({ where: { id: params.id } })
+  const shipment = await prisma.fbaShipment.findUnique({
+    where: { id: params.id },
+    include: { _count: { select: { boxes: true } } },
+  })
   if (!shipment) return NextResponse.json({ error: 'Shipment not found' }, { status: 404 })
   if (!shipment.shipmentId || !shipment.inboundPlanId) {
     return NextResponse.json({ error: 'No Amazon shipment ID on this shipment' }, { status: 400 })
@@ -54,7 +57,8 @@ export async function GET(
       throw new Error('No shipmentConfirmationId found in shipment details')
     }
 
-    const downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId)
+    const numberOfPackages = shipment._count?.boxes || 1
+    const downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId, numberOfPackages)
 
     // Cache and advance status
     await prisma.fbaShipment.update({
