@@ -48,6 +48,7 @@ export async function DELETE(
           eventType: 'UNASSIGNED',
           orderId: params.orderId,
           locationId: sa.inventorySerial.locationId,
+          userId: user.dbId,
           notes: `Unserialized from order ${order.amazonOrderId}`,
         },
       })

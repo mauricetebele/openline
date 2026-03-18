@@ -37,6 +37,7 @@ export async function PATCH(req: NextRequest) {
           inventorySerialId: id,
           eventType: 'NOTE_ADDED',
           locationId: serial.locationId,
+          userId: user.dbId,
           notes: trimmed
             ? `Note set: "${trimmed}"`
             : `Note cleared (was: "${prev?.note}")`,

@@ -37,6 +37,7 @@ export async function PUT(req: NextRequest) {
           inventorySerialId: s.id,
           eventType: 'BIN_ASSIGNED',
           locationId: s.locationId,
+          userId: user.dbId,
           notes: trimmed ? `Bin location set to "${trimmed}"` : 'Bin location cleared',
         },
       })

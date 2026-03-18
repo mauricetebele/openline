@@ -92,6 +92,7 @@ export async function POST(
                 eventType: 'MP_RMA_RETURN',
                 locationId: su.locationId,
                 orderId: rma.orderId,
+                userId: user.dbId,
               },
             })
 

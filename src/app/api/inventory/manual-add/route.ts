@@ -112,6 +112,7 @@ export async function POST(req: NextRequest) {
               inventorySerialId: serial.id,
               eventType:         'MANUAL_ADD',
               locationId:        location.id,
+              userId:            user.dbId,
               notes:             `Manual add — Reason: ${reason}`,
             },
           })

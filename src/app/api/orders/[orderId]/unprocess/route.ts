@@ -45,6 +45,7 @@ export async function POST(
           eventType: 'UNASSIGNED',
           orderId: params.orderId,
           locationId: sa.inventorySerial.locationId,
+          userId: user.dbId,
           notes: `Unprocessed order ${order.amazonOrderId}`,
         },
       })

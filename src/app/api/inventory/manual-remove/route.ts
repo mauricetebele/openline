@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
           inventorySerialId: serial.id,
           eventType:         'MANUAL_REMOVE',
           locationId,
+          userId:            user.dbId,
           notes:             reason,
         },
       })

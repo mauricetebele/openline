@@ -90,6 +90,7 @@ export async function DELETE(
           eventType: 'UNASSIGNED',
           fbaShipmentId: params.id,
           locationId: sa.inventorySerial.locationId,
+          userId: user.dbId,
           notes: `Deleted ${shipment.shipmentNumber ?? 'FBA shipment'}`,
         },
       })

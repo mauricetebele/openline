@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
 
   const mode = req.nextUrl.searchParams.get('mode')
   if (mode === 'parse') return handleParse(req)
-  if (mode === 'commit') return handleCommit(req)
+  if (mode === 'commit') return handleCommit(req, user.dbId)
   return NextResponse.json({ error: 'Invalid mode — use ?mode=parse or ?mode=commit' }, { status: 400 })
 }
 
@@ -269,7 +269,7 @@ interface CommitRow {
   serial: string
 }
 
-async function handleCommit(req: NextRequest) {
+async function handleCommit(req: NextRequest, userId: string) {
   let body: { locationId: string; rows: CommitRow[] }
   try { body = await req.json() } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
@@ -367,6 +367,7 @@ async function handleCommit(req: NextRequest) {
             inventorySerialId: serial.id,
             eventType: 'MIGRATION',
             locationId,
+            userId,
             notes: `Migration import — Vendor: ${vendor.name} (V-${vendor.vendorNumber})${costNote}`,
           },
         })

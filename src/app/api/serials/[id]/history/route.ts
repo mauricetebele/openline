@@ -51,6 +51,7 @@ export async function GET(
       },
       fromProduct: { select: { id: true, description: true, sku: true } },
       toProduct:   { select: { id: true, description: true, sku: true } },
+      user:        { select: { id: true, name: true } },
     },
     orderBy: { createdAt: 'asc' },
   })

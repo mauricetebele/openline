@@ -218,6 +218,7 @@ export async function POST(
             receiptId:         newReceipt.id,
             purchaseOrderId:   params.id,
             locationId:        s.locationId,
+            userId:            user.dbId,
           })),
         })
       }

@@ -59,6 +59,7 @@ export async function POST(
             eventType: 'UNASSIGNED',
             fbaShipmentId: params.id,
             locationId: sa.inventorySerial.locationId,
+            userId: user.dbId,
             notes: `Cancelled ${shipment.shipmentNumber ?? 'FBA shipment'}`,
           },
         })

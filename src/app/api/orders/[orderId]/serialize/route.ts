@@ -206,6 +206,7 @@ export async function POST(
           eventType:         isShipping ? 'SALE' : 'ASSIGNED',
           orderId:           params.orderId,
           locationId:        serial?.locationId ?? null,
+          userId:            user.dbId,
           notes:             isShipping ? saleNotes : `Assigned to order ${order.amazonOrderId}`,
         },
       })

@@ -49,6 +49,7 @@ export async function POST(
           eventType: 'UNASSIGNED',
           orderId: params.orderId,
           locationId: sa.inventorySerial.locationId,
+          userId: user.dbId,
           notes: `Cancelled order ${order.amazonOrderId}`,
         },
       })

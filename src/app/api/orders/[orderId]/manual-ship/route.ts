@@ -179,6 +179,7 @@ export async function POST(
           eventType: 'SALE',
           orderId: params.orderId,
           locationId: serial?.locationId ?? null,
+          userId: user.dbId,
           notes: saleNotes,
         },
       })
@@ -217,6 +218,7 @@ export async function POST(
             eventType: 'SALE',
             orderId: params.orderId,
             locationId: sa.inventorySerial.locationId,
+            userId: user.dbId,
             notes: saleNotes,
           },
         })

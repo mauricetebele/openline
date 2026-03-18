@@ -84,6 +84,7 @@ export async function POST(req: NextRequest) {
           fromProductId,
           toProductId,
           locationId:        serial.locationId,
+          userId:            user.dbId,
         },
       })
 

@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
         eventType: 'LOCATION_MOVE' as const,
         locationId,
         fromLocationId: serial.locationId,
+        userId: user.dbId,
       })),
     })
 

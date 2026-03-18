@@ -45,6 +45,7 @@ export async function POST(
           eventType: 'FBA_SHIPMENT',
           fbaShipmentId: params.id,
           locationId: sa.inventorySerial.locationId,
+          userId: user.dbId,
           notes: `Shipped via ${shipLabel}${confirmationLabel}`,
         },
       })

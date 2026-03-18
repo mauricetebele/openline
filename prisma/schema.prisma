@@ -33,6 +33,7 @@ model User {
   chatConversations1 ChatConversation[] @relation("ChatUser1")
   chatConversations2 ChatConversation[] @relation("ChatUser2")
   chatMessagesSent   ChatMessage[]
+  serialHistoryEvents SerialHistory[]
 
   @@map("users")
 }
@@ -1240,6 +1241,8 @@ model SerialHistory {
   toProductId       String?
   toProduct         Product?        @relation("SHToProduct", fields: [toProductId], references: [id], onDelete: SetNull)
   notes             String?
+  userId            String?
+  user              User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
   createdAt         DateTime        @default(now())
 
   @@index([inventorySerialId])

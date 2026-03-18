@@ -22,6 +22,7 @@ interface EventRow {
   toSku:        string | null
   notes:        string | null
   poNumber:     string | null
+  userName:     string | null
   createdAt:    string
   serials:      string[]
   beforeQty:    number | null
@@ -363,6 +364,7 @@ export default function InventoryEventsPage() {
                     <th className="px-4 py-3 text-right w-16">Qty</th>
                     <th className="px-4 py-3 text-left">Details</th>
                     <th className="px-4 py-3 text-left">Transaction Date</th>
+                    <th className="px-4 py-3 text-left">User</th>
                     <th className="px-4 py-3 text-left">Location</th>
                     {showQty && (
                       <>
@@ -404,6 +406,9 @@ export default function InventoryEventsPage() {
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
                         {fmt(row.createdAt)}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
+                        {row.userName ?? <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600">
                         {row.eventType === 'LOCATION_MOVE'

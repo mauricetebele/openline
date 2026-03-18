@@ -145,6 +145,7 @@ export async function POST(
             eventType: 'FBA_SHIPMENT',
             fbaShipmentId: params.id,
             locationId: r.locationId,
+            userId: user.dbId,
             notes: `Scanned for ${shipment.shipmentNumber ?? 'FBA shipment'}`,
           },
         })
@@ -198,6 +199,7 @@ export async function DELETE(
         eventType: 'UNASSIGNED',
         fbaShipmentId: params.id,
         locationId: serial.locationId,
+        userId: user.dbId,
         notes: `Removed from ${shipment.shipmentNumber ?? 'FBA shipment'}`,
       },
     })

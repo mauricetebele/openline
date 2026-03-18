@@ -99,6 +99,7 @@ export async function POST(
               eventType:         'VOID_REINSTATE',
               orderId:           params.orderId,
               locationId:        a.inventorySerial.locationId ?? null,
+              userId:            user.dbId,
               notes:             `Label voided for order ${order.amazonOrderId} — serial ${a.inventorySerial.serialNumber} reinstated to IN_STOCK`,
             },
           })

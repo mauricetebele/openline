@@ -91,6 +91,7 @@ export async function GET(req: NextRequest) {
       toProduct:    { select: { id: true, sku: true, description: true } },
       receipt:      { select: { id: true, receivedAt: true } },
       purchaseOrder:{ select: { id: true, poNumber: true } },
+      user:         { select: { id: true, name: true } },
     },
   })
 
@@ -109,6 +110,7 @@ export async function GET(req: NextRequest) {
     toProduct:    { id: string; sku: string; description: string } | null
     notes:     string | null
     poNumber:  string | null
+    userName:  string | null
     createdAt: Date
     serials:   string[]
     qty:       number
@@ -140,6 +142,7 @@ export async function GET(req: NextRequest) {
         toProduct:    r.toProduct    ?? null,
         notes:        r.notes        ?? null,
         poNumber:     r.purchaseOrder?.poNumber ?? null,
+        userName:     r.user?.name   ?? null,
         createdAt:    r.createdAt,
         serials:      [],
         qty:          0,
@@ -260,6 +263,7 @@ export async function GET(req: NextRequest) {
     toSku:       b.toProduct?.sku ?? null,
     notes:       b.notes,
     poNumber:    b.poNumber,
+    userName:    b.userName,
     createdAt:   b.createdAt.toISOString(),
     serials:     b.serials,
     beforeQty:   b.beforeQty,
