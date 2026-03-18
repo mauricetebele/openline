@@ -1035,8 +1035,15 @@ function WizardView({
           )}
 
           {placementOptions.map((opt, idx) => {
-            const totalFee = opt.fees?.reduce((sum, f) => sum + (f.amount?.amount ?? 0), 0) ?? 0
-            const totalDiscount = opt.discounts?.reduce((sum, d) => sum + (d.amount?.amount ?? 0), 0) ?? 0
+            // Amazon may use { amount: { amount, code } } or { amount: { value, code } } or { value: { amount, code } }
+            const extractAmount = (f: Record<string, unknown> | undefined): number => {
+              if (!f) return 0
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const a = f as any
+              return Number(a.amount?.amount ?? a.amount?.value ?? a.value?.amount ?? a.value ?? 0)
+            }
+            const totalFee = opt.fees?.reduce((sum, f) => sum + extractAmount(f), 0) ?? 0
+            const totalDiscount = opt.discounts?.reduce((sum, d) => sum + extractAmount(d), 0) ?? 0
             const netCost = totalFee - totalDiscount
             const shipCount = opt.shipmentIds?.length ?? 0
 
@@ -1094,18 +1101,22 @@ function WizardView({
                   {/* Fee breakdown */}
                   {(opt.fees?.length ?? 0) > 0 && (
                     <div className="text-xs text-gray-500 space-y-0.5">
-                      {opt.fees!.map((f, i) => (
-                        <div key={i}>Fee: {f.type} — ${f.amount?.amount?.toFixed(2) ?? '0.00'} {f.amount?.code}</div>
-                      ))}
+                      {opt.fees!.map((f, i) => {
+                        const amt = extractAmount(f)
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const code = (f as any).amount?.code ?? (f as any).value?.code ?? (f as any).code ?? 'USD'
+                        return <div key={i}>Fee: {f.type} — ${amt.toFixed(2)} {code}</div>
+                      })}
                     </div>
                   )}
 
                   {/* Discount breakdown */}
                   {(opt.discounts?.length ?? 0) > 0 && (
                     <div className="text-xs text-green-600 space-y-0.5">
-                      {opt.discounts!.map((d, i) => (
-                        <div key={i}>Discount: {d.type} — -${d.amount?.amount?.toFixed(2) ?? '0.00'}</div>
-                      ))}
+                      {opt.discounts!.map((d, i) => {
+                        const amt = extractAmount(d)
+                        return <div key={i}>Discount: {d.type} — -${amt.toFixed(2)}</div>
+                      })}
                     </div>
                   )}
 
