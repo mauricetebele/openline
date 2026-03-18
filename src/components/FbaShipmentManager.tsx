@@ -87,10 +87,23 @@ interface FbaListingResult {
   productDescription: string | null
 }
 
+interface ShipmentInfo {
+  shipmentId: string
+  destination?: {
+    destinationType?: string
+    warehouseId?: string
+    address?: { name?: string; city?: string; stateOrProvinceCode?: string }
+  }
+  status?: string
+}
+
 interface PlacementOption {
   placementOptionId: string
   shipmentIds: string[]
   fees?: Array<{ type: string; amount: { amount: number; code: string } }>
+  discounts?: Array<{ type: string; amount: { amount: number; code: string } }>
+  status?: string
+  expiration?: string
 }
 
 interface TransportOption {
@@ -718,6 +731,7 @@ function WizardView({
 
   // Placement & transport options (returned from API calls)
   const [placementOptions, setPlacementOptions] = useState<PlacementOption[]>([])
+  const [shipmentInfoMap, setShipmentInfoMap] = useState<Map<string, ShipmentInfo>>(new Map())
   const [selectedPlacement, setSelectedPlacement] = useState('')
   const [transportOptions, setTransportOptions] = useState<TransportOption[]>([])
   const [selectedTransport, setSelectedTransport] = useState('')
@@ -772,6 +786,12 @@ function WizardView({
     const result = await doAction('set-boxes', { boxes })
     if (result) {
       setPlacementOptions(result.placementOptions ?? [])
+      // Build shipment info map for destination display
+      const sMap = new Map<string, ShipmentInfo>()
+      for (const s of (result.shipments ?? [])) {
+        sMap.set(s.shipmentId, s)
+      }
+      setShipmentInfoMap(sMap)
       await loadShipment()
       onRefreshList()
     }
@@ -990,44 +1010,100 @@ function WizardView({
           {placementOptions.length === 0 && (
             <button type="button" onClick={async () => {
               setActionLoading(true)
+              setErr('')
               try {
-                const res = await fetch(`/api/fba-shipments/${shipmentId}`)
+                const res = await fetch(`/api/fba-shipments/${shipmentId}/placement-options`)
                 const data = await res.json()
-                if (data.inboundPlanId) {
-                  await fetch(`/api/fba-shipments/${shipmentId}/confirm-placement`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ placementOptionId: '__reload__' }),
-                  })
+                if (res.ok) {
+                  setPlacementOptions(data.placementOptions ?? [])
+                  const sMap = new Map<string, ShipmentInfo>()
+                  for (const s of (data.shipments ?? [])) sMap.set(s.shipmentId, s)
+                  setShipmentInfoMap(sMap)
+                } else {
+                  setErr(data.error ?? 'Failed to load placement options')
                 }
+              } catch {
+                setErr('Failed to load placement options')
               } finally {
                 setActionLoading(false)
               }
-              setErr('Placement options not yet loaded. If you just set boxes, they should appear. Try refreshing.')
-            }} className="text-xs text-amazon-blue hover:underline">
-              Load placement options
+            }} className="text-xs text-amazon-blue hover:underline" disabled={actionLoading}>
+              {actionLoading ? 'Loading...' : 'Load placement options'}
             </button>
           )}
 
-          {placementOptions.map(opt => (
-            <label key={opt.placementOptionId}
-              className={clsx('flex items-start gap-3 p-3 rounded-lg border cursor-pointer',
-                selectedPlacement === opt.placementOptionId ? 'border-amazon-blue bg-blue-50' : 'border-gray-200 hover:border-gray-300')}>
-              <input type="radio" name="placement" value={opt.placementOptionId}
-                checked={selectedPlacement === opt.placementOptionId}
-                onChange={e => setSelectedPlacement(e.target.value)}
-                className="mt-0.5" />
-              <div>
-                <div className="text-sm font-medium text-gray-700">
-                  {opt.shipmentIds?.length ?? 0} shipment{(opt.shipmentIds?.length ?? 0) !== 1 ? 's' : ''}
+          {placementOptions.map((opt, idx) => {
+            const totalFee = opt.fees?.reduce((sum, f) => sum + (f.amount?.amount ?? 0), 0) ?? 0
+            const totalDiscount = opt.discounts?.reduce((sum, d) => sum + (d.amount?.amount ?? 0), 0) ?? 0
+            const netCost = totalFee - totalDiscount
+            const shipCount = opt.shipmentIds?.length ?? 0
+
+            return (
+              <label key={opt.placementOptionId}
+                className={clsx('flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors',
+                  selectedPlacement === opt.placementOptionId ? 'border-amazon-blue bg-blue-50 ring-1 ring-amazon-blue' : 'border-gray-200 hover:border-gray-300')}>
+                <input type="radio" name="placement" value={opt.placementOptionId}
+                  checked={selectedPlacement === opt.placementOptionId}
+                  onChange={e => setSelectedPlacement(e.target.value)}
+                  className="mt-1" />
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-gray-800">
+                      Option {idx + 1}: {shipCount} shipment{shipCount !== 1 ? 's' : ''}
+                    </div>
+                    <div className={clsx('text-sm font-semibold', netCost > 0 ? 'text-orange-600' : 'text-green-600')}>
+                      {netCost > 0 ? `$${netCost.toFixed(2)}` : 'No fee'}
+                    </div>
+                  </div>
+
+                  {/* Destination FCs */}
+                  {opt.shipmentIds?.length > 0 && (
+                    <div className="space-y-1">
+                      {opt.shipmentIds.map(sid => {
+                        const info = shipmentInfoMap.get(sid)
+                        const dest = info?.destination
+                        const fcLabel = dest?.warehouseId
+                          ? `${dest.warehouseId}${dest.address?.city ? ` (${dest.address.city}, ${dest.address.stateOrProvinceCode ?? ''})` : ''}`
+                          : sid
+                        return (
+                          <div key={sid} className="flex items-center gap-2 text-xs text-gray-600">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-gray-400" />
+                            <span className="font-medium">{fcLabel}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {/* Fee breakdown */}
+                  {(opt.fees?.length ?? 0) > 0 && (
+                    <div className="text-xs text-gray-500 space-y-0.5">
+                      {opt.fees!.map((f, i) => (
+                        <div key={i}>Fee: {f.type} — ${f.amount?.amount?.toFixed(2) ?? '0.00'} {f.amount?.code}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Discount breakdown */}
+                  {(opt.discounts?.length ?? 0) > 0 && (
+                    <div className="text-xs text-green-600 space-y-0.5">
+                      {opt.discounts!.map((d, i) => (
+                        <div key={i}>Discount: {d.type} — -${d.amount?.amount?.toFixed(2) ?? '0.00'}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(!opt.fees || opt.fees.length === 0) && (!opt.discounts || opt.discounts.length === 0) && (
+                    <div className="text-xs text-green-600">No additional fees</div>
+                  )}
+
+                  {opt.expiration && (
+                    <div className="text-xs text-amber-600">Expires: {new Date(opt.expiration).toLocaleDateString()}</div>
+                  )}
                 </div>
-                {opt.fees?.map((f, i) => (
-                  <div key={i} className="text-xs text-gray-500">{f.type}: ${f.amount?.amount?.toFixed(2) ?? '0.00'} {f.amount?.code}</div>
-                ))}
-                {(!opt.fees || opt.fees.length === 0) && <div className="text-xs text-green-600">No additional fees</div>}
-              </div>
-            </label>
-          ))}
+              </label>
+            )
+          })}
 
           {placementOptions.length > 0 && (
             <button type="button" onClick={handleConfirmPlacement} disabled={actionLoading || !selectedPlacement}

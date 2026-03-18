@@ -136,6 +136,25 @@ export interface PlacementOption {
   placementOptionId: string
   shipmentIds: string[]
   fees?: Array<{ type: string; amount: { amount: number; code: string } }>
+  discounts?: Array<{ type: string; amount: { amount: number; code: string } }>
+  status?: string
+  expiration?: string
+}
+
+export interface InboundShipment {
+  shipmentId: string
+  shipmentConfirmationId?: string
+  destination?: {
+    destinationType?: string
+    warehouseId?: string
+    address?: {
+      name?: string
+      city?: string
+      stateOrProvinceCode?: string
+    }
+  }
+  status?: string
+  selectedDeliveryWindow?: { startDate: string; endDate: string }
 }
 
 export interface TransportationOption {
@@ -280,6 +299,21 @@ export async function generatePlacementOptions(
   )
 }
 
+// ─── 6b. List Shipments ─────────────────────────────────────────────────────
+
+export async function listShipments(
+  accountId: string,
+  inboundPlanId: string,
+): Promise<InboundShipment[]> {
+  const client = new SpApiClient(accountId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp = await client.get<any>(
+    `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/shipments`,
+  )
+  console.log('[listShipments] Raw response:', JSON.stringify(resp))
+  return resp.shipments ?? []
+}
+
 // ─── 7. List Placement Options ──────────────────────────────────────────────
 
 export async function listPlacementOptions(
@@ -287,9 +321,11 @@ export async function listPlacementOptions(
   inboundPlanId: string,
 ): Promise<PlacementOption[]> {
   const client = new SpApiClient(accountId)
-  const resp = await client.get<{ placementOptions: PlacementOption[] }>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp = await client.get<any>(
     `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/placementOptions`,
   )
+  console.log('[listPlacementOptions] Raw response:', JSON.stringify(resp))
   return resp.placementOptions ?? []
 }
 

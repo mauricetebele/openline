@@ -14,6 +14,7 @@ import {
   pollOperationStatus,
   generatePlacementOptions,
   listPlacementOptions,
+  listShipments,
   type BoxInput,
 } from '@/lib/amazon/fba-inbound'
 
@@ -116,6 +117,14 @@ export async function POST(
     // 3. List placement options
     const placementOptions = await listPlacementOptions(shipment.accountId, shipment.inboundPlanId)
 
+    // 4. Fetch shipment details (destination FCs) for enrichment
+    let shipments: Array<{ shipmentId: string; destination?: { warehouseId?: string; address?: { city?: string; stateOrProvinceCode?: string } }; status?: string }> = []
+    try {
+      shipments = await listShipments(shipment.accountId, shipment.inboundPlanId)
+    } catch (e) {
+      console.warn('[set-boxes] listShipments failed (non-fatal):', e)
+    }
+
     // Save boxes to DB
     await prisma.$transaction(async tx => {
       // Delete old boxes if retrying
@@ -147,7 +156,7 @@ export async function POST(
       })
     })
 
-    return NextResponse.json({ success: true, placementOptions })
+    return NextResponse.json({ success: true, placementOptions, shipments })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     await prisma.fbaShipment.update({
