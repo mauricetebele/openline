@@ -580,15 +580,48 @@ export default function MFNReturnsManager() {
                     {fmiChecking.has(r.id) ? (
                       <Loader2 size={12} className="animate-spin text-blue-500" />
                     ) : r.fmiStatus === 'ON' ? (
-                      <span className="inline-flex items-center gap-1 text-red-600 font-semibold">
-                        <XCircle size={12} /> ON
+                      <span className="inline-flex items-center gap-1">
+                        <span className="inline-flex items-center gap-1 text-red-600 font-semibold">
+                          <XCircle size={12} /> ON
+                        </span>
+                        {r.expectedSerial && (
+                          <button
+                            onClick={() => checkFindMy(r.id, r.expectedSerial!)}
+                            title="Re-check"
+                            className="ml-1 text-gray-400 hover:text-blue-600"
+                          >
+                            <RefreshCcw size={11} />
+                          </button>
+                        )}
                       </span>
                     ) : r.fmiStatus === 'OFF' ? (
-                      <span className="inline-flex items-center gap-1 text-green-600 font-semibold">
-                        <CheckCircle size={12} /> OFF
+                      <span className="inline-flex items-center gap-1">
+                        <span className="inline-flex items-center gap-1 text-green-600 font-semibold">
+                          <CheckCircle size={12} /> OFF
+                        </span>
+                        {r.expectedSerial && (
+                          <button
+                            onClick={() => checkFindMy(r.id, r.expectedSerial!)}
+                            title="Re-check"
+                            className="ml-1 text-gray-400 hover:text-blue-600"
+                          >
+                            <RefreshCcw size={11} />
+                          </button>
+                        )}
                       </span>
                     ) : r.fmiStatus?.startsWith('ERROR') ? (
-                      <span className="text-amber-600" title={r.fmiStatus}>Error</span>
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-amber-600" title={r.fmiStatus}>Error</span>
+                        {r.expectedSerial && (
+                          <button
+                            onClick={() => checkFindMy(r.id, r.expectedSerial!)}
+                            title="Re-check"
+                            className="ml-1 text-gray-400 hover:text-blue-600"
+                          >
+                            <RefreshCcw size={11} />
+                          </button>
+                        )}
+                      </span>
                     ) : r.expectedSerial ? (
                       <button
                         onClick={() => checkFindMy(r.id, r.expectedSerial!)}
