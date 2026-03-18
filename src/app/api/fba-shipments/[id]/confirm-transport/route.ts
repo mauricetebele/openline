@@ -13,6 +13,8 @@ import { prisma } from '@/lib/prisma'
 import {
   confirmTransportationOptions,
   pollOperationStatus,
+  listPlacementOptions,
+  listTransportationOptions,
   generateDeliveryWindowOptions,
   listDeliveryWindowOptions,
   confirmDeliveryWindowOptions,
@@ -33,8 +35,8 @@ export async function POST(
   if (shipment.status !== 'PLACEMENT_CONFIRMED') {
     return NextResponse.json({ error: 'Shipment must be in PLACEMENT_CONFIRMED status' }, { status: 409 })
   }
-  if (!shipment.inboundPlanId || !shipment.shipmentId) {
-    return NextResponse.json({ error: 'Missing plan or shipment ID' }, { status: 400 })
+  if (!shipment.inboundPlanId || !shipment.shipmentId || !shipment.placementOptionId) {
+    return NextResponse.json({ error: 'Missing plan, shipment, or placement option ID' }, { status: 400 })
   }
 
   let body: { transportOptionId: string }
@@ -47,13 +49,64 @@ export async function POST(
   }
 
   try {
-    // 1. Confirm transport (skip if already confirmed from a prior attempt)
+    // 1. Get ALL shipment IDs from the placement option
+    const placementOptions = await listPlacementOptions(shipment.accountId, shipment.inboundPlanId)
+    const selectedOption = placementOptions.find(p => p.placementOptionId === shipment.placementOptionId)
+    const allShipmentIds = selectedOption?.shipmentIds ?? [shipment.shipmentId]
+
+    // 2. Build transport selections for ALL shipments
+    //    The user selected a transport option for the primary shipment.
+    //    For other shipments, auto-select a matching carrier/mode option.
+    const primaryOption = body.transportOptionId
+    const transportationSelections: Array<{ shipmentId: string; transportationOptionId: string }> = [
+      { shipmentId: shipment.shipmentId, transportationOptionId: primaryOption },
+    ]
+
+    // Get the primary transport option details to match against
+    const primaryTransportOptions = await listTransportationOptions(
+      shipment.accountId,
+      shipment.inboundPlanId,
+      shipment.shipmentId,
+    )
+    const primaryDetails = primaryTransportOptions.find(o => o.transportationOptionId === primaryOption)
+
+    for (const sid of allShipmentIds) {
+      if (sid === shipment.shipmentId) continue // already added
+
+      const opts = await listTransportationOptions(
+        shipment.accountId,
+        shipment.inboundPlanId,
+        sid,
+      )
+
+      // Try to match same carrier + shipping solution, then same shipping solution, then first available
+      let match = primaryDetails
+        ? opts.find(o =>
+            o.shippingSolution === primaryDetails.shippingSolution &&
+            o.carrier?.name === primaryDetails.carrier?.name &&
+            o.shippingMode === primaryDetails.shippingMode)
+        : undefined
+      if (!match && primaryDetails) {
+        match = opts.find(o => o.shippingSolution === primaryDetails.shippingSolution)
+      }
+      if (!match && opts.length > 0) {
+        match = opts[0]
+      }
+
+      if (match) {
+        transportationSelections.push({
+          shipmentId: sid,
+          transportationOptionId: match.transportationOptionId,
+        })
+      }
+    }
+
+    // 3. Confirm transport (skip if already confirmed from a prior attempt)
     try {
       const confirmResp = await confirmTransportationOptions(
         shipment.accountId,
         shipment.inboundPlanId,
-        shipment.shipmentId,
-        body.transportOptionId,
+        transportationSelections,
       )
       await pollOperationStatus(shipment.accountId, confirmResp.operationId)
     } catch (confirmErr) {
@@ -65,38 +118,43 @@ export async function POST(
       }
     }
 
-    // 2. Delivery window — may already be confirmed from confirm-placement step.
-    //    Try to generate + confirm, but don't fail the whole flow if it errors.
+    // 4. Delivery window — may already be confirmed from confirm-placement step.
+    //    Try to generate + confirm for all shipments, but don't fail the whole flow if it errors.
     let deliveryWindowId: string | null = null
-    try {
-      const dwResp = await generateDeliveryWindowOptions(
-        shipment.accountId,
-        shipment.inboundPlanId,
-        shipment.shipmentId,
-      )
-      await pollOperationStatus(shipment.accountId, dwResp.operationId)
-
-      const windows = await listDeliveryWindowOptions(
-        shipment.accountId,
-        shipment.inboundPlanId,
-        shipment.shipmentId,
-      )
-
-      if (windows.length > 0) {
-        const firstWindow = windows[0]
-        deliveryWindowId = firstWindow.deliveryWindowOptionId
-        const dwConfirmResp = await confirmDeliveryWindowOptions(
+    for (const sid of allShipmentIds) {
+      try {
+        const dwResp = await generateDeliveryWindowOptions(
           shipment.accountId,
           shipment.inboundPlanId,
-          shipment.shipmentId,
-          firstWindow.deliveryWindowOptionId,
+          sid,
         )
-        await pollOperationStatus(shipment.accountId, dwConfirmResp.operationId)
+        await pollOperationStatus(shipment.accountId, dwResp.operationId)
+
+        const windows = await listDeliveryWindowOptions(
+          shipment.accountId,
+          shipment.inboundPlanId,
+          sid,
+        )
+
+        if (windows.length > 0) {
+          const firstWindow = windows[0]
+          if (sid === shipment.shipmentId) {
+            deliveryWindowId = firstWindow.deliveryWindowOptionId
+          }
+          const dwConfirmResp = await confirmDeliveryWindowOptions(
+            shipment.accountId,
+            shipment.inboundPlanId,
+            sid,
+            firstWindow.deliveryWindowOptionId,
+          )
+          await pollOperationStatus(shipment.accountId, dwConfirmResp.operationId)
+        }
+      } catch (dwErr) {
+        const msg = dwErr instanceof Error ? dwErr.message : String(dwErr)
+        if (!msg.includes('already') && !msg.includes('cannot be processed')) {
+          console.warn(`[confirm-transport] Delivery window step skipped for ${sid}:`, msg)
+        }
       }
-    } catch (dwErr) {
-      // Delivery window may already be confirmed or expired — continue
-      const msg = dwErr instanceof Error ? dwErr.message : String(dwErr)
-      console.warn('[confirm-transport] Delivery window step skipped:', msg)
     }
 
     // Update shipment

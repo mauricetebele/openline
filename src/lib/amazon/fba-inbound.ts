@@ -412,17 +412,12 @@ export async function listTransportationOptions(
 export async function confirmTransportationOptions(
   accountId: string,
   inboundPlanId: string,
-  shipmentId: string,
-  transportOptionId: string,
+  transportationSelections: Array<{ shipmentId: string; transportationOptionId: string }>,
 ): Promise<{ operationId: string }> {
   const client = new SpApiClient(accountId)
   return client.post<{ operationId: string }>(
     `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/transportationOptions/confirmation`,
-    {
-      transportationSelections: [
-        { shipmentId, transportationOptionId: transportOptionId },
-      ],
-    },
+    { transportationSelections },
   )
 }
 
