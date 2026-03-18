@@ -30,6 +30,10 @@ model User {
   todos        Todo[]
   todoComments TodoComment[]
 
+  chatConversations1 ChatConversation[] @relation("ChatUser1")
+  chatConversations2 ChatConversation[] @relation("ChatUser2")
+  chatMessagesSent   ChatMessage[]
+
   @@map("users")
 }
 
@@ -2003,4 +2007,40 @@ model FbaShipmentSerialAssignment {
 
   @@index([fbaShipmentId])
   @@map("fba_shipment_serial_assignments")
+}
+
+// ─── Chat ────────────────────────────────────────────────────────────────────
+
+model ChatConversation {
+  id            String        @id @default(cuid())
+  user1Id       String
+  user1         User          @relation("ChatUser1", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2Id       String
+  user2         User          @relation("ChatUser2", fields: [user2Id], references: [id], onDelete: Cascade)
+  lastMessageAt DateTime?
+  createdAt     DateTime      @default(now())
+  messages      ChatMessage[]
+
+  @@unique([user1Id, user2Id])
+  @@index([user1Id])
+  @@index([user2Id])
+  @@map("chat_conversations")
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User             @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body           String?          @db.Text
+  fileName       String?
+  fileUrl        String?
+  fileSize       Int?
+  fileMimeType   String?
+  readAt         DateTime?
+  createdAt      DateTime         @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
 }
