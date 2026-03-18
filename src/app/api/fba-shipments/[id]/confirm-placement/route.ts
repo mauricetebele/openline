@@ -108,40 +108,44 @@ export async function POST(
     )
     await pollOperationStatus(shipment.accountId, dwConfirmResp.operationId)
 
-    // 4. Transportation options — try listing first, generate only if empty
+    // 4. Transportation options — best-effort, don't block shipment progress
     let transportOptions: Awaited<ReturnType<typeof listTransportationOptions>> = []
+    let transportWarning: string | null = null
 
-    step = 'list-transportation-options'
-    transportOptions = await listTransportationOptions(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      amazonShipmentId,
-    )
-
-    if (transportOptions.length === 0) {
-      // Only generate if none exist yet
-      step = 'generate-transportation-options'
-      const transportResp = await generateTransportationOptions(
-        shipment.accountId,
-        shipment.inboundPlanId,
-        amazonShipmentId,
-        body.placementOptionId,
-      )
-      step = 'poll-generate-transport'
-      await pollOperationStatus(shipment.accountId, transportResp.operationId)
-
-      step = 'list-transportation-options-after-generate'
+    try {
+      step = 'list-transportation-options'
       transportOptions = await listTransportationOptions(
         shipment.accountId,
         shipment.inboundPlanId,
         amazonShipmentId,
       )
+
+      if (transportOptions.length === 0) {
+        step = 'generate-transportation-options'
+        const transportResp = await generateTransportationOptions(
+          shipment.accountId,
+          shipment.inboundPlanId,
+          amazonShipmentId,
+          body.placementOptionId,
+        )
+        await pollOperationStatus(shipment.accountId, transportResp.operationId)
+
+        transportOptions = await listTransportationOptions(
+          shipment.accountId,
+          shipment.inboundPlanId,
+          amazonShipmentId,
+        )
+      }
+    } catch (transportErr) {
+      const msg = transportErr instanceof Error ? transportErr.message : String(transportErr)
+      console.error('[confirm-placement] Transport options failed:', msg)
+      transportWarning = 'Could not fetch transportation options via API. Use Seller Central to select shipping. Error: ' + msg
     }
 
     // Extract placement fee
     const fee = selectedOption?.fees?.[0]?.amount?.amount ?? null
 
-    // Update shipment
+    // Update shipment — always advance status since placement IS confirmed
     await prisma.fbaShipment.update({
       where: { id: params.id },
       data: {
@@ -149,8 +153,8 @@ export async function POST(
         placementOptionId: body.placementOptionId,
         shipmentId: amazonShipmentId,
         placementFee: fee,
-        lastError: null,
-        lastErrorAt: null,
+        lastError: transportWarning,
+        lastErrorAt: transportWarning ? new Date() : null,
       },
     })
 
@@ -158,6 +162,7 @@ export async function POST(
       success: true,
       shipmentId: amazonShipmentId,
       transportOptions,
+      transportWarning,
       deliveryWindow: {
         start: selectedWindow.startDate,
         end: selectedWindow.endDate,
