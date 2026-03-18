@@ -62,6 +62,8 @@ export async function GET(
     }
 
     const downloadUrls: string[] = []
+    const shipmentLabels: Array<{ shipmentId: string; confirmationId: string; boxCount: number; url: string }> = []
+    const errors: string[] = []
 
     for (const sid of allShipmentIds) {
       try {
@@ -77,7 +79,7 @@ export async function GET(
           ?? shipmentDetails.shipmentId
 
         if (!confirmationId) {
-          console.warn(`[labels] No confirmationId for shipment ${sid}, skipping`)
+          errors.push(`${sid}: no confirmationId`)
           continue
         }
 
@@ -91,7 +93,7 @@ export async function GET(
         const boxIds = boxes.map(b => b.boxId ?? b.packageId).filter(Boolean) as string[]
 
         if (boxIds.length === 0) {
-          console.warn(`[labels] No box IDs for shipment ${sid}, skipping`)
+          errors.push(`${sid} (${confirmationId}): no boxes`)
           continue
         }
 
@@ -104,6 +106,7 @@ export async function GET(
         }
 
         downloadUrls.push(downloadUrl)
+        shipmentLabels.push({ shipmentId: sid, confirmationId, boxCount: boxIds.length, url: downloadUrl })
 
         // Try to extract per-box tracking numbers
         for (let i = 0; i < boxes.length; i++) {
@@ -118,13 +121,14 @@ export async function GET(
         }
       } catch (shipErr) {
         const msg = shipErr instanceof Error ? shipErr.message : String(shipErr)
-        console.error(`[labels] Failed to get labels for shipment ${sid}:`, msg)
-        // Continue with other shipments
+        errors.push(`${sid}: ${msg}`)
       }
     }
 
     if (downloadUrls.length === 0) {
-      throw new Error('Could not fetch labels for any shipment in the placement')
+      throw new Error(
+        `Could not fetch labels for any of ${allShipmentIds.length} shipments. Errors: ${errors.join('; ')}`,
+      )
     }
 
     // Persist all label URLs and update status
@@ -133,13 +137,21 @@ export async function GET(
       data: {
         labelData: JSON.stringify(downloadUrls),
         status: 'LABELS_READY',
-        lastError: null,
-        lastErrorAt: null,
-        ...(!shipment.shipmentConfirmationId ? {} : {}),
+        lastError: errors.length > 0
+          ? `Labels fetched for ${downloadUrls.length}/${allShipmentIds.length} shipments. Skipped: ${errors.join('; ')}`
+          : null,
+        lastErrorAt: errors.length > 0 ? new Date() : null,
       },
     })
 
-    return NextResponse.json({ downloadUrls, downloadUrl: downloadUrls[0] })
+    return NextResponse.json({
+      downloadUrls,
+      downloadUrl: downloadUrls[0],
+      shipmentLabels,
+      totalShipments: allShipmentIds.length,
+      labelsFound: downloadUrls.length,
+      errors: errors.length > 0 ? errors : undefined,
+    })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     await prisma.fbaShipment.update({

@@ -835,12 +835,17 @@ function WizardView({
     if (result) { await loadShipment(); onRefreshList() }
   }
 
+  const [shipmentLabels, setShipmentLabels] = useState<Array<{ shipmentId: string; confirmationId: string; boxCount: number; url: string }>>([])
+
   async function handleDownloadLabels() {
     const result = await doAction('labels')
     if (result) {
-      const urls: string[] = result.downloadUrls ?? (result.downloadUrl ? [result.downloadUrl] : [])
-      for (const url of urls) {
-        window.open(url, '_blank')
+      if (result.shipmentLabels?.length) {
+        setShipmentLabels(result.shipmentLabels)
+        // Auto-open the first one
+        window.open(result.shipmentLabels[0].url, '_blank')
+      } else if (result.downloadUrl) {
+        window.open(result.downloadUrl, '_blank')
       }
       await loadShipment()
       onRefreshList()
@@ -1513,8 +1518,20 @@ function WizardView({
           <p className="text-xs text-gray-500">Download shipping labels for your boxes.</p>
           <button type="button" onClick={handleDownloadLabels} disabled={actionLoading}
             className="flex items-center gap-2 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
-            {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Getting Labels...</> : <><Download size={14} /> Download Labels</>}
+            {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Getting Labels...</> : <><Download size={14} /> Fetch Labels</>}
           </button>
+          {shipmentLabels.length > 0 && (
+            <div className="space-y-2 pt-2 border-t border-gray-100">
+              <div className="text-xs font-medium text-gray-500">Labels for {shipmentLabels.length} shipment{shipmentLabels.length > 1 ? 's' : ''}</div>
+              {shipmentLabels.map((sl, i) => (
+                <a key={sl.shipmentId} href={sl.url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
+                  <Download size={12} />
+                  Shipment {i + 1}: {sl.confirmationId} ({sl.boxCount} box{sl.boxCount > 1 ? 'es' : ''})
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -1541,19 +1558,32 @@ function WizardView({
             </div>
           )}
 
-          <div className="flex gap-2">
-            {shipment.labelData && (
-              <button type="button" onClick={() => {
-                try {
-                  const urls = JSON.parse(shipment.labelData!)
-                  if (Array.isArray(urls)) { urls.forEach((u: string) => window.open(u, '_blank')) }
-                  else { window.open(shipment.labelData!, '_blank') }
-                } catch { window.open(shipment.labelData!, '_blank') }
-              }}
-                className="flex items-center gap-2 h-9 px-4 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">
+          {shipment.labelData && (() => {
+            let urls: string[] = []
+            try {
+              const parsed = JSON.parse(shipment.labelData!)
+              if (Array.isArray(parsed)) urls = parsed
+              else urls = [shipment.labelData!]
+            } catch { urls = [shipment.labelData!] }
+            return urls.length > 1 ? (
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-gray-500">Download Labels ({urls.length} shipments)</div>
+                {urls.map((url, i) => (
+                  <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
+                    <Download size={12} /> Shipment {i + 1} Labels
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <a href={urls[0]} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 h-9 px-4 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 w-fit">
                 <Download size={14} /> Re-download Labels
-              </button>
-            )}
+              </a>
+            )
+          })()}
+
+          <div className="flex gap-2">
             <button type="button" onClick={handleMarkShipped} disabled={actionLoading}
               className="flex items-center gap-2 h-9 px-4 rounded-md bg-green-600 text-white text-sm font-medium disabled:opacity-50">
               {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Shipping...</> : <><Check size={14} /> Mark as Shipped</>}
