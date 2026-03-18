@@ -453,6 +453,21 @@ export async function confirmDeliveryWindowOptions(
   )
 }
 
+// ─── 12b. List Shipment Boxes (v2024-03-20) ─────────────────────────────────
+
+export async function listShipmentBoxes(
+  accountId: string,
+  inboundPlanId: string,
+  shipmentId: string,
+): Promise<Array<{ boxId: string; packageId?: string }>> {
+  const client = new SpApiClient(accountId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp = await client.get<any>(
+    `/inbound/fba/2024-03-20/inboundPlans/${inboundPlanId}/shipments/${shipmentId}/boxes`,
+  )
+  return resp.boxes ?? []
+}
+
 // ─── 13. Get Shipment Labels (v0 API) ───────────────────────────────────────
 
 export interface ShipmentLabelsResponse {
@@ -470,16 +485,18 @@ export interface ShipmentLabelsResponse {
 export async function getShipmentLabels(
   accountId: string,
   amazonShipmentId: string,
-  numberOfPackages: number,
+  boxIds: string[],
 ): Promise<string> {
   const client = new SpApiClient(accountId)
+  const params: Record<string, string> = {
+    PageType: 'PackageLabel_Letter_6',
+    LabelType: 'UNIQUE',
+    NumberOfPackages: String(boxIds.length),
+    PackageLabelsToPrint: boxIds.join(','),
+  }
   const resp = await client.get<ShipmentLabelsResponse>(
     `/fba/inbound/v0/shipments/${amazonShipmentId}/labels`,
-    {
-      PageType: 'PackageLabel_Letter_6',
-      LabelType: 'UNIQUE',
-      NumberOfPackages: String(numberOfPackages),
-    },
+    params,
   )
   const url = resp.payload?.DownloadURL ?? resp.DownloadURL
   if (!url) throw new Error('No label download URL returned from Amazon')

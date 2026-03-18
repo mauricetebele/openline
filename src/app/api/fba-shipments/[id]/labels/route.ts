@@ -2,14 +2,14 @@
  * GET /api/fba-shipments/[id]/labels
  *
  * Downloads shipment labels via the v0 API using the shipmentConfirmationId
- * from the v2024-03-20 shipment details.
+ * and box IDs from the v2024-03-20 API.
  *
  * Status: TRANSPORT_CONFIRMED → LABELS_READY
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { getShipment, getShipmentLabels } from '@/lib/amazon/fba-inbound'
+import { getShipment, listShipmentBoxes, getShipmentLabels } from '@/lib/amazon/fba-inbound'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -21,10 +21,7 @@ export async function GET(
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const shipment = await prisma.fbaShipment.findUnique({
-    where: { id: params.id },
-    include: { _count: { select: { boxes: true } } },
-  })
+  const shipment = await prisma.fbaShipment.findUnique({ where: { id: params.id } })
   if (!shipment) return NextResponse.json({ error: 'Shipment not found' }, { status: 404 })
   if (!shipment.shipmentId || !shipment.inboundPlanId) {
     return NextResponse.json({ error: 'No Amazon shipment ID on this shipment' }, { status: 400 })
@@ -41,8 +38,7 @@ export async function GET(
   }
 
   try {
-    // Get the shipmentConfirmationId from v2024-03-20 shipment details
-    // The v0 labels API needs this ID (format: FBA1234ABCD), not the v2024 ID (sh-xxxx)
+    // 1. Get the shipmentConfirmationId (FBA1234ABCD format) from v2024-03-20
     const shipmentDetails = await getShipment(
       shipment.accountId,
       shipment.inboundPlanId,
@@ -57,8 +53,21 @@ export async function GET(
       throw new Error('No shipmentConfirmationId found in shipment details')
     }
 
-    const numberOfPackages = shipment._count?.boxes || 1
-    const downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId, numberOfPackages)
+    // 2. Get box IDs from v2024-03-20 (required for UNIQUE label type)
+    const boxes = await listShipmentBoxes(
+      shipment.accountId,
+      shipment.inboundPlanId,
+      shipment.shipmentId,
+    )
+
+    const boxIds = boxes.map(b => b.boxId ?? b.packageId).filter(Boolean) as string[]
+
+    if (boxIds.length === 0) {
+      throw new Error('No box IDs found for this shipment')
+    }
+
+    // 3. Fetch labels from v0 API with box IDs
+    const downloadUrl = await getShipmentLabels(shipment.accountId, confirmationId, boxIds)
 
     // Cache and advance status
     await prisma.fbaShipment.update({
