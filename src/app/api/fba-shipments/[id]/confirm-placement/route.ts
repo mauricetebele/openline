@@ -70,7 +70,9 @@ export async function POST(
     }
 
     // 2. Get the shipment ID from the placement option
+    console.log('[confirm-placement] Step 2: listing placement options...')
     const placementOptions = await listPlacementOptions(shipment.accountId, shipment.inboundPlanId)
+    console.log('[confirm-placement] Got placement options:', JSON.stringify(placementOptions.map(p => ({ id: p.placementOptionId, shipmentIds: p.shipmentIds }))))
     const selectedOption = placementOptions.find(p => p.placementOptionId === body.placementOptionId)
     const amazonShipmentId = selectedOption?.shipmentIds?.[0] ?? null
 
@@ -79,14 +81,17 @@ export async function POST(
     }
 
     // 3. Generate transportation options
+    console.log('[confirm-placement] Step 3: generating transport options for shipment:', amazonShipmentId)
     const transportResp = await generateTransportationOptions(
       shipment.accountId,
       shipment.inboundPlanId,
       amazonShipmentId,
     )
+    console.log('[confirm-placement] Step 3b: polling operation:', transportResp.operationId)
     await pollOperationStatus(shipment.accountId, transportResp.operationId)
 
     // 4. List transportation options
+    console.log('[confirm-placement] Step 4: listing transport options...')
     const transportOptions = await listTransportationOptions(
       shipment.accountId,
       shipment.inboundPlanId,
