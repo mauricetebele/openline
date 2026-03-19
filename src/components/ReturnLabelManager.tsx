@@ -122,17 +122,24 @@ function LabelHistoryTab() {
       const res  = await fetch(`/api/return-label/${id}`)
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'Download failed'); return }
-      const mime  = data.labelFormat === 'pdf' ? 'application/pdf' : 'image/gif'
-      const bytes = Uint8Array.from(atob(data.labelData), c => c.charCodeAt(0))
-      const blob  = new Blob([bytes], { type: mime })
-      const url   = URL.createObjectURL(blob)
-      const a     = document.createElement('a')
-      a.href = url
-      a.download = `return-label-${trackingNumber}.${data.labelFormat === 'pdf' ? 'pdf' : 'gif'}`
-      a.click()
-      URL.revokeObjectURL(url)
+      const w = window.open('', '_blank')
+      if (!w) return
+      w.document.write(`<!DOCTYPE html><html><head>
+        <title>Return Label – ${trackingNumber}</title>
+        <style>
+          @page { size: letter landscape; margin: 0.25in; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          html, body { width: 100%; height: 100%; }
+          body { display: flex; }
+          img { width: 50%; height: 100%; object-fit: contain; object-position: top left; }
+        </style>
+      </head><body>
+        <img src="data:image/gif;base64,${data.labelData}" />
+      </body></html>`)
+      w.document.close()
+      setTimeout(() => w.print(), 400)
     } catch {
-      toast.error('Failed to download label')
+      toast.error('Failed to open label')
     }
   }
 
@@ -252,8 +259,8 @@ function LabelHistoryTab() {
                 onClick={() => openLabel(lbl.id, lbl.trackingNumber)}
                 className="flex items-center gap-1.5 h-7 px-3 rounded bg-gray-100 text-gray-700 text-xs font-medium hover:bg-gray-200 transition-colors"
               >
-                <Download size={12} />
-                Download Label
+                <Printer size={12} />
+                Print Label
               </button>
               {!lbl.voided && (
                 <button
@@ -435,10 +442,22 @@ export default function ReturnLabelManager() {
 
   function openLabel() {
     if (!result) return
-    const mime  = result.labelFormat === 'pdf' ? 'application/pdf' : 'image/gif'
-    const bytes = Uint8Array.from(atob(result.labelBase64), c => c.charCodeAt(0))
-    const blob  = new Blob([bytes], { type: mime })
-    window.open(URL.createObjectURL(blob), '_blank')
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<!DOCTYPE html><html><head>
+      <title>Return Label – ${result.trackingNumber}</title>
+      <style>
+        @page { size: letter landscape; margin: 0.25in; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; }
+        body { display: flex; }
+        img { width: 50%; height: 100%; object-fit: contain; object-position: top left; }
+      </style>
+    </head><body>
+      <img src="data:image/gif;base64,${result.labelBase64}" />
+    </body></html>`)
+    w.document.close()
+    setTimeout(() => w.print(), 400)
   }
 
   function reset() {
