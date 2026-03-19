@@ -132,9 +132,9 @@ function LabelHistoryTab() {
           html, body { width: 8.5in; height: 11in; overflow: hidden; }
           .wrap {
             width: 11in; height: 4.25in;
-            transform: rotate(-90deg);
+            transform: rotate(90deg);
             transform-origin: top left;
-            position: absolute; top: 11in; left: 0;
+            position: absolute; top: 0; left: 4.25in;
             display: flex; align-items: center; justify-content: center;
           }
           img { max-width: 100%; max-height: 100%; object-fit: contain; }
@@ -458,9 +458,9 @@ export default function ReturnLabelManager() {
         html, body { width: 8.5in; height: 11in; overflow: hidden; }
         .wrap {
           width: 11in; height: 4.25in;
-          transform: rotate(-90deg);
+          transform: rotate(90deg);
           transform-origin: top left;
-          position: absolute; top: 11in; left: 0;
+          position: absolute; top: 0; left: 4.25in;
           display: flex; align-items: center; justify-content: center;
         }
         img { max-width: 100%; max-height: 100%; object-fit: contain; }
