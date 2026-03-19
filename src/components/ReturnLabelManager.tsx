@@ -97,6 +97,39 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
   { code: '12', label: 'UPS 3-Day Select' },
 ]
 
+// ─── Print Layout Helper ─────────────────────────────────────────────────────
+
+function printLabelHtml(trackingNumber: string, base64: string): string {
+  return `<!DOCTYPE html><html><head>
+    <title>Return Label – ${trackingNumber}</title>
+    <style>
+      @page { size: 8.5in 11in; margin: 0; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 8.5in; height: 11in; }
+      .half {
+        position: absolute;
+        top: 0; left: 0;
+        width: 4.25in;
+        height: 11in;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      img {
+        width: 11in;
+        height: 4.25in;
+        object-fit: contain;
+        transform: rotate(-90deg);
+      }
+    </style>
+  </head><body>
+    <div class="half">
+      <img src="data:image/gif;base64,${base64}" />
+    </div>
+  </body></html>`
+}
+
 // ─── History Tab ──────────────────────────────────────────────────────────────
 
 function LabelHistoryTab() {
@@ -124,24 +157,7 @@ function LabelHistoryTab() {
       if (!res.ok) { toast.error(data.error ?? 'Download failed'); return }
       const w = window.open('', '_blank')
       if (!w) return
-      w.document.write(`<!DOCTYPE html><html><head>
-        <title>Return Label – ${trackingNumber}</title>
-        <style>
-          @page { size: 8.5in 11in; margin: 0; }
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          html, body { width: 8.5in; height: 11in; overflow: hidden; }
-          .wrap {
-            width: 11in; height: 4.25in;
-            transform: rotate(90deg);
-            transform-origin: top left;
-            position: absolute; top: 0; left: 4.25in;
-            display: flex; align-items: center; justify-content: center;
-          }
-          img { max-width: 100%; max-height: 100%; object-fit: contain; }
-        </style>
-      </head><body>
-        <div class="wrap"><img src="data:image/gif;base64,${data.labelData}" /></div>
-      </body></html>`)
+      w.document.write(printLabelHtml(trackingNumber, data.labelData))
       w.document.close()
       setTimeout(() => w.print(), 400)
     } catch {
@@ -450,24 +466,7 @@ export default function ReturnLabelManager() {
     if (!result) return
     const w = window.open('', '_blank')
     if (!w) return
-    w.document.write(`<!DOCTYPE html><html><head>
-      <title>Return Label – ${result.trackingNumber}</title>
-      <style>
-        @page { size: 8.5in 11in; margin: 0; }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { width: 8.5in; height: 11in; overflow: hidden; }
-        .wrap {
-          width: 11in; height: 4.25in;
-          transform: rotate(90deg);
-          transform-origin: top left;
-          position: absolute; top: 0; left: 4.25in;
-          display: flex; align-items: center; justify-content: center;
-        }
-        img { max-width: 100%; max-height: 100%; object-fit: contain; }
-      </style>
-    </head><body>
-      <div class="wrap"><img src="data:image/gif;base64,${result.labelBase64}" /></div>
-    </body></html>`)
+    w.document.write(printLabelHtml(result.trackingNumber, result.labelBase64))
     w.document.close()
     setTimeout(() => w.print(), 400)
   }
