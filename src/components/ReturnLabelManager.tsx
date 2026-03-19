@@ -127,11 +127,11 @@ function LabelHistoryTab() {
       w.document.write(`<!DOCTYPE html><html><head>
         <title>Return Label – ${trackingNumber}</title>
         <style>
-          @page { size: letter landscape; margin: 0.25in; }
+          @page { size: letter portrait; margin: 0; }
           * { margin: 0; padding: 0; box-sizing: border-box; }
           html, body { width: 100%; height: 100%; }
-          body { display: flex; }
-          img { width: 50%; height: 100%; object-fit: contain; object-position: top left; }
+          body { display: flex; align-items: flex-start; justify-content: center; }
+          img { width: 50%; margin-top: 0.25in; transform: rotate(90deg); transform-origin: center center; }
         </style>
       </head><body>
         <img src="data:image/gif;base64,${data.labelData}" />
@@ -447,11 +447,11 @@ export default function ReturnLabelManager() {
     w.document.write(`<!DOCTYPE html><html><head>
       <title>Return Label – ${result.trackingNumber}</title>
       <style>
-        @page { size: letter landscape; margin: 0.25in; }
+        @page { size: letter portrait; margin: 0; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { width: 100%; height: 100%; }
-        body { display: flex; }
-        img { width: 50%; height: 100%; object-fit: contain; object-position: top left; }
+        body { display: flex; align-items: flex-start; justify-content: center; }
+        img { width: 50%; margin-top: 0.25in; transform: rotate(90deg); transform-origin: center center; }
       </style>
     </head><body>
       <img src="data:image/gif;base64,${result.labelBase64}" />
