@@ -67,35 +67,44 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  await prisma.$transaction(async tx => {
-    for (const serial of found) {
-      // Mark serial as DAMAGED (removed from usable stock)
-      await tx.inventorySerial.update({
-        where: { id: serial.id },
-        data:  { status: 'OUT_OF_STOCK' },
-      })
+  try {
+    await prisma.$transaction(async tx => {
+      for (const serial of found) {
+        // Mark serial as OUT_OF_STOCK (removed from usable stock)
+        await tx.inventorySerial.update({
+          where: { id: serial.id },
+          data:  { status: 'OUT_OF_STOCK' },
+        })
 
-      // Create history event
-      const isManualFba = reason === 'Manual FBA'
-      await tx.serialHistory.create({
-        data: {
-          inventorySerialId: serial.id,
-          eventType:         'MANUAL_REMOVE',
-          locationId,
-          userId:            user.dbId,
-          notes:             isManualFba && fbaReference
-            ? `MANUAL FBA — Ref: ${fbaReference}`
-            : reason,
-        },
-      })
+        // Create history event
+        const isManualFba = reason === 'Manual FBA'
+        await tx.serialHistory.create({
+          data: {
+            inventorySerialId: serial.id,
+            eventType:         'MANUAL_REMOVE',
+            locationId,
+            userId:            user.dbId,
+            notes:             isManualFba && fbaReference
+              ? `MANUAL FBA - Ref: ${fbaReference}`
+              : reason,
+          },
+        })
 
-      // Decrement InventoryItem qty (guard against going negative)
-      await tx.inventoryItem.updateMany({
-        where: { productId: serial.productId, locationId, gradeId: serial.gradeId, qty: { gt: 0 } },
-        data:  { qty: { decrement: 1 } },
-      })
-    }
-  })
+        // Decrement InventoryItem qty (guard against going negative)
+        const gradeFilter: Record<string, unknown> = { productId: serial.productId, locationId, qty: { gt: 0 } }
+        if (serial.gradeId) gradeFilter.gradeId = serial.gradeId
+        else gradeFilter.gradeId = null
+        await tx.inventoryItem.updateMany({
+          where: gradeFilter,
+          data:  { qty: { decrement: 1 } },
+        })
+      }
+    })
+  } catch (err: unknown) {
+    console.error('[manual-remove] Transaction failed:', err)
+    const message = err instanceof Error ? err.message : 'Transaction failed'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 
   return NextResponse.json({ removedCount: found.length, notFound })
 }
