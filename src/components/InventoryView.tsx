@@ -96,6 +96,7 @@ function SerialRow({ serial, index }: { serial: Serial; index: number }) {
 
   const EVENT_LABEL: Record<string, string> = {
     PO_RECEIPT: 'PO Receipt',
+    MANUAL_FBA: 'Manual FBA',
   }
 
   return (
@@ -1621,7 +1622,7 @@ function SerialsModal({
 // ─── Manual Add Modal ─────────────────────────────────────────────────────────
 
 const ADD_REASONS    = ['New Stock', 'Return', 'Order Edit'] as const
-const REMOVE_REASONS = ['Damaged', 'Lost', 'Theft', 'Adjustment', 'Other'] as const
+const REMOVE_REASONS = ['Damaged', 'Lost', 'Theft', 'Adjustment', 'Manual FBA', 'Other'] as const
 
 function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
   warehouses: Array<{ id: string; name: string; locations: { id: string; name: string }[] }>
@@ -1803,6 +1804,7 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
   const [removeResults,    setRemoveResults]    = useState<{ found: BulkSerial[]; notFound: string[] } | null>(null)
   const [removeLoading,    setRemoveLoading]    = useState(false)
   const [removeReason,     setRemoveReason]     = useState<string>('Damaged')
+  const [fbaReference,     setFbaReference]     = useState('')
   const [removeSubmitting, setRemoveSubmitting] = useState(false)
   const [removeErr,        setRemoveErr]        = useState('')
   const [removeSuccessMsg, setRemoveSuccessMsg] = useState('')
@@ -1838,7 +1840,12 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
     try {
       const res  = await fetch('/api/inventory/manual-remove', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locationId, serials: removeResults.found.map(s => s.serialNumber), reason: removeReason }),
+        body: JSON.stringify({
+          locationId,
+          serials: removeResults.found.map(s => s.serialNumber),
+          reason: removeReason,
+          ...(removeReason === 'Manual FBA' && fbaReference.trim() ? { fbaReference: fbaReference.trim() } : {}),
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Remove failed')
@@ -2050,11 +2057,19 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
             <div className={`px-5 py-4 border-b shrink-0 transition-opacity ${locationSelected ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
               <div className="mb-3">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Reason <span className="text-red-500">*</span></label>
-                <select value={removeReason} onChange={e => setRemoveReason(e.target.value)}
+                <select value={removeReason} onChange={e => { setRemoveReason(e.target.value); if (e.target.value !== 'Manual FBA') setFbaReference('') }}
                   className="w-full h-8 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-red-400">
                   {REMOVE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
+              {removeReason === 'Manual FBA' && (
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">FBA Reference # <span className="text-red-500">*</span></label>
+                  <input type="text" value={fbaReference} onChange={e => setFbaReference(e.target.value)}
+                    placeholder="Enter FBA shipment or reference number..."
+                    className="w-full h-8 rounded border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-red-400" />
+                </div>
+              )}
               <label className="block text-xs font-medium text-gray-600 mb-1">Serial Numbers <span className="text-red-500">*</span></label>
               <textarea ref={textareaRef} value={removeInput}
                 onChange={e => { setRemoveInput(e.target.value); setRemoveSuccessMsg(''); setRemoveResults(null) }}
@@ -2140,7 +2155,7 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
               </p>
               <div className="flex gap-2">
                 <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button onClick={handleRemove} disabled={!removeResults?.found.length || removeSubmitting}
+                <button onClick={handleRemove} disabled={!removeResults?.found.length || removeSubmitting || (removeReason === 'Manual FBA' && !fbaReference.trim())}
                   className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5">
                   {removeSubmitting
                     ? <><RefreshCcw size={12} className="animate-spin" /> Removing…</>

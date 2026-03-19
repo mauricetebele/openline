@@ -22,10 +22,11 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { locationId, serials: serialNumbers, reason } = body as {
-    locationId:  string
-    serials:     string[]
-    reason:      string
+  const { locationId, serials: serialNumbers, reason, fbaReference } = body as {
+    locationId:   string
+    serials:      string[]
+    reason:       string
+    fbaReference?: string
   }
 
   if (!locationId) {
@@ -74,14 +75,17 @@ export async function POST(req: NextRequest) {
         data:  { status: 'OUT_OF_STOCK' },
       })
 
-      // Create MANUAL_REMOVE history event
+      // Create history event — MANUAL_FBA for FBA removals, MANUAL_REMOVE otherwise
+      const isManualFba = reason === 'Manual FBA'
       await tx.serialHistory.create({
         data: {
           inventorySerialId: serial.id,
-          eventType:         'MANUAL_REMOVE',
+          eventType:         isManualFba ? 'MANUAL_FBA' : 'MANUAL_REMOVE',
           locationId,
           userId:            user.dbId,
-          notes:             reason,
+          notes:             isManualFba && fbaReference
+            ? `Manual FBA — Ref: ${fbaReference}`
+            : reason,
         },
       })
 
