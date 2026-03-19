@@ -106,25 +106,25 @@ function printLabelHtml(trackingNumber: string, base64: string): string {
       @page { size: 8.5in 11in; margin: 0; }
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { width: 8.5in; height: 11in; }
-      .top-half {
+      .top-zone {
         position: absolute;
         top: 0; left: 0;
         width: 8.5in;
-        height: 5.5in;
+        height: 4.4in;
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
       }
       img {
-        width: 5.5in;
+        width: 4.4in;
         height: 8.5in;
         object-fit: contain;
-        transform: rotate(-90deg);
+        transform: rotate(90deg);
       }
     </style>
   </head><body>
-    <div class="top-half">
+    <div class="top-zone">
       <img src="data:image/gif;base64,${base64}" />
     </div>
   </body></html>`
