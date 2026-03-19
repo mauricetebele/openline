@@ -131,6 +131,7 @@ export default function BulkListingCreator() {
   const [accountId, setAccountId] = useState('')
   const [fulfillment, setFulfillment] = useState<'MFN' | 'FBA'>('MFN')
   const [allGrades, setAllGrades] = useState<GradeOption[]>([])
+  const [asinSuggestions, setAsinSuggestions] = useState<Record<string, string>>({})
 
   // Locked rows (successfully created — not editable on retry)
   const [lockedKeys, setLockedKeys] = useState<Set<string>>(new Set())
@@ -245,8 +246,19 @@ export default function BulkListingCreator() {
 
   // ─── Step 1 → Step 2: Move to form ──────────────────────────────────────
 
-  const handleNextToForm = useCallback(() => {
+  const handleNextToForm = useCallback(async () => {
     const checked = stagingRows.filter(r => r.checked)
+
+    // Fetch ASIN suggestions for selected products
+    const uniqueProductIds = Array.from(new Set(checked.map(r => r.productId)))
+    let suggestions: Record<string, string> = {}
+    try {
+      const res = await fetch(`/api/marketplace-skus/asin-suggestions?productIds=${uniqueProductIds.join(',')}`)
+      const data = await res.json()
+      if (res.ok && data.data) suggestions = data.data
+    } catch { /* ignore — suggestions are optional */ }
+    setAsinSuggestions(suggestions)
+
     const rows: ListingRow[] = checked.map(r => ({
       productId: r.productId,
       internalSku: r.internalSku,
@@ -255,7 +267,7 @@ export default function BulkListingCreator() {
       gradeName: r.gradeName,
       availableQty: r.availableQty,
       marketplaceSku: '',
-      asin: '',
+      asin: suggestions[r.productId] ?? '',
       price: '',
       condition: 'New',
       quantity: '0',
@@ -1281,18 +1293,26 @@ export default function BulkListingCreator() {
                               />
                             </td>
                             <td className="px-2 py-1.5">
+                              <div className="relative">
                               <input
                                 type="text"
                                 value={row.asin}
                                 disabled={isLocked}
                                 onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, asin: e.target.value.toUpperCase() } : r))}
-                                placeholder="B0XXXXXXXXX"
+                                placeholder={asinSuggestions[row.productId] ? `Suggested: ${asinSuggestions[row.productId]}` : 'B0XXXXXXXXX'}
                                 maxLength={10}
                                 className={clsx(
                                   'w-full h-8 rounded-md border px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500',
-                                  !isLocked && row.asin && !ASIN_RE.test(row.asin) ? 'border-red-400' : 'border-gray-300',
+                                  !isLocked && row.asin && !ASIN_RE.test(row.asin) ? 'border-red-400' :
+                                  row.asin && asinSuggestions[row.productId] === row.asin ? 'border-blue-400 bg-blue-50' : 'border-gray-300',
                                 )}
                               />
+                              {row.asin && asinSuggestions[row.productId] === row.asin && (
+                                <span className="absolute -top-1.5 right-1 bg-blue-100 text-blue-700 text-[9px] font-medium px-1 rounded">
+                                  suggested
+                                </span>
+                              )}
+                              </div>
                             </td>
                             <td className="px-2 py-1.5">
                               <input
