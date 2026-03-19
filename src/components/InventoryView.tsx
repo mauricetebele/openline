@@ -230,6 +230,23 @@ function SerialRow({ serial, index }: { serial: Serial; index: number }) {
                             </p>
                           )}
                         </>
+                      ) : (event.eventType === 'MANUAL_REMOVE' || event.eventType === 'MANUAL_FBA') ? (
+                        <>
+                          {event.notes && (
+                            <p>
+                              <span className="text-gray-400">{event.eventType === 'MANUAL_FBA' ? 'FBA Reference:' : 'Reason:'}</span>{' '}
+                              <span className="font-medium text-gray-800">{event.notes}</span>
+                            </p>
+                          )}
+                          {event.location && (
+                            <p>
+                              <span className="text-gray-400">Location:</span>{' '}
+                              <span className="font-medium text-gray-800">
+                                {event.location.warehouse.name} / {event.location.name}
+                              </span>
+                            </p>
+                          )}
+                        </>
                       ) : (
                         <>
                           {event.purchaseOrder && (
