@@ -100,37 +100,37 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
 // ─── Print Layout Helper ─────────────────────────────────────────────────────
 
 function openPrintLabel(trackingNumber: string, base64: string) {
-  // Open window immediately (must be synchronous to avoid popup blocker)
   const w = window.open('', '_blank')
   if (!w) return
-
-  // Write a loading page first
   w.document.write(`<!DOCTYPE html><html><head>
     <title>Return Label – ${trackingNumber}</title>
     <style>
       @page { size: 8.5in 11in; margin: 0; }
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 8.5in; height: 11in; }
-      body { display: flex; align-items: flex-start; }
-      canvas { display: block; max-width: 8.5in; max-height: 4.4in; }
+      html, body { width: 8.5in; height: 11in; overflow: hidden; }
+      .label-wrap {
+        width: 4.4in;
+        height: 8.5in;
+        position: absolute;
+        top: 0;
+        left: 0;
+        transform-origin: top left;
+        transform: translateY(4.4in) rotate(90deg);
+      }
+      .label-wrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        object-position: center top;
+      }
     </style>
-  </head><body></body></html>`)
+  </head><body>
+    <div class="label-wrap">
+      <img src="data:image/gif;base64,${base64}" />
+    </div>
+  </body></html>`)
   w.document.close()
-
-  // Load image, rotate via canvas, inject into the page
-  const img = new Image()
-  img.onload = () => {
-    const canvas = w.document.createElement('canvas')
-    canvas.width = img.height
-    canvas.height = img.width
-    const ctx = canvas.getContext('2d')!
-    ctx.translate(canvas.width, 0)
-    ctx.rotate(Math.PI / 2)
-    ctx.drawImage(img, 0, 0)
-    w.document.body.appendChild(canvas)
-    setTimeout(() => w.print(), 300)
-  }
-  img.src = `data:image/gif;base64,${base64}`
+  setTimeout(() => w.print(), 400)
 }
 
 // ─── History Tab ──────────────────────────────────────────────────────────────
