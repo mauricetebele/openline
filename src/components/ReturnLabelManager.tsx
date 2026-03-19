@@ -100,39 +100,35 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
 // ─── Print Layout Helper ─────────────────────────────────────────────────────
 
 function openPrintLabel(trackingNumber: string, base64: string) {
+  // Open window immediately (must be synchronous to avoid popup blocker)
+  const w = window.open('', '_blank')
+  if (!w) return
+
+  // Write a loading page first
+  w.document.write(`<!DOCTYPE html><html><head>
+    <title>Return Label – ${trackingNumber}</title>
+    <style>
+      @page { size: 8.5in 11in; margin: 0; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 8.5in; height: 11in; }
+      body { display: flex; align-items: flex-start; }
+      canvas { display: block; max-width: 8.5in; max-height: 4.4in; }
+    </style>
+  </head><body></body></html>`)
+  w.document.close()
+
+  // Load image, rotate via canvas, inject into the page
   const img = new Image()
   img.onload = () => {
-    // Rotate 90° CW via canvas — swap width/height
-    const canvas = document.createElement('canvas')
+    const canvas = w.document.createElement('canvas')
     canvas.width = img.height
     canvas.height = img.width
     const ctx = canvas.getContext('2d')!
     ctx.translate(canvas.width, 0)
     ctx.rotate(Math.PI / 2)
     ctx.drawImage(img, 0, 0)
-
-    const rotatedSrc = canvas.toDataURL('image/png')
-    const w = window.open('', '_blank')
-    if (!w) return
-    w.document.write(`<!DOCTYPE html><html><head>
-      <title>Return Label – ${trackingNumber}</title>
-      <style>
-        @page { size: 8.5in 11in; margin: 0; }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { width: 8.5in; height: 11in; }
-        img {
-          display: block;
-          width: 8.5in;
-          height: auto;
-          max-height: 4.4in;
-          object-fit: contain;
-        }
-      </style>
-    </head><body>
-      <img src="${rotatedSrc}" />
-    </body></html>`)
-    w.document.close()
-    setTimeout(() => w.print(), 400)
+    w.document.body.appendChild(canvas)
+    setTimeout(() => w.print(), 300)
   }
   img.src = `data:image/gif;base64,${base64}`
 }
