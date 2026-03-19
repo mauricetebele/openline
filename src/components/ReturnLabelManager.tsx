@@ -127,14 +127,20 @@ function LabelHistoryTab() {
       w.document.write(`<!DOCTYPE html><html><head>
         <title>Return Label – ${trackingNumber}</title>
         <style>
-          @page { size: letter portrait; margin: 0; }
+          @page { size: 8.5in 11in; margin: 0; }
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          html, body { width: 100%; height: 100%; }
-          body { display: flex; align-items: flex-start; justify-content: center; }
-          img { width: 50%; margin-top: 0.25in; transform: rotate(90deg); transform-origin: center center; }
+          html, body { width: 8.5in; height: 11in; overflow: hidden; }
+          .wrap {
+            width: 11in; height: 4.25in;
+            transform: rotate(-90deg);
+            transform-origin: top left;
+            position: absolute; top: 11in; left: 0;
+            display: flex; align-items: center; justify-content: center;
+          }
+          img { max-width: 100%; max-height: 100%; object-fit: contain; }
         </style>
       </head><body>
-        <img src="data:image/gif;base64,${data.labelData}" />
+        <div class="wrap"><img src="data:image/gif;base64,${data.labelData}" /></div>
       </body></html>`)
       w.document.close()
       setTimeout(() => w.print(), 400)
@@ -447,14 +453,20 @@ export default function ReturnLabelManager() {
     w.document.write(`<!DOCTYPE html><html><head>
       <title>Return Label – ${result.trackingNumber}</title>
       <style>
-        @page { size: letter portrait; margin: 0; }
+        @page { size: 8.5in 11in; margin: 0; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { width: 100%; height: 100%; }
-        body { display: flex; align-items: flex-start; justify-content: center; }
-        img { width: 50%; margin-top: 0.25in; transform: rotate(90deg); transform-origin: center center; }
+        html, body { width: 8.5in; height: 11in; overflow: hidden; }
+        .wrap {
+          width: 11in; height: 4.25in;
+          transform: rotate(-90deg);
+          transform-origin: top left;
+          position: absolute; top: 11in; left: 0;
+          display: flex; align-items: center; justify-content: center;
+        }
+        img { max-width: 100%; max-height: 100%; object-fit: contain; }
       </style>
     </head><body>
-      <img src="data:image/gif;base64,${result.labelBase64}" />
+      <div class="wrap"><img src="data:image/gif;base64,${result.labelBase64}" /></div>
     </body></html>`)
     w.document.close()
     setTimeout(() => w.print(), 400)
