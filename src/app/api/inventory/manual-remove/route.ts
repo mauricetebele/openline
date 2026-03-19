@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
           data:  { qty: { decrement: 1 } },
         })
       }
-    })
+    }, { maxWait: 10000, timeout: 30000 })
   } catch (err: unknown) {
     console.error('[manual-remove] Transaction failed:', err)
     const message = err instanceof Error ? err.message : 'Transaction failed'
