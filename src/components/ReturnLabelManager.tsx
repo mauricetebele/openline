@@ -99,35 +99,42 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
 
 // ─── Print Layout Helper ─────────────────────────────────────────────────────
 
-function printLabelHtml(trackingNumber: string, base64: string): string {
-  return `<!DOCTYPE html><html><head>
-    <title>Return Label – ${trackingNumber}</title>
-    <style>
-      @page { size: 8.5in 11in; margin: 0; }
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 8.5in; height: 11in; }
-      .top-zone {
-        position: absolute;
-        top: 0; left: 0;
-        width: 8.5in;
-        height: 4.4in;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      }
-      img {
-        width: 4.4in;
-        height: 8.5in;
-        object-fit: contain;
-        transform: rotate(90deg);
-      }
-    </style>
-  </head><body>
-    <div class="top-zone">
-      <img src="data:image/gif;base64,${base64}" />
-    </div>
-  </body></html>`
+function openPrintLabel(trackingNumber: string, base64: string) {
+  const img = new Image()
+  img.onload = () => {
+    // Rotate 90° CW via canvas — swap width/height
+    const canvas = document.createElement('canvas')
+    canvas.width = img.height
+    canvas.height = img.width
+    const ctx = canvas.getContext('2d')!
+    ctx.translate(canvas.width, 0)
+    ctx.rotate(Math.PI / 2)
+    ctx.drawImage(img, 0, 0)
+
+    const rotatedSrc = canvas.toDataURL('image/png')
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<!DOCTYPE html><html><head>
+      <title>Return Label – ${trackingNumber}</title>
+      <style>
+        @page { size: 8.5in 11in; margin: 0; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 8.5in; height: 11in; }
+        img {
+          display: block;
+          width: 8.5in;
+          height: auto;
+          max-height: 4.4in;
+          object-fit: contain;
+        }
+      </style>
+    </head><body>
+      <img src="${rotatedSrc}" />
+    </body></html>`)
+    w.document.close()
+    setTimeout(() => w.print(), 400)
+  }
+  img.src = `data:image/gif;base64,${base64}`
 }
 
 // ─── History Tab ──────────────────────────────────────────────────────────────
@@ -155,11 +162,7 @@ function LabelHistoryTab() {
       const res  = await fetch(`/api/return-label/${id}`)
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'Download failed'); return }
-      const w = window.open('', '_blank')
-      if (!w) return
-      w.document.write(printLabelHtml(trackingNumber, data.labelData))
-      w.document.close()
-      setTimeout(() => w.print(), 400)
+      openPrintLabel(trackingNumber, data.labelData)
     } catch {
       toast.error('Failed to open label')
     }
@@ -464,11 +467,7 @@ export default function ReturnLabelManager() {
 
   function openLabel() {
     if (!result) return
-    const w = window.open('', '_blank')
-    if (!w) return
-    w.document.write(printLabelHtml(result.trackingNumber, result.labelBase64))
-    w.document.close()
-    setTimeout(() => w.print(), 400)
+    openPrintLabel(result.trackingNumber, result.labelBase64)
   }
 
   function reset() {
