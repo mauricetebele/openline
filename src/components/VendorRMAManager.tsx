@@ -1,8 +1,9 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanLine, Search, CheckCircle2, Download } from 'lucide-react'
+import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanLine, Search, CheckCircle2, Download, Loader2, ExternalLink } from 'lucide-react'
 import { clsx } from 'clsx'
+import { trackingUrl } from '@/lib/tracking-utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,6 +18,7 @@ interface VendorRMAItem {
 interface VendorRMA {
   id: string; rmaNumber: string; status: RMAStatus
   vendorApprovalNumber: string | null; carrier: string | null; trackingNumber: string | null
+  carrierStatus: string | null; deliveredAt: string | null; estimatedDelivery: string | null; trackingUpdatedAt: string | null
   notes: string | null; createdAt: string; updatedAt: string
   vendor: { id: string; vendorNumber: number; name: string }
   items: VendorRMAItem[]
@@ -685,6 +687,42 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
 
   const readonly = rma.status === 'CREDIT_RECEIVED'
 
+  // Auto-fetch tracking status when viewing a shipped RMA
+  const [trackingLoading, setTrackingLoading] = useState(false)
+  const [trackingError, setTrackingError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (rma.status !== 'SHIPPED_AWAITING_CREDIT' && rma.status !== 'CREDIT_RECEIVED') return
+    if (!rma.trackingNumber) return
+    // Skip if already fetched recently (< 5 min)
+    if (rma.trackingUpdatedAt) {
+      const age = Date.now() - new Date(rma.trackingUpdatedAt).getTime()
+      if (age < 5 * 60 * 1000) return
+    }
+    let cancelled = false
+    setTrackingLoading(true)
+    setTrackingError(null)
+    fetch(`/api/vendor-rma/${rma.id}/tracking`, { method: 'POST' })
+      .then(res => res.json())
+      .then(data => {
+        if (cancelled) return
+        if (data.error) {
+          setTrackingError(data.error)
+        } else {
+          setRma(prev => ({
+            ...prev,
+            carrierStatus: data.carrierStatus,
+            deliveredAt: data.deliveredAt,
+            estimatedDelivery: data.estimatedDelivery,
+            trackingUpdatedAt: data.trackingUpdatedAt,
+          }))
+        }
+      })
+      .catch(() => { if (!cancelled) setTrackingError('Failed to fetch tracking') })
+      .finally(() => { if (!cancelled) setTrackingLoading(false) })
+    return () => { cancelled = true }
+  }, [rma.id, rma.status, rma.trackingNumber])
+
   // Poll for real-time scan-out updates from other users
   useEffect(() => {
     if (showScanOutModal) return // modal has its own polling
@@ -1107,15 +1145,52 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
 
       {/* Shipping Info */}
       {(rma.status === 'SHIPPED_AWAITING_CREDIT' || rma.status === 'CREDIT_RECEIVED') && (
-        <div className="mb-5 grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Truck size={11} />Carrier</p>
-            <p className="text-sm text-gray-900">{rma.carrier || '—'}</p>
+        <div className="mb-5">
+          <div className="grid grid-cols-2 gap-4 mb-2">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Truck size={11} />Carrier</p>
+              <p className="text-sm text-gray-900">{rma.carrier || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Tag size={11} />Tracking #</p>
+              {rma.trackingNumber ? (
+                <a href={trackingUrl(rma.trackingNumber)} target="_blank" rel="noopener noreferrer"
+                  className="text-sm font-mono text-blue-600 hover:underline inline-flex items-center gap-1">
+                  {rma.trackingNumber} <ExternalLink size={10} />
+                </a>
+              ) : (
+                <p className="text-sm font-mono text-gray-900">—</p>
+              )}
+            </div>
           </div>
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Tag size={11} />Tracking #</p>
-            <p className="text-sm font-mono text-gray-900">{rma.trackingNumber || '—'}</p>
-          </div>
+
+          {/* Live tracking status */}
+          {rma.trackingNumber && (
+            <div className="bg-gray-50 rounded-lg px-3 py-2 text-sm">
+              {trackingLoading ? (
+                <span className="text-gray-400 flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Fetching tracking status...</span>
+              ) : trackingError ? (
+                <span className="text-red-500 text-xs">{trackingError}</span>
+              ) : rma.carrierStatus ? (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-medium text-gray-900">{rma.carrierStatus}</span>
+                    {rma.deliveredAt && (
+                      <span className="text-xs text-gray-500 ml-2">Delivered {fmt(rma.deliveredAt)}</span>
+                    )}
+                    {!rma.deliveredAt && rma.estimatedDelivery && (
+                      <span className="text-xs text-gray-500 ml-2">ETA {fmt(rma.estimatedDelivery)}</span>
+                    )}
+                  </div>
+                  {rma.trackingUpdatedAt && (
+                    <span className="text-[10px] text-gray-400">
+                      Updated {new Date(rma.trackingUpdatedAt).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
       )}
 

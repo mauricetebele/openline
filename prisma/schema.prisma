@@ -1596,6 +1596,10 @@ model VendorRMA {
   vendorApprovalNumber String?
   carrier              String?
   trackingNumber       String?
+  carrierStatus        String?
+  deliveredAt          DateTime?
+  estimatedDelivery    DateTime?
+  trackingUpdatedAt    DateTime?
   notes                String?
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
