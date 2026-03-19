@@ -142,7 +142,7 @@ export async function POST(
         await tx.serialHistory.create({
           data: {
             inventorySerialId: r.serialId,
-            eventType: 'FBA_SHIPMENT',
+            eventType: 'ASSIGNED',
             fbaShipmentId: params.id,
             locationId: r.locationId,
             userId: user.dbId,
