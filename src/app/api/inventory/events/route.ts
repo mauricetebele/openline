@@ -28,15 +28,16 @@ const EVENT_LABEL: Record<string, string> = {
   LOCATION_MOVE:  'Move',
   SKU_CONVERSION: 'SKU Convert',
   SALE:           'Sale',
-  MANUAL_REMOVE:  'Manual Remove',
+  MANUAL_REMOVE:       'Manual Remove',
+  VENDOR_RMA_SHIPPED:  'Vendor RMA',
 }
 
 // add / remove / move
 function eventDirection(eventType: string): 'add' | 'remove' | 'move' {
-  if (['PO_RECEIPT', 'MANUAL_ADD'].includes(eventType)) return 'add'
-  if (['SALE', 'MANUAL_REMOVE'].includes(eventType))    return 'remove'
-  if (eventType === 'LOCATION_MOVE')                    return 'move'
-  if (eventType === 'SKU_CONVERSION')                   return 'move'
+  if (['PO_RECEIPT', 'MANUAL_ADD', 'VOID_REINSTATE', 'MP_RMA_RETURN'].includes(eventType)) return 'add'
+  if (['SALE', 'MANUAL_REMOVE', 'MANUAL_FBA', 'VENDOR_RMA_SHIPPED', 'FBA_SHIPMENT'].includes(eventType)) return 'remove'
+  if (eventType === 'LOCATION_MOVE')  return 'move'
+  if (eventType === 'SKU_CONVERSION') return 'move'
   return 'add'
 }
 
