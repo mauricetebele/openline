@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json() as ReturnLabelRequest & { amazonOrderId?: string }
+  const body = await req.json() as ReturnLabelRequest & { amazonOrderId?: string; upsCredentialId?: string }
 
   if (!body.shipFromName?.trim() || !body.shipFromAddress1?.trim() ||
       !body.shipFromCity?.trim() || !body.shipFromState?.trim() || !body.shipFromPostal?.trim()) {
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await generateReturnLabel(body)
+    const result = await generateReturnLabel(body, body.upsCredentialId)
 
     // Persist to history (fire-and-forget — don't fail the request if DB write fails)
     const serviceLabel = (await import('@/lib/ups-tracking')).UPS_SERVICES.find(
@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
         labelData:        result.labelBase64,
         shipmentCost:     result.shipmentCost ? parseFloat(result.shipmentCost) : null,
         currency:         result.currency ?? 'USD',
+        upsCredentialId:  body.upsCredentialId ?? null,
       },
     }).catch(err => console.error('[ReturnLabel] DB save failed:', err))
 

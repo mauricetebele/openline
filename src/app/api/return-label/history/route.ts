@@ -32,6 +32,7 @@ export async function GET() {
       voided:           true,
       voidedAt:         true,
       createdAt:        true,
+      upsCredential:    { select: { nickname: true } },
     },
   })
 

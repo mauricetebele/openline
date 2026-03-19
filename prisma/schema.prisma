@@ -658,12 +658,16 @@ model ShipStationAccount {
 
 model UpsCredential {
   id               String   @id @default(cuid())
+  nickname         String   @default("Primary")
   clientIdEnc      String
   clientSecretEnc  String
   accountNumberEnc String?  // UPS account number (shipper number) used for billing labels
+  isDefault        Boolean  @default(false)
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+
+  returnLabels     ReturnLabel[]
 
   @@map("ups_credentials")
 }
@@ -1662,6 +1666,8 @@ model ReturnLabel {
   currency         String?   @default("USD")
   voided           Boolean   @default(false)
   voidedAt         DateTime?
+  upsCredentialId  String?
+  upsCredential    UpsCredential? @relation(fields: [upsCredentialId], references: [id], onDelete: SetNull)
   createdAt        DateTime  @default(now())
 
   @@map("return_labels")

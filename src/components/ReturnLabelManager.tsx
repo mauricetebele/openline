@@ -49,6 +49,12 @@ interface LabelResult {
   chargeBreakdown?: ChargeLineItem[]
 }
 
+interface UpsAccount {
+  id:        string
+  nickname:  string
+  isDefault: boolean
+}
+
 interface HistoryEntry {
   id:               string
   amazonOrderId:    string | null
@@ -67,6 +73,7 @@ interface HistoryEntry {
   voided:           boolean
   voidedAt:         string | null
   createdAt:        string
+  upsCredential:    { nickname: string } | null
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -219,6 +226,12 @@ function LabelHistoryTab() {
 
             {/* Details row */}
             <div className="flex items-center gap-4 text-xs text-gray-500 mb-3 flex-wrap">
+              {lbl.upsCredential?.nickname && (
+                <>
+                  <span className="font-medium text-gray-600">{lbl.upsCredential.nickname}</span>
+                  <span>·</span>
+                </>
+              )}
               <span>{lbl.serviceLabel ?? lbl.serviceCode}</span>
               <span>·</span>
               <span>{parseFloat(lbl.weightValue).toFixed(1)} {lbl.weightUnit}</span>
@@ -267,6 +280,22 @@ function LabelHistoryTab() {
 export default function ReturnLabelManager() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('create')
   const [step, setStep] = useState<Step>('lookup')
+
+  // UPS accounts
+  const [upsAccounts, setUpsAccounts] = useState<UpsAccount[]>([])
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('')
+
+  useEffect(() => {
+    fetch('/api/ups/credentials')
+      .then(r => r.json())
+      .then(data => {
+        const accts: UpsAccount[] = data.accounts ?? []
+        setUpsAccounts(accts)
+        const def = accts.find(a => a.isDefault) ?? accts[0]
+        if (def) setSelectedAccountId(def.id)
+      })
+      .catch(() => {})
+  }, [])
 
   // Step 1
   const [orderId, setOrderId]         = useState('')
@@ -359,6 +388,7 @@ export default function ReturnLabelManager() {
           length: parseFloat(pkg.length), width: parseFloat(pkg.width),
           height: parseFloat(pkg.height), dimUnit: pkg.dimUnit,
         } : {}),
+        ...(selectedAccountId ? { upsCredentialId: selectedAccountId } : {}),
       }
       const res  = await fetch('/api/return-label/rate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json()
@@ -389,6 +419,7 @@ export default function ReturnLabelManager() {
         } : {}),
         description: pkg.description.trim() || 'Return Shipment',
         referenceNumber: pkg.referenceNumber.trim() || undefined,
+        ...(selectedAccountId ? { upsCredentialId: selectedAccountId } : {}),
       }
       const res  = await fetch('/api/return-label', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json()
@@ -586,6 +617,18 @@ export default function ReturnLabelManager() {
                   <h2 className="text-sm font-semibold text-gray-900">Package Details</h2>
                 </div>
                 <div className="space-y-3">
+                  {upsAccounts.length > 1 && (
+                    <div>
+                      <label className={labelCls}>UPS Account</label>
+                      <select className={inputCls} value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)}>
+                        {upsAccounts.map(a => (
+                          <option key={a.id} value={a.id}>
+                            {a.nickname}{a.isDefault ? ' (Default)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className={labelCls}>UPS Service</label>
                     <select className={inputCls} value={pkg.serviceCode} onChange={e => setPkg(p => ({ ...p, serviceCode: e.target.value }))}>
@@ -674,6 +717,15 @@ export default function ReturnLabelManager() {
                 <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-3">Package</p>
                   <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                    {upsAccounts.length > 1 && (() => {
+                      const acct = upsAccounts.find(a => a.id === selectedAccountId)
+                      return acct ? (
+                        <div className="flex justify-between col-span-2">
+                          <span className="text-gray-500 text-xs">UPS Account</span>
+                          <span className="font-medium text-xs">{acct.nickname}</span>
+                        </div>
+                      ) : null
+                    })()}
                     <div className="flex justify-between">
                       <span className="text-gray-500 text-xs">Service</span>
                       <span className="font-medium text-xs">{serviceLabel}</span>

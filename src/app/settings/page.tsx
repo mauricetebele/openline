@@ -547,28 +547,37 @@ function ShipStationSection() {
 
 // ─── UPS Credentials Section ───────────────────────────────────────────────────
 
+interface UpsAccountInfo {
+  id: string
+  nickname: string
+  isDefault: boolean
+  maskedClientId: string | null
+  maskedAccountNumber: string | null
+  updatedAt: string
+}
+
 function UpsCredentialsSection() {
-  const [configured, setConfigured] = useState(false)
-  const [maskedClientId, setMaskedClientId] = useState<string | null>(null)
-  const [maskedAccountNumber, setMaskedAccountNumber] = useState<string | null>(null)
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+  const [accounts, setAccounts] = useState<UpsAccountInfo[]>([])
+  const [showForm, setShowForm] = useState(false)
+  const [nickname, setNickname] = useState('')
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
   const [accountNumber, setAccountNumber] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editNickname, setEditNickname] = useState('')
 
-  useEffect(() => { fetchStatus() }, [])
-
-  async function fetchStatus() {
+  const fetchAccounts = useCallback(async () => {
     const res = await fetch('/api/ups/credentials')
     if (res.ok) {
       const data = await res.json()
-      setConfigured(data.configured ?? false)
-      setMaskedClientId(data.maskedClientId ?? null)
-      setMaskedAccountNumber(data.maskedAccountNumber ?? null)
-      setUpdatedAt(data.updatedAt ?? null)
+      setAccounts(data.accounts ?? [])
     }
-  }
+  }, [])
+
+  useEffect(() => { fetchAccounts() }, [fetchAccounts])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -577,14 +586,18 @@ function UpsCredentialsSection() {
       const res = await fetch('/api/ups/credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: clientId.trim(), clientSecret: clientSecret.trim(), accountNumber: accountNumber.trim() }),
+        body: JSON.stringify({
+          nickname: nickname.trim() || 'Primary',
+          clientId: clientId.trim(),
+          clientSecret: clientSecret.trim(),
+          accountNumber: accountNumber.trim(),
+        }),
       })
       if (!res.ok) throw new Error((await res.json()).error)
-      toast.success('UPS credentials saved!')
-      setClientId('')
-      setClientSecret('')
-      setAccountNumber('')
-      fetchStatus()
+      toast.success('UPS account added!')
+      setNickname(''); setClientId(''); setClientSecret(''); setAccountNumber('')
+      setShowForm(false)
+      fetchAccounts()
     } catch (err) {
       toast.error(`Failed: ${(err as Error).message}`)
     } finally {
@@ -592,59 +605,181 @@ function UpsCredentialsSection() {
     }
   }
 
+  async function handleSetDefault(id: string) {
+    setSettingDefaultId(id)
+    try {
+      const res = await fetch(`/api/ups/credentials/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isDefault: true }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Default account updated')
+      fetchAccounts()
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    } finally {
+      setSettingDefaultId(null)
+    }
+  }
+
+  async function handleDelete(id: string, name: string) {
+    if (!confirm(`Remove UPS account "${name}"? This will deactivate it.`)) return
+    setDeletingId(id)
+    try {
+      const res = await fetch(`/api/ups/credentials/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Account removed')
+      fetchAccounts()
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  async function handleRename(id: string) {
+    if (!editNickname.trim()) return
+    try {
+      const res = await fetch(`/api/ups/credentials/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname: editNickname.trim() }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Nickname updated')
+      setEditingId(null)
+      fetchAccounts()
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    }
+  }
+
   return (
     <div className="max-w-2xl space-y-6">
-      {configured && (
-        <div className="card p-5">
-          <div className="flex items-center gap-3">
-            <CheckCircle size={16} className="text-green-500 shrink-0" />
-            <div>
-              <p className="font-semibold text-sm">UPS API Connected</p>
-              <p className="text-xs text-gray-400">
-                Client ID: <span className="font-mono">{maskedClientId}</span>
-                {maskedAccountNumber && <> · Account #: <span className="font-mono">{maskedAccountNumber}</span></>}
-                {updatedAt && ` · Updated ${new Date(updatedAt).toLocaleDateString()}`}
-              </p>
+      {accounts.length > 0 && (
+        <div className="space-y-3">
+          {accounts.map(acct => (
+            <div key={acct.id} className="card p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    {editingId === acct.id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          className="input h-7 text-sm w-40"
+                          value={editNickname}
+                          onChange={e => setEditNickname(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleRename(acct.id); if (e.key === 'Escape') setEditingId(null) }}
+                          autoFocus
+                        />
+                        <button onClick={() => handleRename(acct.id)} className="text-xs text-amazon-blue hover:underline">Save</button>
+                        <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="font-semibold text-sm text-gray-900">{acct.nickname}</span>
+                        <button onClick={() => { setEditingId(acct.id); setEditNickname(acct.nickname) }}
+                          className="p-0.5 text-gray-400 hover:text-gray-600" title="Rename">
+                          <Pencil size={12} />
+                        </button>
+                      </>
+                    )}
+                    {acct.isDefault && (
+                      <span className="inline-flex items-center gap-1 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-semibold">
+                        Default
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    Client ID: <span className="font-mono">{acct.maskedClientId ?? '—'}</span>
+                    {acct.maskedAccountNumber && <> · Account #: <span className="font-mono">{acct.maskedAccountNumber}</span></>}
+                    {acct.updatedAt && ` · Updated ${new Date(acct.updatedAt).toLocaleDateString()}`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {!acct.isDefault && (
+                    <button
+                      onClick={() => handleSetDefault(acct.id)}
+                      disabled={settingDefaultId === acct.id}
+                      className="text-xs text-amazon-blue hover:underline disabled:opacity-50"
+                    >
+                      {settingDefaultId === acct.id ? 'Setting…' : 'Set Default'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDelete(acct.id, acct.nickname)}
+                    disabled={deletingId === acct.id}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                    title="Remove account"
+                  >
+                    <Trash2 size={14} className={deletingId === acct.id ? 'animate-pulse' : ''} />
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          ))}
         </div>
       )}
 
-      <div className="card p-6">
-        <div className="flex items-start gap-4 mb-5">
-          <div className="rounded-xl p-3 bg-amber-50">
-            <Truck size={20} className="text-amber-600" />
+      {!showForm ? (
+        <button onClick={() => setShowForm(true)}
+          className="btn-primary">
+          <Plus size={14} />
+          Add UPS Account
+        </button>
+      ) : (
+        <div className="card p-6">
+          <div className="flex items-start justify-between mb-5">
+            <div className="flex items-start gap-4">
+              <div className="rounded-xl p-3 bg-amber-50">
+                <Truck size={20} className="text-amber-600" />
+              </div>
+              <div>
+                <p className="font-semibold">Add UPS Account</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Register at <a href="https://developer.ups.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">developer.ups.com</a>.
+                </p>
+              </div>
+            </div>
+            <button onClick={() => setShowForm(false)} className="p-1 text-gray-400 hover:text-gray-600">
+              <X size={16} />
+            </button>
           </div>
-          <div>
-            <p className="font-semibold">{configured ? 'Update UPS Credentials' : 'Connect UPS API'}</p>
-            <p className="text-sm text-gray-500 mt-1">
-              UPS credentials are used to fetch live tracking status and generate return labels.
-              Register at <a href="https://developer.ups.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">developer.ups.com</a>.
-            </p>
-          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="label">Nickname</label>
+              <input className="input" placeholder="e.g. Primary, Wholesale Returns"
+                value={nickname} onChange={e => setNickname(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Client ID</label>
+              <input className="input font-mono" placeholder="m7St8F1ZKIw5oq…"
+                value={clientId} onChange={e => setClientId(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">Client Secret</label>
+              <input className="input font-mono" type="password" placeholder="SfCvVYFaI8Aeap…"
+                value={clientSecret} onChange={e => setClientSecret(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">Account Number <span className="text-gray-400 font-normal">(required for return labels)</span></label>
+              <input className="input font-mono" placeholder="12AB34"
+                value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
+            </div>
+            <div className="flex gap-3">
+              <button type="submit" className="btn-primary" disabled={saving}>
+                <RefreshCw size={14} className={saving ? 'animate-spin' : ''} />
+                {saving ? 'Saving…' : 'Save Account'}
+              </button>
+              <button type="button" onClick={() => setShowForm(false)}
+                className="px-4 h-9 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </form>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="label">Client ID</label>
-            <input className="input font-mono" placeholder="m7St8F1ZKIw5oq…"
-              value={clientId} onChange={e => setClientId(e.target.value)} required />
-          </div>
-          <div>
-            <label className="label">Client Secret</label>
-            <input className="input font-mono" type="password" placeholder="SfCvVYFaI8Aeap…"
-              value={clientSecret} onChange={e => setClientSecret(e.target.value)} required />
-          </div>
-          <div>
-            <label className="label">Account Number <span className="text-gray-400 font-normal">(required for generating return labels)</span></label>
-            <input className="input font-mono" placeholder="12AB34"
-              value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
-          </div>
-          <button type="submit" className="btn-primary" disabled={saving}>
-            <RefreshCw size={14} className={saving ? 'animate-spin' : ''} />
-            {saving ? 'Saving…' : configured ? 'Update Credentials' : 'Save Credentials'}
-          </button>
-        </form>
-      </div>
+      )}
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm">
         <p className="font-semibold text-amber-800 mb-2">How to get UPS API Credentials</p>

@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json() as ReturnLabelRequest
+  const body = await req.json() as ReturnLabelRequest & { upsCredentialId?: string }
 
   if (!body.shipFromAddress1?.trim() || !body.shipFromCity?.trim() ||
       !body.shipFromState?.trim() || !body.shipFromPostal?.trim()) {
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await getRateQuote(body)
+    const result = await getRateQuote(body, body.upsCredentialId)
     return NextResponse.json(result)
   } catch (err: unknown) {
     return NextResponse.json(

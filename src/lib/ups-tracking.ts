@@ -18,18 +18,34 @@ const UPS_RATE_URL   = 'https://onlinetools.ups.com/api/rating/v1/Rate'
 const FEDEX_AUTH_URL  = 'https://apis.fedex.com/oauth/token'
 const FEDEX_TRACK_URL = 'https://apis.fedex.com/track/v1/trackingnumbers'
 
-let cachedToken: { token: string; expiresAt: number } | null = null
+// Per-credential token cache (keyed by credential ID or '_env' for env fallback)
+const tokenCache = new Map<string, { token: string; expiresAt: number }>()
 let cachedFedexToken: { token: string; expiresAt: number } | null = null
 
-async function getUPSCredentials(): Promise<{ clientId: string; clientSecret: string; accountNumber: string | null }> {
-  // Try DB first
+interface UPSCreds { id: string; clientId: string; clientSecret: string; accountNumber: string | null }
+
+async function getUPSCredentials(): Promise<UPSCreds> {
+  // Try DB first — load the default account
   try {
-    const cred = await prisma.upsCredential.findFirst({ where: { isActive: true } })
+    const cred = await prisma.upsCredential.findFirst({
+      where: { isActive: true, isDefault: true },
+    })
     if (cred) {
       return {
+        id:            cred.id,
         clientId:      decrypt(cred.clientIdEnc),
         clientSecret:  decrypt(cred.clientSecretEnc),
         accountNumber: cred.accountNumberEnc ? decrypt(cred.accountNumberEnc) : null,
+      }
+    }
+    // Fallback: any active account if none marked default
+    const any = await prisma.upsCredential.findFirst({ where: { isActive: true } })
+    if (any) {
+      return {
+        id:            any.id,
+        clientId:      decrypt(any.clientIdEnc),
+        clientSecret:  decrypt(any.clientSecretEnc),
+        accountNumber: any.accountNumberEnc ? decrypt(any.accountNumberEnc) : null,
       }
     }
   } catch { /* fall through to env */ }
@@ -38,25 +54,39 @@ async function getUPSCredentials(): Promise<{ clientId: string; clientSecret: st
   const clientId     = process.env.UPS_CLIENT_ID
   const clientSecret = process.env.UPS_CLIENT_SECRET
   if (clientId && clientSecret) {
-    return { clientId, clientSecret, accountNumber: process.env.UPS_ACCOUNT_NUMBER ?? null }
+    return { id: '_env', clientId, clientSecret, accountNumber: process.env.UPS_ACCOUNT_NUMBER ?? null }
   }
 
   throw new Error('UPS API credentials are not configured. Add them in Settings → UPS API.')
 }
 
-async function getUPSToken(): Promise<string> {
-  const { clientId, clientSecret } = await getUPSCredentials()
+async function getUPSCredentialsById(credentialId: string): Promise<UPSCreds> {
+  const cred = await prisma.upsCredential.findFirst({
+    where: { id: credentialId, isActive: true },
+  })
+  if (!cred) throw new Error('UPS account not found or deactivated.')
+  return {
+    id:            cred.id,
+    clientId:      decrypt(cred.clientIdEnc),
+    clientSecret:  decrypt(cred.clientSecretEnc),
+    accountNumber: cred.accountNumberEnc ? decrypt(cred.accountNumberEnc) : null,
+  }
+}
+
+async function getUPSToken(creds?: UPSCreds): Promise<string> {
+  const resolved = creds ?? await getUPSCredentials()
+  const { id, clientId, clientSecret } = resolved
 
   if (!clientId || !clientSecret) {
     throw new Error('UPS API credentials are not configured. Add them in Settings → UPS API.')
   }
 
-  if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
-    return cachedToken.token
+  const cached = tokenCache.get(id)
+  if (cached && Date.now() < cached.expiresAt - 30_000) {
+    return cached.token
   }
 
-  // Invalidate cache when credentials might have changed
-  cachedToken = null
+  tokenCache.delete(id)
 
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
   const { data } = await axios.post<{ access_token: string; expires_in: number }>(
@@ -65,8 +95,8 @@ async function getUPSToken(): Promise<string> {
     { headers: { Authorization: `Basic ${credentials}`, 'Content-Type': 'application/x-www-form-urlencoded' } },
   )
 
-  cachedToken = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1_000 }
-  return cachedToken.token
+  tokenCache.set(id, { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1_000 })
+  return data.access_token
 }
 
 // ─── FedEx Credentials & Token ────────────────────────────────────────────────
@@ -375,13 +405,14 @@ function sanitizeAddressLine(raw: string): string {
     .slice(0, 35)
 }
 
-export async function generateReturnLabel(req: ReturnLabelRequest): Promise<ReturnLabelResult> {
-  const { accountNumber } = await getUPSCredentials()
+export async function generateReturnLabel(req: ReturnLabelRequest, upsCredentialId?: string): Promise<ReturnLabelResult> {
+  const creds = upsCredentialId ? await getUPSCredentialsById(upsCredentialId) : await getUPSCredentials()
+  const { accountNumber } = creds
   if (!accountNumber) {
     throw new Error('UPS Account Number is not configured. Add it in Settings → UPS API.')
   }
 
-  const token = await getUPSToken()
+  const token = await getUPSToken(creds)
 
   const line1 = sanitizeAddressLine(req.shipFromAddress1)
   if (!line1) {
@@ -578,13 +609,14 @@ export interface RateQuoteResult {
  * Fetch a UPS rate quote for a return shipment without purchasing a label.
  * Uses the same address/package parameters as generateReturnLabel.
  */
-export async function getRateQuote(req: ReturnLabelRequest): Promise<RateQuoteResult> {
-  const { accountNumber } = await getUPSCredentials()
+export async function getRateQuote(req: ReturnLabelRequest, upsCredentialId?: string): Promise<RateQuoteResult> {
+  const creds = upsCredentialId ? await getUPSCredentialsById(upsCredentialId) : await getUPSCredentials()
+  const { accountNumber } = creds
   if (!accountNumber) {
     throw new Error('UPS Account Number is not configured. Add it in Settings → UPS API.')
   }
 
-  const token = await getUPSToken()
+  const token = await getUPSToken(creds)
 
   const rateLine1 = sanitizeAddressLine(req.shipFromAddress1)
   const addressLines = [rateLine1]
