@@ -30,14 +30,14 @@ interface PushResult {
   error?: string
 }
 
-type MskuWithRelations = Awaited<ReturnType<typeof prisma.productGradeMarketplaceSku.findFirstOrThrow<{
+export type MskuWithRelations = Awaited<ReturnType<typeof prisma.productGradeMarketplaceSku.findFirstOrThrow<{
   include: { product: { select: { id: true; sku: true } }; grade: { select: { id: true; grade: true } } }
 }>>>
 
 /**
  * Push quantity for a single MSKU. Handles inventory calculation + marketplace API call.
  */
-async function pushOneQuantity(
+export async function pushOneQuantity(
   msku: MskuWithRelations,
   bmClient: BackMarketClient | null,
   bmListingsCache: Map<string, number> | null,
@@ -66,6 +66,7 @@ async function pushOneQuantity(
           orderStatus: 'Pending',
           fulfillmentChannel: 'MFN',
           orderSource: 'amazon',
+          workflowStatus: 'PENDING', // only unprocessed — processed orders already have qty decremented via reservation
         },
       },
       select: { quantityOrdered: true, quantityShipped: true },
@@ -107,7 +108,7 @@ async function pushOneQuantity(
 /**
  * Initialize Back Market client + listings cache if needed.
  */
-async function getBmContext(mskus: MskuWithRelations[]) {
+export async function getBmContext(mskus: MskuWithRelations[]) {
   let bmClient: BackMarketClient | null = null
   let bmListingsCache: Map<string, number> | null = null
 

@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { pushQtyForProducts } from '@/lib/push-qty-for-product'
 
 export const dynamic = 'force-dynamic'
 
@@ -110,6 +111,9 @@ export async function POST(
       data: { fulfillmentStatus: 'PROCESSING', processedAt: new Date() },
     })
   })
+
+  // Push updated qty to marketplaces immediately
+  pushQtyForProducts(reservations.map(r => r.productId))
 
   return NextResponse.json({ success: true })
 }

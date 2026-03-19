@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
+import { pushQtyForProducts } from '@/lib/push-qty-for-product'
 
 export const dynamic = 'force-dynamic'
 
@@ -74,6 +75,11 @@ export async function POST(
       data:  { workflowStatus: 'PENDING', processedAt: null },
     })
   })
+
+  // Push updated qty to marketplaces immediately (inventory was restored)
+  if (order.reservations.length > 0) {
+    pushQtyForProducts(order.reservations.map(r => r.productId))
+  }
 
   return NextResponse.json({ success: true })
 }

@@ -2,8 +2,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight, Copy, Printer, ClipboardPaste, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import JsBarcode from 'jsbarcode'
-import { jsPDF } from 'jspdf'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -902,72 +900,25 @@ function WizardView({
     if (result) { await loadShipment(); onRefreshList() }
   }
 
-  function printFnskuLabels() {
+  const [fnskuLoading, setFnskuLoading] = useState(false)
+
+  async function printFnskuLabels() {
     if (!shipment || shipment.items.length === 0) return
-
-    // Label size: DYMO 30334 = 2.25" x 1.25"
-    const W = 2.25 * 72  // points
-    const H = 1.25 * 72  // points
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: [H, W] })
-
-    const margin = 4
-    const maxTextW = W - margin * 2
-    let firstPage = true
-
-    for (const item of shipment.items) {
-      for (let copy = 0; copy < item.quantity; copy++) {
-        if (!firstPage) doc.addPage([H, W], 'landscape')
-        firstPage = false
-
-        // SKU line (bold) — shrink font to fit
-        const sku = item.msku?.product?.sku ?? item.sellerSku
-        doc.setFont('helvetica', 'bold')
-        let skuSize = 10
-        doc.setFontSize(skuSize)
-        while (skuSize > 5 && doc.getTextWidth(sku) > maxTextW) {
-          skuSize -= 0.5
-          doc.setFontSize(skuSize)
-        }
-        doc.text(sku, margin, 12)
-
-        // Grade line (bold, only if exists)
-        let yAfterGrade = 12
-        if (item.msku?.grade) {
-          yAfterGrade = 22
-          doc.setFont('helvetica', 'bold')
-          doc.setFontSize(9)
-          doc.text(item.msku.grade.grade, margin, yAfterGrade)
-        }
-
-        // Barcode — render at 4x resolution for crisp PDF output
-        const scale = 4
-        const canvas = document.createElement('canvas')
-        JsBarcode(canvas, item.fnsku, {
-          format: 'CODE128',
-          width: 2 * scale,
-          height: 40 * scale,
-          displayValue: false,
-          margin: 0,
-        })
-        const barcodeY = yAfterGrade + 6
-        const barcodeImg = canvas.toDataURL('image/png')
-        const barcodeW = W - margin * 2
-        const barcodeH = 42
-        doc.addImage(barcodeImg, 'PNG', margin, barcodeY, barcodeW, barcodeH)
-
-        // FNSKU text below barcode
-        doc.setFont('courier', 'normal')
-        doc.setFontSize(8)
-        doc.text(item.fnsku, W / 2, barcodeY + barcodeH + 8, { align: 'center' })
-      }
-    }
-
-    // Open print dialog
-    const pdfBlob = doc.output('blob')
-    const url = URL.createObjectURL(pdfBlob)
-    const printWindow = window.open(url, '_blank')
-    if (printWindow) {
-      printWindow.onload = () => { printWindow.print() }
+    setFnskuLoading(true)
+    try {
+      const res = await fetch(`/api/fba-shipments/${shipment.id}/fnsku-labels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ labelType: 'THERMAL_PRINTING' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to generate FNSKU labels')
+      // Open the Amazon-generated PDF in a new tab for printing
+      window.open(data.downloadUrl, '_blank')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to generate FNSKU labels')
+    } finally {
+      setFnskuLoading(false)
     }
   }
 
@@ -1063,11 +1014,12 @@ function WizardView({
       {/* Print FNSKU labels */}
       {shipment.items.length > 0 && shipment.status !== 'DRAFT' && (
         <div className="flex items-center gap-2 mb-4">
-          <button type="button" onClick={printFnskuLabels}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50">
-            <Printer size={13} /> Print FNSKU Labels
+          <button type="button" onClick={printFnskuLabels} disabled={fnskuLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50 disabled:opacity-50">
+            {fnskuLoading ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />}
+            {fnskuLoading ? 'Generating...' : 'Print FNSKU Labels'}
           </button>
-          <span className="text-[10px] text-gray-400">Dymo 30334 · 2.25×1.25&quot;</span>
+          <span className="text-[10px] text-gray-400">Amazon official labels · title + condition</span>
         </div>
       )}
 

@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
+import { pushQtyForProducts } from '@/lib/push-qty-for-product'
 
 export const dynamic = 'force-dynamic'
 
@@ -124,6 +125,9 @@ export async function POST(
       })
     }
   })
+
+  // Push updated qty to marketplaces immediately (inventory was reserved for FBA)
+  pushQtyForProducts(assignments.map(a => a.productId))
 
   return NextResponse.json({ success: true })
 }

@@ -475,6 +475,69 @@ export async function listShipmentBoxes(
   return resp.boxes ?? []
 }
 
+// ─── 12c. Create Marketplace Item Labels (FNSKU stickers) ────────────────────
+
+export interface CreateMarketplaceItemLabelsRequest {
+  marketplaceId: string
+  mskuQuantities: Array<{ msku: string; quantity: number }>
+  labelType: 'STANDARD_FORMAT' | 'THERMAL_PRINTING'
+  pageType?: string        // e.g. 'Letter_30' — only for STANDARD_FORMAT
+  height?: number          // mm, 25–100 — only for THERMAL_PRINTING
+  width?: number           // mm, 25–100 — only for THERMAL_PRINTING
+  localeCode?: string      // e.g. 'en_US'
+}
+
+interface DocumentDownload {
+  uri: string
+  downloadType: string
+  expiration?: string
+}
+
+interface CreateMarketplaceItemLabelsResponse {
+  documentDownloads?: DocumentDownload[]
+}
+
+/**
+ * Generate FNSKU item labels via SP-API.
+ * Returns a temporary S3 URL to a PDF containing barcoded labels with
+ * product title + Amazon condition — the official Amazon label format.
+ *
+ * Does NOT require an inbound plan — only needs the MSKU to be an active
+ * FBA listing so the FNSKU has been assigned.
+ *
+ * Rate limit: 2 req/sec, burst 30.
+ */
+export async function createMarketplaceItemLabels(
+  accountId: string,
+  request: CreateMarketplaceItemLabelsRequest,
+): Promise<string> {
+  const client = new SpApiClient(accountId)
+
+  const body: Record<string, unknown> = {
+    marketplaceId: request.marketplaceId,
+    mskuQuantities: request.mskuQuantities,
+    labelType: request.labelType,
+    localeCode: request.localeCode ?? 'en_US',
+  }
+
+  if (request.labelType === 'STANDARD_FORMAT' && request.pageType) {
+    body.pageType = request.pageType
+  }
+  if (request.labelType === 'THERMAL_PRINTING') {
+    if (request.height) body.height = request.height
+    if (request.width) body.width = request.width
+  }
+
+  const resp = await client.post<CreateMarketplaceItemLabelsResponse>(
+    '/inbound/fba/2024-03-20/items/labels',
+    body,
+  )
+
+  const url = resp.documentDownloads?.[0]?.uri
+  if (!url) throw new Error('No label download URL returned from Amazon')
+  return url
+}
+
 // ─── 13. Get Shipment Labels (v0 API) ───────────────────────────────────────
 
 export interface ShipmentLabelsResponse {

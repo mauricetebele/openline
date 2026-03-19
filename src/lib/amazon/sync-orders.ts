@@ -24,6 +24,7 @@
  *  - Progress writes are batched every 5 orders instead of every order.
  */
 import { prisma } from '@/lib/prisma'
+import { pushQtyForProducts } from '@/lib/push-qty-for-product'
 import { SpApiClient } from './sp-api'
 
 const ORDERS_PAGE_BURST  = 20   // free burst calls for GetOrders
@@ -82,17 +83,18 @@ interface GetOrderItemsResponse {
  * finished-goods inventory. Orders where ALL items have sufficient stock
  * at a finished-goods location are moved to PROCESSING automatically.
  */
-async function autoProcessPendingOrders(accountId: string): Promise<void> {
+async function autoProcessPendingOrders(accountId: string): Promise<string[]> {
   const pendingOrders = await prisma.order.findMany({
     where: { accountId, workflowStatus: 'PENDING' },
     include: { items: true },
   })
 
-  if (pendingOrders.length === 0) return
+  if (pendingOrders.length === 0) return []
   console.log(`[AutoProcess] Evaluating ${pendingOrders.length} PENDING orders`)
 
   let processed = 0
   let skipped = 0
+  const affectedProductIds: string[] = []
 
   for (const order of pendingOrders) {
     try {
@@ -200,6 +202,7 @@ async function autoProcessPendingOrders(accountId: string): Promise<void> {
         })
       })
 
+      affectedProductIds.push(...plan.map(r => r.productId))
       processed++
     } catch (err) {
       console.error(`[AutoProcess] Failed for order ${order.amazonOrderId}:`, err)
@@ -207,6 +210,7 @@ async function autoProcessPendingOrders(accountId: string): Promise<void> {
   }
 
   console.log(`[AutoProcess] Done — ${processed} auto-processed, ${skipped} skipped (insufficient stock)`)
+  return affectedProductIds
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -469,7 +473,10 @@ export async function syncUnshippedOrders(
     console.log(`[SyncOrders] SP-API calls made — detail: ${detailCallCount}, items: ${itemsCallCount} (of ${allOrders.length} total orders)`)
 
     // Auto-process orders that can be fulfilled from finished-goods inventory
-    await autoProcessPendingOrders(accountId)
+    const autoProcessedProductIds = await autoProcessPendingOrders(accountId)
+    if (autoProcessedProductIds.length > 0) {
+      pushQtyForProducts(autoProcessedProductIds)
+    }
 
     // NOTE: ShipStation enrichment (ssOrderId + address backfill) is now a
     // separate step triggered by the frontend AFTER sync completes.
