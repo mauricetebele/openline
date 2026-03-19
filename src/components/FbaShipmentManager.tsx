@@ -902,9 +902,12 @@ function WizardView({
 
   const [fnskuLoading, setFnskuLoading] = useState(false)
 
+  const [fnskuError, setFnskuError] = useState<string | null>(null)
+
   async function printFnskuLabels() {
     if (!shipment || shipment.items.length === 0) return
     setFnskuLoading(true)
+    setFnskuError(null)
     try {
       const res = await fetch(`/api/fba-shipments/${shipment.id}/fnsku-labels`, {
         method: 'POST',
@@ -913,10 +916,16 @@ function WizardView({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to generate FNSKU labels')
-      // Open the Amazon-generated PDF in a new tab for printing
-      window.open(data.downloadUrl, '_blank')
+      // Use link click instead of window.open to avoid popup blocker
+      const a = document.createElement('a')
+      a.href = data.downloadUrl
+      a.target = '_blank'
+      a.rel = 'noopener noreferrer'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to generate FNSKU labels')
+      setFnskuError(err instanceof Error ? err.message : 'Failed to generate FNSKU labels')
     } finally {
       setFnskuLoading(false)
     }
@@ -1020,6 +1029,7 @@ function WizardView({
             {fnskuLoading ? 'Generating...' : 'Print FNSKU Labels'}
           </button>
           <span className="text-[10px] text-gray-400">Amazon official labels · title + condition</span>
+          {fnskuError && <span className="text-[11px] text-red-500">{fnskuError}</span>}
         </div>
       )}
 
