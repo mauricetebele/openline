@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight, Copy, Printer, ClipboardPaste, Trash2 } from 'lucide-react'
+import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight, Copy, Printer, ClipboardPaste, Trash2, ScanBarcode } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1024,8 +1024,8 @@ function WizardView({
       {shipment.items.length > 0 && shipment.status !== 'DRAFT' && (
         <div className="flex items-center gap-2 mb-4">
           <button type="button" onClick={printFnskuLabels} disabled={fnskuLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50 disabled:opacity-50">
-            {fnskuLoading ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 transition-colors">
+            {fnskuLoading ? <Loader2 size={22} className="animate-spin" /> : <ScanBarcode size={22} strokeWidth={2.2} />}
             {fnskuLoading ? 'Generating...' : 'Print FNSKU Labels'}
           </button>
           <span className="text-[10px] text-gray-400">Amazon official labels · title + condition</span>
