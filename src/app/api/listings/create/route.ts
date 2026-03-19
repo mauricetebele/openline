@@ -69,8 +69,8 @@ export async function POST(req: NextRequest) {
         await prisma.$executeRawUnsafe(
           `INSERT INTO "product_grade_marketplace_skus" ("id", "productId", "gradeId", "marketplace", "accountId", "sellerSku", "syncQty", "isSynced", "createdAt")
            VALUES ($1, $2, $3, 'amazon', $4, $5, false, false, NOW())
-           ON CONFLICT ("productId", "gradeId", "marketplace", "accountId")
-           DO UPDATE SET "sellerSku" = EXCLUDED."sellerSku"`,
+           ON CONFLICT ("sellerSku", "marketplace", "accountId")
+           DO UPDATE SET "productId" = EXCLUDED."productId", "gradeId" = EXCLUDED."gradeId"`,
           id, productId, gId, accountId, sku,
         )
       } catch (upsertErr) {
