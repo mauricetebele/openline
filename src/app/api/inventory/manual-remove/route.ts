@@ -75,16 +75,16 @@ export async function POST(req: NextRequest) {
         data:  { status: 'OUT_OF_STOCK' },
       })
 
-      // Create history event — MANUAL_FBA for FBA removals, MANUAL_REMOVE otherwise
+      // Create history event
       const isManualFba = reason === 'Manual FBA'
       await tx.serialHistory.create({
         data: {
           inventorySerialId: serial.id,
-          eventType:         isManualFba ? 'MANUAL_FBA' : 'MANUAL_REMOVE',
+          eventType:         'MANUAL_REMOVE',
           locationId,
           userId:            user.dbId,
           notes:             isManualFba && fbaReference
-            ? `Manual FBA — Ref: ${fbaReference}`
+            ? `MANUAL FBA — Ref: ${fbaReference}`
             : reason,
         },
       })
