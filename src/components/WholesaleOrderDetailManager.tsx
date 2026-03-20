@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import jsPDF from 'jspdf'
+import { ClipboardCheck, MapPin, RefreshCcw, AlertCircle, X } from 'lucide-react'
 
 const SO_STATUS_COLOR: Record<string, string> = {
   PENDING_APPROVAL: 'bg-amber-100 text-amber-700',
@@ -36,7 +37,7 @@ interface Allocation {
 interface Address { addressLine1: string; addressLine2?: string; city: string; state: string; postalCode: string }
 
 interface Order {
-  id: string; orderNumber: string; status: string; orderDate: string; dueDate?: string
+  id: string; orderNumber: string; status: string; fulfillmentStatus: string; orderDate: string; dueDate?: string
   customerPoNumber?: string
   customer: { id: string; companyName: string; paymentTerms: string }
   items: OrderItem[]
@@ -183,6 +184,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
     amount: '', method: 'CHECK', reference: '', memo: '',
   })
   const [paymentSaving, setPaymentSaving] = useState(false)
+  const [showProcessModal, setShowProcessModal] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -291,6 +293,12 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
           )}
           {order.status === 'CONFIRMED' && (
             <>
+              {order.fulfillmentStatus === 'PENDING' && (
+                <button onClick={() => setShowProcessModal(true)}
+                  className="px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-medium hover:bg-emerald-700 flex items-center gap-1">
+                  <ClipboardCheck size={12} /> Process to Fulfillment
+                </button>
+              )}
               <button onClick={() => transition('INVOICED')} disabled={transitioning}
                 className="px-3 py-1.5 bg-yellow-500 text-white rounded text-xs font-medium hover:bg-yellow-600 disabled:opacity-50">
                 Mark as Invoiced
@@ -448,6 +456,9 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
       </div>
 
       {/* Payment modal */}
+      {/* Process to Fulfillment modal */}
+      {showProcessModal && <ProcessModal orderId={order.id} orderNumber={order.orderNumber} onClose={() => setShowProcessModal(false)} onProcessed={() => { setShowProcessModal(false); load() }} />}
+
       {showPaymentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowPaymentModal(false)} />
@@ -510,6 +521,172 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Process Modal ────────────────────────────────────────────────────────────
+
+interface InventoryLocation {
+  locationId: string; locationName: string; warehouseName: string
+  qty: number; gradeId: string | null; gradeName: string | null
+}
+interface OrderItemInventory {
+  orderItemId: string; sellerSku: string | null; title: string | null
+  quantityOrdered: number; productId: string | null; totalQtyAvailable: number
+  locations: InventoryLocation[]
+}
+interface ReservationSelection {
+  orderItemId: string; productId: string; locationId: string
+  qtyReserved: number; gradeId: string | null
+}
+
+function ProcessModal({ orderId, orderNumber, onClose, onProcessed }: {
+  orderId: string; orderNumber: string; onClose: () => void; onProcessed: () => void
+}) {
+  const [inventoryData, setInventoryData] = useState<{ items: OrderItemInventory[] } | null>(null)
+  const [loading, setLoading]       = useState(true)
+  const [loadErr, setLoadErr]       = useState<string | null>(null)
+  const [selections, setSelections] = useState<Record<string, ReservationSelection>>({})
+  const [processing, setProcessing] = useState(false)
+  const [processErr, setProcessErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true); setLoadErr(null)
+    fetch(`/api/wholesale/orders/${orderId}/inventory`)
+      .then(r => r.ok ? r.json() : r.json().then((j: { error?: string }) => Promise.reject(new Error(j.error ?? String(r.status)))))
+      .then((data: { items: OrderItemInventory[] }) => {
+        setInventoryData(data)
+        const initial: Record<string, ReservationSelection> = {}
+        for (const item of data.items) {
+          if (!item.productId || item.locations.length === 0) continue
+          const best = item.locations.find(l => l.qty >= item.quantityOrdered) ?? item.locations[0]
+          initial[item.orderItemId] = {
+            orderItemId: item.orderItemId, productId: item.productId,
+            locationId: best.locationId, qtyReserved: Math.min(item.quantityOrdered, best.qty),
+            gradeId: best.gradeId ?? null,
+          }
+        }
+        setSelections(initial)
+      })
+      .catch(e => setLoadErr(e instanceof Error ? e.message : 'Failed to load inventory'))
+      .finally(() => setLoading(false))
+  }, [orderId])
+
+  const allItemsHaveStock = inventoryData?.items.every(item =>
+    !item.productId ? false : item.totalQtyAvailable >= item.quantityOrdered
+  ) ?? false
+
+  const allSelectionsValid = inventoryData?.items.every(item => {
+    if (!item.productId) return false
+    const sel = selections[item.orderItemId]
+    if (!sel) return false
+    const loc = item.locations.find(l => l.locationId === sel.locationId && (l.gradeId ?? '') === (sel.gradeId ?? ''))
+    return loc && sel.qtyReserved >= 1 && sel.qtyReserved <= loc.qty
+  }) ?? false
+
+  async function handleConfirm() {
+    if (!allSelectionsValid) return
+    setProcessing(true); setProcessErr(null)
+    try {
+      const res = await fetch(`/api/wholesale/orders/${orderId}/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reservations: Object.values(selections) }),
+      })
+      if (!res.ok) {
+        const j = await res.json()
+        throw new Error(j.error ?? `HTTP ${res.status}`)
+      }
+      toast.success('Order processed to fulfillment')
+      onProcessed()
+    } catch (e) { setProcessErr(e instanceof Error ? e.message : 'Failed to process order') }
+    finally { setProcessing(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
+          <div>
+            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+              <ClipboardCheck size={15} className="text-emerald-600" /> Process to Fulfillment
+            </h3>
+            <p className="text-xs text-gray-500 font-mono mt-0.5">{orderNumber}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+          {loading && <div className="flex items-center gap-2 text-sm text-gray-500 py-4"><RefreshCcw size={13} className="animate-spin" /> Loading inventory…</div>}
+          {loadErr && <div className="flex items-start gap-2 p-3 rounded bg-red-50 border border-red-200 text-red-700 text-xs"><AlertCircle size={12} className="shrink-0 mt-0.5" />{loadErr}</div>}
+          {!loading && inventoryData && inventoryData.items.map(item => {
+            const sel = selections[item.orderItemId]
+            const hasProduct = !!item.productId
+            const hasStock = item.totalQtyAvailable >= item.quantityOrdered
+            return (
+              <div key={item.orderItemId} className="rounded-lg border border-gray-200 p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono text-xs font-semibold text-gray-800">{item.sellerSku ?? '—'}</p>
+                    <p className="text-xs text-gray-500 truncate">{item.title ?? '—'}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Qty: <strong>{item.quantityOrdered}</strong></p>
+                  </div>
+                  {!hasProduct && <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium shrink-0">No product</span>}
+                  {hasProduct && !hasStock && <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium shrink-0">Out of stock</span>}
+                  {hasProduct && hasStock && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-medium shrink-0">{item.totalQtyAvailable} available</span>}
+                </div>
+                {hasProduct && item.locations.length > 0 && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-600 flex items-center gap-1"><MapPin size={10} /> Location & Grade</label>
+                    <select value={`${sel?.locationId ?? ''}::${sel?.gradeId ?? ''}`} onChange={e => {
+                      const [locId, grId] = e.target.value.split('::')
+                      const loc = item.locations.find(l => l.locationId === locId && (l.gradeId ?? '') === (grId ?? ''))
+                      if (!loc || !item.productId) return
+                      setSelections(prev => ({
+                        ...prev,
+                        [item.orderItemId]: {
+                          orderItemId: item.orderItemId, productId: item.productId!,
+                          locationId: loc.locationId, qtyReserved: Math.min(prev[item.orderItemId]?.qtyReserved ?? item.quantityOrdered, loc.qty),
+                          gradeId: loc.gradeId ?? null,
+                        },
+                      }))
+                    }} className="w-full h-7 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                      {item.locations.map(loc => (
+                        <option key={`${loc.locationId}::${loc.gradeId ?? ''}`} value={`${loc.locationId}::${loc.gradeId ?? ''}`}>
+                          {loc.warehouseName} › {loc.locationName}
+                          {loc.gradeName ? ` [Grade ${loc.gradeName}]` : ''} — {loc.qty} avail
+                        </option>
+                      ))}
+                    </select>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium text-gray-600">Qty to reserve</label>
+                      <input type="number" min={1} max={item.locations.find(l => l.locationId === sel?.locationId && (l.gradeId ?? null) === (sel?.gradeId ?? null))?.qty ?? item.quantityOrdered} value={sel?.qtyReserved ?? item.quantityOrdered}
+                        onChange={e => {
+                          const v = Math.max(1, parseInt(e.target.value) || 1)
+                          setSelections(prev => ({ ...prev, [item.orderItemId]: { ...prev[item.orderItemId], qtyReserved: v } }))
+                        }}
+                        className="w-16 h-7 rounded border border-gray-300 px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                      <span className="text-xs text-gray-400">of {item.quantityOrdered}</span>
+                    </div>
+                  </div>
+                )}
+                {hasProduct && item.locations.length === 0 && <p className="text-xs text-gray-500 italic">No inventory found for this SKU.</p>}
+              </div>
+            )
+          })}
+        </div>
+        <div className="px-5 py-3 border-t shrink-0 space-y-2">
+          {processErr && <div className="flex items-start gap-2 p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs"><AlertCircle size={12} className="shrink-0 mt-0.5" />{processErr}</div>}
+          {!allItemsHaveStock && !loading && <div className="flex items-start gap-2 p-2 rounded bg-amber-50 border border-amber-200 text-amber-700 text-xs"><AlertCircle size={12} className="shrink-0 mt-0.5" />One or more items are out of stock.</div>}
+          <div className="flex gap-2 justify-end">
+            <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+            <button onClick={handleConfirm} disabled={processing || !allSelectionsValid || !allItemsHaveStock}
+              className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5">
+              {processing ? <><RefreshCcw size={12} className="animate-spin" /> Reserving…</> : 'Reserve & Process'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
