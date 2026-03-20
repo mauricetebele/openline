@@ -43,9 +43,10 @@ export async function GET() {
     return NextResponse.json({ data: [] })
   }
 
-  // Batch: inventory qty grouped by productId + gradeId
+  // Batch: inventory qty grouped by productId + gradeId (finished-goods locations only)
   const invGroups = await prisma.inventoryItem.groupBy({
     by: ['productId', 'gradeId'],
+    where: { location: { isFinishedGoods: true } },
     _sum: { qty: true },
   })
   const invMap = new Map<string, number>()
