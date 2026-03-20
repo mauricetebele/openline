@@ -100,39 +100,11 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
 // ─── Print Preview Component ─────────────────────────────────────────────────
 
 function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void }) {
-  const [rotatedSrc, setRotatedSrc] = useState<string | null>(null)
-  const [debugInfo, setDebugInfo] = useState('')
-
-  useEffect(() => {
-    const img = new Image()
-    img.onload = () => {
-      const origW = img.naturalWidth
-      const origH = img.naturalHeight
-      // Off-DOM canvas with swapped dimensions for 90° CW rotation
-      const canvas = document.createElement('canvas')
-      canvas.width = origH
-      canvas.height = origW
-      const ctx = canvas.getContext('2d')
-      if (!ctx) { setDebugInfo('Canvas context failed'); return }
-      ctx.translate(origH, 0)
-      ctx.rotate(Math.PI / 2)
-      ctx.drawImage(img, 0, 0)
-      const dataUrl = canvas.toDataURL('image/png')
-      setRotatedSrc(dataUrl)
-      setDebugInfo(`Original: ${origW}×${origH} → Rotated: ${canvas.width}×${canvas.height} (${dataUrl.length} chars)`)
-    }
-    img.onerror = () => setDebugInfo('Image failed to load')
-    img.src = `data:image/gif;base64,${base64}`
-  }, [base64])
-
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col print-preview-overlay">
       {/* Toolbar — hidden when printing */}
       <div className="print-hide flex items-center justify-between px-6 py-3 border-b bg-gray-50">
-        <div>
-          <p className="text-sm font-semibold text-gray-700">Print Preview</p>
-          {debugInfo && <p className="text-[10px] text-gray-400 mt-0.5 font-mono">{debugInfo}</p>}
-        </div>
+        <p className="text-sm font-semibold text-gray-700">Print Preview — Label should appear sideways below</p>
         <div className="flex gap-2">
           <button
             onClick={onClose}
@@ -142,22 +114,28 @@ function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void
           </button>
           <button
             onClick={() => window.print()}
-            disabled={!rotatedSrc}
-            className="flex items-center gap-1.5 h-8 px-4 rounded bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50"
+            className="flex items-center gap-1.5 h-8 px-4 rounded bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"
           >
             <Printer size={14} /> Print
           </button>
         </div>
       </div>
-      {/* Rotated image — this is what prints */}
-      <div className="flex-1 flex items-start justify-center p-8 print-show">
-        {rotatedSrc ? (
-          <img src={rotatedSrc} alt="Return Label" style={{ width: '8.5in', height: 'auto', display: 'block' }} />
-        ) : (
-          <div className="flex items-center gap-2 text-gray-400">
-            <Loader2 size={16} className="animate-spin" /> Preparing label...
-          </div>
-        )}
+      {/* Label with CSS rotation — no canvas */}
+      <div className="print-area" style={{ width: '8.5in', margin: '0 auto', overflow: 'visible', position: 'relative', height: '5in' }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`data:image/gif;base64,${base64}`}
+          alt="Return Label"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            height: '8.5in',
+            width: 'auto',
+            transformOrigin: 'top left',
+            transform: 'rotate(90deg) translateY(-100%)',
+          }}
+        />
       </div>
       <style>{`
         @media print {
@@ -167,13 +145,16 @@ function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void
             position: static !important;
             background: white !important;
           }
-          .print-show {
-            padding: 0 !important;
-            align-items: flex-start !important;
-          }
-          .print-show img {
+          .print-area {
             width: 8.5in !important;
-            height: auto !important;
+            margin: 0 !important;
+            overflow: visible !important;
+          }
+          .print-area img {
+            height: 8.5in !important;
+            width: auto !important;
+            print-color-adjust: exact !important;
+            -webkit-print-color-adjust: exact !important;
           }
           @page { size: 8.5in 11in; margin: 0; }
         }
