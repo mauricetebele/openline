@@ -101,20 +101,27 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
 
 function PrintPreview({ base64, format, onClose }: { base64: string; format: string; onClose: () => void }) {
   const [rotatedSrc, setRotatedSrc] = useState<string | null>(null)
+  const [debug, setDebug] = useState('')
 
   useEffect(() => {
     const img = new Image()
     img.onload = () => {
+      const origW = img.naturalWidth
+      const origH = img.naturalHeight
       const canvas = document.createElement('canvas')
       // 90° CW rotation: swap width/height
-      canvas.width = img.height
-      canvas.height = img.width
+      canvas.width = origH
+      canvas.height = origW
       const ctx = canvas.getContext('2d')!
-      // Translate to new origin, rotate, draw
-      ctx.translate(img.height, 0)
+      ctx.translate(origH, 0)
       ctx.rotate(Math.PI / 2)
       ctx.drawImage(img, 0, 0)
-      setRotatedSrc(canvas.toDataURL('image/png'))
+      const dataUrl = canvas.toDataURL('image/png')
+      setRotatedSrc(dataUrl)
+      setDebug(`Original: ${origW}×${origH} | Rotated canvas: ${canvas.width}×${canvas.height} | PNG length: ${dataUrl.length}`)
+    }
+    img.onerror = () => {
+      setDebug(`ERROR: Failed to load image (format=${format}, base64 length=${base64.length})`)
     }
     img.src = `data:image/${format.toLowerCase()};base64,${base64}`
   }, [base64, format])
@@ -123,7 +130,10 @@ function PrintPreview({ base64, format, onClose }: { base64: string; format: str
     <div className="fixed inset-0 z-50 bg-white flex flex-col print-preview-overlay">
       {/* Toolbar — hidden when printing */}
       <div className="print-hide flex items-center justify-between px-6 py-3 border-b bg-gray-50">
-        <p className="text-sm font-semibold text-gray-700">Print Preview</p>
+        <div>
+          <p className="text-sm font-semibold text-gray-700">Print Preview</p>
+          {debug && <p className="text-[10px] text-red-500 font-mono">{debug}</p>}
+        </div>
         <div className="flex gap-2">
           <button
             onClick={onClose}
