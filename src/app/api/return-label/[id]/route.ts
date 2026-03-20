@@ -27,13 +27,20 @@ export async function GET(
   const rotate = req.nextUrl.searchParams.get('rotate')
   let labelData = label.labelData
 
-  // Server-side rotation using jimp (pure JS — no native deps)
+  // Server-side rotation via manual pixel manipulation (90° CW)
   if (rotate === '90') {
     try {
       const inputBuf = Buffer.from(label.labelData, 'base64')
       const image = await Jimp.read(inputBuf)
-      image.rotate(-90) // -90 = 90° clockwise, auto-resize canvas
-      const rotatedBuf = await image.getBufferAsync(Jimp.MIME_PNG)
+      const w = image.getWidth()
+      const h = image.getHeight()
+      const rotated = new Jimp(h, w, 0xFFFFFFFF)
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          rotated.setPixelColor(image.getPixelColor(x, y), h - 1 - y, x)
+        }
+      }
+      const rotatedBuf = await rotated.getBufferAsync(Jimp.MIME_PNG)
       labelData = rotatedBuf.toString('base64')
     } catch (err) {
       console.error('[GET /api/return-label] rotation failed:', err)
