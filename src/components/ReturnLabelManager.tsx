@@ -108,7 +108,7 @@ function PrintPreview({ base64, format, onClose }: { base64: string; format: str
     win.document.write(`<html><head><title>Return Label</title><style>
       @page { size: 8.5in 11in; margin: 0.5in; }
       body { margin: 0; padding: 0; text-align: center; }
-      img { width: 80%; height: auto; display: inline-block; }
+      img { width: 95%; height: auto; display: inline-block; }
     </style></head><body>
       <img src="${dataUrl}" onload="window.print();window.close()" />
     </body></html>`)
