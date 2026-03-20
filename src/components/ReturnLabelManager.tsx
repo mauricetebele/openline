@@ -120,13 +120,13 @@ function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void
           </button>
         </div>
       </div>
-      {/* Already-rotated image from server — just display it */}
-      <div className="flex-1 flex items-start justify-center p-8 print-area">
+      {/* Already-rotated image from server — full width, top-aligned */}
+      <div className="print-area" style={{ padding: 0 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={`data:image/png;base64,${base64}`}
           alt="Return Label"
-          style={{ width: '8.5in', height: 'auto', display: 'block' }}
+          style={{ width: '100%', height: 'auto', display: 'block' }}
         />
       </div>
       <style>{`
@@ -136,12 +136,14 @@ function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void
           .print-preview-overlay {
             position: static !important;
             background: white !important;
+            display: block !important;
           }
           .print-area {
             padding: 0 !important;
+            margin: 0 !important;
           }
           .print-area img {
-            width: 8.5in !important;
+            width: 100% !important;
             height: auto !important;
           }
           @page { size: 8.5in 11in; margin: 0; }

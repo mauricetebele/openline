@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
     try {
       const inputBuf = Buffer.from(result.labelBase64, 'base64')
       const image = await Jimp.read(inputBuf)
-      image.rotate(-90, false) // -90 = 90° clockwise
+      image.rotate(-90) // -90 = 90° clockwise, auto-resize canvas
       const rotatedBuf = await image.getBufferAsync(Jimp.MIME_PNG)
       rotatedBase64 = rotatedBuf.toString('base64')
       rotatedFormat = 'PNG'

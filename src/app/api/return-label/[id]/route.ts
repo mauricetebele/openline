@@ -32,7 +32,7 @@ export async function GET(
     try {
       const inputBuf = Buffer.from(label.labelData, 'base64')
       const image = await Jimp.read(inputBuf)
-      image.rotate(-90, false) // -90 = 90° clockwise
+      image.rotate(-90) // -90 = 90° clockwise, auto-resize canvas
       const rotatedBuf = await image.getBufferAsync(Jimp.MIME_PNG)
       labelData = rotatedBuf.toString('base64')
     } catch (err) {
