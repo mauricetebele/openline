@@ -36,6 +36,7 @@ interface OrderItem {
   id: string; orderItemId: string; asin: string | null; sellerSku: string | null
   title: string | null; quantityOrdered: number; quantityShipped: number
   itemPrice: string | null; itemTax: string | null; shippingPrice: string | null
+  bmSerials?: string[]
 }
 interface Label {
   trackingNumber: string; carrier: string | null; serviceCode: string | null
@@ -370,6 +371,40 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                         <td className="px-4 py-2 text-gray-600 dark:text-gray-400">{sa.orderItem.sellerSku ?? sa.inventorySerial.product?.sku ?? '—'}</td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            </Section>
+          )}
+
+          {/* Back Market Serials */}
+          {order.orderSource === 'backmarket' && order.items.some(i => (i.bmSerials?.length ?? 0) > 0) && (
+            <Section title="Serial / IMEI Numbers" icon={<Hash size={12} />}>
+              <div className="overflow-x-auto -mx-4">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 dark:border-white/10">
+                      <th className="px-4 py-2">#</th>
+                      <th className="px-4 py-2">Serial / IMEI</th>
+                      <th className="px-4 py-2">SKU</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      let counter = 0
+                      return order.items.flatMap(item =>
+                        (item.bmSerials ?? []).map(serial => {
+                          counter++
+                          return (
+                            <tr key={`${item.id}-${serial}`} className="border-b border-gray-100 dark:border-white/5">
+                              <td className="px-4 py-2 text-gray-400">{counter}</td>
+                              <td className="px-4 py-2 font-mono font-medium text-gray-900 dark:text-white">{serial}</td>
+                              <td className="px-4 py-2 text-gray-600 dark:text-gray-400">{item.sellerSku ?? '—'}</td>
+                            </tr>
+                          )
+                        })
+                      )
+                    })()}
                   </tbody>
                 </table>
               </div>
