@@ -100,24 +100,28 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
 // ─── Print Preview Component ─────────────────────────────────────────────────
 
 function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [ready, setReady] = useState(false)
+  const [rotatedSrc, setRotatedSrc] = useState<string | null>(null)
+  const [debugInfo, setDebugInfo] = useState('')
 
   useEffect(() => {
     const img = new Image()
     img.onload = () => {
-      const canvas = canvasRef.current
-      if (!canvas) return
-      // Swap dimensions for 90° CW rotation
-      canvas.width = img.height
-      canvas.height = img.width
+      const origW = img.naturalWidth
+      const origH = img.naturalHeight
+      // Off-DOM canvas with swapped dimensions for 90° CW rotation
+      const canvas = document.createElement('canvas')
+      canvas.width = origH
+      canvas.height = origW
       const ctx = canvas.getContext('2d')
-      if (!ctx) return
-      ctx.translate(canvas.width, 0)
+      if (!ctx) { setDebugInfo('Canvas context failed'); return }
+      ctx.translate(origH, 0)
       ctx.rotate(Math.PI / 2)
       ctx.drawImage(img, 0, 0)
-      setReady(true)
+      const dataUrl = canvas.toDataURL('image/png')
+      setRotatedSrc(dataUrl)
+      setDebugInfo(`Original: ${origW}×${origH} → Rotated: ${canvas.width}×${canvas.height} (${dataUrl.length} chars)`)
     }
+    img.onerror = () => setDebugInfo('Image failed to load')
     img.src = `data:image/gif;base64,${base64}`
   }, [base64])
 
@@ -125,7 +129,10 @@ function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void
     <div className="fixed inset-0 z-50 bg-white flex flex-col print-preview-overlay">
       {/* Toolbar — hidden when printing */}
       <div className="print-hide flex items-center justify-between px-6 py-3 border-b bg-gray-50">
-        <p className="text-sm font-semibold text-gray-700">Print Preview</p>
+        <div>
+          <p className="text-sm font-semibold text-gray-700">Print Preview</p>
+          {debugInfo && <p className="text-[10px] text-gray-400 mt-0.5 font-mono">{debugInfo}</p>}
+        </div>
         <div className="flex gap-2">
           <button
             onClick={onClose}
@@ -135,19 +142,22 @@ function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void
           </button>
           <button
             onClick={() => window.print()}
-            disabled={!ready}
+            disabled={!rotatedSrc}
             className="flex items-center gap-1.5 h-8 px-4 rounded bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50"
           >
             <Printer size={14} /> Print
           </button>
         </div>
       </div>
-      {/* Canvas — this is what prints */}
+      {/* Rotated image — this is what prints */}
       <div className="flex-1 flex items-start justify-center p-8 print-show">
-        <canvas
-          ref={canvasRef}
-          style={{ width: '8.5in', height: 'auto', display: 'block' }}
-        />
+        {rotatedSrc ? (
+          <img src={rotatedSrc} alt="Return Label" style={{ width: '8.5in', height: 'auto', display: 'block' }} />
+        ) : (
+          <div className="flex items-center gap-2 text-gray-400">
+            <Loader2 size={16} className="animate-spin" /> Preparing label...
+          </div>
+        )}
       </div>
       <style>{`
         @media print {
@@ -161,7 +171,7 @@ function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void
             padding: 0 !important;
             align-items: flex-start !important;
           }
-          .print-show canvas {
+          .print-show img {
             width: 8.5in !important;
             height: auto !important;
           }
