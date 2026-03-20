@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (olmMatch) {
     const prefix = olmMatch[1]
     const rows = await prisma.$queryRaw<Array<{ id: string }>>(
-      Prisma.sql`SELECT id FROM orders WHERE CAST("olmNumber" AS TEXT) LIKE ${prefix + '%'} LIMIT 20`
+      Prisma.sql`SELECT id FROM orders WHERE CAST("olmNumber" AS TEXT) LIKE ${prefix + '%'} OR "amazonOrderId" LIKE ${prefix + '%'} LIMIT 20`
     )
     matchingIds = rows.map(r => r.id)
     if (matchingIds.length === 0) return NextResponse.json({ data: [] })
@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
         { shipToName: { contains: q, mode: 'insensitive' } },
         { amazonOrderId: { contains: q, mode: 'insensitive' } },
         { label: { trackingNumber: { contains: q, mode: 'insensitive' } } },
+        { shipTracking: { contains: q, mode: 'insensitive' } },
       ],
     }
   }
