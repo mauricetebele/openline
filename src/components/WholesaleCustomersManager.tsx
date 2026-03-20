@@ -63,7 +63,7 @@ export default function WholesaleCustomersManager() {
   const [editing, setEditing] = useState<Customer | null>(null)
   const [tab, setTab] = useState<'info' | 'addresses'>('info')
   const [form, setForm] = useState(blankCustomer())
-  const [addresses, setAddresses] = useState<Omit<Address, 'id'>[]>([])
+  const [addresses, setAddresses] = useState<Address[]>([])
   const [showAddAddr, setShowAddAddr] = useState(false)
   const [newAddr, setNewAddr] = useState(blankAddr())
   const [saving, setSaving] = useState(false)
@@ -110,7 +110,7 @@ export default function WholesaleCustomersManager() {
       paymentTerms: c.paymentTerms, defaultDiscount: Number(c.defaultDiscount),
       notes: c.notes ?? '', active: c.active,
     })
-    setAddresses(c.addresses.map(({ id: _id, ...rest }) => rest))
+    setAddresses(c.addresses)
     setTab('info')
     setPanelOpen(true)
   }
@@ -162,7 +162,7 @@ export default function WholesaleCustomersManager() {
     setShowAddAddr(false)
     const refreshed = await fetch(`/api/wholesale/customers/${editing.id}`).then((r) => r.json())
     setEditing(refreshed)
-    setAddresses(refreshed.addresses.map(({ id: _id, ...rest }: Address) => rest))
+    setAddresses(refreshed.addresses)
     load(search)
   }
 
