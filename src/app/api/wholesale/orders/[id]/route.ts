@@ -54,7 +54,7 @@ export async function PUT(
 
   const body = await req.json()
   const {
-    notes, internalNotes, discountPct, taxRate, shippingCost, items,
+    customerPoNumber, notes, internalNotes, discountPct, taxRate, shippingCost, items,
   } = body
 
   const order = await prisma.$transaction(async (tx) => {
@@ -81,6 +81,7 @@ export async function PUT(
     return tx.salesOrder.update({
       where: { id: params.id },
       data: {
+        ...(customerPoNumber !== undefined && { customerPoNumber: customerPoNumber?.trim() || null }),
         ...(notes         !== undefined && { notes: notes?.trim() || null }),
         ...(internalNotes !== undefined && { internalNotes: internalNotes?.trim() || null }),
         ...(discountPct   !== undefined && { discountPct: Number(discountPct) }),

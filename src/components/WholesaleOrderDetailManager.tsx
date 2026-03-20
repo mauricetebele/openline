@@ -35,6 +35,7 @@ interface Address { addressLine1: string; addressLine2?: string; city: string; s
 
 interface Order {
   id: string; orderNumber: string; status: string; orderDate: string; dueDate?: string
+  customerPoNumber?: string
   customer: { id: string; companyName: string; paymentTerms: string }
   items: OrderItem[]
   allocations: Allocation[]
@@ -78,6 +79,7 @@ function generateInvoicePDF(order: Order) {
   doc.text(`Date: ${new Date(order.orderDate).toLocaleDateString()}`, w - 40, 55, { align: 'right' })
   if (order.dueDate) doc.text(`Due: ${new Date(order.dueDate).toLocaleDateString()}`, w - 40, 70, { align: 'right' })
   doc.text(`Terms: ${TERMS_LABEL[order.customer.paymentTerms] ?? order.customer.paymentTerms}`, w - 40, 85, { align: 'right' })
+  if (order.customerPoNumber) doc.text(`Customer PO#: ${order.customerPoNumber}`, w - 40, 100, { align: 'right' })
 
   // Bill To / Ship To
   doc.setFont('helvetica', 'bold')
@@ -253,6 +255,9 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
         <Link href={`/wholesale/customers/${order.customer.id}`} className="text-sm text-gray-600 hover:text-orange-600">
           {order.customer.companyName}
         </Link>
+        {order.customerPoNumber && (
+          <span className="text-sm text-gray-500">PO# <span className="font-mono font-medium text-gray-700">{order.customerPoNumber}</span></span>
+        )}
         <div className="ml-auto flex flex-wrap gap-2">
           {order.status === 'DRAFT' && (
             <>

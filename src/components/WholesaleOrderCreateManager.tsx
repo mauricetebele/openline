@@ -74,6 +74,7 @@ export default function WholesaleOrderCreateManager() {
   const [dueDate, setDueDate] = useState('')
   const [shippingAddressId, setShippingAddressId] = useState('')
   const [billingAddressId, setBillingAddressId] = useState('')
+  const [customerPoNumber, setCustomerPoNumber] = useState('')
   const [notes, setNotes] = useState('')
   const [internalNotes, setInternalNotes] = useState('')
 
@@ -179,6 +180,7 @@ export default function WholesaleOrderCreateManager() {
         paymentTerms,
         shippingAddressId: shippingAddressId || undefined,
         billingAddressId:  billingAddressId  || undefined,
+        customerPoNumber: customerPoNumber || undefined,
         notes, internalNotes,
         discountPct, taxRate, shippingCost,
         items: items.filter((i) => i.title.trim()).map((i) => ({
@@ -354,6 +356,16 @@ export default function WholesaleOrderCreateManager() {
             </div>
           )}
 
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Customer PO #</label>
+            <input
+              type="text"
+              value={customerPoNumber}
+              onChange={(e) => setCustomerPoNumber(e.target.value)}
+              placeholder="Optional"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+          </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
             <textarea

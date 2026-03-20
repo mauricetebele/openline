@@ -1428,6 +1428,7 @@ model SalesOrder {
   total             Decimal                @default(0) @db.Decimal(12, 2)
   paidAmount        Decimal                @default(0) @db.Decimal(12, 2)
   balance           Decimal                @default(0) @db.Decimal(12, 2)
+  customerPoNumber  String?
   notes             String?
   internalNotes     String?
   // Fulfillment workflow (parallel to accounting status)

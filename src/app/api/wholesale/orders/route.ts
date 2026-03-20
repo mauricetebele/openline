@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
     where.OR = [
       { orderNumber: { contains: search, mode: 'insensitive' } },
       { customer: { companyName: { contains: search, mode: 'insensitive' } } },
+      { customerPoNumber: { contains: search, mode: 'insensitive' } },
     ]
   }
 
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const {
     customerId, orderDate, paymentTerms, shippingAddressId, billingAddressId,
-    notes, internalNotes, discountPct = 0, taxRate = 0, shippingCost = 0, items = [],
+    customerPoNumber, notes, internalNotes, discountPct = 0, taxRate = 0, shippingCost = 0, items = [],
   } = body
 
   if (!customerId) return NextResponse.json({ error: 'customerId is required' }, { status: 400 })
@@ -138,6 +139,7 @@ export async function POST(req: NextRequest) {
         shippingCost: Number(shippingCost),
         total,
         balance:      total,
+        customerPoNumber: customerPoNumber?.trim() || null,
         notes:        notes?.trim() || null,
         internalNotes: internalNotes?.trim() || null,
         items: {
