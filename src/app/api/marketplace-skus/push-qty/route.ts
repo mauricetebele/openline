@@ -7,7 +7,7 @@
  *   { mskuId: string } — push only this single MSKU (used when toggling on)
  *   {} or no body      — push ALL enabled MSKUs
  *
- * Available = SUM(InventoryItem.qty for matching product/grade)
+ * Available = SUM(InventoryItem.qty in finished-goods locations for matching product/grade)
  *           - SUM(pending Amazon MFN order qty for that sellerSku)
  *
  * Supports an optional `?source=cron` query param (used by the cron endpoint to
@@ -42,16 +42,17 @@ export async function pushOneQuantity(
   bmClient: BackMarketClient | null,
   bmListingsCache: Map<string, number> | null,
 ): Promise<PushResult> {
-  // 1. Get available inventory for this product + grade
-  const inventoryWhere: { productId: string; gradeId?: string | null } = {
+  // 1. Get available inventory for this product + grade (only finished-goods locations)
+  const inventoryWhere: Record<string, unknown> = {
     productId: msku.productId,
+    location: { isFinishedGoods: true },
   }
   if (msku.gradeId) {
     inventoryWhere.gradeId = msku.gradeId
   }
 
   const { _sum } = await prisma.inventoryItem.aggregate({
-    where: inventoryWhere,
+    where: inventoryWhere as Parameters<typeof prisma.inventoryItem.aggregate>[0]['where'],
     _sum: { qty: true },
   })
   const onHand = _sum.qty ?? 0
