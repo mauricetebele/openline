@@ -175,13 +175,22 @@ function PrintPreview({ base64, format, onClose }: { base64: string; format: str
           </button>
         </div>
       </div>
-      <div className="print-area" style={{ padding: 0 }}>
+      <div className="print-area" style={{ padding: '8px' }}>
+        <p className="text-xs font-bold text-red-600 mb-1 print-hide">ORIGINAL (should be landscape):</p>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`data:image/${format.toLowerCase()};base64,${base64}`}
+          alt="Original"
+          style={{ width: '50%', height: 'auto', display: 'block', border: '2px solid red', marginBottom: '16px' }}
+          className="print-hide"
+        />
+        <p className="text-xs font-bold text-green-600 mb-1 print-hide">ROTATED (should be portrait with sideways text):</p>
         {rotatedSrc ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
             src={rotatedSrc}
-            alt="Return Label"
-            style={{ width: '100%', height: 'auto', display: 'block' }}
+            alt="Rotated Label"
+            style={{ width: '50%', height: 'auto', display: 'block', border: '2px solid green' }}
           />
         ) : (
           <div className="flex items-center justify-center py-16 text-gray-400">
