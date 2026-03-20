@@ -100,59 +100,36 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
 // ─── Print Preview Component ─────────────────────────────────────────────────
 
 function PrintPreview({ base64, format, onClose }: { base64: string; format: string; onClose: () => void }) {
+  const dataUrl = `data:image/${format.toLowerCase()};base64,${base64}`
+
+  const handlePrint = () => {
+    const win = window.open('', '_blank')
+    if (!win) { toast.error('Pop-up blocked — allow pop-ups and try again'); return }
+    win.document.write(`<html><head><title>Return Label</title><style>
+      @page { size: 8.5in 11in; margin: 0; }
+      body { margin: 0; padding: 0; }
+      img { width: 100%; height: auto; display: block; }
+    </style></head><body>
+      <img src="${dataUrl}" onload="window.print();window.close()" />
+    </body></html>`)
+    win.document.close()
+  }
+
   return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col print-preview-overlay">
-      {/* Toolbar — hidden when printing */}
-      <div className="print-hide flex items-center justify-between px-6 py-3 border-b bg-gray-50">
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      <div className="flex items-center justify-between px-6 py-3 border-b bg-gray-50">
         <p className="text-sm font-semibold text-gray-700">Print Preview</p>
         <div className="flex gap-2">
-          <button
-            onClick={onClose}
-            className="h-8 px-4 rounded border border-gray-300 text-sm text-gray-600 hover:bg-gray-100"
-          >
-            Close
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="flex items-center gap-1.5 h-8 px-4 rounded bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"
-          >
+          <button onClick={onClose} className="h-8 px-4 rounded border border-gray-300 text-sm text-gray-600 hover:bg-gray-100">Close</button>
+          <button onClick={handlePrint} className="flex items-center gap-1.5 h-8 px-4 rounded bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90">
             <Printer size={14} /> Print
           </button>
         </div>
       </div>
-      {/* Label displayed at full page width — already sideways from UPS */}
-      <div className="print-area" style={{ padding: 0 }}>
+      <div style={{ padding: 0 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={`data:image/${format.toLowerCase()};base64,${base64}`}
-          alt="Return Label"
-          style={{ width: '100%', height: 'auto', display: 'block' }}
-        />
+        <img src={dataUrl} alt="Return Label" style={{ width: '100%', height: 'auto', display: 'block' }} />
       </div>
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          .print-preview-overlay,
-          .print-preview-overlay * { visibility: visible; }
-          .print-hide { display: none !important; }
-          .print-preview-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            background: white;
-          }
-          .print-area {
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-          .print-area img {
-            width: 100% !important;
-            height: auto !important;
-          }
-          @page { size: 8.5in 11in; margin: 0; }
-        }
-      `}</style>
     </div>
   )
 }
