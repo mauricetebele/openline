@@ -16,6 +16,7 @@ import { clsx } from 'clsx'
 import { useAuth } from '@/context/AuthContext'
 import OrderSearchDropdown from './OrderSearchDropdown'
 import SerialQuickLookup from './SerialQuickLookup'
+import InventoryQuickSearch from './InventoryQuickSearch'
 
 type NavLeaf  = { href: string; label: string; icon: React.ElementType }
 type NavGroup = { group: true; label: string; icon: React.ElementType; children: NavLeaf[] }
@@ -319,6 +320,11 @@ export default function TopNav() {
 
         <div className="flex-1" />
 
+        {/* Global inventory search — desktop */}
+        <div className="hidden lg:block shrink-0">
+          <InventoryQuickSearch />
+        </div>
+
         {/* Global serial lookup — desktop */}
         <div className="hidden lg:block shrink-0">
           <SerialQuickLookup />
@@ -419,8 +425,9 @@ export default function TopNav() {
       {/* Mobile dropdown menu */}
       {mobileOpen && (
         <nav className="lg:hidden bg-gray-900 border-t border-white/10 px-3 py-3 space-y-1 max-h-[80vh] overflow-y-auto">
-          {/* Mobile serial lookup & order search */}
+          {/* Mobile inventory search, serial lookup & order search */}
           <div className="pb-2 mb-1 border-b border-white/10 space-y-2">
+            <InventoryQuickSearch mobile />
             <SerialQuickLookup mobile />
             <OrderSearchDropdown mobile />
           </div>
