@@ -31,12 +31,13 @@ export async function GET(req: NextRequest) {
     const sellerListings = sellerSkus.length > 0
       ? await prisma.sellerListing.findMany({
           where: { sku: { in: sellerSkus } },
-          select: { sku: true, asin: true, fnsku: true },
+          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true },
           distinct: ['sku'],
         })
       : []
     const asinMap = new Map(sellerListings.map(l => [l.sku, l.asin]))
     const fnskuMap = new Map(sellerListings.filter(l => l.fnsku).map(l => [l.sku, l.fnsku]))
+    const slFcMap = new Map(sellerListings.filter(l => l.fulfillmentChannel).map(l => [l.sku, l.fulfillmentChannel]))
 
     const mskuIds = skus.map(s => s.id)
     const mpListings = mskuIds.length > 0
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest) {
       ...s,
       asin: asinMap.get(s.sellerSku) ?? null,
       fnsku: s.fnsku || fnskuMap.get(s.sellerSku) || null,
-      fulfillmentChannel: fcMap.get(s.id) ?? null,
+      fulfillmentChannel: fcMap.get(s.id) ?? slFcMap.get(s.sellerSku) ?? null,
     }))
 
     return NextResponse.json({ data: enriched })
