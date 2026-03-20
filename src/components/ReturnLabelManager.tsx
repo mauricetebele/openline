@@ -115,13 +115,12 @@ function openPrintLabel(trackingNumber: string, base64: string) {
         top: 0;
         left: 0;
         transform-origin: top left;
-        transform: translateY(4.4in) rotate(90deg);
+        transform: translateX(8.5in) rotate(90deg);
       }
       .label-wrap img {
         width: 100%;
         height: 100%;
         object-fit: contain;
-        object-position: center top;
       }
     </style>
   </head><body>
