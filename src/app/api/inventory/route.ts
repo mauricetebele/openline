@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const gradeId     = searchParams.get('gradeId')
   const productId   = searchParams.get('productId')
 
-  const [items, reservationGroups, costRows] = await Promise.all([
+  const [items, reservationGroups, fbaReservationGroups, costRows] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: {
         ...(productId   ? { productId } : {}),
@@ -50,6 +50,14 @@ export async function GET(req: NextRequest) {
       },
       _sum: { qtyReserved: true },
     }),
+    // FBA reservations for shipments not yet shipped or cancelled
+    prisma.fbaInventoryReservation.groupBy({
+      by: ['productId', 'locationId', 'gradeId'],
+      where: {
+        fbaShipment: { status: { notIn: ['SHIPPED', 'CANCELLED'] } },
+      },
+      _sum: { qtyReserved: true },
+    }),
     // Latest unit cost per product+grade from PO lines
     prisma.$queryRaw<{ productId: string; gradeId: string | null; unitCost: number }[]>`
       SELECT DISTINCT ON ("productId", "gradeId")
@@ -63,7 +71,12 @@ export async function GET(req: NextRequest) {
   const reservedMap = new Map<string, number>()
   for (const r of reservationGroups) {
     const key = `${r.productId}:${r.locationId}:${r.gradeId ?? ''}`
-    reservedMap.set(key, r._sum.qtyReserved ?? 0)
+    reservedMap.set(key, (reservedMap.get(key) ?? 0) + (r._sum.qtyReserved ?? 0))
+  }
+  // Add FBA reservations (shipments not yet shipped/cancelled)
+  for (const r of fbaReservationGroups) {
+    const key = `${r.productId}:${r.locationId}:${r.gradeId ?? ''}`
+    reservedMap.set(key, (reservedMap.get(key) ?? 0) + (r._sum.qtyReserved ?? 0))
   }
 
   // Build lookup: `${productId}:${gradeId ?? ''}` → latest unit cost
