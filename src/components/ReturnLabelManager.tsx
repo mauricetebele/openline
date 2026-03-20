@@ -99,7 +99,26 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
 
 // ─── Print Preview Component ─────────────────────────────────────────────────
 
-function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void }) {
+function PrintPreview({ base64, format, onClose }: { base64: string; format: string; onClose: () => void }) {
+  const [rotatedSrc, setRotatedSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      // 90° CW rotation: swap width/height
+      canvas.width = img.height
+      canvas.height = img.width
+      const ctx = canvas.getContext('2d')!
+      // Translate to new origin, rotate, draw
+      ctx.translate(img.height, 0)
+      ctx.rotate(Math.PI / 2)
+      ctx.drawImage(img, 0, 0)
+      setRotatedSrc(canvas.toDataURL('image/png'))
+    }
+    img.src = `data:image/${format.toLowerCase()};base64,${base64}`
+  }, [base64, format])
+
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col print-preview-overlay">
       {/* Toolbar — hidden when printing */}
@@ -114,20 +133,26 @@ function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void
           </button>
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-1.5 h-8 px-4 rounded bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"
+            disabled={!rotatedSrc}
+            className="flex items-center gap-1.5 h-8 px-4 rounded bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50"
           >
             <Printer size={14} /> Print
           </button>
         </div>
       </div>
-      {/* Already-rotated image from server — full width, top-aligned */}
       <div className="print-area" style={{ padding: 0 }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={`data:image/png;base64,${base64}`}
-          alt="Return Label"
-          style={{ width: '100%', height: 'auto', display: 'block' }}
-        />
+        {rotatedSrc ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={rotatedSrc}
+            alt="Return Label"
+            style={{ width: '100%', height: 'auto', display: 'block' }}
+          />
+        ) : (
+          <div className="flex items-center justify-center py-16 text-gray-400">
+            <Loader2 size={20} className="animate-spin mr-2" /> Preparing label…
+          </div>
+        )}
       </div>
       <style>{`
         @media print {
@@ -159,7 +184,7 @@ function LabelHistoryTab() {
   const [labels, setLabels]     = useState<HistoryEntry[]>([])
   const [loading, setLoading]   = useState(true)
   const [voidingId, setVoidingId] = useState<string | null>(null)
-  const [printBase64, setPrintBase64] = useState<string | null>(null)
+  const [printLabel, setPrintLabel] = useState<{ base64: string; format: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -176,10 +201,10 @@ function LabelHistoryTab() {
 
   async function openLabel(id: string) {
     try {
-      const res  = await fetch(`/api/return-label/${id}?rotate=90`)
+      const res  = await fetch(`/api/return-label/${id}`)
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'Download failed'); return }
-      setPrintBase64(data.labelData)
+      setPrintLabel({ base64: data.labelData, format: data.labelFormat })
     } catch {
       toast.error('Failed to open label')
     }
@@ -222,7 +247,7 @@ function LabelHistoryTab() {
 
   return (
     <>
-    {printBase64 && <PrintPreview base64={printBase64} onClose={() => setPrintBase64(null)} />}
+    {printLabel && <PrintPreview base64={printLabel.base64} format={printLabel.format} onClose={() => setPrintLabel(null)} />}
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-500">{labels.length} label{labels.length !== 1 ? 's' : ''}</p>
@@ -376,7 +401,7 @@ export default function ReturnLabelManager() {
   const [generating, setGenerating] = useState(false)
   const [genErr, setGenErr]         = useState('')
   const [result, setResult]         = useState<LabelResult | null>(null)
-  const [printBase64, setPrintBase64] = useState<string | null>(null)
+  const [printLabel, setPrintLabel] = useState<{ base64: string; format: string } | null>(null)
 
   // ── Lookup ──────────────────────────────────────────────────────────────────
 
@@ -488,7 +513,7 @@ export default function ReturnLabelManager() {
 
   function openLabel() {
     if (!result) return
-    setPrintBase64(result.labelBase64)
+    setPrintLabel({ base64: result.labelBase64, format: result.labelFormat })
   }
 
   function reset() {
@@ -512,7 +537,7 @@ export default function ReturnLabelManager() {
 
   return (
     <div className="flex-1 overflow-auto">
-      {printBase64 && <PrintPreview base64={printBase64} onClose={() => setPrintBase64(null)} />}
+      {printLabel && <PrintPreview base64={printLabel.base64} format={printLabel.format} onClose={() => setPrintLabel(null)} />}
       {/* Tab bar */}
       <div className="flex items-center gap-1 px-6 pt-5 pb-0 border-b border-gray-200">
         <button

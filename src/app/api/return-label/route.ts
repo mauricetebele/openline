@@ -6,7 +6,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { generateReturnLabel, UPS_SERVICES, ReturnLabelRequest } from '@/lib/ups-tracking'
-import Jimp from 'jimp'
 
 export const dynamic = 'force-dynamic'
 
@@ -101,32 +100,7 @@ export async function POST(req: NextRequest) {
       },
     }).catch(err => console.error('[ReturnLabel] DB save failed:', err))
 
-    // Rotate label 90° CW via manual pixel manipulation
-    let rotatedBase64 = result.labelBase64
-    let rotatedFormat = result.labelFormat
-    try {
-      const inputBuf = Buffer.from(result.labelBase64, 'base64')
-      const image = await Jimp.read(inputBuf)
-      const w = image.getWidth()
-      const h = image.getHeight()
-      const rotated = new Jimp(h, w, 0xFFFFFFFF)
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          rotated.setPixelColor(image.getPixelColor(x, y), h - 1 - y, x)
-        }
-      }
-      const rotatedBuf = await rotated.getBufferAsync(Jimp.MIME_PNG)
-      rotatedBase64 = rotatedBuf.toString('base64')
-      rotatedFormat = 'PNG'
-    } catch (rotateErr) {
-      console.error('[ReturnLabel] rotation failed (returning original):', rotateErr)
-    }
-
-    return NextResponse.json({
-      ...result,
-      labelBase64: rotatedBase64,
-      labelFormat: rotatedFormat,
-    })
+    return NextResponse.json(result)
   } catch (err: unknown) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Label generation failed' },
