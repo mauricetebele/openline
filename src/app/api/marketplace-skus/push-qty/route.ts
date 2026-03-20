@@ -43,12 +43,11 @@ export async function pushOneQuantity(
   bmListingsCache: Map<string, number> | null,
 ): Promise<PushResult> {
   // 1. Get available inventory for this product + grade (only finished-goods locations)
+  // When MSKU has a grade, filter to that grade; when ungraded, filter to gradeId=null
   const inventoryWhere: Record<string, unknown> = {
     productId: msku.productId,
     location: { isFinishedGoods: true },
-  }
-  if (msku.gradeId) {
-    inventoryWhere.gradeId = msku.gradeId
+    gradeId: msku.gradeId ?? null,
   }
 
   const { _sum } = await prisma.inventoryItem.aggregate({
