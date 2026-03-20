@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Search, Printer, AlertCircle, CheckCircle, ArrowLeft, Loader2,
   Package, RefreshCw, History, Plus, Download, XCircle, ExternalLink,
@@ -97,40 +97,79 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
   { code: '12', label: 'UPS 3-Day Select' },
 ]
 
-// ─── Print Layout Helper ─────────────────────────────────────────────────────
+// ─── Print Preview Component ─────────────────────────────────────────────────
 
-function openPrintLabel(trackingNumber: string, base64: string) {
-  const w = window.open('', '_blank')
-  if (!w) return
+function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [ready, setReady] = useState(false)
 
-  // Inline script rotates the image 90° CW inside the new window context
-  w.document.write(`<!DOCTYPE html><html><head>
-    <title>Return Label – ${trackingNumber}</title>
-    <style>
-      @page { size: 8.5in 11in; margin: 0; }
-      * { margin: 0; padding: 0; }
-      body { width: 8.5in; height: 11in; }
-      #label { display: block; width: 8.5in; height: auto; }
-    </style>
-  </head><body>
-    <img id="label" />
-    <script>
-      var img = new Image();
-      img.onload = function() {
-        var c = document.createElement('canvas');
-        c.width = img.height;
-        c.height = img.width;
-        var ctx = c.getContext('2d');
-        ctx.translate(c.width, 0);
-        ctx.rotate(Math.PI / 2);
-        ctx.drawImage(img, 0, 0);
-        document.getElementById('label').src = c.toDataURL('image/png');
-        setTimeout(function() { window.print(); }, 500);
-      };
-      img.src = 'data:image/gif;base64,${base64}';
-    <\/script>
-  </body></html>`)
-  w.document.close()
+  useEffect(() => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      // Swap dimensions for 90° CW rotation
+      canvas.width = img.height
+      canvas.height = img.width
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.translate(canvas.width, 0)
+      ctx.rotate(Math.PI / 2)
+      ctx.drawImage(img, 0, 0)
+      setReady(true)
+    }
+    img.src = `data:image/gif;base64,${base64}`
+  }, [base64])
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex flex-col print-preview-overlay">
+      {/* Toolbar — hidden when printing */}
+      <div className="print-hide flex items-center justify-between px-6 py-3 border-b bg-gray-50">
+        <p className="text-sm font-semibold text-gray-700">Print Preview</p>
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="h-8 px-4 rounded border border-gray-300 text-sm text-gray-600 hover:bg-gray-100"
+          >
+            Close
+          </button>
+          <button
+            onClick={() => window.print()}
+            disabled={!ready}
+            className="flex items-center gap-1.5 h-8 px-4 rounded bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50"
+          >
+            <Printer size={14} /> Print
+          </button>
+        </div>
+      </div>
+      {/* Canvas — this is what prints */}
+      <div className="flex-1 flex items-start justify-center p-8 print-show">
+        <canvas
+          ref={canvasRef}
+          style={{ width: '8.5in', height: 'auto', display: 'block' }}
+        />
+      </div>
+      <style>{`
+        @media print {
+          body > *:not(.print-preview-overlay) { display: none !important; }
+          .print-hide { display: none !important; }
+          .print-preview-overlay {
+            position: static !important;
+            background: white !important;
+          }
+          .print-show {
+            padding: 0 !important;
+            align-items: flex-start !important;
+          }
+          .print-show canvas {
+            width: 8.5in !important;
+            height: auto !important;
+          }
+          @page { size: 8.5in 11in; margin: 0; }
+        }
+      `}</style>
+    </div>
+  )
 }
 
 // ─── History Tab ──────────────────────────────────────────────────────────────
@@ -139,6 +178,7 @@ function LabelHistoryTab() {
   const [labels, setLabels]     = useState<HistoryEntry[]>([])
   const [loading, setLoading]   = useState(true)
   const [voidingId, setVoidingId] = useState<string | null>(null)
+  const [printBase64, setPrintBase64] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -153,12 +193,12 @@ function LabelHistoryTab() {
 
   useEffect(() => { load() }, [load])
 
-  async function openLabel(id: string, trackingNumber: string) {
+  async function openLabel(id: string) {
     try {
       const res  = await fetch(`/api/return-label/${id}`)
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'Download failed'); return }
-      openPrintLabel(trackingNumber, data.labelData)
+      setPrintBase64(data.labelData)
     } catch {
       toast.error('Failed to open label')
     }
@@ -200,6 +240,8 @@ function LabelHistoryTab() {
   }
 
   return (
+    <>
+    {printBase64 && <PrintPreview base64={printBase64} onClose={() => setPrintBase64(null)} />}
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-500">{labels.length} label{labels.length !== 1 ? 's' : ''}</p>
@@ -277,7 +319,7 @@ function LabelHistoryTab() {
             {/* Action buttons */}
             <div className="flex gap-2">
               <button
-                onClick={() => openLabel(lbl.id, lbl.trackingNumber)}
+                onClick={() => openLabel(lbl.id)}
                 className="flex items-center gap-1.5 h-7 px-3 rounded bg-gray-100 text-gray-700 text-xs font-medium hover:bg-gray-200 transition-colors"
               >
                 <Printer size={12} />
@@ -300,6 +342,7 @@ function LabelHistoryTab() {
         ))}
       </div>
     </div>
+    </>
   )
 }
 
@@ -352,6 +395,7 @@ export default function ReturnLabelManager() {
   const [generating, setGenerating] = useState(false)
   const [genErr, setGenErr]         = useState('')
   const [result, setResult]         = useState<LabelResult | null>(null)
+  const [printBase64, setPrintBase64] = useState<string | null>(null)
 
   // ── Lookup ──────────────────────────────────────────────────────────────────
 
@@ -463,7 +507,7 @@ export default function ReturnLabelManager() {
 
   function openLabel() {
     if (!result) return
-    openPrintLabel(result.trackingNumber, result.labelBase64)
+    setPrintBase64(result.labelBase64)
   }
 
   function reset() {
@@ -487,6 +531,7 @@ export default function ReturnLabelManager() {
 
   return (
     <div className="flex-1 overflow-auto">
+      {printBase64 && <PrintPreview base64={printBase64} onClose={() => setPrintBase64(null)} />}
       {/* Tab bar */}
       <div className="flex items-center gap-1 px-6 pt-5 pb-0 border-b border-gray-200">
         <button
