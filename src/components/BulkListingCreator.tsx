@@ -98,7 +98,7 @@ interface UploadProgressRow extends UploadParsedRow {
 
 const TEMPLATE_CSV = `SKU,Grade,Seller SKU,ASIN,Price,Condition,Quantity,Shipping Template
 IPHONE-15-128,A,IP15-128-AMZ-A,B0XXXXXXXXX,299.99,Used - Like New,1,US Standard
-IPHONE-14-256,,IP14-256-AMZ,B0YYYYYYYYY,199.99,New,5,`
+IPHONE-14-256,,,B0YYYYYYYYY,199.99,New,5,`
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -492,7 +492,11 @@ export default function BulkListingCreator() {
 
   const handleUploadSubmit = useCallback(() => {
     const validRows = uploadParsedRows.filter(r => r.errors.length === 0)
-    const rows: UploadProgressRow[] = validRows.map(r => ({ ...r, status: 'pending' as RowStatus }))
+    const rows: UploadProgressRow[] = validRows.map(r => ({
+      ...r,
+      sellerSku: r.sellerSku.trim() || generateSellerSku(r.sku, r.gradeName),
+      status: 'pending' as RowStatus,
+    }))
     setUploadProgressRows(rows)
     setUploadIsCreating(true)
     setUploadStep('progress')

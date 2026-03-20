@@ -101,13 +101,12 @@ export async function POST(req: NextRequest) {
     // Check required columns
     const missing: string[] = []
     if (!skuKey) missing.push('SKU')
-    if (!sellerSkuKey) missing.push('Seller SKU')
     if (!asinKey) missing.push('ASIN')
     if (!priceKey) missing.push('Price')
 
     if (missing.length) {
       return NextResponse.json({
-        error: `Missing required column(s): ${missing.join(', ')}. Expected: SKU, Seller SKU, ASIN, Price.`,
+        error: `Missing required column(s): ${missing.join(', ')}. Expected: SKU, ASIN, Price.`,
       }, { status: 400 })
     }
 
@@ -140,9 +139,11 @@ export async function POST(req: NextRequest) {
 
     // Track duplicate seller SKUs within the file
     const sellerSkuCounts = new Map<string, number>()
-    for (const raw of rawRows) {
-      const ss = String(raw[sellerSkuKey!] ?? '').trim()
-      if (ss) sellerSkuCounts.set(ss, (sellerSkuCounts.get(ss) ?? 0) + 1)
+    if (sellerSkuKey) {
+      for (const raw of rawRows) {
+        const ss = String(raw[sellerSkuKey] ?? '').trim()
+        if (ss) sellerSkuCounts.set(ss, (sellerSkuCounts.get(ss) ?? 0) + 1)
+      }
     }
 
     // Validate each row
@@ -155,7 +156,7 @@ export async function POST(req: NextRequest) {
 
       const sku = String(raw[skuKey!] ?? '').trim().toUpperCase()
       const grade = gradeKey ? String(raw[gradeKey] ?? '').trim() : ''
-      const sellerSku = String(raw[sellerSkuKey!] ?? '').trim()
+      const sellerSku = sellerSkuKey ? String(raw[sellerSkuKey] ?? '').trim() : ''
       const asin = String(raw[asinKey!] ?? '').trim().toUpperCase()
       const priceRaw = String(raw[priceKey!] ?? '').trim()
       const condition = conditionKey ? String(raw[conditionKey] ?? '').trim() : 'New'
@@ -190,10 +191,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Validate seller SKU
-      if (!sellerSku) {
-        errors.push('Seller SKU is required')
-      } else if ((sellerSkuCounts.get(sellerSku) ?? 0) > 1) {
+      // Validate seller SKU (optional — auto-generated if blank)
+      if (sellerSku && (sellerSkuCounts.get(sellerSku) ?? 0) > 1) {
         errors.push('Duplicate Seller SKU in file')
       }
 
