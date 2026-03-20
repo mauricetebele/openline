@@ -15,13 +15,15 @@ export const maxDuration = 120
 
 export async function POST(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { id } = await params
+
   const shipment = await prisma.fbaShipment.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       serialAssignments: {
         include: {
@@ -44,38 +46,37 @@ export async function POST(
   const shipLabel = shipment.shipmentNumber ?? 'FBA shipment'
 
   await prisma.$transaction(async tx => {
-    // Mark serials as OUT_OF_STOCK + create history
-    for (const sa of shipment.serialAssignments) {
-      const serial = sa.inventorySerial
+    // Batch: mark all IN_STOCK serials as OUT_OF_STOCK
+    const inStockSerialIds = shipment.serialAssignments
+      .filter(sa => sa.inventorySerial.status === 'IN_STOCK')
+      .map(sa => sa.inventorySerial.id)
 
-      if (serial.status === 'IN_STOCK') {
-        await tx.inventorySerial.update({
-          where: { id: serial.id },
-          data: { status: 'OUT_OF_STOCK' },
-        })
-      }
-
-      await tx.serialHistory.create({
-        data: {
-          inventorySerialId: serial.id,
-          eventType: 'FBA_SHIPMENT',
-          fbaShipmentId: params.id,
-          locationId: serial.locationId,
-          userId: user.dbId,
-          notes: `Shipped via ${shipLabel}${confirmationLabel}`,
-        },
+    if (inStockSerialIds.length > 0) {
+      await tx.inventorySerial.updateMany({
+        where: { id: { in: inStockSerialIds } },
+        data: { status: 'OUT_OF_STOCK' },
       })
     }
 
-    // Release inventory reservations.
-    // InventoryItem.qty already has reservations subtracted, so deleting
-    // the reservation is all that's needed — no qty decrement required.
+    // Batch: create all history records at once
+    await tx.serialHistory.createMany({
+      data: shipment.serialAssignments.map(sa => ({
+        inventorySerialId: sa.inventorySerial.id,
+        eventType: 'FBA_SHIPMENT',
+        fbaShipmentId: id,
+        locationId: sa.inventorySerial.locationId,
+        userId: user.dbId,
+        notes: `Shipped via ${shipLabel}${confirmationLabel}`,
+      })),
+    })
+
+    // Release inventory reservations
     await tx.fbaInventoryReservation.deleteMany({
-      where: { fbaShipmentId: params.id },
+      where: { fbaShipmentId: id },
     })
 
     await tx.fbaShipment.update({
-      where: { id: params.id },
+      where: { id },
       data: { status: 'SHIPPED' },
     })
   })
