@@ -11,12 +11,11 @@ import { AmazonAccountDTO } from '@/types'
 
 const ASIN_RE = /^B0[A-Z0-9]{8}$/
 
-/** Auto-generate a seller SKU like Amazon does (e.g. IPHONE-15-128-A3K9Z) */
-function generateSellerSku(internalSku: string, gradeName: string | null): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  const rand = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-  const suffix = gradeName ? gradeName.charAt(0).toUpperCase() : 'X'
-  return `${internalSku}-${suffix}${rand}`
+/** Auto-generate a random seller SKU like Amazon does (e.g. XX-HKQM-BRTZ) */
+function generateSellerSku(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  const seg = (len: number) => Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+  return `${seg(2)}-${seg(4)}-${seg(4)}`
 }
 
 const CONDITIONS = [
@@ -309,7 +308,7 @@ export default function BulkListingCreator() {
   const handleSubmit = useCallback(() => {
     const rows: ProgressRow[] = validListingRows.map(r => ({
       ...r,
-      marketplaceSku: r.marketplaceSku.trim() || generateSellerSku(r.internalSku, r.gradeName),
+      marketplaceSku: r.marketplaceSku.trim() || generateSellerSku(),
       status: 'pending' as RowStatus,
     }))
     setProgressRows(rows)
@@ -494,7 +493,7 @@ export default function BulkListingCreator() {
     const validRows = uploadParsedRows.filter(r => r.errors.length === 0)
     const rows: UploadProgressRow[] = validRows.map(r => ({
       ...r,
-      sellerSku: r.sellerSku.trim() || generateSellerSku(r.sku, r.gradeName),
+      sellerSku: r.sellerSku.trim() || generateSellerSku(),
       status: 'pending' as RowStatus,
     }))
     setUploadProgressRows(rows)
