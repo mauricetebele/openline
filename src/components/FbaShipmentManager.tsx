@@ -806,11 +806,28 @@ function WizardView({
   const [transportOptions, setTransportOptions] = useState<TransportOption[]>([])
   const [selectedTransport, setSelectedTransport] = useState('')
 
-  // Box contents state
+  // Box contents state — auto-saved to localStorage per shipment
+  const boxStorageKey = `fba-boxes-${shipmentId}`
   const [boxes, setBoxes] = useState<Array<{
     weightLb: number; lengthIn: number; widthIn: number; heightIn: number
     items: Array<{ shipmentItemId: string; quantity: number }>
-  }>>([])
+  }>>(() => {
+    try {
+      const saved = localStorage.getItem(boxStorageKey)
+      return saved ? JSON.parse(saved) : []
+    } catch { return [] }
+  })
+
+  // Auto-save boxes to localStorage on every change
+  useEffect(() => {
+    try {
+      if (boxes.length > 0) {
+        localStorage.setItem(boxStorageKey, JSON.stringify(boxes))
+      } else {
+        localStorage.removeItem(boxStorageKey)
+      }
+    } catch { /* quota exceeded — ignore */ }
+  }, [boxes, boxStorageKey])
 
   const loadShipment = useCallback(async () => {
     setLoading(true)
@@ -864,6 +881,8 @@ function WizardView({
         sMap.set(s.shipmentId, s)
       }
       setShipmentInfoMap(sMap)
+      // Clear saved box contents after successful submission
+      try { localStorage.removeItem(boxStorageKey) } catch {}
       await loadShipment()
       onRefreshList()
     }
@@ -1372,10 +1391,16 @@ function WizardView({
             </div>
           ))}
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <button type="button" onClick={addBox} className="text-xs text-amazon-blue hover:underline flex items-center gap-1">
               <Plus size={12} /> Add Box
             </button>
+            {boxes.length > 0 && (
+              <button type="button" onClick={() => { if (confirm('Reset all box contents? This cannot be undone.')) setBoxes([]) }}
+                className="text-xs text-red-500 hover:underline flex items-center gap-1">
+                <Trash2 size={12} /> Reset Box Contents
+              </button>
+            )}
           </div>
 
           <button type="button" onClick={handleSetBoxes} disabled={actionLoading || boxes.length === 0 || hasOverfill}
