@@ -1349,7 +1349,13 @@ function WizardView({
                       </div>
                       <input type="number" min={0} value={assigned || ''}
                         onChange={e => {
-                          const v = Math.min(Math.max(parseInt(e.target.value) || 0, 0), maxForThisBox)
+                          const raw = parseInt(e.target.value) || 0
+                          if (raw > maxForThisBox) {
+                            setErr('The quantity you have entered is greater than the expected quantity')
+                            return
+                          }
+                          setErr('')
+                          const v = Math.max(raw, 0)
                           setBoxes(prev => prev.map((b, i) => {
                             if (i !== boxIdx) return b
                             const others = b.items.filter(bi => bi.shipmentItemId !== item.id)
