@@ -527,6 +527,14 @@ export async function createListing(
     attributes.handling_time = [{ value: 2, marketplace_id: account.marketplaceId }]
   }
 
+  // FBA listings require product compliance attributes for warehouse/shipping safety
+  if (fulfillmentChannel === 'FBA') {
+    attributes.batteries_required = [{ value: 'false', marketplace_id: account.marketplaceId }]
+    attributes.supply_source_country = [{ value: 'US', marketplace_id: account.marketplaceId }]
+    // Dangerous goods / hazmat classification — "not applicable" (standard consumer goods)
+    attributes.ghs_classification_class = [{ value: 'noHazardousSubstances', marketplace_id: account.marketplaceId }]
+  }
+
   const body = {
     productType: 'PRODUCT',
     requirements: 'LISTING_OFFER_ONLY',
