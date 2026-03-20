@@ -1430,6 +1430,40 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
                   </div>
                   {item.isSerializable && (
                     <div className="space-y-1.5">
+                      {/* Bulk paste area */}
+                      <div className="mb-1">
+                        <textarea
+                          placeholder={`Paste up to ${item.quantityOrdered} serials (one per line)…`}
+                          rows={2}
+                          className="w-full rounded border border-dashed border-gray-300 px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none placeholder:text-gray-400"
+                          onPaste={e => {
+                            e.preventDefault()
+                            const text = e.clipboardData.getData('text')
+                            const lines = text.split(/[\n\r\t]+/).map(s => s.trim()).filter(Boolean)
+                            const sku = item.sellerSku ?? ''
+                            lines.slice(0, item.quantityOrdered).forEach((sn, i) => {
+                              const key = `${item.orderItemId}-${i}`
+                              validateSerial(key, sn, sku, true, item.gradeId)
+                            })
+                            // Clear the textarea after paste
+                            ;(e.target as HTMLTextAreaElement).value = ''
+                          }}
+                          onChange={e => {
+                            // Also handle typing/pasting via onChange as fallback
+                            const text = e.target.value
+                            if (!text.includes('\n') && !text.includes('\t')) return
+                            const lines = text.split(/[\n\r\t]+/).map(s => s.trim()).filter(Boolean)
+                            if (lines.length > 1) {
+                              const sku = item.sellerSku ?? ''
+                              lines.slice(0, item.quantityOrdered).forEach((sn, i) => {
+                                const key = `${item.orderItemId}-${i}`
+                                validateSerial(key, sn, sku, true, item.gradeId)
+                              })
+                              e.target.value = ''
+                            }
+                          }}
+                        />
+                      </div>
                       {Array.from({ length: item.quantityOrdered }, (_, i) => {
                         const key   = `${item.orderItemId}-${i}`
                         const state = serialInputs[key] ?? { value: '', valid: null, message: '', checking: false }
