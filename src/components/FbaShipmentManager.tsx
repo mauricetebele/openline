@@ -1040,7 +1040,7 @@ function WizardView({
                       {fnskuLoading === item.sellerSku ? (
                         <><Loader2 size={11} className="animate-spin" /> Generating…</>
                       ) : (
-                        <><Printer size={11} /> Print ({item.quantity})</>
+                        <><ScanBarcode size={11} /> Print ({item.quantity}) FNSKU Labels</>
                       )}
                     </button>
                   </td>
