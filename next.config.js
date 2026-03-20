@@ -9,7 +9,7 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   experimental: {
-    serverComponentsExternalPackages: ['@prisma/client', 'firebase-admin', 'xlsx'],
+    serverComponentsExternalPackages: ['@prisma/client', 'firebase-admin', 'xlsx', 'sharp'],
   },
   webpack: (config) => {
     const path = require('path')
