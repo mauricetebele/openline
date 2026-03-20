@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { generateReturnLabel, UPS_SERVICES, ReturnLabelRequest } from '@/lib/ups-tracking'
-import sharp from 'sharp'
+import Jimp from 'jimp'
 
 export const dynamic = 'force-dynamic'
 
@@ -106,7 +106,9 @@ export async function POST(req: NextRequest) {
     let rotatedFormat = result.labelFormat
     try {
       const inputBuf = Buffer.from(result.labelBase64, 'base64')
-      const rotatedBuf = await sharp(inputBuf).rotate(90).png().toBuffer()
+      const image = await Jimp.read(inputBuf)
+      image.rotate(-90, false) // -90 = 90° clockwise
+      const rotatedBuf = await image.getBufferAsync(Jimp.MIME_PNG)
       rotatedBase64 = rotatedBuf.toString('base64')
       rotatedFormat = 'PNG'
     } catch (rotateErr) {

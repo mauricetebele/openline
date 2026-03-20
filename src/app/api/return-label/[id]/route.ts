@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { voidReturnLabel } from '@/lib/ups-tracking'
-import sharp from 'sharp'
+import Jimp from 'jimp'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,11 +27,13 @@ export async function GET(
   const rotate = req.nextUrl.searchParams.get('rotate')
   let labelData = label.labelData
 
-  // Server-side rotation using sharp
+  // Server-side rotation using jimp (pure JS — no native deps)
   if (rotate === '90') {
     try {
       const inputBuf = Buffer.from(label.labelData, 'base64')
-      const rotatedBuf = await sharp(inputBuf).rotate(90).png().toBuffer()
+      const image = await Jimp.read(inputBuf)
+      image.rotate(-90, false) // -90 = 90° clockwise
+      const rotatedBuf = await image.getBufferAsync(Jimp.MIME_PNG)
       labelData = rotatedBuf.toString('base64')
     } catch (err) {
       console.error('[GET /api/return-label] rotation failed:', err)
