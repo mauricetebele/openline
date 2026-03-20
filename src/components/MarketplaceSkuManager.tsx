@@ -1072,7 +1072,7 @@ export default function MarketplaceSkuManager() {
                     <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">{s.asin ?? '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                      {s.fnsku ? s.fnsku : s.fulfillmentChannel === 'FBA' ? (
+                      {s.fnsku ? s.fnsku : s.marketplace === 'amazon' && s.accountId ? (
                         <button
                           type="button"
                           disabled={fetchingFnskuIds.has(s.id)}
