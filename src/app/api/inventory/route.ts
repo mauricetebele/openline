@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       },
       include: {
         product:  { select: { id: true, description: true, sku: true, isSerializable: true,
-          marketplaceSkus: { select: { marketplace: true, gradeId: true } }
+          marketplaceSkus: { select: { marketplace: true, gradeId: true, sellerSku: true } }
         } },
         location: { include: { warehouse: { select: { id: true, name: true } } } },
         grade:    { select: { id: true, grade: true, description: true } },
@@ -89,13 +89,37 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Batch lookup fulfillment channels for amazon marketplace SKUs
+  const allSellerSkus = new Set<string>()
+  for (const item of items) {
+    for (const ms of item.product.marketplaceSkus ?? []) {
+      if (ms.marketplace === 'amazon' && ms.sellerSku) allSellerSkus.add(ms.sellerSku)
+    }
+  }
+  const fcListings = allSellerSkus.size > 0
+    ? await prisma.sellerListing.findMany({
+        where: { sku: { in: Array.from(allSellerSkus) } },
+        select: { sku: true, fulfillmentChannel: true },
+        distinct: ['sku'],
+      })
+    : []
+  const fcMap = new Map(fcListings.map(l => [l.sku, l.fulfillmentChannel]))
+
   const data = items
     .map(item => {
       const key      = `${item.productId}:${item.locationId}:${item.gradeId ?? ''}`
       const reserved = reservedMap.get(key) ?? 0
       const onHand   = item.qty + reserved
       const unitCost = costMap.get(`${item.productId}:${item.gradeId ?? ''}`) ?? costProductOnly.get(item.productId) ?? null
-      return { ...item, reserved, onHand, unitCost }
+      // Enrich marketplaceSkus with fulfillmentChannel
+      const product = {
+        ...item.product,
+        marketplaceSkus: (item.product.marketplaceSkus ?? []).map(ms => ({
+          ...ms,
+          fulfillmentChannel: ms.marketplace === 'amazon' ? (fcMap.get(ms.sellerSku) ?? null) : null,
+        })),
+      }
+      return { ...item, product, reserved, onHand, unitCost }
     })
     .filter(item => item.onHand > 0)
 

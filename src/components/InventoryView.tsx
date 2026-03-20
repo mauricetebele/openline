@@ -8,7 +8,7 @@ import SNLookupModal from './SNLookupModal'
 
 interface Warehouse { id: string; name: string }
 interface Location  { id: string; name: string; warehouseId: string; warehouse: Warehouse }
-interface Product   { id: string; description: string; sku: string; isSerializable: boolean; marketplaceSkus?: { marketplace: string; gradeId: string | null }[] }
+interface Product   { id: string; description: string; sku: string; isSerializable: boolean; marketplaceSkus?: { marketplace: string; gradeId: string | null; sellerSku: string; fulfillmentChannel: string | null }[] }
 
 interface InventoryGrade { id: string; grade: string; description: string | null }
 
@@ -2510,17 +2510,26 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                   <td className="px-2 py-1 text-center">
                     {(() => {
                       const matched = (item.product.marketplaceSkus ?? []).filter(s => (s.gradeId ?? null) === (item.grade?.id ?? null))
-                      const names = Array.from(new Set(matched.map(s => s.marketplace)))
-                      if (names.length === 0) return <span className="text-gray-300 text-[10px]">None</span>
+                      const hasMfn = matched.some(s => s.marketplace === 'amazon' && s.fulfillmentChannel !== 'FBA')
+                      const hasFba = matched.some(s => s.marketplace === 'amazon' && s.fulfillmentChannel === 'FBA')
+                      const hasBm = matched.some(s => s.marketplace === 'backmarket')
+                      if (!hasMfn && !hasFba && !hasBm) return <span className="text-gray-300 text-[10px]">None</span>
                       return (
                         <span className="inline-flex items-center gap-1 justify-center">
-                          {names.includes('amazon') && (
-                            <span title="Amazon" className="inline-flex items-center justify-center shrink-0 select-none">
+                          {hasMfn && (
+                            <span title="Amazon MFN" className="inline-flex items-center justify-center shrink-0 select-none">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src="/logos/amazon-icon.png" alt="Amazon" width={20} height={20} className="inline-block rounded" />
+                              <img src="/logos/amazon-icon.png" alt="Amazon MFN" width={20} height={20} className="inline-block rounded" />
                             </span>
                           )}
-                          {names.includes('backmarket') && (
+                          {hasFba && (
+                            <span title="Amazon FBA" className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 select-none">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/logos/amazon-icon.png" alt="FBA" width={14} height={14} className="inline-block rounded" />
+                              <span className="text-[9px] font-bold text-blue-700">FBA</span>
+                            </span>
+                          )}
+                          {hasBm && (
                             <span title="Back Market" className="inline-flex items-center justify-center shrink-0 select-none">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src="/logos/backmarket-icon.svg" alt="BM" width={16} height={16} className="inline-block" />
