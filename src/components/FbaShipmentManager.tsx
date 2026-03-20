@@ -1333,22 +1333,22 @@ function WizardView({
               </div>
               <div className="grid grid-cols-4 gap-2">
                 <div>
-                  <label className="block text-[10px] text-gray-400">Weight (lb)</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-0.5">Weight (lb)</label>
                   <input type="number" step="0.1" value={box.weightLb || ''} onChange={e => updateBox(boxIdx, 'weightLb', parseFloat(e.target.value) || 0)}
                     className="w-full h-7 rounded border border-gray-300 px-2 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-gray-400">Length (in)</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-0.5">Length (in)</label>
                   <input type="number" step="0.1" value={box.lengthIn || ''} onChange={e => updateBox(boxIdx, 'lengthIn', parseFloat(e.target.value) || 0)}
                     className="w-full h-7 rounded border border-gray-300 px-2 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-gray-400">Width (in)</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-0.5">Width (in)</label>
                   <input type="number" step="0.1" value={box.widthIn || ''} onChange={e => updateBox(boxIdx, 'widthIn', parseFloat(e.target.value) || 0)}
                     className="w-full h-7 rounded border border-gray-300 px-2 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-gray-400">Height (in)</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-0.5">Height (in)</label>
                   <input type="number" step="0.1" value={box.heightIn || ''} onChange={e => updateBox(boxIdx, 'heightIn', parseFloat(e.target.value) || 0)}
                     className="w-full h-7 rounded border border-gray-300 px-2 text-sm" />
                 </div>
