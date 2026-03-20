@@ -1235,10 +1235,74 @@ function WizardView({
         </div>
       )}
 
-      {shipment.status === 'PLAN_CREATED' && (
+      {shipment.status === 'PLAN_CREATED' && (() => {
+        // Compute totals boxed per item across all boxes
+        const boxedMap = new Map<string, number>()
+        for (const box of boxes) {
+          for (const bi of box.items) {
+            boxedMap.set(bi.shipmentItemId, (boxedMap.get(bi.shipmentItemId) ?? 0) + bi.quantity)
+          }
+        }
+        const totalExpected = shipment.items.reduce((s, i) => s + i.quantity, 0)
+        const totalBoxed = Array.from(boxedMap.values()).reduce((s, v) => s + v, 0)
+        const hasOverfill = shipment.items.some(item => (boxedMap.get(item.id) ?? 0) > item.quantity)
+
+        return (
         <div className="border border-gray-200 rounded-lg p-4 space-y-4">
           <h3 className="text-sm font-semibold text-gray-700">Box Contents</h3>
           <p className="text-xs text-gray-500">Add boxes with dimensions/weight and assign items to each box. Totals must match shipment quantities.</p>
+
+          {/* Line item summary with color-coded status */}
+          <div className="border border-gray-200 rounded-md overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text-gray-500">
+                <tr>
+                  <th className="text-left px-3 py-1.5 font-medium">Internal SKU</th>
+                  <th className="text-left px-3 py-1.5 font-medium">Grade</th>
+                  <th className="text-left px-3 py-1.5 font-medium">Seller SKU</th>
+                  <th className="text-left px-3 py-1.5 font-medium">FNSKU</th>
+                  <th className="text-center px-3 py-1.5 font-medium">Boxed</th>
+                  <th className="text-center px-3 py-1.5 font-medium">Expected</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {shipment.items.map(item => {
+                  const boxed = boxedMap.get(item.id) ?? 0
+                  const expected = item.quantity
+                  const over = boxed > expected
+                  const bg = over ? 'bg-red-50' : boxed === expected ? 'bg-green-50' : boxed > 0 ? 'bg-yellow-50' : ''
+                  return (
+                    <tr key={item.id} className={bg}>
+                      <td className="px-3 py-1.5 font-mono text-gray-800">{item.msku?.product?.sku ?? '—'}</td>
+                      <td className="px-3 py-1.5 text-gray-600">{item.msku?.grade?.grade ?? '—'}</td>
+                      <td className="px-3 py-1.5 text-gray-600">{item.sellerSku}</td>
+                      <td className="px-3 py-1.5 font-mono text-gray-500">{item.fnsku}</td>
+                      <td className={clsx('px-3 py-1.5 text-center font-semibold', over ? 'text-red-600' : boxed === expected ? 'text-green-600' : boxed > 0 ? 'text-yellow-600' : 'text-gray-400')}>
+                        {boxed}
+                      </td>
+                      <td className="px-3 py-1.5 text-center text-gray-500">{expected}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot className="bg-gray-50 font-semibold text-xs">
+                <tr>
+                  <td colSpan={4} className="px-3 py-1.5 text-right text-gray-500">Total</td>
+                  <td className={clsx('px-3 py-1.5 text-center', hasOverfill ? 'text-red-600' : totalBoxed === totalExpected ? 'text-green-600' : totalBoxed > 0 ? 'text-yellow-600' : 'text-gray-400')}>
+                    {totalBoxed}
+                  </td>
+                  <td className="px-3 py-1.5 text-center text-gray-500">{totalExpected}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {hasOverfill && (
+            <div className="flex items-center gap-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+              <AlertCircle size={14} className="shrink-0" />
+              Boxed quantity exceeds expected quantity for one or more items. Please correct before submitting.
+            </div>
+          )}
 
           {boxes.map((box, boxIdx) => (
             <div key={boxIdx} className="border border-gray-100 rounded-md p-3 space-y-2">
@@ -1270,15 +1334,22 @@ function WizardView({
                     className="w-full h-7 rounded border border-gray-300 px-2 text-sm" />
                 </div>
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {shipment.items.map(item => {
                   const assigned = box.items.find(bi => bi.shipmentItemId === item.id)?.quantity ?? 0
+                  const totalOtherBoxes = boxes.reduce((s, b, i) => i === boxIdx ? s : s + (b.items.find(bi => bi.shipmentItemId === item.id)?.quantity ?? 0), 0)
+                  const maxForThisBox = item.quantity - totalOtherBoxes
                   return (
                     <div key={item.id} className="flex items-center gap-2 text-xs">
-                      <span className="flex-1 text-gray-600">{item.sellerSku}</span>
-                      <input type="number" min={0} max={item.quantity} value={assigned || ''}
+                      <div className="flex-1 min-w-0">
+                        <span className="font-mono text-gray-800">{item.msku?.product?.sku ?? '—'}</span>
+                        {item.msku?.grade?.grade && <span className="ml-1.5 text-gray-400">{item.msku.grade.grade}</span>}
+                        <span className="ml-1.5 text-gray-400">({item.sellerSku})</span>
+                        <span className="ml-1.5 font-mono text-gray-400">{item.fnsku}</span>
+                      </div>
+                      <input type="number" min={0} value={assigned || ''}
                         onChange={e => {
-                          const v = parseInt(e.target.value) || 0
+                          const v = Math.min(Math.max(parseInt(e.target.value) || 0, 0), maxForThisBox)
                           setBoxes(prev => prev.map((b, i) => {
                             if (i !== boxIdx) return b
                             const others = b.items.filter(bi => bi.shipmentItemId !== item.id)
@@ -1287,7 +1358,7 @@ function WizardView({
                         }}
                         placeholder="0"
                         className="w-16 h-6 rounded border border-gray-300 px-1 text-xs text-center" />
-                      <span className="text-gray-400">/ {item.quantity}</span>
+                      <span className="text-gray-400 whitespace-nowrap">/ {maxForThisBox}</span>
                     </div>
                   )
                 })}
@@ -1301,12 +1372,13 @@ function WizardView({
             </button>
           </div>
 
-          <button type="button" onClick={handleSetBoxes} disabled={actionLoading || boxes.length === 0}
+          <button type="button" onClick={handleSetBoxes} disabled={actionLoading || boxes.length === 0 || hasOverfill}
             className="flex items-center gap-2 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50">
             {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Submitting...</> : 'Submit Box Contents'}
           </button>
         </div>
-      )}
+        )
+      })()}
 
       {shipment.status === 'PACKING_SET' && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-3">
