@@ -15,6 +15,7 @@ export const metadata: Metadata = {
     title: 'Open Line Mobility',
   },
   icons: {
+    icon: '/icon.svg',
     apple: '/apple-touch-icon.png',
   },
 }
