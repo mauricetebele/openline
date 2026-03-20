@@ -1051,17 +1051,8 @@ function WizardView({
         </table>
       </div>
 
-      {/* Print all FNSKU labels */}
-      {shipment.items.length > 0 && shipment.status !== 'DRAFT' && (
-        <div className="flex items-center gap-2 mb-4">
-          <button type="button" onClick={() => printFnskuLabels()} disabled={!!fnskuLoading}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 transition-colors">
-            {fnskuLoading === true ? <Loader2 size={22} className="animate-spin" /> : <ScanBarcode size={22} strokeWidth={2.2} />}
-            {fnskuLoading === true ? 'Generating...' : 'Print All FNSKU Labels'}
-          </button>
-          <span className="text-[10px] text-gray-400">All items combined · Amazon official labels</span>
-          {fnskuError && <span className="text-[11px] text-red-500">{fnskuError}</span>}
-        </div>
+      {fnskuError && (
+        <div className="text-[11px] text-red-500 mb-4">{fnskuError}</div>
       )}
 
       {/* Step-specific actions */}
