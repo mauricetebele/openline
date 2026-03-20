@@ -494,6 +494,7 @@ export default function MarketplaceSkuManager() {
   const [pushing, setPushing] = useState(false)
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null)
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
+  const [fetchingFnskuIds, setFetchingFnskuIds] = useState<Set<string>>(new Set())
   const [syncPage, setSyncPage] = useState(1)
   const SYNC_PAGE_SIZE = 100
   const [qtyMap, setQtyMap] = useState<Record<string, QtyBreakdown>>({})
@@ -721,6 +722,26 @@ export default function MarketplaceSkuManager() {
       setErr(e instanceof Error ? e.message : 'Push failed')
     } finally {
       setPushing(false)
+    }
+  }
+
+  async function handleFetchFnsku(skuRecord: MarketplaceSku) {
+    if (!skuRecord.accountId) { setErr('No account ID for this SKU'); return }
+    setFetchingFnskuIds(prev => { const next = new Set(prev); next.add(skuRecord.id); return next })
+    try {
+      const data = await apiFetch(
+        `/api/fba-shipments/fetch-fnsku?accountId=${encodeURIComponent(skuRecord.accountId)}&sellerSku=${encodeURIComponent(skuRecord.sellerSku)}`,
+      )
+      if (data.fnsku) {
+        setSkus(prev => prev.map(s => s.id === skuRecord.id ? { ...s, fnsku: data.fnsku } : s))
+        setToast(`FNSKU fetched: ${data.fnsku}`)
+      } else {
+        setErr('FNSKU not available yet — Amazon may still be processing this listing')
+      }
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to fetch FNSKU')
+    } finally {
+      setFetchingFnskuIds(prev => { const next = new Set(prev); next.delete(skuRecord.id); return next })
     }
   }
 
@@ -1050,7 +1071,22 @@ export default function MarketplaceSkuManager() {
                   <tr key={s.id} className={clsx('group', s.fulfillmentChannel === 'FBA' ? 'bg-blue-50/60 hover:bg-blue-100/60' : 'hover:bg-gray-50')}>
                     <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">{s.asin ?? '—'}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{s.fnsku ?? '—'}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-600">
+                      {s.fnsku ? s.fnsku : s.fulfillmentChannel === 'FBA' ? (
+                        <button
+                          type="button"
+                          disabled={fetchingFnskuIds.has(s.id)}
+                          onClick={() => handleFetchFnsku(s)}
+                          className="inline-flex items-center gap-1 rounded bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          {fetchingFnskuIds.has(s.id) ? (
+                            <><RefreshCw size={10} className="animate-spin" /> Fetching…</>
+                          ) : (
+                            'Get FNSKU'
+                          )}
+                        </button>
+                      ) : '—'}
+                    </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-700">{s.product.sku}</td>
                     <td className="px-4 py-3 text-xs text-gray-600">{s.grade?.grade ?? '—'}</td>
                     <td className="px-4 py-3 text-xs text-gray-600 max-w-[200px] truncate" title={s.product.description}>{s.product.description}</td>
