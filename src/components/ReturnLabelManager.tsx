@@ -104,7 +104,7 @@ function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void
     <div className="fixed inset-0 z-50 bg-white flex flex-col print-preview-overlay">
       {/* Toolbar — hidden when printing */}
       <div className="print-hide flex items-center justify-between px-6 py-3 border-b bg-gray-50">
-        <p className="text-sm font-semibold text-gray-700">Print Preview — Label should appear sideways below</p>
+        <p className="text-sm font-semibold text-gray-700">Print Preview</p>
         <div className="flex gap-2">
           <button
             onClick={onClose}
@@ -120,21 +120,13 @@ function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void
           </button>
         </div>
       </div>
-      {/* Label with CSS rotation — no canvas */}
-      <div className="print-area" style={{ width: '8.5in', margin: '0 auto', overflow: 'visible', position: 'relative', height: '5in' }}>
+      {/* Already-rotated image from server — just display it */}
+      <div className="flex-1 flex items-start justify-center p-8 print-area">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={`data:image/gif;base64,${base64}`}
+          src={`data:image/png;base64,${base64}`}
           alt="Return Label"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            height: '8.5in',
-            width: 'auto',
-            transformOrigin: 'top left',
-            transform: 'rotate(90deg) translateY(-100%)',
-          }}
+          style={{ width: '8.5in', height: 'auto', display: 'block' }}
         />
       </div>
       <style>{`
@@ -146,15 +138,11 @@ function PrintPreview({ base64, onClose }: { base64: string; onClose: () => void
             background: white !important;
           }
           .print-area {
-            width: 8.5in !important;
-            margin: 0 !important;
-            overflow: visible !important;
+            padding: 0 !important;
           }
           .print-area img {
-            height: 8.5in !important;
-            width: auto !important;
-            print-color-adjust: exact !important;
-            -webkit-print-color-adjust: exact !important;
+            width: 8.5in !important;
+            height: auto !important;
           }
           @page { size: 8.5in 11in; margin: 0; }
         }
@@ -186,7 +174,7 @@ function LabelHistoryTab() {
 
   async function openLabel(id: string) {
     try {
-      const res  = await fetch(`/api/return-label/${id}`)
+      const res  = await fetch(`/api/return-label/${id}?rotate=90`)
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'Download failed'); return }
       setPrintBase64(data.labelData)

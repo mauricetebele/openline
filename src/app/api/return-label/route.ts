@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { generateReturnLabel, UPS_SERVICES, ReturnLabelRequest } from '@/lib/ups-tracking'
+import sharp from 'sharp'
 
 export const dynamic = 'force-dynamic'
 
@@ -100,7 +101,23 @@ export async function POST(req: NextRequest) {
       },
     }).catch(err => console.error('[ReturnLabel] DB save failed:', err))
 
-    return NextResponse.json(result)
+    // Rotate label 90° CW for landscape printing on portrait page
+    let rotatedBase64 = result.labelBase64
+    let rotatedFormat = result.labelFormat
+    try {
+      const inputBuf = Buffer.from(result.labelBase64, 'base64')
+      const rotatedBuf = await sharp(inputBuf).rotate(90).png().toBuffer()
+      rotatedBase64 = rotatedBuf.toString('base64')
+      rotatedFormat = 'PNG'
+    } catch (rotateErr) {
+      console.error('[ReturnLabel] rotation failed (returning original):', rotateErr)
+    }
+
+    return NextResponse.json({
+      ...result,
+      labelBase64: rotatedBase64,
+      labelFormat: rotatedFormat,
+    })
   } catch (err: unknown) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Label generation failed' },

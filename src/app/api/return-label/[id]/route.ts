@@ -6,11 +6,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { voidReturnLabel } from '@/lib/ups-tracking'
+import sharp from 'sharp'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } },
 ) {
   const user = await getAuthUser()
@@ -23,9 +24,24 @@ export async function GET(
 
   if (!label) return NextResponse.json({ error: 'Label not found' }, { status: 404 })
 
+  const rotate = req.nextUrl.searchParams.get('rotate')
+  let labelData = label.labelData
+
+  // Server-side rotation using sharp
+  if (rotate === '90') {
+    try {
+      const inputBuf = Buffer.from(label.labelData, 'base64')
+      const rotatedBuf = await sharp(inputBuf).rotate(90).png().toBuffer()
+      labelData = rotatedBuf.toString('base64')
+    } catch (err) {
+      console.error('[GET /api/return-label] rotation failed:', err)
+      // Fall back to unrotated
+    }
+  }
+
   return NextResponse.json({
-    labelData:      label.labelData,
-    labelFormat:    label.labelFormat,
+    labelData,
+    labelFormat:    rotate === '90' ? 'PNG' : label.labelFormat,
     trackingNumber: label.trackingNumber,
     voided:         label.voided,
   })
