@@ -318,16 +318,29 @@ interface InventoryOption {
 function CreateForm({
   onCreated,
   onCancel,
+  existingShipments,
 }: {
   onCreated: (id: string) => void
   onCancel: () => void
+  existingShipments: FbaShipment[]
 }) {
   // Wizard step: 1 = add items, 2 = assign inventory
   const [wizardStep, setWizardStep] = useState<1 | 2>(1)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [accountId, setAccountId] = useState('')
-  const [name, setName] = useState('')
+  const [name, setName] = useState(() => {
+    const today = new Date()
+    const mm = String(today.getMonth() + 1).padStart(2, '0')
+    const dd = String(today.getDate()).padStart(2, '0')
+    const yyyy = today.getFullYear()
+    const dateStr = `${mm}-${dd}-${yyyy}`
+    const todayCount = existingShipments.filter(s => {
+      const d = new Date(s.createdAt)
+      return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate()
+    }).length
+    return `${dateStr}-${todayCount + 1}`
+  })
   const [draftItems, setDraftItems] = useState<DraftItem[]>([])
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
@@ -1778,6 +1791,7 @@ export default function FbaShipmentManager() {
       <CreateForm
         onCreated={id => { load(); setView({ type: 'detail', id }) }}
         onCancel={() => setView({ type: 'list' })}
+        existingShipments={shipments}
       />
     )
   }
