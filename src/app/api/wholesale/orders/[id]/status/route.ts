@@ -80,6 +80,7 @@ export async function POST(
           where: {
             productId: item.productId!,
             location: { isFinishedGoods: true },
+            ...(item.gradeId ? { gradeId: item.gradeId } : {}),
           },
           include: { location: true },
           orderBy: { qty: 'desc' },

@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     where,
     orderBy: { createdAt: 'desc' },
     include: {
-      inventoryItems: { select: { qty: true } },
+      inventoryItems: { select: { qty: true, gradeId: true, grade: { select: { grade: true } } } },
     },
   })
 

@@ -29,7 +29,7 @@ export async function GET(
   const order = await prisma.salesOrder.findUnique({
     where: { id: params.id },
     include: {
-      items: { include: { product: true } },
+      items: { include: { product: true, grade: { select: { grade: true } } } },
       customer: { include: { addresses: true } },
       allocations: { include: { payment: true } },
     },
@@ -95,10 +95,11 @@ export async function PUT(
           balance: total,
           items: {
             create: items.map((src: {
-              productId?: string; sku?: string; title?: string; description?: string;
+              productId?: string; gradeId?: string; sku?: string; title?: string; description?: string;
               quantity: number; unitPrice: number; discount?: number; taxable?: boolean
             }, idx: number) => ({
               productId:   src.productId || null,
+              gradeId:     src.gradeId || null,
               sku:         src.sku?.trim()   || null,
               title:       src.title?.trim() || 'Item',
               description: src.description?.trim() || null,

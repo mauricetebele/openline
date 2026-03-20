@@ -29,11 +29,17 @@ interface ProductResult {
   id: string
   sku: string
   description: string
-  inventoryItems: { qty: number }[]
+  inventoryItems: { qty: number; gradeId: string | null; grade: { grade: string } | null }[]
+}
+
+interface GradeOption {
+  id: string
+  grade: string
 }
 
 interface LineItem {
   productId?: string
+  gradeId?: string
   sku: string
   title: string
   description: string
@@ -86,9 +92,17 @@ export default function WholesaleOrderCreateManager() {
   const [taxRate, setTaxRate] = useState(0)
   const [shippingCost, setShippingCost] = useState(0)
 
+  // Grades
+  const [grades, setGrades] = useState<GradeOption[]>([])
+
   // Misc
   const [saving, setSaving] = useState(false)
   const [creditWarning, setCreditWarning] = useState<string | null>(null)
+
+  // Fetch grades on mount
+  useEffect(() => {
+    fetch('/api/grades').then(r => r.json()).then(d => setGrades(d.data ?? d)).catch(() => {})
+  }, [])
 
   // Customer search
   const searchCustomers = useCallback(async (q: string) => {
@@ -149,14 +163,28 @@ export default function WholesaleOrderCreateManager() {
     }
   }, [items, discountPct, taxRate, shippingCost, selectedCustomer])
 
+  // Store product inventory info keyed by productId for grade availability
+  const [productInventoryMap, setProductInventoryMap] = useState<Record<string, ProductResult['inventoryItems']>>({})
+
   function addProduct(p: ProductResult) {
     const avail = p.inventoryItems?.reduce((s, i) => s + i.qty, 0) ?? 0
+    setProductInventoryMap(prev => ({ ...prev, [p.id]: p.inventoryItems }))
     setItems((prev) => [...prev, {
-      productId: p.id, sku: p.sku, title: p.description, description: `Available: ${avail}`,
+      productId: p.id, gradeId: '', sku: p.sku, title: p.description, description: `Available: ${avail}`,
       quantity: 1, unitPrice: 0, discount: discountPct, taxable: true,
     }])
     setProductSearch('')
     setProductResults([])
+  }
+
+  function getGradeAvailability(productId: string) {
+    const inv = productInventoryMap[productId] ?? []
+    const byGrade: Record<string, number> = {}
+    for (const item of inv) {
+      const gid = item.gradeId ?? ''
+      byGrade[gid] = (byGrade[gid] ?? 0) + item.qty
+    }
+    return byGrade
   }
 
   function updateLine(i: number, key: keyof LineItem, val: unknown) {
@@ -185,6 +213,7 @@ export default function WholesaleOrderCreateManager() {
         discountPct, taxRate, shippingCost,
         items: items.filter((i) => i.title.trim()).map((i) => ({
           productId: i.productId || undefined,
+          gradeId: i.gradeId || undefined,
           sku: i.sku, title: i.title, description: i.description,
           quantity: i.quantity, unitPrice: i.unitPrice,
           discount: i.discount, taxable: i.taxable,
@@ -429,6 +458,7 @@ export default function WholesaleOrderCreateManager() {
                   <tr className="border-b border-gray-100 text-xs font-medium text-gray-500 uppercase">
                     <th className="text-left pb-2">SKU</th>
                     <th className="text-left pb-2">Title</th>
+                    <th className="text-left pb-2 w-36">Grade</th>
                     <th className="text-right pb-2 w-20">Qty</th>
                     <th className="text-right pb-2 w-28">Unit Price</th>
                     <th className="text-right pb-2 w-20">Disc%</th>
@@ -454,6 +484,27 @@ export default function WholesaleOrderCreateManager() {
                           className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
                           placeholder="Title"
                         />
+                      </td>
+                      <td className="py-2 pr-2">
+                        {item.productId ? (
+                          <select
+                            value={item.gradeId ?? ''}
+                            onChange={(e) => updateLine(i, 'gradeId', e.target.value)}
+                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+                          >
+                            <option value="">Any grade</option>
+                            {(() => {
+                              const avail = getGradeAvailability(item.productId)
+                              return grades.map(g => (
+                                <option key={g.id} value={g.id}>
+                                  {g.grade} ({avail[g.id] ?? 0} avail)
+                                </option>
+                              ))
+                            })()}
+                          </select>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
                       </td>
                       <td className="py-2 pr-2">
                         <input

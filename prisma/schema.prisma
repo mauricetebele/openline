@@ -867,6 +867,7 @@ model Grade {
   marketplaceRMASerials  MarketplaceRMASerial[]
   purchaseOrderLines     PurchaseOrderLine[]
   orderItems             OrderItem[]
+  salesOrderItems        SalesOrderItem[]   @relation("GradeSalesOrderItems")
   fbaReservations        FbaInventoryReservation[]
 
   @@map("grades")
@@ -1459,6 +1460,8 @@ model SalesOrderItem {
   order       SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId   String?
   product     Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  gradeId     String?
+  grade       Grade?     @relation("GradeSalesOrderItems", fields: [gradeId], references: [id], onDelete: SetNull)
   sku         String?
   title       String
   description String?

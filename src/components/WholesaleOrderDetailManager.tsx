@@ -25,6 +25,7 @@ const PAYMENT_METHODS = ['CHECK', 'ACH', 'WIRE', 'CREDIT_CARD', 'CASH', 'OTHER']
 interface OrderItem {
   id: string; sku?: string; title: string; description?: string
   quantity: number; unitPrice: number; discount: number; total: number; taxable: boolean
+  grade?: { grade: string } | null
 }
 
 interface Allocation {
@@ -356,6 +357,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                 <tr className="border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-500 uppercase">
                   <th className="text-left px-5 py-2">SKU</th>
                   <th className="text-left px-5 py-2">Description</th>
+                  <th className="text-left px-5 py-2">Grade</th>
                   <th className="text-right px-5 py-2">Qty</th>
                   <th className="text-right px-5 py-2">Unit Price</th>
                   <th className="text-right px-5 py-2">Disc%</th>
@@ -367,6 +369,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                   <tr key={item.id}>
                     <td className="px-5 py-2 font-mono text-xs text-gray-500">{item.sku ?? '—'}</td>
                     <td className="px-5 py-2">{item.title}</td>
+                    <td className="px-5 py-2 text-xs text-gray-600">{item.grade?.grade ?? '—'}</td>
                     <td className="px-5 py-2 text-right">{Number(item.quantity)}</td>
                     <td className="px-5 py-2 text-right">{fmt(Number(item.unitPrice))}</td>
                     <td className="px-5 py-2 text-right">{Number(item.discount)}%</td>

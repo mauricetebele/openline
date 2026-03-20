@@ -147,6 +147,7 @@ export async function POST(req: NextRequest) {
             const src = items[idx]
             return {
               productId:   src.productId || null,
+              gradeId:     src.gradeId || null,
               sku:         src.sku?.trim()   || null,
               title:       src.title?.trim() || 'Item',
               description: src.description?.trim() || null,
