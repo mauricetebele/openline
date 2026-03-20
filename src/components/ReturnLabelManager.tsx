@@ -106,9 +106,9 @@ function PrintPreview({ base64, format, onClose }: { base64: string; format: str
     const win = window.open('', '_blank')
     if (!win) { toast.error('Pop-up blocked — allow pop-ups and try again'); return }
     win.document.write(`<html><head><title>Return Label</title><style>
-      @page { size: 8.5in 11in; margin: 0; }
-      body { margin: 0; padding: 0; }
-      img { width: 100%; height: auto; display: block; }
+      @page { size: 8.5in 11in; margin: 0.5in; }
+      body { margin: 0; padding: 0; display: flex; justify-content: center; }
+      img { width: 80%; height: auto; display: block; }
     </style></head><body>
       <img src="${dataUrl}" onload="window.print();window.close()" />
     </body></html>`)
