@@ -100,44 +100,37 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
 // ─── Print Layout Helper ─────────────────────────────────────────────────────
 
 function openPrintLabel(trackingNumber: string, base64: string) {
-  // Open window first (must happen synchronously to avoid popup blocker)
   const w = window.open('', '_blank')
   if (!w) return
 
-  // Pre-rotate the image 90° CW using canvas, then print as a plain image
-  const img = new Image()
-  img.onload = () => {
-    const canvas = document.createElement('canvas')
-    // Swap width/height for 90° rotation
-    canvas.width = img.height
-    canvas.height = img.width
-    const ctx = canvas.getContext('2d')!
-    ctx.translate(img.height, 0)
-    ctx.rotate(Math.PI / 2)
-    ctx.drawImage(img, 0, 0)
-    const rotatedSrc = canvas.toDataURL('image/png')
-
-    w.document.write(`<!DOCTYPE html><html><head>
-      <title>Return Label – ${trackingNumber}</title>
-      <style>
-        @page { size: 8.5in 11in; margin: 0; }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { width: 8.5in; height: 11in; overflow: hidden; }
-        img {
-          display: block;
-          width: 8.5in;
-          height: auto;
-          max-height: 4.4in;
-          object-fit: contain;
-        }
-      </style>
-    </head><body>
-      <img src="${rotatedSrc}" />
-    </body></html>`)
-    w.document.close()
-    setTimeout(() => w.print(), 300)
-  }
-  img.src = `data:image/gif;base64,${base64}`
+  // Inline script rotates the image 90° CW inside the new window context
+  w.document.write(`<!DOCTYPE html><html><head>
+    <title>Return Label – ${trackingNumber}</title>
+    <style>
+      @page { size: 8.5in 11in; margin: 0; }
+      * { margin: 0; padding: 0; }
+      body { width: 8.5in; height: 11in; }
+      #label { display: block; width: 8.5in; height: auto; }
+    </style>
+  </head><body>
+    <img id="label" />
+    <script>
+      var img = new Image();
+      img.onload = function() {
+        var c = document.createElement('canvas');
+        c.width = img.height;
+        c.height = img.width;
+        var ctx = c.getContext('2d');
+        ctx.translate(c.width, 0);
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(img, 0, 0);
+        document.getElementById('label').src = c.toDataURL('image/png');
+        setTimeout(function() { window.print(); }, 500);
+      };
+      img.src = 'data:image/gif;base64,${base64}';
+    <\/script>
+  </body></html>`)
+  w.document.close()
 }
 
 // ─── History Tab ──────────────────────────────────────────────────────────────
