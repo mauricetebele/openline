@@ -1969,6 +1969,38 @@ function BmManualShipModal({ order, onClose, onShipped }: {
   )
 }
 
+// ─── BM Retransmit Button ──────────────────────────────────────────────────────
+
+function BmRetransmitButton({ orderId }: { orderId: string }) {
+  const [sending, setSending] = useState(false)
+  const [result, setResult]   = useState<'ok' | 'err' | null>(null)
+
+  async function handleRetransmit() {
+    setSending(true); setResult(null)
+    try {
+      const res = await fetch(`/api/orders/${orderId}/bm-ship`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed')
+      setResult('ok')
+    } catch {
+      setResult('err')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      {result === 'ok' && <span className="text-[10px] text-green-600 font-medium">Sent!</span>}
+      {result === 'err' && <span className="text-[10px] text-red-600 font-medium">Failed</span>}
+      <button onClick={handleRetransmit} disabled={sending}
+        className="inline-flex items-center gap-1 h-6 px-2.5 rounded text-[10px] font-medium border border-gray-200 text-gray-500 hover:border-emerald-500 hover:text-emerald-600 disabled:opacity-40 transition-colors bg-white">
+        {sending ? <><RefreshCcw size={9} className="animate-spin" /> Sending…</> : <><RefreshCcw size={9} /> Re-send to Back Market</>}
+      </button>
+    </div>
+  )
+}
+
 // ─── Order Detail Modal ────────────────────────────────────────────────────────
 
 const WORKFLOW_BADGE: Record<string, string> = {
@@ -2642,7 +2674,13 @@ function OrderDetailModal({
 
               {/* BACK MARKET SERIALS (IMEI / serial numbers stored on BM items) */}
               {order.orderSource === 'backmarket' && order.items.some(i => (i.bmSerials?.length ?? 0) > 0) && (
-                <SectionCard title={`Serial / IMEI Numbers (${order.items.reduce((s, i) => s + (i.bmSerials?.length ?? 0), 0)})`} icon={<Hash size={11} />}>
+                <SectionCard
+                  title={`Serial / IMEI Numbers (${order.items.reduce((s, i) => s + (i.bmSerials?.length ?? 0), 0)})`}
+                  icon={<Hash size={11} />}
+                  action={order.workflowStatus === 'SHIPPED' ? (
+                    <BmRetransmitButton orderId={order.id} />
+                  ) : undefined}
+                >
                   <div className="-mx-4 -mt-3">
                     <table className="min-w-full text-xs">
                       <thead>

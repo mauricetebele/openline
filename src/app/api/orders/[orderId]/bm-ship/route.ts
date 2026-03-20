@@ -66,13 +66,13 @@ export async function POST(
   const manualTracking = body.tracking?.trim()
   const manualCarrier  = body.carrier?.trim()
 
-  const trackingNumber = manualTracking || order.label?.trackingNumber
+  const trackingNumber = manualTracking || order.label?.trackingNumber || order.shipTracking
   if (!trackingNumber) {
     return NextResponse.json({ error: 'No tracking number — provide carrier + tracking or purchase a label first' }, { status: 400 })
   }
   const shipper = manualCarrier
     ? (CARRIER_NAME_MAP[manualCarrier.toLowerCase()] ?? manualCarrier)
-    : carrierDisplayName(order.label?.carrier)
+    : carrierDisplayName(order.label?.carrier) ?? order.shipCarrier
 
   // Verify all items have serials
   const missingSerials = order.items.filter(
