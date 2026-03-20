@@ -434,14 +434,14 @@ export async function generateReturnLabel(req: ReturnLabelRequest, upsCredential
       Shipment: {
         Description: req.description ?? 'Return Shipment',
         Shipper: {
-          Name:          RETURN_ADDRESS.name,
+          Name:          sanitizeAddressLine(req.shipFromName) || 'Customer',
           ShipperNumber: accountNumber,
           Address: {
-            AddressLine:       [RETURN_ADDRESS.line1, RETURN_ADDRESS.line2],
-            City:              RETURN_ADDRESS.city,
-            StateProvinceCode: RETURN_ADDRESS.state,
-            PostalCode:        RETURN_ADDRESS.postal,
-            CountryCode:       RETURN_ADDRESS.country,
+            AddressLine:       addressLines,
+            City:              sanitizeAddressLine(req.shipFromCity),
+            StateProvinceCode: req.shipFromState?.trim().slice(0, 2),
+            PostalCode:        req.shipFromPostal?.trim().replace(/[^0-9-]/g, '').slice(0, 10),
+            CountryCode:       req.shipFromCountry?.trim() || 'US',
           },
         },
         ShipTo: {
@@ -454,16 +454,6 @@ export async function generateReturnLabel(req: ReturnLabelRequest, upsCredential
             CountryCode:       RETURN_ADDRESS.country,
           },
         },
-        ShipFrom: {
-          Name: sanitizeAddressLine(req.shipFromName) || 'Customer',
-          Address: {
-            AddressLine:       addressLines,
-            City:              sanitizeAddressLine(req.shipFromCity),
-            StateProvinceCode: req.shipFromState?.trim().slice(0, 2),
-            PostalCode:        req.shipFromPostal?.trim().replace(/[^0-9-]/g, '').slice(0, 10),
-            CountryCode:       req.shipFromCountry?.trim() || 'US',
-          },
-        },
         Service: {
           Code:        req.serviceCode,
           Description: UPS_SERVICES.find(s => s.code === req.serviceCode)?.label ?? '',
@@ -474,7 +464,6 @@ export async function generateReturnLabel(req: ReturnLabelRequest, upsCredential
             BillShipper: { AccountNumber: accountNumber },
           },
         },
-        ReturnService: { Code: '9' },
         ShipmentRatingOptions: { NegotiatedRatesIndicator: 'X' },
         Package: {
           Description: req.description ?? 'Return Shipment',
@@ -633,14 +622,14 @@ export async function getRateQuote(req: ReturnLabelRequest, upsCredentialId?: st
       },
       Shipment: {
         Shipper: {
-          Name:          RETURN_ADDRESS.name,
+          Name:          sanitizeAddressLine(req.shipFromName) || 'Customer',
           ShipperNumber: accountNumber,
           Address: {
-            AddressLine:       [RETURN_ADDRESS.line1, RETURN_ADDRESS.line2],
-            City:              RETURN_ADDRESS.city,
-            StateProvinceCode: RETURN_ADDRESS.state,
-            PostalCode:        RETURN_ADDRESS.postal,
-            CountryCode:       RETURN_ADDRESS.country,
+            AddressLine:       addressLines,
+            City:              sanitizeAddressLine(req.shipFromCity),
+            StateProvinceCode: req.shipFromState?.trim().slice(0, 2),
+            PostalCode:        req.shipFromPostal?.trim().replace(/[^0-9-]/g, '').slice(0, 10),
+            CountryCode:       req.shipFromCountry?.trim() || 'US',
           },
         },
         ShipTo: {
@@ -651,16 +640,6 @@ export async function getRateQuote(req: ReturnLabelRequest, upsCredentialId?: st
             StateProvinceCode: RETURN_ADDRESS.state,
             PostalCode:        RETURN_ADDRESS.postal,
             CountryCode:       RETURN_ADDRESS.country,
-          },
-        },
-        ShipFrom: {
-          Name: sanitizeAddressLine(req.shipFromName) || 'Customer',
-          Address: {
-            AddressLine:       addressLines,
-            City:              sanitizeAddressLine(req.shipFromCity),
-            StateProvinceCode: req.shipFromState?.trim().slice(0, 2),
-            PostalCode:        req.shipFromPostal?.trim().replace(/[^0-9-]/g, '').slice(0, 10),
-            CountryCode:       req.shipFromCountry?.trim() || 'US',
           },
         },
         Service: { Code: req.serviceCode },
