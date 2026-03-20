@@ -136,7 +136,7 @@ function PrintPreview({ base64, format, onClose }: { base64: string; format: str
 
 // ─── History Tab ──────────────────────────────────────────────────────────────
 
-function LabelHistoryTab() {
+function LabelHistoryTab({ apiBase }: { apiBase: string }) {
   const [labels, setLabels]     = useState<HistoryEntry[]>([])
   const [loading, setLoading]   = useState(true)
   const [voidingId, setVoidingId] = useState<string | null>(null)
@@ -145,19 +145,19 @@ function LabelHistoryTab() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res  = await fetch('/api/return-label/history')
+      const res  = await fetch(`${apiBase}/history`)
       const data = await res.json()
       if (res.ok) setLabels(data)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [apiBase])
 
   useEffect(() => { load() }, [load])
 
   async function openLabel(id: string) {
     try {
-      const res  = await fetch(`/api/return-label/${id}`)
+      const res  = await fetch(`${apiBase}/${id}`)
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'Download failed'); return }
       setPrintLabel({ base64: data.labelData, format: data.labelFormat })
@@ -170,7 +170,7 @@ function LabelHistoryTab() {
     if (!confirm(`Void label ${trackingNumber}?\n\nUPS only allows voiding before the carrier scans the package.`)) return
     setVoidingId(id)
     try {
-      const res  = await fetch(`/api/return-label/${id}`, { method: 'POST' })
+      const res  = await fetch(`${apiBase}/${id}`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'Void failed'); return }
       toast.success('Label voided successfully')
@@ -310,7 +310,9 @@ function LabelHistoryTab() {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function ReturnLabelManager() {
+export default function ReturnLabelManager({ direction = 'return' }: { direction?: 'return' | 'outbound' } = {}) {
+  const isOutbound = direction === 'outbound'
+  const apiBase = isOutbound ? '/api/outbound-label' : '/api/return-label'
   const [activeTab, setActiveTab] = useState<ActiveTab>('create')
   const [step, setStep] = useState<Step>('lookup')
 
@@ -344,7 +346,7 @@ export default function ReturnLabelManager() {
   const [pkg, setPkg] = useState<PackageForm>({
     serviceCode: '03', weightValue: '', weightUnit: 'LBS',
     length: '', width: '', height: '', dimUnit: 'IN',
-    description: 'Return Shipment', referenceNumber: '',
+    description: isOutbound ? 'Outbound Shipment' : 'Return Shipment', referenceNumber: '',
   })
   const [detailErr, setDetailErr] = useState('')
 
@@ -366,7 +368,7 @@ export default function ReturnLabelManager() {
     if (!orderId.trim()) return
     setLooking(true); setLookupErr('')
     try {
-      const res  = await fetch(`/api/return-label?amazonOrderId=${encodeURIComponent(orderId.trim())}`)
+      const res  = await fetch(`${apiBase}?amazonOrderId=${encodeURIComponent(orderId.trim())}`)
       const data = await res.json()
       if (!res.ok) {
         if (res.status === 404) {
@@ -424,7 +426,7 @@ export default function ReturnLabelManager() {
         } : {}),
         ...(selectedAccountId ? { upsCredentialId: selectedAccountId } : {}),
       }
-      const res  = await fetch('/api/return-label/rate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const res  = await fetch(`${apiBase}/rate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Rate quote failed')
       setRateQuote(data)
@@ -451,11 +453,11 @@ export default function ReturnLabelManager() {
           length: parseFloat(pkg.length), width: parseFloat(pkg.width),
           height: parseFloat(pkg.height), dimUnit: pkg.dimUnit,
         } : {}),
-        description: pkg.description.trim() || 'Return Shipment',
+        description: pkg.description.trim() || (isOutbound ? 'Outbound Shipment' : 'Return Shipment'),
         referenceNumber: pkg.referenceNumber.trim() || undefined,
         ...(selectedAccountId ? { upsCredentialId: selectedAccountId } : {}),
       }
-      const res  = await fetch('/api/return-label', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const res  = await fetch(apiBase, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Label generation failed')
       setResult(data)
@@ -523,7 +525,7 @@ export default function ReturnLabelManager() {
       {/* ── History tab ── */}
       {activeTab === 'history' && (
         <div className="px-6 py-6 max-w-3xl mx-auto w-full">
-          <LabelHistoryTab />
+          <LabelHistoryTab apiBase={apiBase} />
         </div>
       )}
 
@@ -560,7 +562,9 @@ export default function ReturnLabelManager() {
             <div className="card p-6">
               <h2 className="text-sm font-semibold text-gray-900 mb-1">Enter Amazon Order ID</h2>
               <p className="text-xs text-gray-500 mb-5">
-                We&apos;ll look up the customer&apos;s shipping address from your local database.
+                {isOutbound
+                  ? "We\u2019ll look up the customer\u2019s ship-to address from your local database."
+                  : "We\u2019ll look up the customer\u2019s shipping address from your local database."}
               </p>
               <form onSubmit={handleLookup} className="space-y-4">
                 <div>
@@ -595,7 +599,7 @@ export default function ReturnLabelManager() {
             <form onSubmit={handleDetails} className="space-y-5">
               <div className="card p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm font-semibold text-gray-900">Ship From (Buyer Address)</h2>
+                  <h2 className="text-sm font-semibold text-gray-900">{isOutbound ? 'Ship To (Customer Address)' : 'Ship From (Buyer Address)'}</h2>
                   <span className="text-xs text-gray-400 font-mono">{address.amazonOrderId}</span>
                 </div>
                 {manualEntry && (
@@ -731,20 +735,41 @@ export default function ReturnLabelManager() {
               <div className="card p-6">
                 <h2 className="text-sm font-semibold text-gray-900 mb-4">Confirm Label Details</h2>
                 <div className="grid grid-cols-2 gap-4 mb-5">
-                  <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">From (Buyer)</p>
-                    <p className="text-sm font-semibold text-gray-800">{editAddress.name}</p>
-                    <p className="text-xs text-gray-600">{editAddress.address1}</p>
-                    {editAddress.address2 && <p className="text-xs text-gray-600">{editAddress.address2}</p>}
-                    <p className="text-xs text-gray-600">{editAddress.city}, {editAddress.state} {editAddress.postal}</p>
-                    <p className="text-xs text-gray-500">{editAddress.country}</p>
-                  </div>
-                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-4">
-                    <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide mb-2">To (Warehouse)</p>
-                    <p className="text-sm font-semibold text-gray-800">{DESTINATION.name}</p>
-                    <p className="text-xs text-gray-600">{DESTINATION.address}</p>
-                    <p className="text-xs text-gray-600">{DESTINATION.city}</p>
-                  </div>
+                  {isOutbound ? (
+                    <>
+                      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">From (Warehouse)</p>
+                        <p className="text-sm font-semibold text-gray-800">{DESTINATION.name}</p>
+                        <p className="text-xs text-gray-600">{DESTINATION.address}</p>
+                        <p className="text-xs text-gray-600">{DESTINATION.city}</p>
+                      </div>
+                      <div className="rounded-lg bg-amber-50 border border-amber-200 p-4">
+                        <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide mb-2">To (Customer)</p>
+                        <p className="text-sm font-semibold text-gray-800">{editAddress.name}</p>
+                        <p className="text-xs text-gray-600">{editAddress.address1}</p>
+                        {editAddress.address2 && <p className="text-xs text-gray-600">{editAddress.address2}</p>}
+                        <p className="text-xs text-gray-600">{editAddress.city}, {editAddress.state} {editAddress.postal}</p>
+                        <p className="text-xs text-gray-500">{editAddress.country}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">From (Buyer)</p>
+                        <p className="text-sm font-semibold text-gray-800">{editAddress.name}</p>
+                        <p className="text-xs text-gray-600">{editAddress.address1}</p>
+                        {editAddress.address2 && <p className="text-xs text-gray-600">{editAddress.address2}</p>}
+                        <p className="text-xs text-gray-600">{editAddress.city}, {editAddress.state} {editAddress.postal}</p>
+                        <p className="text-xs text-gray-500">{editAddress.country}</p>
+                      </div>
+                      <div className="rounded-lg bg-amber-50 border border-amber-200 p-4">
+                        <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide mb-2">To (Warehouse)</p>
+                        <p className="text-sm font-semibold text-gray-800">{DESTINATION.name}</p>
+                        <p className="text-xs text-gray-600">{DESTINATION.address}</p>
+                        <p className="text-xs text-gray-600">{DESTINATION.city}</p>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-3">Package</p>
@@ -862,7 +887,7 @@ export default function ReturnLabelManager() {
                     <CheckCircle size={20} className="text-green-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">Return Label Generated</p>
+                    <p className="text-sm font-semibold text-gray-900">{isOutbound ? 'Outbound Label Generated' : 'Return Label Generated'}</p>
                     <p className="text-xs text-gray-500 mt-0.5">The label has been created and is ready to print or download.</p>
                   </div>
                 </div>

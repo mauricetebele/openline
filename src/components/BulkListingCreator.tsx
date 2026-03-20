@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import {
   AlertCircle, CheckCircle2, XCircle, Loader2, ChevronRight, ArrowLeft, X, Plus, Trash2,
   Upload, FileSpreadsheet, Download,
@@ -10,6 +10,14 @@ import { AmazonAccountDTO } from '@/types'
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const ASIN_RE = /^B0[A-Z0-9]{8}$/
+
+/** Auto-generate a seller SKU like Amazon does (e.g. IPHONE-15-128-A3K9Z) */
+function generateSellerSku(internalSku: string, gradeName: string | null): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  const rand = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+  const suffix = gradeName ? gradeName.charAt(0).toUpperCase() : 'X'
+  return `${internalSku}-${suffix}${rand}`
+}
 
 const CONDITIONS = [
   'New',
@@ -281,7 +289,6 @@ export default function BulkListingCreator() {
 
   const getRowErrors = (row: ListingRow, index: number): string[] => {
     const errs: string[] = []
-    if (!row.marketplaceSku.trim()) errs.push('SKU required')
     if (!ASIN_RE.test(row.asin)) errs.push('Invalid ASIN')
     const p = parseFloat(row.price)
     if (!row.price || isNaN(p) || p <= 0) errs.push('Price > 0')
@@ -302,6 +309,7 @@ export default function BulkListingCreator() {
   const handleSubmit = useCallback(() => {
     const rows: ProgressRow[] = validListingRows.map(r => ({
       ...r,
+      marketplaceSku: r.marketplaceSku.trim() || generateSellerSku(r.internalSku, r.gradeName),
       status: 'pending' as RowStatus,
     }))
     setProgressRows(rows)
@@ -1189,20 +1197,18 @@ export default function BulkListingCreator() {
                         return groups.map((group) => {
                           const isMulti = group.rows.length > 1
                           return (
-                            <tr key={group.productId} className="border-b last:border-0">
-                              <td colSpan={colCount} className="p-0">
-                                <div className="border-2 border-blue-200 rounded-lg bg-blue-50/20 m-1">
-                                  <div className="px-3 py-1.5 border-b border-blue-200 bg-blue-50/50 rounded-t-lg">
-                                    <span className="text-xs font-semibold text-blue-700">{group.internalSku}</span>
-                                    {isMulti && <span className="text-xs text-blue-500 ml-2">{group.rows.length} grades</span>}
-                                  </div>
-                                  <table className="w-full text-sm">
-                                    <tbody>
+                            <Fragment key={group.productId}>
+                              <tr className="bg-blue-50/30">
+                                <td colSpan={colCount} className="px-3 py-1.5">
+                                  <span className="text-xs font-semibold text-blue-700">{group.internalSku}</span>
+                                  {isMulti && <span className="text-xs text-blue-500 ml-2">{group.rows.length} grades</span>}
+                                </td>
+                              </tr>
                                       {group.rows.map(({ row, origIdx: i }) => {
                                         const rowKey = `${row.productId}::${row.gradeId}::${row.marketplaceSku}`
                                         const isLocked = lockedKeys.has(rowKey)
                                         const errs = isLocked ? [] : getRowErrors(row, i)
-                                        const hasErr = errs.length > 0 && (row.marketplaceSku || row.asin || row.price)
+                                        const hasErr = errs.length > 0 && (row.asin || row.price)
                                         return (
                           <tr key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`} className={clsx('border-b last:border-0', isLocked && 'bg-green-50/50 opacity-60')}>
                             <td className="px-2 py-1.5 w-20">
@@ -1212,7 +1218,7 @@ export default function BulkListingCreator() {
                                 <div className="flex items-center gap-1">
                                   {hasErr ? (
                                     <span title={errs.join(', ')}><XCircle size={14} className="text-red-500" /></span>
-                                  ) : row.marketplaceSku && row.asin && row.price ? (
+                                  ) : row.asin && row.price ? (
                                     <CheckCircle2 size={14} className="text-green-600" />
                                   ) : <span className="w-3.5" />}
                                   <button
@@ -1288,7 +1294,7 @@ export default function BulkListingCreator() {
                                 value={row.marketplaceSku}
                                 disabled={isLocked}
                                 onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, marketplaceSku: e.target.value } : r))}
-                                placeholder="MSKU-001"
+                                placeholder="Auto-generated if blank"
                                 className="w-full h-8 rounded-md border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                               />
                             </td>
@@ -1355,11 +1361,7 @@ export default function BulkListingCreator() {
                           </tr>
                                         )
                                       })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </td>
-                            </tr>
+                            </Fragment>
                           )
                         })
                       })()}

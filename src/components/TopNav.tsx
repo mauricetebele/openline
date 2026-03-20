@@ -98,6 +98,7 @@ const NAV: NavItem[] = [
       { href: '/returns',            label: 'MFN Returns',        icon: RotateCcw },
       { href: '/shipping-templates', label: 'Shipping Templates', icon: Truck },
       { href: '/return-label',       label: 'Return Label',       icon: Printer },
+      { href: '/outbound-label',     label: 'Outbound Label',     icon: Printer },
       { href: '/create-listing',      label: 'Create Listing',     icon: PlusCircle },
       { href: '/bulk-listing',       label: 'Bulk Listing',       icon: List },
       { href: '/active-listings',    label: 'Active Listings',    icon: List },

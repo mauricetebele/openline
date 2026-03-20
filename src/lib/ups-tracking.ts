@@ -586,6 +586,307 @@ export async function generateReturnLabel(req: ReturnLabelRequest, upsCredential
   }
 }
 
+// ─── Outbound Label Generation (warehouse → customer) ────────────────────────
+
+/**
+ * Generate a UPS outbound shipping label.
+ * Shipper = our warehouse (billed to our account).
+ * ShipTo = customer address.
+ */
+export async function generateOutboundLabel(req: ReturnLabelRequest, upsCredentialId?: string): Promise<ReturnLabelResult> {
+  const creds = upsCredentialId ? await getUPSCredentialsById(upsCredentialId) : await getUPSCredentials()
+  const { accountNumber } = creds
+  if (!accountNumber) {
+    throw new Error('UPS Account Number is not configured. Add it in Settings → UPS API.')
+  }
+
+  const token = await getUPSToken(creds)
+
+  const line1 = sanitizeAddressLine(req.shipFromAddress1)
+  if (!line1) {
+    throw new Error('Ship-to address line 1 is empty after cleanup. Please enter a valid street address.')
+  }
+  const customerAddressLines = [line1]
+  const line2 = req.shipFromAddress2?.trim() ? sanitizeAddressLine(req.shipFromAddress2) : ''
+  if (line2) customerAddressLines.push(line2)
+
+  const dimUnitDesc   = (req.dimUnit ?? 'IN') === 'CM' ? 'Centimeters' : 'Inches'
+  const weightUnitDesc = req.weightUnit === 'OZS' ? 'Ounces' : 'Pounds'
+
+  const body = {
+    ShipmentRequest: {
+      Request: {
+        RequestOption: 'nonvalidate',
+        TransactionReference: { CustomerContext: req.referenceNumber ?? 'outbound-label' },
+      },
+      Shipment: {
+        Description: req.description ?? 'Outbound Shipment',
+        Shipper: {
+          Name:          RETURN_ADDRESS.name,
+          ShipperNumber: accountNumber,
+          Address: {
+            AddressLine:       [RETURN_ADDRESS.line1, RETURN_ADDRESS.line2],
+            City:              RETURN_ADDRESS.city,
+            StateProvinceCode: RETURN_ADDRESS.state,
+            PostalCode:        RETURN_ADDRESS.postal,
+            CountryCode:       RETURN_ADDRESS.country,
+          },
+        },
+        ShipTo: {
+          Name: sanitizeAddressLine(req.shipFromName) || 'Customer',
+          Address: {
+            AddressLine:       customerAddressLines,
+            City:              sanitizeAddressLine(req.shipFromCity),
+            StateProvinceCode: req.shipFromState?.trim().slice(0, 2),
+            PostalCode:        req.shipFromPostal?.trim().replace(/[^0-9-]/g, '').slice(0, 10),
+            CountryCode:       req.shipFromCountry?.trim() || 'US',
+          },
+        },
+        Service: {
+          Code:        req.serviceCode,
+          Description: UPS_SERVICES.find(s => s.code === req.serviceCode)?.label ?? '',
+        },
+        PaymentInformation: {
+          ShipmentCharge: {
+            Type:        '01',
+            BillShipper: { AccountNumber: accountNumber },
+          },
+        },
+        ShipmentRatingOptions: { NegotiatedRatesIndicator: 'X' },
+        Package: {
+          Description: req.description ?? 'Outbound Shipment',
+          Packaging: {
+            Code:        '02',
+            Description: 'Customer Supplied Package',
+          },
+          ...(req.length && req.width && req.height ? {
+            Dimensions: {
+              UnitOfMeasurement: { Code: req.dimUnit ?? 'IN', Description: dimUnitDesc },
+              Length: String(req.length),
+              Width:  String(req.width),
+              Height: String(req.height),
+            },
+          } : {}),
+          PackageWeight: {
+            UnitOfMeasurement: { Code: req.weightUnit, Description: weightUnitDesc },
+            Weight: String(req.weightValue),
+          },
+          ...(req.referenceNumber ? {
+            ReferenceNumber: { Code: 'IK', Value: req.referenceNumber },
+          } : {}),
+        },
+      },
+      LabelSpecification: {
+        LabelImageFormat: { Code: 'GIF', Description: 'GIF' },
+        HTTPUserAgent:    'Mozilla/4.5',
+      },
+    },
+  }
+
+  let data: unknown
+  try {
+    const res = await axios.post(UPS_SHIP_URL, body, {
+      headers: {
+        Authorization:    `Bearer ${token}`,
+        transId:          `outbound-label-${Date.now()}`,
+        transactionSrc:   'RefundAuditor',
+        'Content-Type':   'application/json',
+      },
+    })
+    data = res.data
+  } catch (e: unknown) {
+    const axiosErr = e as { response?: { status?: number; data?: unknown } }
+    const resData  = axiosErr?.response?.data as Record<string, unknown> | undefined
+
+    console.error('[UPS Ship Outbound] error response:', JSON.stringify(resData, null, 2))
+
+    const errors = (resData?.response as { errors?: { code?: string; message?: string }[] })?.errors ?? []
+    const firstErr = errors[0]
+
+    if (firstErr?.message) {
+      const code = firstErr.code ? ` [${firstErr.code}]` : ''
+      throw new Error(`UPS${code}: ${firstErr.message}`)
+    }
+
+    throw new Error(`UPS label generation failed (HTTP ${axiosErr?.response?.status ?? 'unknown'}). Check server logs for details.`)
+  }
+
+  interface UpsMonetary { MonetaryValue?: string; CurrencyCode?: string }
+  interface UpsItemizedCharge extends UpsMonetary { Code?: string; Description?: string }
+
+  const results = (data as {
+    ShipmentResponse?: {
+      ShipmentResults?: {
+        ShipmentIdentificationNumber?: string
+        ShipmentCharges?: {
+          TransportationCharges?:  UpsMonetary
+          ServiceOptionsCharges?:  UpsMonetary
+          TotalCharges?:           UpsMonetary
+        }
+        NegotiatedRateCharges?: {
+          ItemizedCharges?: UpsItemizedCharge | UpsItemizedCharge[]
+          TotalCharge?:     UpsMonetary
+        }
+        PackageResults?: { TrackingNumber?: string; ShippingLabel?: { GraphicImage?: string } } |
+                         { TrackingNumber?: string; ShippingLabel?: { GraphicImage?: string } }[]
+      }
+    }
+  })?.ShipmentResponse?.ShipmentResults
+
+  const pkg = Array.isArray(results?.PackageResults) ? results.PackageResults[0] : results?.PackageResults
+  const trackingNumber = pkg?.TrackingNumber ?? results?.ShipmentIdentificationNumber ?? ''
+  const shipmentId     = results?.ShipmentIdentificationNumber ?? trackingNumber
+  const labelBase64    = pkg?.ShippingLabel?.GraphicImage ?? ''
+
+  if (!labelBase64) throw new Error('UPS returned a response but no label image was found.')
+
+  const chargeBlock  = results?.NegotiatedRateCharges?.TotalCharge ?? results?.ShipmentCharges?.TotalCharges
+  const shipmentCost = chargeBlock?.MonetaryValue
+  const currency     = chargeBlock?.CurrencyCode ?? 'USD'
+
+  const breakdown: ChargeLineItem[] = []
+  const addLine = (description: string, m?: UpsMonetary) => {
+    if (m?.MonetaryValue && parseFloat(m.MonetaryValue) > 0)
+      breakdown.push({ description, amount: m.MonetaryValue, currency: m.CurrencyCode ?? currency })
+  }
+
+  addLine('Transportation', results?.ShipmentCharges?.TransportationCharges)
+  addLine('Service Options', results?.ShipmentCharges?.ServiceOptionsCharges)
+
+  const rawItems = results?.NegotiatedRateCharges?.ItemizedCharges
+  const items: UpsItemizedCharge[] = rawItems
+    ? (Array.isArray(rawItems) ? rawItems : [rawItems])
+    : []
+  for (const item of items) {
+    const label = item.Description ?? (item.Code ? `Surcharge (${item.Code})` : 'Surcharge')
+    addLine(label, item)
+  }
+
+  return {
+    trackingNumber, shipmentId, labelBase64, labelFormat: 'GIF',
+    shipmentCost, currency,
+    chargeBreakdown: breakdown.length > 0 ? breakdown : undefined,
+  }
+}
+
+// ─── Outbound Rate Quote ──────────────────────────────────────────────────────
+
+/**
+ * Fetch a UPS rate quote for an outbound shipment (warehouse → customer).
+ */
+export async function getOutboundRateQuote(req: ReturnLabelRequest, upsCredentialId?: string): Promise<RateQuoteResult> {
+  const creds = upsCredentialId ? await getUPSCredentialsById(upsCredentialId) : await getUPSCredentials()
+  const { accountNumber } = creds
+  if (!accountNumber) {
+    throw new Error('UPS Account Number is not configured. Add it in Settings → UPS API.')
+  }
+
+  const token = await getUPSToken(creds)
+
+  const custLine1 = sanitizeAddressLine(req.shipFromAddress1)
+  const customerAddressLines = [custLine1]
+  const custLine2 = req.shipFromAddress2?.trim() ? sanitizeAddressLine(req.shipFromAddress2) : ''
+  if (custLine2) customerAddressLines.push(custLine2)
+
+  const body = {
+    RateRequest: {
+      Request: {
+        RequestOption: 'Rate',
+        TransactionReference: { CustomerContext: 'outbound-rate-quote' },
+      },
+      Shipment: {
+        Shipper: {
+          Name:          RETURN_ADDRESS.name,
+          ShipperNumber: accountNumber,
+          Address: {
+            AddressLine:       [RETURN_ADDRESS.line1, RETURN_ADDRESS.line2],
+            City:              RETURN_ADDRESS.city,
+            StateProvinceCode: RETURN_ADDRESS.state,
+            PostalCode:        RETURN_ADDRESS.postal,
+            CountryCode:       RETURN_ADDRESS.country,
+          },
+        },
+        ShipTo: {
+          Name: sanitizeAddressLine(req.shipFromName) || 'Customer',
+          Address: {
+            AddressLine:       customerAddressLines,
+            City:              sanitizeAddressLine(req.shipFromCity),
+            StateProvinceCode: req.shipFromState?.trim().slice(0, 2),
+            PostalCode:        req.shipFromPostal?.trim().replace(/[^0-9-]/g, '').slice(0, 10),
+            CountryCode:       req.shipFromCountry?.trim() || 'US',
+          },
+        },
+        Service: { Code: req.serviceCode },
+        Package: [
+          {
+            PackagingType: { Code: '02' },
+            ...(req.length && req.width && req.height ? {
+              Dimensions: {
+                UnitOfMeasurement: { Code: req.dimUnit ?? 'IN' },
+                Length: String(req.length),
+                Width:  String(req.width),
+                Height: String(req.height),
+              },
+            } : {}),
+            PackageWeight: {
+              UnitOfMeasurement: { Code: req.weightUnit },
+              Weight: String(req.weightValue),
+            },
+          },
+        ],
+        ShipmentRatingOptions: { NegotiatedRatesIndicator: 'X' },
+      },
+    },
+  }
+
+  let data: unknown
+  try {
+    const res = await axios.post(UPS_RATE_URL, body, {
+      headers: {
+        Authorization:  `Bearer ${token}`,
+        transId:        `outbound-rate-${Date.now()}`,
+        transactionSrc: 'RefundAuditor',
+        'Content-Type': 'application/json',
+      },
+    })
+    data = res.data
+  } catch (e: unknown) {
+    const axiosErr  = e as { response?: { status?: number; data?: { response?: { errors?: { code?: string; message?: string }[] } } } }
+    const upsErrors = axiosErr?.response?.data?.response?.errors ?? []
+    const firstMsg  = upsErrors[0]?.message ?? ''
+    const firstCode = upsErrors[0]?.code ?? ''
+
+    if (firstCode === '250003' || /invalid auth/i.test(firstMsg) || axiosErr?.response?.status === 401) {
+      throw new Error(
+        'UPS returned "Invalid Authentication Information". ' +
+        'Your UPS developer app likely does not have the Rating API product enabled. ' +
+        'Go to developer.ups.com → My Apps → edit your app → add the "Rating" product, then re-save your credentials in Settings → UPS API.'
+      )
+    }
+
+    throw new Error(firstMsg || 'UPS Rating API request failed.')
+  }
+
+  const rated = (data as {
+    RateResponse?: {
+      RatedShipment?: {
+        TotalCharges?:          { MonetaryValue?: string; CurrencyCode?: string }
+        NegotiatedRateCharges?: { TotalCharge?: { MonetaryValue?: string; CurrencyCode?: string } }
+      }
+    }
+  })?.RateResponse?.RatedShipment
+
+  const publishedRate  = rated?.TotalCharges?.MonetaryValue ?? ''
+  const currency       = rated?.TotalCharges?.CurrencyCode ?? 'USD'
+  const negotiatedRate = rated?.NegotiatedRateCharges?.TotalCharge?.MonetaryValue ?? null
+
+  if (!publishedRate) throw new Error('UPS returned a rate response but no charge was found.')
+
+  const serviceLabel = UPS_SERVICES.find(s => s.code === req.serviceCode)?.label ?? req.serviceCode
+
+  return { publishedRate, negotiatedRate, currency, serviceCode: req.serviceCode, serviceLabel }
+}
+
 // ─── Rate Quote ───────────────────────────────────────────────────────────────
 
 export interface RateQuoteResult {

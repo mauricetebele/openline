@@ -1664,6 +1664,7 @@ model ReturnLabel {
   labelData        String    @db.Text
   shipmentCost     Decimal?  @db.Decimal(12, 2)
   currency         String?   @default("USD")
+  labelType        String    @default("RETURN")
   voided           Boolean   @default(false)
   voidedAt         DateTime?
   upsCredentialId  String?

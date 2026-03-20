@@ -1,6 +1,6 @@
 /**
- * GET /api/return-label/history
- * Returns past return label purchases (newest first), without labelData.
+ * GET /api/outbound-label/history
+ * Returns past outbound label purchases (newest first), without labelData.
  */
 import { NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
@@ -13,7 +13,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const labels = await prisma.returnLabel.findMany({
-    where: { labelType: 'RETURN' },
+    where: { labelType: 'OUTBOUND' },
     orderBy: { createdAt: 'desc' },
     select: {
       id:               true,
