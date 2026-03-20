@@ -474,6 +474,7 @@ export async function generateReturnLabel(req: ReturnLabelRequest, upsCredential
             BillShipper: { AccountNumber: accountNumber },
           },
         },
+        ReturnService: { Code: '9' },
         ShipmentRatingOptions: { NegotiatedRatesIndicator: 'X' },
         Package: {
           Description: req.description ?? 'Return Shipment',
