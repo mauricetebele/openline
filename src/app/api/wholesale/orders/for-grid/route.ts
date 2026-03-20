@@ -27,7 +27,9 @@ export async function GET(req: NextRequest) {
   const fulfillmentStatus = searchParams.get('fulfillmentStatus')
   const search            = searchParams.get('search')?.trim()
 
-  const where: Record<string, unknown> = {}
+  const where: Record<string, unknown> = {
+    status: { not: 'PENDING_APPROVAL' },
+  }
   if (fulfillmentStatus) where.fulfillmentStatus = fulfillmentStatus
 
   if (search) {

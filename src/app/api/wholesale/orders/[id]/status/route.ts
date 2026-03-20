@@ -2,18 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { addDays } from 'date-fns'
+import { pushQtyForProducts } from '@/lib/push-qty-for-product'
 
 const TERMS_DAYS: Record<string, number> = {
   NET_15: 15, NET_30: 30, NET_60: 60, NET_90: 90, DUE_ON_RECEIPT: 0,
 }
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  DRAFT:          ['CONFIRMED', 'VOID'],
-  CONFIRMED:      ['INVOICED', 'DRAFT', 'VOID'],
-  INVOICED:       ['VOID'],
-  PARTIALLY_PAID: ['VOID'],
-  PAID:           [],
-  VOID:           [],
+  PENDING_APPROVAL: ['CONFIRMED', 'VOID'],
+  DRAFT:            ['CONFIRMED', 'VOID'],
+  CONFIRMED:        ['INVOICED', 'DRAFT', 'VOID'],
+  INVOICED:         ['VOID'],
+  PARTIALLY_PAID:   ['VOID'],
+  PAID:             [],
+  VOID:             [],
 }
 
 export async function POST(
@@ -44,6 +46,7 @@ export async function POST(
 
   let warning: string | null = null
   const alerts: string[] = []
+  let autoProcessed = false
 
   if (newStatus === 'CONFIRMED') {
     // Credit limit check
@@ -63,6 +66,78 @@ export async function POST(
         warning = `This order will exceed the credit limit of $${creditLimit.toFixed(2)}. Current open balance: $${existingOpen.toFixed(2)}.`
       }
     }
+
+    // Auto-process: check if FG inventory covers all items
+    const itemsWithProduct = order.items.filter(i => i.productId)
+    if (itemsWithProduct.length > 0) {
+      // For each item, find FG inventory
+      const reservationPlan: { orderItemId: string; productId: string; locationId: string; qtyReserved: number }[] = []
+      let allCovered = true
+
+      for (const item of itemsWithProduct) {
+        const qtyNeeded = Math.round(Number(item.quantity))
+        const fgInventory = await prisma.inventoryItem.findMany({
+          where: {
+            productId: item.productId!,
+            location: { isFinishedGoods: true },
+          },
+          include: { location: true },
+          orderBy: { qty: 'desc' },
+        })
+
+        let remaining = qtyNeeded
+        for (const inv of fgInventory) {
+          if (remaining <= 0) break
+          const take = Math.min(inv.qty, remaining)
+          if (take > 0) {
+            reservationPlan.push({
+              orderItemId: item.id,
+              productId: item.productId!,
+              locationId: inv.locationId,
+              qtyReserved: take,
+            })
+            remaining -= take
+          }
+        }
+
+        if (remaining > 0) {
+          allCovered = false
+          break
+        }
+      }
+
+      if (allCovered) {
+        // Auto-reserve in a transaction
+        await prisma.$transaction(async tx => {
+          for (const r of reservationPlan) {
+            await tx.inventoryItem.updateMany({
+              where: { productId: r.productId, locationId: r.locationId },
+              data: { qty: { decrement: r.qtyReserved } },
+            })
+            await tx.salesOrderInventoryReservation.create({
+              data: {
+                salesOrderId:     params.id,
+                salesOrderItemId: r.orderItemId,
+                productId:        r.productId,
+                locationId:       r.locationId,
+                qtyReserved:      r.qtyReserved,
+              },
+            })
+          }
+          await tx.salesOrder.update({
+            where: { id: params.id },
+            data: { fulfillmentStatus: 'PROCESSING', processedAt: new Date() },
+          })
+        })
+
+        autoProcessed = true
+
+        // Push updated qty to marketplaces
+        const productIds = Array.from(new Set(reservationPlan.map(r => r.productId)))
+        pushQtyForProducts(productIds)
+      }
+      // If not allCovered → fulfillmentStatus stays PENDING for manual process
+    }
   }
 
   if (newStatus === 'INVOICED') {
@@ -75,35 +150,6 @@ export async function POST(
         data:  { dueDate: addDays(order.orderDate, daysOut) },
       })
     }
-
-    // Deduct inventory for items with productId
-    for (const item of order.items) {
-      if (!item.productId) continue
-      const qtyNeeded = Number(item.quantity)
-
-      // Find inventory locations sorted by qty desc
-      const invItems = await prisma.inventoryItem.findMany({
-        where: { productId: item.productId },
-        orderBy: { qty: 'desc' },
-      })
-
-      let remaining = qtyNeeded
-      for (const inv of invItems) {
-        if (remaining <= 0) break
-        const deduct = Math.min(inv.qty, remaining)
-        await prisma.inventoryItem.update({
-          where: { id: inv.id },
-          data:  { qty: inv.qty - deduct },
-        })
-        remaining -= deduct
-      }
-
-      if (remaining > 0) {
-        alerts.push(
-          `Insufficient stock for ${item.sku ?? item.title}: needed ${qtyNeeded}, short by ${remaining}`,
-        )
-      }
-    }
   }
 
   await prisma.salesOrder.update({
@@ -111,5 +157,5 @@ export async function POST(
     data:  { status: newStatus as never },
   })
 
-  return NextResponse.json({ ok: true, warning, alerts })
+  return NextResponse.json({ ok: true, warning, alerts, autoProcessed })
 }

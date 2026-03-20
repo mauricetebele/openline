@@ -167,7 +167,7 @@ export default function WholesaleOrderCreateManager() {
     setItems((prev) => prev.filter((_, idx) => idx !== i))
   }
 
-  async function submit(andConfirm = false) {
+  async function submit() {
     if (!selectedCustomer) { toast.error('Select a customer'); return }
     if (items.length === 0 || items.every((i) => !i.title.trim())) {
       toast.error('Add at least one item'); return
@@ -200,18 +200,7 @@ export default function WholesaleOrderCreateManager() {
       if (!res.ok) { const e = await res.json(); toast.error(e.error ?? 'Failed'); return }
 
       const order = await res.json()
-
-      if (andConfirm) {
-        const statusRes = await fetch(`/api/wholesale/orders/${order.id}/status`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newStatus: 'CONFIRMED' }),
-        })
-        const statusData = await statusRes.json()
-        if (statusData.warning) toast.warning(statusData.warning)
-      }
-
-      toast.success('Order created')
+      toast.success('Order created — pending approval')
       router.push(`/wholesale/orders/${order.id}`)
     } finally {
       setSaving(false)
@@ -622,22 +611,13 @@ export default function WholesaleOrderCreateManager() {
 
           <div className="flex items-center justify-between">
             <button onClick={() => setStep(2)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">← Back</button>
-            <div className="flex gap-3">
-              <button
-                onClick={() => submit(false)}
-                disabled={saving}
-                className="px-6 py-2 bg-gray-100 text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-200 disabled:opacity-50"
-              >
-                {saving ? 'Saving…' : 'Create Draft'}
-              </button>
-              <button
-                onClick={() => submit(true)}
-                disabled={saving}
-                className="px-6 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
-              >
-                {saving ? 'Saving…' : 'Create & Confirm'}
-              </button>
-            </div>
+            <button
+              onClick={() => submit()}
+              disabled={saving}
+              className="px-6 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Create Order'}
+            </button>
           </div>
         </div>
       )}

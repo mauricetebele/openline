@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 
 const SO_STATUS_COLOR: Record<string, string> = {
+  PENDING_APPROVAL: 'bg-amber-100 text-amber-700',
   DRAFT: 'bg-gray-100 text-gray-600',
   CONFIRMED: 'bg-blue-100 text-blue-700',
   INVOICED: 'bg-yellow-100 text-yellow-700',
@@ -11,7 +12,7 @@ const SO_STATUS_COLOR: Record<string, string> = {
   VOID: 'bg-red-100 text-red-500',
 }
 
-const STATUSES = ['ALL', 'DRAFT', 'CONFIRMED', 'INVOICED', 'PARTIALLY_PAID', 'PAID', 'VOID']
+const STATUSES = ['ALL', 'PENDING_APPROVAL', 'DRAFT', 'CONFIRMED', 'INVOICED', 'PARTIALLY_PAID', 'PAID', 'VOID']
 
 interface Order {
   id: string

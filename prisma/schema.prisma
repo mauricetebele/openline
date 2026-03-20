@@ -1330,6 +1330,7 @@ enum AddressType {
 }
 
 enum SalesOrderStatus {
+  PENDING_APPROVAL
   DRAFT
   CONFIRMED
   INVOICED
@@ -1414,7 +1415,7 @@ model SalesOrder {
   orderNumber       String                 @unique
   customerId        String
   customer          WholesaleCustomer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  status            SalesOrderStatus       @default(DRAFT)
+  status            SalesOrderStatus       @default(PENDING_APPROVAL)
   orderDate         DateTime               @default(now())
   dueDate           DateTime?
   shippingAddress   Json?

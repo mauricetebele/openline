@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import jsPDF from 'jspdf'
 
 const SO_STATUS_COLOR: Record<string, string> = {
+  PENDING_APPROVAL: 'bg-amber-100 text-amber-700',
   DRAFT: 'bg-gray-100 text-gray-600',
   CONFIRMED: 'bg-blue-100 text-blue-700',
   INVOICED: 'bg-yellow-100 text-yellow-700',
@@ -205,7 +206,11 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
       if (!res.ok) { toast.error(data.error ?? 'Failed'); return }
       if (data.warning) toast.warning(data.warning)
       if (data.alerts?.length) data.alerts.forEach((a: string) => toast.warning(a))
-      toast.success(`Status updated to ${newStatus}`)
+      if (data.autoProcessed) {
+        toast.success('Order approved & auto-processed to fulfillment')
+      } else {
+        toast.success(`Status updated to ${newStatus}`)
+      }
       load()
     } finally {
       setTransitioning(false)
@@ -259,6 +264,18 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
           <span className="text-sm text-gray-500">PO# <span className="font-mono font-medium text-gray-700">{order.customerPoNumber}</span></span>
         )}
         <div className="ml-auto flex flex-wrap gap-2">
+          {order.status === 'PENDING_APPROVAL' && (
+            <>
+              <button onClick={() => transition('CONFIRMED')} disabled={transitioning}
+                className="px-3 py-1.5 bg-green-500 text-white rounded text-xs font-medium hover:bg-green-600 disabled:opacity-50">
+                {transitioning ? 'Approving…' : 'Approve Order'}
+              </button>
+              <button onClick={() => transition('VOID')} disabled={transitioning}
+                className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 disabled:opacity-50">
+                Void
+              </button>
+            </>
+          )}
           {order.status === 'DRAFT' && (
             <>
               <button onClick={() => transition('CONFIRMED')} disabled={transitioning}
