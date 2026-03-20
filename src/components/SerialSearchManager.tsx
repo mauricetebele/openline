@@ -601,14 +601,6 @@ export default function SerialSearchManager() {
                 {count > 0 && <span className="ml-2">⌘+Enter to search</span>}
               </span>
               <div className="flex gap-2">
-                {hasResults && (
-                  <button
-                    onClick={() => exportCSV(found, notFound)}
-                    className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50"
-                  >
-                    <Download size={13} /> Export CSV
-                  </button>
-                )}
                 <button
                   onClick={handleSearch}
                   disabled={(count === 0 && !filterWarehouseId && !filterPo.trim() && !filterStatus && !filterVendor && !filterSku.trim() && !filterGrade && !filterVrma) || loading}
@@ -632,14 +624,24 @@ export default function SerialSearchManager() {
 
           {/* Summary row */}
           {searched && (
-            <div className="flex items-center gap-4 text-sm">
-              <span className="text-gray-600">
-                <span className="font-semibold text-gray-900">{found.length}</span> found
-              </span>
-              {notFound.length > 0 && (
-                <span className="text-red-600">
-                  <span className="font-semibold">{notFound.length}</span> not found
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-4">
+                <span className="text-gray-600">
+                  <span className="font-semibold text-gray-900">{found.length}</span> found
                 </span>
+                {notFound.length > 0 && (
+                  <span className="text-red-600">
+                    <span className="font-semibold">{notFound.length}</span> not found
+                  </span>
+                )}
+              </div>
+              {hasResults && (
+                <button
+                  onClick={() => exportCSV(sortedFound, notFound)}
+                  className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50"
+                >
+                  <Download size={13} /> Export CSV
+                </button>
               )}
             </div>
           )}
