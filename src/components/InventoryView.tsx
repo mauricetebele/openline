@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown, Barcode } from 'lucide-react'
 import SNLookupModal from './SNLookupModal'
 
@@ -2195,13 +2195,14 @@ type OpenModal = 'add' | 'sn-lookup' | 'move' | 'convert' | 'regrade'
 
 export default function InventoryView({ openModal }: { openModal?: OpenModal } = {}) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [items,        setItems]        = useState<InventoryItem[]>([])
   const [warehouses,   setWarehouses]   = useState<(Warehouse & { locations: { id: string; name: string }[] })[]>([])
   const [loading,      setLoading]      = useState(true)
   const [err,          setErr]          = useState('')
   const [warehouseId,  setWarehouseId]  = useState('')
   const [locationId,   setLocationId]   = useState('')
-  const [search,       setSearch]       = useState('')
+  const [search,       setSearch]       = useState(searchParams.get('search') ?? '')
   const [gradeId,      setGradeId]      = useState('')
   const [allGrades,    setAllGrades]    = useState<{ id: string; grade: string }[]>([])
   const [serialTarget,  setSerialTarget]  = useState<{ product: Product; location: Location; gradeId: string | null } | null>(null)
