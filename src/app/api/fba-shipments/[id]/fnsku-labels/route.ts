@@ -38,14 +38,24 @@ export async function POST(
   const body = await req.json().catch(() => ({})) as {
     labelType?: 'THERMAL_PRINTING' | 'STANDARD_FORMAT'
     pageType?: string
+    sellerSku?: string
   }
 
   const labelType = body.labelType ?? 'THERMAL_PRINTING'
 
+  // If sellerSku is specified, generate labels for just that one item
+  const targetItems = body.sellerSku
+    ? shipment.items.filter(i => i.sellerSku === body.sellerSku)
+    : shipment.items
+
+  if (targetItems.length === 0) {
+    return NextResponse.json({ error: `Item with SKU "${body.sellerSku}" not found on this shipment` }, { status: 404 })
+  }
+
   try {
     const downloadUrl = await createMarketplaceItemLabels(shipment.accountId, {
       marketplaceId: shipment.account.marketplaceId,
-      mskuQuantities: shipment.items.map(item => ({
+      mskuQuantities: targetItems.map(item => ({
         msku: item.sellerSku,
         quantity: item.quantity,
       })),

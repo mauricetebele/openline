@@ -913,23 +913,24 @@ function WizardView({
     if (result) { await loadShipment(); onRefreshList() }
   }
 
-  const [fnskuLoading, setFnskuLoading] = useState(false)
+  const [fnskuLoading, setFnskuLoading] = useState<string | true | false>(false)
 
   const [fnskuError, setFnskuError] = useState<string | null>(null)
 
-  async function printFnskuLabels() {
+  async function printFnskuLabels(sellerSku?: string) {
     if (!shipment || shipment.items.length === 0) return
-    setFnskuLoading(true)
+    setFnskuLoading(sellerSku ?? true)
     setFnskuError(null)
     try {
+      const payload: Record<string, string> = { labelType: 'THERMAL_PRINTING' }
+      if (sellerSku) payload.sellerSku = sellerSku
       const res = await fetch(`/api/fba-shipments/${shipment.id}/fnsku-labels`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labelType: 'THERMAL_PRINTING' }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to generate FNSKU labels')
-      // Use link click instead of window.open to avoid popup blocker
       const a = document.createElement('a')
       a.href = data.downloadUrl
       a.target = '_blank'
@@ -1018,6 +1019,7 @@ function WizardView({
               <th className="text-left px-3 py-2 font-medium">Seller SKU</th>
               <th className="text-left px-3 py-2 font-medium">FNSKU</th>
               <th className="text-center px-3 py-2 font-medium">Qty</th>
+              {shipment.status !== 'DRAFT' && <th className="text-center px-3 py-2 font-medium">Labels</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -1027,21 +1029,37 @@ function WizardView({
                 <td className="px-3 py-2 text-gray-600">{item.sellerSku}</td>
                 <td className="px-3 py-2 text-gray-500 font-mono text-xs">{item.fnsku}</td>
                 <td className="px-3 py-2 text-center">{item.quantity}</td>
+                {shipment.status !== 'DRAFT' && (
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      type="button"
+                      onClick={() => printFnskuLabels(item.sellerSku)}
+                      disabled={!!fnskuLoading}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {fnskuLoading === item.sellerSku ? (
+                        <><Loader2 size={11} className="animate-spin" /> Generating…</>
+                      ) : (
+                        <><Printer size={11} /> Print ({item.quantity})</>
+                      )}
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {/* Print FNSKU labels */}
+      {/* Print all FNSKU labels */}
       {shipment.items.length > 0 && shipment.status !== 'DRAFT' && (
         <div className="flex items-center gap-2 mb-4">
-          <button type="button" onClick={printFnskuLabels} disabled={fnskuLoading}
+          <button type="button" onClick={() => printFnskuLabels()} disabled={!!fnskuLoading}
             className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 transition-colors">
-            {fnskuLoading ? <Loader2 size={22} className="animate-spin" /> : <ScanBarcode size={22} strokeWidth={2.2} />}
-            {fnskuLoading ? 'Generating...' : 'Print FNSKU Labels'}
+            {fnskuLoading === true ? <Loader2 size={22} className="animate-spin" /> : <ScanBarcode size={22} strokeWidth={2.2} />}
+            {fnskuLoading === true ? 'Generating...' : 'Print All FNSKU Labels'}
           </button>
-          <span className="text-[10px] text-gray-400">Amazon official labels · title + condition</span>
+          <span className="text-[10px] text-gray-400">All items combined · Amazon official labels</span>
           {fnskuError && <span className="text-[11px] text-red-500">{fnskuError}</span>}
         </div>
       )}
