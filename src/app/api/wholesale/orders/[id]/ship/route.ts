@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { pushQtyForProducts } from '@/lib/push-qty-for-product'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,8 +61,33 @@ export async function POST(
     }
   }
 
-  // Transaction: assign serials + update order
+  // Load reservations so we can decrement inventory on ship
+  const reservations = await prisma.salesOrderInventoryReservation.findMany({
+    where: { salesOrderId: params.id },
+  })
+
+  // Transaction: decrement inventory, assign serials, update order
   await prisma.$transaction(async (tx) => {
+    // Decrement inventory for each reservation (qty was soft-reserved until now)
+    for (const r of reservations) {
+      if (r.gradeId) {
+        await tx.inventoryItem.update({
+          where: { productId_locationId_gradeId: { productId: r.productId, locationId: r.locationId, gradeId: r.gradeId } },
+          data: { qty: { decrement: r.qtyReserved } },
+        })
+      } else {
+        const inv = await tx.inventoryItem.findFirst({
+          where: { productId: r.productId, locationId: r.locationId, gradeId: null },
+        })
+        if (inv) {
+          await tx.inventoryItem.update({
+            where: { id: inv.id },
+            data: { qty: { decrement: r.qtyReserved } },
+          })
+        }
+      }
+    }
+
     // Mark serials as SOLD and create assignment records
     for (const s of serials) {
       await tx.inventorySerial.update({
@@ -88,6 +114,10 @@ export async function POST(
       },
     })
   })
+
+  // Push updated qty to marketplaces (qty was decremented on ship)
+  const productIds = Array.from(new Set(reservations.map(r => r.productId)))
+  if (productIds.length > 0) pushQtyForProducts(productIds)
 
   return NextResponse.json({ ok: true })
 }

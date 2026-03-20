@@ -108,13 +108,9 @@ export async function POST(
       }
 
       if (allCovered) {
-        // Auto-reserve in a transaction
+        // Auto-reserve in a transaction (soft reserve — qty NOT decremented until shipped)
         await prisma.$transaction(async tx => {
           for (const r of reservationPlan) {
-            await tx.inventoryItem.updateMany({
-              where: { productId: r.productId, locationId: r.locationId },
-              data: { qty: { decrement: r.qtyReserved } },
-            })
             await tx.salesOrderInventoryReservation.create({
               data: {
                 salesOrderId:     params.id,

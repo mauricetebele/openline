@@ -70,29 +70,12 @@ export async function POST(
     }
   }
 
-  // Apply reservations in a transaction
+  // Apply reservations in a transaction (soft reserve — qty is NOT decremented until shipped)
   await prisma.$transaction(async tx => {
     for (const r of reservations) {
       const gradeId = r.gradeId ?? null
 
-      // Deduct from inventory — Prisma composite-unique rejects null
-      if (gradeId) {
-        await tx.inventoryItem.update({
-          where: { productId_locationId_gradeId: { productId: r.productId, locationId: r.locationId, gradeId } },
-          data: { qty: { decrement: r.qtyReserved } },
-        })
-      } else {
-        const inv = await tx.inventoryItem.findFirst({
-          where: { productId: r.productId, locationId: r.locationId, gradeId: null },
-        })
-        if (!inv) throw new Error(`Inventory item not found for product ${r.productId}`)
-        await tx.inventoryItem.update({
-          where: { id: inv.id },
-          data: { qty: { decrement: r.qtyReserved } },
-        })
-      }
-
-      // Record the reservation
+      // Record the reservation (no qty decrement — stays as on-hand until shipped)
       await tx.salesOrderInventoryReservation.create({
         data: {
           salesOrderId:     params.id,

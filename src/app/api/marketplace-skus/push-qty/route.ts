@@ -66,7 +66,7 @@ export async function pushOneQuantity(
           orderStatus: 'Pending',
           fulfillmentChannel: 'MFN',
           orderSource: 'amazon',
-          workflowStatus: 'PENDING', // only unprocessed — processed orders already have qty decremented via reservation
+          workflowStatus: 'PENDING', // only unprocessed — processed orders are subtracted via wholesale reservations above
         },
       },
       select: { quantityOrdered: true, quantityShipped: true },
@@ -77,11 +77,23 @@ export async function pushOneQuantity(
     )
   }
 
-  // 3. Calculate final available, applying maxQty cap if set
-  const available = Math.max(0, onHand - pendingQty)
+  // 3. Subtract wholesale soft-reserved qty (not yet shipped)
+  const wholesaleReserved = await prisma.salesOrderInventoryReservation.aggregate({
+    where: {
+      productId: msku.productId,
+      gradeId: msku.gradeId ?? null,
+      location: { isFinishedGoods: true },
+      salesOrder: { fulfillmentStatus: { in: ['PROCESSING'] } },
+    },
+    _sum: { qtyReserved: true },
+  })
+  const wholesaleQty = wholesaleReserved._sum.qtyReserved ?? 0
+
+  // 4. Calculate final available, applying maxQty cap if set
+  const available = Math.max(0, onHand - pendingQty - wholesaleQty)
   const finalQty = msku.maxQty != null ? Math.min(available, msku.maxQty) : available
 
-  // 4. Push to marketplace
+  // 5. Push to marketplace
   if (msku.marketplace === 'amazon') {
     const accountId = msku.accountId
     if (!accountId) {

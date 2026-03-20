@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const gradeId     = searchParams.get('gradeId')
   const productId   = searchParams.get('productId')
 
-  const [items, reservationGroups, fbaReservationGroups, costRows] = await Promise.all([
+  const [items, reservationGroups, fbaReservationGroups, wholesaleReservationGroups, costRows] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: {
         ...(productId   ? { productId } : {}),
@@ -58,6 +58,14 @@ export async function GET(req: NextRequest) {
       },
       _sum: { qtyReserved: true },
     }),
+    // Wholesale soft reservations (qty NOT decremented — only decremented on ship)
+    prisma.salesOrderInventoryReservation.groupBy({
+      by: ['productId', 'locationId', 'gradeId'],
+      where: {
+        salesOrder: { fulfillmentStatus: { in: ['PROCESSING'] } },
+      },
+      _sum: { qtyReserved: true },
+    }),
     // Latest unit cost per product+grade from PO lines
     prisma.$queryRaw<{ productId: string; gradeId: string | null; unitCost: number }[]>`
       SELECT DISTINCT ON ("productId", "gradeId")
@@ -68,15 +76,21 @@ export async function GET(req: NextRequest) {
   ])
 
   // Build lookup: `${productId}:${locationId}:${gradeId ?? ''}` → reserved qty
-  const reservedMap = new Map<string, number>()
+  // Hard reservations (Amazon + FBA) — qty was already decremented in inventoryItem.qty
+  const hardReservedMap = new Map<string, number>()
   for (const r of reservationGroups) {
     const key = `${r.productId}:${r.locationId}:${r.gradeId ?? ''}`
-    reservedMap.set(key, (reservedMap.get(key) ?? 0) + (r._sum.qtyReserved ?? 0))
+    hardReservedMap.set(key, (hardReservedMap.get(key) ?? 0) + (r._sum.qtyReserved ?? 0))
   }
-  // Add FBA reservations (shipments not yet shipped/cancelled)
   for (const r of fbaReservationGroups) {
     const key = `${r.productId}:${r.locationId}:${r.gradeId ?? ''}`
-    reservedMap.set(key, (reservedMap.get(key) ?? 0) + (r._sum.qtyReserved ?? 0))
+    hardReservedMap.set(key, (hardReservedMap.get(key) ?? 0) + (r._sum.qtyReserved ?? 0))
+  }
+  // Wholesale soft reservations — qty NOT decremented, only reserved until shipped
+  const wholesaleReservedMap = new Map<string, number>()
+  for (const r of wholesaleReservationGroups) {
+    const key = `${r.productId}:${r.locationId}:${r.gradeId ?? ''}`
+    wholesaleReservedMap.set(key, (wholesaleReservedMap.get(key) ?? 0) + (r._sum.qtyReserved ?? 0))
   }
 
   // Build lookup: `${productId}:${gradeId ?? ''}` → latest unit cost
@@ -108,8 +122,10 @@ export async function GET(req: NextRequest) {
   const data = items
     .map(item => {
       const key      = `${item.productId}:${item.locationId}:${item.gradeId ?? ''}`
-      const reserved = reservedMap.get(key) ?? 0
-      const onHand   = item.qty + reserved
+      const hardReserved      = hardReservedMap.get(key) ?? 0
+      const wholesaleReserved = wholesaleReservedMap.get(key) ?? 0
+      const onHand   = item.qty + hardReserved          // qty has hard-reserves subtracted
+      const reserved = hardReserved + wholesaleReserved  // total committed to orders
       const unitCost = costMap.get(`${item.productId}:${item.gradeId ?? ''}`) ?? costProductOnly.get(item.productId) ?? null
       // Enrich marketplaceSkus with fulfillmentChannel
       const product = {
