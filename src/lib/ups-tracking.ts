@@ -725,8 +725,9 @@ const UPS_VOID_URL = 'https://onlinetools.ups.com/api/shipments/v1/void/cancel'
  * UPS allows voiding within a short window before the carrier picks up.
  * Throws a descriptive error if the shipment cannot be voided.
  */
-export async function voidReturnLabel(shipmentId: string): Promise<void> {
-  const token = await getUPSToken()
+export async function voidReturnLabel(shipmentId: string, upsCredentialId?: string): Promise<void> {
+  const creds = upsCredentialId ? await getUPSCredentialsById(upsCredentialId) : await getUPSCredentials()
+  const token = await getUPSToken(creds)
 
   try {
     await axios.delete(`${UPS_VOID_URL}/${encodeURIComponent(shipmentId)}`, {

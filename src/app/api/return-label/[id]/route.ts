@@ -18,14 +18,14 @@ export async function GET(
 
   const label = await prisma.returnLabel.findUnique({
     where: { id: params.id },
-    select: { labelData: true, labelFormat: true, trackingNumber: true, voided: true },
+    select: { labelData: true, trackingNumber: true, voided: true },
   })
 
   if (!label) return NextResponse.json({ error: 'Label not found' }, { status: 404 })
 
   return NextResponse.json({
     labelData:      label.labelData,
-    labelFormat:    label.labelFormat,
+    labelFormat:    'GIF',
     trackingNumber: label.trackingNumber,
     voided:         label.voided,
   })
@@ -40,14 +40,14 @@ export async function POST(
 
   const label = await prisma.returnLabel.findUnique({
     where: { id: params.id },
-    select: { shipmentId: true, voided: true },
+    select: { shipmentId: true, voided: true, upsCredentialId: true },
   })
 
   if (!label)         return NextResponse.json({ error: 'Label not found' }, { status: 404 })
   if (label.voided)   return NextResponse.json({ error: 'Label already voided' }, { status: 400 })
 
   try {
-    await voidReturnLabel(label.shipmentId)
+    await voidReturnLabel(label.shipmentId, label.upsCredentialId ?? undefined)
   } catch (err: unknown) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Void failed' },
