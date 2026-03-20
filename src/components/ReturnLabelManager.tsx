@@ -131,12 +131,16 @@ function PrintPreview({ base64, format, onClose }: { base64: string; format: str
       </div>
       <style>{`
         @media print {
-          body > *:not(.print-preview-overlay) { display: none !important; }
+          body * { visibility: hidden; }
+          .print-preview-overlay,
+          .print-preview-overlay * { visibility: visible; }
           .print-hide { display: none !important; }
           .print-preview-overlay {
-            position: static !important;
-            background: white !important;
-            display: block !important;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: white;
           }
           .print-area {
             padding: 0 !important;
