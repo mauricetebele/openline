@@ -127,12 +127,15 @@ export async function POST(
     // Release inventory reservations — qty was already decremented during processing
     await prisma.orderInventoryReservation.deleteMany({ where: { orderId } })
 
-    // Mark order as shipped locally
+    // Mark order as shipped locally + save carrier/tracking
     await prisma.order.update({
       where: { id: orderId },
       data: {
         workflowStatus: 'SHIPPED',
         orderStatus:    'Shipped',
+        shipCarrier:    shipper ?? null,
+        shipTracking:   trackingNumber,
+        shippedAt:      new Date(),
       },
     })
 

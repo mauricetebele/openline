@@ -2585,7 +2585,33 @@ function OrderDetailModal({
                 </SectionCard>
               )}
 
-              {/* SERIAL NUMBERS */}
+              {/* SHIPMENT INFO — for manually shipped orders (no label) */}
+              {!order.label && (order.shipCarrier || order.shipTracking) && (
+                <SectionCard title="Shipment" icon={<Truck size={11} />}>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                    {order.shipCarrier && (
+                      <div>
+                        <p className="text-[10px] text-gray-400 mb-0.5 uppercase tracking-wide">Carrier</p>
+                        <p className="font-semibold text-gray-900">{order.shipCarrier}</p>
+                      </div>
+                    )}
+                    {order.shippedAt && (
+                      <div>
+                        <p className="text-[10px] text-gray-400 mb-0.5 uppercase tracking-wide">Shipped Date</p>
+                        <p className="font-medium text-gray-700">{fmtDate(order.shippedAt)}</p>
+                      </div>
+                    )}
+                    {order.shipTracking && (
+                      <div className="col-span-2 sm:col-span-4">
+                        <p className="text-[10px] text-gray-400 mb-0.5 uppercase tracking-wide">Tracking Number</p>
+                        <p className="font-mono font-semibold text-gray-900 text-sm">{order.shipTracking}</p>
+                      </div>
+                    )}
+                  </div>
+                </SectionCard>
+              )}
+
+              {/* SERIAL NUMBERS (internal inventory serials) */}
               {order.serialAssignments && order.serialAssignments.length > 0 && (
                 <SectionCard title={`Serialized Units (${order.serialAssignments.length})`} icon={<Hash size={11} />}>
                   <div className="-mx-4 -mt-3">
@@ -2608,6 +2634,40 @@ function OrderDetailModal({
                             </tr>
                           )
                         })}
+                      </tbody>
+                    </table>
+                  </div>
+                </SectionCard>
+              )}
+
+              {/* BACK MARKET SERIALS (IMEI / serial numbers stored on BM items) */}
+              {order.orderSource === 'backmarket' && order.items.some(i => (i.bmSerials?.length ?? 0) > 0) && (
+                <SectionCard title={`Serial / IMEI Numbers (${order.items.reduce((s, i) => s + (i.bmSerials?.length ?? 0), 0)})`} icon={<Hash size={11} />}>
+                  <div className="-mx-4 -mt-3">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide w-8">#</th>
+                          <th className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Serial / IMEI</th>
+                          <th className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {(() => {
+                          let counter = 0
+                          return order.items.flatMap(item =>
+                            (item.bmSerials ?? []).map(serial => {
+                              counter++
+                              return (
+                                <tr key={`${item.id}-${serial}`} className="hover:bg-gray-50">
+                                  <td className="px-4 py-2 text-gray-400 tabular-nums">{counter}</td>
+                                  <td className="px-4 py-2 font-mono font-semibold text-gray-900">{serial}</td>
+                                  <td className="px-4 py-2 font-mono text-gray-600">{item.internalSku ?? item.sellerSku ?? '—'}</td>
+                                </tr>
+                              )
+                            })
+                          )
+                        })()}
                       </tbody>
                     </table>
                   </div>
