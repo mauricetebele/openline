@@ -108,12 +108,14 @@ export async function POST(
       }
 
       const imei = (item.bmSerials ?? []).join(',')
+      const bmOrderlineId = item.orderItemId // BM orderline ID
 
       console.log(
-        '[bm-ship] order=%s sku=%s tracking=%s shipper=%s imei=%s',
-        bmOrderId, item.sellerSku, trackingNumber, shipper, imei,
+        '[bm-ship] order=%s orderline=%s sku=%s tracking=%s shipper=%s imei=%s',
+        bmOrderId, bmOrderlineId, item.sellerSku, trackingNumber, shipper, imei,
       )
 
+      // Ship via order-level endpoint
       await client.post(`/orders/${bmOrderId}`, {
         order_id:        bmOrderId,
         new_state:       3,
@@ -122,6 +124,16 @@ export async function POST(
         ...(shipper ? { shipper } : {}),
         imei,
       })
+
+      // Also update IMEI directly on the orderline (more reliable for already-shipped orders)
+      if (imei && bmOrderlineId) {
+        try {
+          await client.post(`/orderlines/${bmOrderlineId}`, { imei })
+        } catch (lineErr) {
+          console.warn(`[bm-ship] orderline IMEI update failed for ${bmOrderlineId}:`, lineErr)
+          // Non-fatal — the order-level call above may have already set it
+        }
+      }
     }
 
     // Release inventory reservations — qty was already decremented during processing
