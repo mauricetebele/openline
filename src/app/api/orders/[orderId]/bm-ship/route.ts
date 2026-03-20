@@ -4,9 +4,13 @@
  * Ships a BackMarket order by calling the BM API per orderline with:
  *   { order_id, new_state: 3, sku, tracking_number, shipper, imei }
  *
+ * Body (optional):
+ *   { carrier?: string, tracking?: string }
+ *   When provided, uses these instead of requiring a ShipStation label.
+ *
  * Prerequisites:
  *  - Order must be BackMarket (orderSource === 'backmarket')
- *  - Order must have a saved label with a tracking number
+ *  - Must have tracking: either from body or from a saved label
  *  - All order items must have bmSerials filled (one per unit)
  *
  * On success, updates workflowStatus → SHIPPED.
@@ -56,9 +60,19 @@ export async function POST(
   if (order.orderSource !== 'backmarket') {
     return NextResponse.json({ error: 'Not a BackMarket order' }, { status: 400 })
   }
-  if (!order.label?.trackingNumber) {
-    return NextResponse.json({ error: 'Order has no shipping label — purchase a label first' }, { status: 400 })
+
+  // Accept manual carrier/tracking from body, fall back to label
+  const body = await req.json().catch(() => ({})) as { carrier?: string; tracking?: string }
+  const manualTracking = body.tracking?.trim()
+  const manualCarrier  = body.carrier?.trim()
+
+  const trackingNumber = manualTracking || order.label?.trackingNumber
+  if (!trackingNumber) {
+    return NextResponse.json({ error: 'No tracking number — provide carrier + tracking or purchase a label first' }, { status: 400 })
   }
+  const shipper = manualCarrier
+    ? (CARRIER_NAME_MAP[manualCarrier.toLowerCase()] ?? manualCarrier)
+    : carrierDisplayName(order.label?.carrier)
 
   // Verify all items have serials
   const missingSerials = order.items.filter(
@@ -82,8 +96,6 @@ export async function POST(
 
   const client = new BackMarketClient(decrypt(credential.apiKeyEnc))
   const bmOrderId = order.amazonOrderId
-  const trackingNumber = order.label.trackingNumber
-  const shipper = carrierDisplayName(order.label.carrier)
 
   try {
     // Call BackMarket API per orderline: POST /orders/{order_id}

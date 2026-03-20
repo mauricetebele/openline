@@ -1875,6 +1875,100 @@ function BmSerializeModal({ order, onClose, onSaved }: {
   )
 }
 
+// ─── BackMarket Manual Ship Modal ──────────────────────────────────────────────
+
+function BmManualShipModal({ order, onClose, onShipped }: {
+  order: Order; onClose: () => void; onShipped: () => void
+}) {
+  const [carrier, setCarrier]       = useState('')
+  const [tracking, setTracking]     = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitErr, setSubmitErr]   = useState<string | null>(null)
+
+  const canSubmit = carrier.trim() && tracking.trim()
+
+  async function handleSubmit() {
+    if (!canSubmit) return
+    setSubmitting(true); setSubmitErr(null)
+    try {
+      const res = await fetch(`/api/orders/${order.id}/bm-ship`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ carrier: carrier.trim(), tracking: tracking.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `${res.status}`)
+      onShipped()
+    } catch (e) {
+      setSubmitErr(e instanceof Error ? e.message : 'Failed to ship')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
+          <div>
+            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+              <Truck size={15} className="text-emerald-600" /> Ship to Back Market
+            </h3>
+            <p className="text-xs text-gray-500 font-mono mt-0.5">
+              {order.olmNumber ? `OLM-${order.olmNumber}` : order.amazonOrderId}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] font-medium text-gray-600 mb-1">Carrier <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                value={carrier}
+                onChange={e => setCarrier(e.target.value)}
+                placeholder="e.g. UPS, FedEx, USPS…"
+                className="w-full h-8 rounded border border-gray-300 px-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-600 mb-1">Tracking Number <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                value={tracking}
+                onChange={e => setTracking(e.target.value)}
+                placeholder="Tracking number…"
+                className="w-full h-8 rounded border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs">
+            <CheckCircle2 size={13} className="shrink-0" />
+            <span>Carrier and tracking will be pushed to Back Market.</span>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t shrink-0 space-y-2">
+          {submitErr && (
+            <div className="flex items-start gap-2 p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs">
+              <AlertCircle size={12} className="shrink-0 mt-0.5" />{submitErr}
+            </div>
+          )}
+          <div className="flex gap-2 justify-end">
+            <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+            <button onClick={handleSubmit} disabled={submitting || !canSubmit}
+              className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5">
+              {submitting ? <><RefreshCcw size={12} className="animate-spin" /> Shipping…</> : <><Truck size={12} /> Ship Order</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Order Detail Modal ────────────────────────────────────────────────────────
 
 const WORKFLOW_BADGE: Record<string, string> = {
@@ -4433,6 +4527,7 @@ export default function UnshippedOrders() {
   const [bmSerializeOrder, setBmSerializeOrder] = useState<Order | null>(null)
   const [bmShippingId, setBmShippingId]         = useState<string | null>(null)
   const [bmShipError, setBmShipError]           = useState<string | null>(null)
+  const [bmManualShipOrder, setBmManualShipOrder] = useState<Order | null>(null)
 
   // Ship-by-item scan state
   const [scanInput, setScanInput]               = useState('')
@@ -5368,6 +5463,13 @@ export default function UnshippedOrders() {
               }
             }))
           }}
+        />
+      )}
+      {bmManualShipOrder && (
+        <BmManualShipModal
+          order={bmManualShipOrder}
+          onClose={() => setBmManualShipOrder(null)}
+          onShipped={() => { setBmManualShipOrder(null); setFetchKey(k => k + 1) }}
         />
       )}
       {showPickList && (
@@ -6354,17 +6456,28 @@ export default function UnshippedOrders() {
                           {(() => {
                             const allSerialized = order.items.every(i => (i.bmSerials?.length ?? 0) >= i.quantityOrdered)
                             return (
-                              <button
-                                onClick={() => setBmSerializeOrder(order)}
-                                title={allSerialized ? 'All serials assigned' : 'Assign serial numbers'}
-                                className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium transition-colors',
-                                  allSerialized
-                                    ? 'bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100'
-                                    : 'bg-purple-600 text-white hover:bg-purple-700'
+                              <>
+                                <button
+                                  onClick={() => setBmSerializeOrder(order)}
+                                  title={allSerialized ? 'All serials assigned' : 'Assign serial numbers'}
+                                  className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium transition-colors',
+                                    allSerialized
+                                      ? 'bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100'
+                                      : 'bg-purple-600 text-white hover:bg-purple-700'
+                                  )}
+                                >
+                                  {allSerialized ? <><CheckCircle2 size={10} /> Serialized</> : <><ClipboardCheck size={10} /> Serialize</>}
+                                </button>
+                                {allSerialized && (
+                                  <button
+                                    onClick={() => setBmManualShipOrder(order)}
+                                    title="Ship — enter carrier and tracking to push to Back Market"
+                                    className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                                  >
+                                    <Truck size={10} /> Ship
+                                  </button>
                                 )}
-                              >
-                                {allSerialized ? <><CheckCircle2 size={10} /> Serialized</> : <><ClipboardCheck size={10} /> Serialize</>}
-                              </button>
+                              </>
                             )
                           })()}
                           <button onClick={() => handleUnprocess(order)} disabled={isUnprocessing} title="Unprocess — release inventory reservation"
