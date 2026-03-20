@@ -106,19 +106,44 @@ function PrintPreview({ base64, format, onClose }: { base64: string; format: str
   useEffect(() => {
     const img = new Image()
     img.onload = () => {
-      const origW = img.naturalWidth
-      const origH = img.naturalHeight
-      const canvas = document.createElement('canvas')
-      // 90° CW rotation: swap width/height
-      canvas.width = origH
-      canvas.height = origW
-      const ctx = canvas.getContext('2d')!
-      ctx.translate(origH, 0)
-      ctx.rotate(Math.PI / 2)
-      ctx.drawImage(img, 0, 0)
-      const dataUrl = canvas.toDataURL('image/png')
+      const W = img.naturalWidth
+      const H = img.naturalHeight
+
+      // Draw original to temp canvas to get raw pixel data
+      const srcCanvas = document.createElement('canvas')
+      srcCanvas.width = W
+      srcCanvas.height = H
+      const srcCtx = srcCanvas.getContext('2d')!
+      srcCtx.drawImage(img, 0, 0)
+      const srcData = srcCtx.getImageData(0, 0, W, H)
+
+      // Create rotated canvas with swapped dimensions
+      const dstCanvas = document.createElement('canvas')
+      const newW = H  // rotated width = original height
+      const newH = W  // rotated height = original width
+      dstCanvas.width = newW
+      dstCanvas.height = newH
+      const dstCtx = dstCanvas.getContext('2d')!
+      const dstData = dstCtx.createImageData(newW, newH)
+
+      // 90° CW pixel copy: src(x, y) → dst(H-1-y, x)
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const srcIdx = (y * W + x) * 4
+          const dstX = H - 1 - y
+          const dstY = x
+          const dstIdx = (dstY * newW + dstX) * 4
+          dstData.data[dstIdx]     = srcData.data[srcIdx]
+          dstData.data[dstIdx + 1] = srcData.data[srcIdx + 1]
+          dstData.data[dstIdx + 2] = srcData.data[srcIdx + 2]
+          dstData.data[dstIdx + 3] = srcData.data[srcIdx + 3]
+        }
+      }
+
+      dstCtx.putImageData(dstData, 0, 0)
+      const dataUrl = dstCanvas.toDataURL('image/png')
       setRotatedSrc(dataUrl)
-      setDebug(`Original: ${origW}×${origH} | Rotated canvas: ${canvas.width}×${canvas.height} | PNG length: ${dataUrl.length}`)
+      setDebug(`Original: ${W}×${H} → Rotated: ${newW}×${newH} | PNG: ${dataUrl.length} bytes`)
     }
     img.onerror = () => {
       setDebug(`ERROR: Failed to load image (format=${format}, base64 length=${base64.length})`)
