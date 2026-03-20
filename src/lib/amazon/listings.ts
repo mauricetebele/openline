@@ -531,8 +531,8 @@ export async function createListing(
   if (fulfillmentChannel === 'FBA') {
     attributes.batteries_required = [{ value: 'false', marketplace_id: account.marketplaceId }]
     attributes.supply_source_country = [{ value: 'US', marketplace_id: account.marketplaceId }]
-    // Dangerous goods / hazmat classification — "not applicable" (standard consumer goods)
-    attributes.ghs_classification_class = [{ value: 'noHazardousSubstances', marketplace_id: account.marketplaceId }]
+    // Dangerous goods / hazmat — "not applicable" (standard consumer goods)
+    attributes.supplier_declared_dg_hz_regulation = [{ value: 'not_applicable', marketplace_id: account.marketplaceId }]
   }
 
   const body = {
