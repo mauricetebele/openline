@@ -129,7 +129,6 @@ function PrintPreview({ base64, format, onClose }: { base64: string; format: str
           style={{ width: '100%', height: 'auto', display: 'block' }}
         />
       </div>
-      </div>
       <style>{`
         @media print {
           body > *:not(.print-preview-overlay) { display: none !important; }
