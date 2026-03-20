@@ -6273,11 +6273,22 @@ export default function UnshippedOrders() {
                   {showProcessCol && (
                     <td className="px-3 py-1.5 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1">
-                        {order.orderSource !== 'wholesale' && (
-                          <button onClick={() => handleCancel(order)} disabled={cancellingId === order.id}
-                            title="Cancel order" className="inline-flex items-center justify-center h-6 w-6 rounded text-[10px] text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors">
-                            {cancellingId === order.id ? <RefreshCcw size={10} className="animate-spin" /> : <XCircle size={11} />}
+                        {order.orderSource === 'wholesale' ? (
+                          <button onClick={() => setWholesaleProcessOrder(order)}
+                            className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-emerald-600 text-white hover:bg-emerald-700">
+                            <ClipboardCheck size={10} /> Process
                           </button>
+                        ) : (
+                          <>
+                            <button onClick={() => setProcessOrder(order)}
+                              className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-amazon-blue text-white hover:bg-blue-700">
+                              <ClipboardCheck size={10} /> Process
+                            </button>
+                            <button onClick={() => handleCancel(order)} disabled={cancellingId === order.id}
+                              title="Cancel order" className="inline-flex items-center justify-center h-6 w-6 rounded text-[10px] text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors">
+                              {cancellingId === order.id ? <RefreshCcw size={10} className="animate-spin" /> : <XCircle size={11} />}
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
