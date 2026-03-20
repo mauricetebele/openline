@@ -515,10 +515,9 @@ export async function createListing(
       },
     ],
     fulfillment_availability: [
-      {
-        fulfillment_channel_code: fulfillmentChannelCode,
-        quantity,
-      },
+      fulfillmentChannel === 'FBA'
+        ? { fulfillment_channel_code: fulfillmentChannelCode }
+        : { fulfillment_channel_code: fulfillmentChannelCode, quantity },
     ],
   }
 
@@ -575,6 +574,30 @@ export async function createListing(
     }
   } catch (fetchErr) {
     console.error(`[createListing] could not fetch productType for SKU=${sku}, using PRODUCT:`, fetchErr)
+  }
+
+  // Follow-up PATCH to reinforce FBA fulfillment channel — the initial PUT with
+  // LISTING_OFFER_ONLY sometimes defaults to MFN (DEFAULT) instead of AMAZON_NA.
+  if (fulfillmentChannel === 'FBA') {
+    try {
+      const fcPatch = await client.patch<ListingsPatchResponse>(
+        `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+        {
+          productType: realProductType,
+          patches: [
+            {
+              op: 'replace',
+              path: '/attributes/fulfillment_availability',
+              value: [{ fulfillment_channel_code: 'AMAZON_NA' }],
+            },
+          ],
+        },
+        { marketplaceIds: account.marketplaceId },
+      )
+      console.log(`[createListing] FBA fulfillment PATCH SKU=${sku} status=${fcPatch.status}`)
+    } catch (fcErr) {
+      console.error(`[createListing] FBA fulfillment PATCH failed for SKU=${sku} (non-fatal):`, fcErr)
+    }
   }
 
   // Follow-up PATCH to explicitly set purchasable_offer — Amazon's PUT with
