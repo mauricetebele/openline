@@ -213,20 +213,6 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
         select: { trackingNumber: true },
       })
       returnTracking = mfnReturn?.trackingNumber ?? null
-    } else if (asin) {
-      const mfnReturn = await prisma.mFNReturn.findFirst({
-        where: {
-          accountId,
-          asin,
-          orderDate: { gte: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000) },
-        },
-        orderBy: { orderDate: 'desc' },
-        select: { orderId: true, trackingNumber: true },
-      })
-      if (mfnReturn) {
-        originalOrderId = mfnReturn.orderId
-        returnTracking = mfnReturn.trackingNumber
-      }
     }
 
     if (!originalOrderId) originalOrderId = 'UNKNOWN'
