@@ -475,42 +475,41 @@ export default function MFNReturnsManager() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-xs">
           <thead className="sticky top-0 bg-gray-100 dark:bg-gray-800 z-10">
-            <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              <th className="px-4 py-2">Amazon Order ID</th>
-              <th className="px-4 py-2">Product Title</th>
-              <th className="px-4 py-2">ASIN</th>
-              <th className="px-4 py-2">Seller SKU</th>
-              <th className="px-4 py-2">Price</th>
-              <th className="px-4 py-2">Refunded</th>
-              <th className="px-4 py-2">RMA #</th>
-              <th className="px-4 py-2">Return Tracking #</th>
-              <th className="px-4 py-2">Expected Serial</th>
-              <th className="px-4 py-2">Find My</th>
-              <th className="px-4 py-2">Return Date</th>
-              <th className="px-4 py-2">UPS Status</th>
+            <tr className="text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-2 py-1.5">Order ID</th>
+              <th className="px-2 py-1.5">Title</th>
+              <th className="px-2 py-1.5">ASIN</th>
+              <th className="px-2 py-1.5">SKU</th>
+              <th className="px-2 py-1.5">Price</th>
+              <th className="px-2 py-1.5">Refund</th>
+              <th className="px-2 py-1.5">RMA</th>
+              <th className="px-2 py-1.5">Tracking</th>
+              <th className="px-2 py-1.5">Serial</th>
+              <th className="px-2 py-1.5">FMI</th>
+              <th className="px-2 py-1.5">Date</th>
+              <th className="px-2 py-1.5">Status</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
             {loading && returns.length === 0 ? (
               <tr>
-                <td colSpan={12} className="text-center py-12 text-gray-400">
-                  <Loader2 className="mx-auto animate-spin mb-2" size={20} />
+                <td colSpan={12} className="text-center py-8 text-gray-400">
+                  <Loader2 className="mx-auto animate-spin mb-1" size={16} />
                   Loading...
                 </td>
               </tr>
             ) : returns.length === 0 ? (
               <tr>
-                <td colSpan={12} className="text-center py-12 text-gray-400">
+                <td colSpan={12} className="text-center py-8 text-gray-400">
                   No MFN returns found. Click &quot;Sync Returns&quot; to pull from Amazon.
                 </td>
               </tr>
             ) : (
               returns.map((r) => (
                 <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                  {/* Order ID */}
-                  <td className="px-4 py-2 font-mono text-xs whitespace-nowrap">
+                  <td className="px-2 py-1 font-mono whitespace-nowrap">
                     <a
                       href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`}
                       target="_blank"
@@ -520,148 +519,47 @@ export default function MFNReturnsManager() {
                       {r.orderId}
                     </a>
                   </td>
-
-                  {/* Title */}
-                  <td className="px-4 py-2 max-w-[200px] truncate" title={r.title ?? ''}>
-                    {r.title ?? <span className="text-gray-400">-</span>}
+                  <td className="px-2 py-1 max-w-[180px] truncate" title={r.title ?? ''}>{r.title ?? <span className="text-gray-400">-</span>}</td>
+                  <td className="px-2 py-1 font-mono">{r.asin ?? '-'}</td>
+                  <td className="px-2 py-1 font-mono">{r.sku ?? '-'}</td>
+                  <td className="px-2 py-1 whitespace-nowrap">
+                    {r.itemPrice != null ? `$${r.itemPrice.toFixed(2)}` : r.returnValue != null ? `$${r.returnValue.toFixed(2)}` : r.orderAmount != null ? `$${r.orderAmount.toFixed(2)}` : '-'}
                   </td>
-
-                  {/* ASIN */}
-                  <td className="px-4 py-2 font-mono text-xs">{r.asin ?? '-'}</td>
-
-                  {/* Seller SKU */}
-                  <td className="px-4 py-2 font-mono text-xs">{r.sku ?? '-'}</td>
-
-                  {/* Price */}
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    {r.itemPrice != null
-                      ? `$${r.itemPrice.toFixed(2)}`
-                      : r.returnValue != null
-                      ? `$${r.returnValue.toFixed(2)}`
-                      : r.orderAmount != null
-                      ? `$${r.orderAmount.toFixed(2)}`
-                      : '-'}
+                  <td className="px-2 py-1 whitespace-nowrap">
+                    {r.refundedAmount != null ? <span className="text-red-600 font-medium">${r.refundedAmount.toFixed(2)}</span> : <span className="text-gray-400">-</span>}
                   </td>
-
-                  {/* Refunded */}
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    {r.refundedAmount != null
-                      ? <span className="text-red-600 font-medium">${r.refundedAmount.toFixed(2)}</span>
-                      : <span className="text-gray-400">-</span>}
-                  </td>
-
-                  {/* RMA */}
-                  <td className="px-4 py-2 font-mono text-xs">{r.rmaId ?? '-'}</td>
-
-                  {/* Tracking */}
-                  <td className="px-4 py-2 whitespace-nowrap">
+                  <td className="px-2 py-1 font-mono">{r.rmaId ?? '-'}</td>
+                  <td className="px-2 py-1 whitespace-nowrap">
                     {r.trackingNumber ? (
-                      <a
-                        href={trackingUrl(r.trackingNumber)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline inline-flex items-center gap-1 text-xs font-mono"
-                      >
-                        {r.trackingNumber}
-                        <ExternalLink size={10} />
+                      <a href={trackingUrl(r.trackingNumber)} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5 font-mono">
+                        {r.trackingNumber}<ExternalLink size={9} />
                       </a>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
+                    ) : <span className="text-gray-400">-</span>}
                   </td>
-
-                  {/* Expected Serial */}
-                  <td className="px-4 py-2 font-mono text-xs">
-                    {r.expectedSerial ?? <span className="text-gray-400">-</span>}
-                  </td>
-
-                  {/* Find My (iCloud Lock) */}
-                  <td className="px-4 py-2 text-xs">
+                  <td className="px-2 py-1 font-mono">{r.expectedSerial ?? <span className="text-gray-400">-</span>}</td>
+                  <td className="px-2 py-1">
                     {fmiChecking.has(r.id) ? (
-                      <Loader2 size={12} className="animate-spin text-blue-500" />
+                      <Loader2 size={11} className="animate-spin text-blue-500" />
                     ) : r.fmiStatus === 'ON' ? (
-                      <span className="inline-flex items-center gap-1">
-                        <span className="inline-flex items-center gap-1 text-red-600 font-semibold">
-                          <XCircle size={12} /> ON
-                        </span>
-                        {r.expectedSerial && (
-                          <button
-                            onClick={() => checkFindMy(r.id, r.expectedSerial!)}
-                            title="Re-check"
-                            className="ml-1 text-gray-400 hover:text-blue-600"
-                          >
-                            <RefreshCcw size={11} />
-                          </button>
-                        )}
-                      </span>
+                      <span className="inline-flex items-center gap-0.5 text-red-600 font-semibold"><XCircle size={11} />ON{r.expectedSerial && <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Re-check" className="ml-0.5 text-gray-400 hover:text-blue-600"><RefreshCcw size={10} /></button>}</span>
                     ) : r.fmiStatus === 'OFF' ? (
-                      <span className="inline-flex items-center gap-1">
-                        <span className="inline-flex items-center gap-1 text-green-600 font-semibold">
-                          <CheckCircle size={12} /> OFF
-                        </span>
-                        {r.expectedSerial && (
-                          <button
-                            onClick={() => checkFindMy(r.id, r.expectedSerial!)}
-                            title="Re-check"
-                            className="ml-1 text-gray-400 hover:text-blue-600"
-                          >
-                            <RefreshCcw size={11} />
-                          </button>
-                        )}
-                      </span>
+                      <span className="inline-flex items-center gap-0.5 text-green-600 font-semibold"><CheckCircle size={11} />OFF{r.expectedSerial && <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Re-check" className="ml-0.5 text-gray-400 hover:text-blue-600"><RefreshCcw size={10} /></button>}</span>
                     ) : r.fmiStatus?.startsWith('ERROR') ? (
-                      <span className="inline-flex items-center gap-1">
-                        <span className="text-amber-600" title={r.fmiStatus}>Error</span>
-                        {r.expectedSerial && (
-                          <button
-                            onClick={() => checkFindMy(r.id, r.expectedSerial!)}
-                            title="Re-check"
-                            className="ml-1 text-gray-400 hover:text-blue-600"
-                          >
-                            <RefreshCcw size={11} />
-                          </button>
-                        )}
-                      </span>
+                      <span className="inline-flex items-center gap-0.5"><span className="text-amber-600" title={r.fmiStatus}>Err</span>{r.expectedSerial && <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Re-check" className="ml-0.5 text-gray-400 hover:text-blue-600"><RefreshCcw size={10} /></button>}</span>
                     ) : r.expectedSerial ? (
-                      <button
-                        onClick={() => checkFindMy(r.id, r.expectedSerial!)}
-                        className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
-                      >
-                        Check
-                      </button>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
+                      <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} className="text-blue-600 hover:underline font-medium">Check</button>
+                    ) : <span className="text-gray-400">-</span>}
                   </td>
-
-                  {/* Return Date */}
-                  <td className="px-4 py-2 whitespace-nowrap text-xs">
-                    {r.returnDate ? format(new Date(r.returnDate), 'MMM d, yyyy') : '-'}
-                  </td>
-
-                  {/* UPS Status */}
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
+                  <td className="px-2 py-1 whitespace-nowrap text-gray-500">{r.returnDate ? format(new Date(r.returnDate), 'M/d/yy') : '-'}</td>
+                  <td className="px-2 py-1 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
                       <div className="flex flex-col">
                         <StatusBadge status={r.carrierStatus} />
-                        {r.deliveredAt && (
-                          <span className="text-[10px] text-gray-400 mt-0.5">
-                            {format(new Date(r.deliveredAt), 'MMM d, yyyy')}
-                          </span>
-                        )}
+                        {r.deliveredAt && <span className="text-[9px] text-gray-400">{format(new Date(r.deliveredAt), 'M/d/yy')}</span>}
                       </div>
                       {r.trackingNumber && (
-                        <button
-                          onClick={() => refreshTracking(r.id)}
-                          disabled={refreshingId === r.id || bulkTracking}
-                          className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-30"
-                          title="Refresh tracking status"
-                        >
-                          {refreshingId === r.id ? (
-                            <Loader2 size={12} className="animate-spin" />
-                          ) : (
-                            <RefreshCcw size={12} />
-                          )}
+                        <button onClick={() => refreshTracking(r.id)} disabled={refreshingId === r.id || bulkTracking} className="text-gray-400 hover:text-gray-600 disabled:opacity-30" title="Refresh">
+                          {refreshingId === r.id ? <Loader2 size={10} className="animate-spin" /> : <RefreshCcw size={10} />}
                         </button>
                       )}
                     </div>
