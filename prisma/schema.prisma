@@ -69,6 +69,7 @@ model AmazonAccount {
   fbaReturns        FbaReturn[]
   fbaReimbursements FbaReimbursement[]
   fbaShipments      FbaShipment[]
+  freeReplacements  FreeReplacement[]
 
   @@unique([sellerId, marketplaceId])
   @@map("amazon_accounts")
@@ -2067,4 +2068,27 @@ model ChatMessage {
 
   @@index([conversationId, createdAt])
   @@map("chat_messages")
+}
+
+// ─── Free Replacements ──────────────────────────────────────────────────────
+
+model FreeReplacement {
+  id                    String    @id @default(cuid())
+  accountId             String
+  account               AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  replacementOrderId    String    @unique
+  originalOrderId       String
+  asin                  String
+  title                 String
+  shippedAt             DateTime?
+  returnTrackingNumber  String?
+  returnCarrierStatus   String?
+  returnDeliveredAt     DateTime?
+  trackingUpdatedAt     DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([accountId])
+  @@index([originalOrderId])
+  @@map("free_replacements")
 }
