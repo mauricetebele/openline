@@ -227,7 +227,7 @@ export async function POST(
 
       await tx.order.update({
         where: { id: params.orderId },
-        data:  { workflowStatus: 'SHIPPED' },
+        data:  { workflowStatus: 'SHIPPED', shippedAt: new Date() },
       })
     }
   })
