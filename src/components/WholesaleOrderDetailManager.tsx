@@ -398,11 +398,11 @@ function generateInvoicePDF(order: Order) {
       y += 12
 
       // Serials in single column
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...black)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6); doc.setTextColor(...black)
       group.serials.forEach((sn) => {
-        ensureSpace(14)
+        ensureSpace(10)
         doc.text(sn, margin + 12, y)
-        y += 12
+        y += 8
       })
       y += 8
     }
