@@ -136,16 +136,26 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
 
   const createdAfter = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString()
 
-  // Fetch MFN orders in all active statuses — replacements start as Unshipped
-  // Cap at 20 pages to stay within Vercel's 300s function timeout
-  const { orders, pagesFetched } = await fetchOrdersWithRateLimit(sp, {
+  // Fetch Shipped and Unshipped separately so one pool doesn't push the other
+  // past the page cap. Shipped is the main source; Unshipped catches new ones.
+  const shippedResult = await fetchOrdersWithRateLimit(sp, {
     MarketplaceIds: account.marketplaceId,
     FulfillmentChannels: 'MFN',
-    OrderStatuses: 'Unshipped,PartiallyShipped,Shipped',
+    OrderStatuses: 'Shipped',
     CreatedAfter: createdAfter,
   }, 20)
 
-  console.log(`[sync-replacements] Fetched ${orders.length} shipped MFN orders across ${pagesFetched} pages`)
+  const unshippedResult = await fetchOrdersWithRateLimit(sp, {
+    MarketplaceIds: account.marketplaceId,
+    FulfillmentChannels: 'MFN',
+    OrderStatuses: 'Unshipped',
+    CreatedAfter: createdAfter,
+  }, 5) // Unshipped pool is smaller
+
+  const orders = [...shippedResult.orders, ...unshippedResult.orders]
+  const pagesFetched = shippedResult.pagesFetched + unshippedResult.pagesFetched
+
+  console.log(`[sync-replacements] Fetched ${orders.length} MFN orders (${shippedResult.orders.length} shipped + ${unshippedResult.orders.length} unshipped) across ${pagesFetched} pages`)
 
   // Filter for replacement orders:
   // 1. IsReplacementOrder flag set by Amazon (most reliable when present)
