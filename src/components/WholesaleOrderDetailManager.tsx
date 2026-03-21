@@ -97,25 +97,25 @@ function generateInvoicePDF(order: Order) {
   }
 
   // ─── Header: Stacked logo (matching login screen) ──────────────────
-  // SVG source: viewBox 0 0 280 200, path M60 105 C100 120, 160 40, 210 55
-  // Scale to fit ~70pt wide icon, centered at logoCx
-  const sc = 0.45 // scale factor from SVG coords
-  const logoCx = margin + 52
-  const logoOx = logoCx - 140 * sc // SVG origin x offset
-  const logoOy = 10 // top of icon area
+  // SVG viewBox 0 0 280 200 — icon dots at (58,104) and (212,54), midpoint (135,79)
+  const sc = 0.45
+  // Center of icon = midpoint of the two dots in SVG = x:135
+  // We place the icon so its center is at this PDF x coordinate:
+  const iconMidX = margin + 55
+  const logoOx = iconMidX - 135 * sc // offset so SVG x:135 maps to iconMidX
+  const logoOy = 10
 
-  // Cubic bezier: P0=(60,105) CP1=(100,120) CP2=(160,40) P3=(210,55)
+  // Cubic bezier curve: P0=(60,105) CP1=(100,120) CP2=(160,40) P3=(210,55)
   const p0x = 60*sc+logoOx, p0y = 105*sc+logoOy
   const c1x = 100*sc+logoOx, c1y = 120*sc+logoOy
   const c2x = 160*sc+logoOx, c2y = 40*sc+logoOy
   const p3x = 210*sc+logoOx, p3y = 55*sc+logoOy
 
-  // Draw gradient curve
   doc.setLineWidth(1.6)
   for (let t = 0; t < 1; t += 0.04) {
     const t2 = Math.min(t + 0.04, 1)
-    const bx = (t: number) => Math.pow(1-t,3)*p0x + 3*Math.pow(1-t,2)*t*c1x + 3*(1-t)*t*t*c2x + t*t*t*p3x
-    const by = (t: number) => Math.pow(1-t,3)*p0y + 3*Math.pow(1-t,2)*t*c1y + 3*(1-t)*t*t*c2y + t*t*t*p3y
+    const bx = (ti: number) => Math.pow(1-ti,3)*p0x + 3*Math.pow(1-ti,2)*ti*c1x + 3*(1-ti)*ti*ti*c2x + ti*ti*ti*p3x
+    const by = (ti: number) => Math.pow(1-ti,3)*p0y + 3*Math.pow(1-ti,2)*ti*c1y + 3*(1-ti)*ti*ti*c2y + ti*ti*ti*p3y
     const r = Math.round(blue[0] + (red[0]-blue[0])*t)
     const g = Math.round(blue[1] + (red[1]-blue[1])*t)
     const b = Math.round(blue[2] + (red[2]-blue[2])*t)
@@ -123,28 +123,26 @@ function generateInvoicePDF(order: Order) {
     doc.line(bx(t), by(t), bx(t2), by(t2))
   }
 
-  // Left blue dot (ring + fill) at SVG (58,104)
+  // Left blue dot (ring + center fill) at SVG (58,104)
   const ldx = 58*sc+logoOx, ldy = 104*sc+logoOy
   doc.setDrawColor(...blue); doc.setLineWidth(1.8)
   doc.circle(ldx, ldy, 5, 'S')
   doc.setFillColor(...blue); doc.circle(ldx, ldy, 1.6, 'F')
 
-  // Right red dot (ring + fill) at SVG (212,54)
+  // Right red dot (ring + center fill) at SVG (212,54)
   const rdx = 212*sc+logoOx, rdy = 54*sc+logoOy
   doc.setDrawColor(...red); doc.setLineWidth(1.8)
   doc.circle(rdx, rdy, 5.5, 'S')
   doc.setFillColor(...red); doc.circle(rdx, rdy, 1.8, 'F')
 
-  // "OPEN LINE" centered below icon — with letter spacing
-  const textCx = logoCx
+  // Text centered on same midpoint as icon
+  const textCx = iconMidX
   const textY = logoOy + 120 * sc + 8
   doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...navy)
   doc.text('OPEN LINE', textCx, textY, { align: 'center', charSpace: 2.5 })
-  // "MOBILITY" below in red with wider spacing
   doc.setFontSize(9); doc.setTextColor(...red)
   doc.text('MOBILITY', textCx, textY + 13, { align: 'center', charSpace: 4 })
 
-  // Logo block bottom edge (for spacing the rest of the layout)
   const logoBottom = textY + 20
 
   // Invoice title block (right side, vertically centered with logo)
@@ -214,9 +212,9 @@ function generateInvoicePDF(order: Order) {
   // ─── Line items table ─────────────────────────────────────────────
   y = Math.max(y + 20, 180)
 
-  // Table header
+  // Table header (rounded top)
   doc.setFillColor(...navy)
-  doc.rect(margin, y - 12, right - margin, 18, 'F')
+  doc.roundedRect(margin, y - 12, right - margin, 18, 4, 4, 'F')
   doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255)
   doc.text('ITEM', margin + 8, y)
   doc.text('QTY', right - 145, y, { align: 'right' })
@@ -231,7 +229,7 @@ function generateInvoicePDF(order: Order) {
     // Alternate row bg
     if (i % 2 === 0) {
       doc.setFillColor(...gray50)
-      doc.rect(margin, y - 10, right - margin, rowHeight, 'F')
+      doc.roundedRect(margin, y - 10, right - margin, rowHeight, 2, 2, 'F')
     }
     // Line 1: SKU (bold) + numeric columns
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...navy)
@@ -319,7 +317,7 @@ function generateInvoicePDF(order: Order) {
 
   // Total due — highlighted
   doc.setFillColor(...navy)
-  doc.rect(totalsX - 6, y - 10, right - totalsX + 12, 20, 'F')
+  doc.roundedRect(totalsX - 6, y - 10, right - totalsX + 12, 20, 4, 4, 'F')
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(255, 255, 255)
   doc.text('TOTAL DUE', totalsX, y + 2)
   doc.text($(order.total), right - 6, y + 2, { align: 'right' })
@@ -362,9 +360,9 @@ function generateInvoicePDF(order: Order) {
     y = margin
 
     // Section header
-    doc.setFillColor(...gray50)
-    doc.rect(margin, y - 10, right - margin, 18, 'F')
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...navy)
+    doc.setFillColor(...navy)
+    doc.roundedRect(margin, y - 10, right - margin, 18, 4, 4, 'F')
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(255, 255, 255)
     doc.text('SERIAL NUMBERS', margin + 8, y + 1)
     y += 16
 
