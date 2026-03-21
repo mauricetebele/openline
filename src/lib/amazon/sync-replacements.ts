@@ -132,7 +132,7 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
 
   // Check if there are existing records to decide lookback window
   const existingCount = await prisma.freeReplacement.count({ where: { accountId } })
-  const lookbackDays = existingCount === 0 ? 30 : 14
+  const lookbackDays = existingCount === 0 ? 180 : 14
 
   const createdAfter = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString()
 
