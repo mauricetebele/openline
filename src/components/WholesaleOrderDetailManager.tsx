@@ -312,6 +312,39 @@ function generateInvoicePDF(order: Order) {
     y += noteLines.length * 11
   }
 
+  // ─── Shipping Info ─────────────────────────────────────────────────
+  if (order.shipCarrier || order.shipTracking) {
+    y += 16
+    ensureSpace(45)
+    doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...blue)
+    doc.text('SHIPPING', margin, y)
+    y += 3
+    doc.setDrawColor(...blue); doc.setLineWidth(0.5)
+    doc.line(margin, y, margin + 45, y)
+    y += 12
+    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray700)
+    if (order.shipCarrier) {
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(...gray500)
+      doc.text('Carrier:', margin, y)
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(...black)
+      doc.text(order.shipCarrier, margin + 45, y)
+    }
+    if (order.shipTracking) {
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(...gray500)
+      doc.text('Tracking:', margin + 140, y)
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(...black)
+      doc.text(order.shipTracking, margin + 185, y)
+    }
+    y += 12
+    if (order.shippedAt) {
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(...gray500)
+      doc.text('Shipped:', margin, y)
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(...black)
+      doc.text(new Date(order.shippedAt).toLocaleDateString(), margin + 45, y)
+      y += 12
+    }
+  }
+
   // ─── Serial Numbers Section ───────────────────────────────────────
   if (order.serialAssignments && order.serialAssignments.length > 0) {
     y += 20
