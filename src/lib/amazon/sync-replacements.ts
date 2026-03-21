@@ -16,6 +16,7 @@ interface SpApiOrder {
   PurchaseDate?: string
   OrderStatus?: string
   FulfillmentChannel?: string
+  [key: string]: unknown
 }
 
 interface SpApiOrderItem {
@@ -40,6 +41,22 @@ export interface SyncResult {
     lookbackDays: number
     sampleOrderKeys?: string[]
     knownTestOrder?: Record<string, unknown> | null
+    error?: string
+  }
+}
+
+/**
+ * Probe a single known order to see what fields SP-API returns.
+ * This is a lightweight debug call (1 request) to verify IsReplacementOrder is present.
+ */
+export async function probeOrder(accountId: string, orderId: string): Promise<Record<string, unknown> | null> {
+  const sp = new SpApiClient(accountId)
+  try {
+    const res = await sp.get<{ payload?: SpApiOrder }>(`/orders/v0/orders/${orderId}`)
+    return (res.payload ?? null) as Record<string, unknown> | null
+  } catch (err) {
+    console.error(`[sync-replacements] probeOrder failed for ${orderId}:`, err)
+    return null
   }
 }
 
@@ -53,36 +70,29 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
 
   const createdAfter = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString()
 
-  // Fetch shipped orders — no FulfillmentChannels filter because
-  // Amazon free replacements can be either MFN or AFN (FBA)
+  // Fetch shipped MFN orders only (to avoid quota issues with all channels)
   const orders = await sp.fetchAllPages<SpApiOrder>(
     '/orders/v0/orders',
     'Orders',
     {
       MarketplaceIds: account.marketplaceId,
+      FulfillmentChannels: 'MFN',
       OrderStatuses: 'Shipped',
       CreatedAfter: createdAfter,
     },
   )
 
-  console.log(`[sync-replacements] Fetched ${orders.length} shipped orders for account ${accountId}`)
+  console.log(`[sync-replacements] Fetched ${orders.length} shipped MFN orders for account ${accountId}`)
 
   // SP-API may return IsReplacementOrder as boolean or string
   const replacements = orders.filter(o => {
-    const isReplacement = o.IsReplacementOrder === true || (o as Record<string, unknown>).IsReplacementOrder === 'true'
-    return isReplacement && o.ReplacedOrderId
+    const val = o.IsReplacementOrder
+    return (val === true || val as unknown === 'true') && o.ReplacedOrderId
   })
 
   console.log(`[sync-replacements] Found ${replacements.length} replacement orders`)
 
-  // Debug: check if a known replacement order is present
-  const knownTest = orders.find(o => o.AmazonOrderId === '113-1141718-0565010')
-  if (knownTest) {
-    console.log(`[sync-replacements] Found known replacement order:`, JSON.stringify(knownTest))
-  }
-
   if (orders.length > 0 && replacements.length === 0) {
-    // Log a sample order to see what fields are available
     const sample = orders[0]
     console.log(`[sync-replacements] Sample order keys:`, Object.keys(sample))
     console.log(`[sync-replacements] Sample IsReplacementOrder:`, sample.IsReplacementOrder, typeof sample.IsReplacementOrder)
@@ -92,7 +102,6 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
   let updated = 0
 
   for (const order of replacements) {
-    // Fetch order items to get ASIN + title
     let asin = ''
     let title = ''
     try {
@@ -106,7 +115,6 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
       console.warn(`[sync-replacements] Failed to fetch items for ${order.AmazonOrderId}:`, err)
     }
 
-    // Look up return tracking from MFNReturn table using original order ID
     const mfnReturn = await prisma.mFNReturn.findFirst({
       where: { accountId, orderId: order.ReplacedOrderId! },
       select: { trackingNumber: true },
@@ -142,14 +150,11 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
       created++
     }
 
-    // Rate limit: ~1 req/s for order items calls
     await new Promise(r => setTimeout(r, 1100))
   }
 
-  // Refresh stale tracking
   const trackingRefreshed = await refreshStaleTracking(accountId)
 
-  // Build debug info
   const sampleOrderKeys = orders.length > 0 ? Object.keys(orders[0]) : undefined
   const knownTestOrder = orders.find(o => o.AmazonOrderId === '113-1141718-0565010') as Record<string, unknown> | undefined
 
