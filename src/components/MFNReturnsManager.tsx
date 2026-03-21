@@ -475,34 +475,30 @@ export default function MFNReturnsManager() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-xs">
+        <table className="w-full text-xs table-fixed">
           <thead className="sticky top-0 bg-gray-100 dark:bg-gray-800 z-10">
             <tr className="text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-              <th className="px-2 py-1.5">Order ID</th>
-              <th className="px-2 py-1.5">Title</th>
-              <th className="px-2 py-1.5">ASIN</th>
-              <th className="px-2 py-1.5">SKU</th>
-              <th className="px-2 py-1.5">Price</th>
-              <th className="px-2 py-1.5">Refund</th>
-              <th className="px-2 py-1.5">RMA</th>
-              <th className="px-2 py-1.5">Tracking</th>
-              <th className="px-2 py-1.5">Serial</th>
-              <th className="px-2 py-1.5">FMI</th>
-              <th className="px-2 py-1.5">Date</th>
-              <th className="px-2 py-1.5">Status</th>
+              <th className="px-2 py-1.5 w-[140px]">Order ID</th>
+              <th className="px-2 py-1.5">Product</th>
+              <th className="px-2 py-1.5 w-[70px]">Price</th>
+              <th className="px-2 py-1.5 w-[160px]">Tracking</th>
+              <th className="px-2 py-1.5 w-[120px]">Serial</th>
+              <th className="px-2 py-1.5 w-[50px]">FMI</th>
+              <th className="px-2 py-1.5 w-[60px]">Date</th>
+              <th className="px-2 py-1.5 w-[130px]">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
             {loading && returns.length === 0 ? (
               <tr>
-                <td colSpan={12} className="text-center py-8 text-gray-400">
+                <td colSpan={8} className="text-center py-8 text-gray-400">
                   <Loader2 className="mx-auto animate-spin mb-1" size={16} />
                   Loading...
                 </td>
               </tr>
             ) : returns.length === 0 ? (
               <tr>
-                <td colSpan={12} className="text-center py-8 text-gray-400">
+                <td colSpan={8} className="text-center py-8 text-gray-400">
                   No MFN returns found. Click &quot;Sync Returns&quot; to pull from Amazon.
                 </td>
               </tr>
@@ -510,25 +506,16 @@ export default function MFNReturnsManager() {
               returns.map((r) => (
                 <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                   <td className="px-2 py-1 font-mono whitespace-nowrap">
-                    <a
-                      href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline"
-                    >
-                      {r.orderId}
-                    </a>
+                    <a href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{r.orderId}</a>
                   </td>
-                  <td className="px-2 py-1 max-w-[180px] truncate" title={r.title ?? ''}>{r.title ?? <span className="text-gray-400">-</span>}</td>
-                  <td className="px-2 py-1 font-mono">{r.asin ?? '-'}</td>
-                  <td className="px-2 py-1 font-mono">{r.sku ?? '-'}</td>
-                  <td className="px-2 py-1 whitespace-nowrap">
-                    {r.itemPrice != null ? `$${r.itemPrice.toFixed(2)}` : r.returnValue != null ? `$${r.returnValue.toFixed(2)}` : r.orderAmount != null ? `$${r.orderAmount.toFixed(2)}` : '-'}
+                  <td className="px-2 py-1 truncate" title={`${r.title ?? ''}\nASIN: ${r.asin ?? ''} · SKU: ${r.sku ?? ''}`}>
+                    <span className="block truncate">{r.title ?? <span className="text-gray-400">-</span>}</span>
+                    <span className="text-[10px] text-gray-400 font-mono">{r.asin ?? ''}{r.sku ? ` · ${r.sku}` : ''}</span>
                   </td>
                   <td className="px-2 py-1 whitespace-nowrap">
-                    {r.refundedAmount != null ? <span className="text-red-600 font-medium">${r.refundedAmount.toFixed(2)}</span> : <span className="text-gray-400">-</span>}
+                    <div>{r.itemPrice != null ? `$${r.itemPrice.toFixed(2)}` : r.returnValue != null ? `$${r.returnValue.toFixed(2)}` : r.orderAmount != null ? `$${r.orderAmount.toFixed(2)}` : '-'}</div>
+                    {r.refundedAmount != null && <div className="text-red-600 text-[10px]">-${r.refundedAmount.toFixed(2)}</div>}
                   </td>
-                  <td className="px-2 py-1 font-mono">{r.rmaId ?? '-'}</td>
                   <td className="px-2 py-1 whitespace-nowrap">
                     {r.trackingNumber ? (
                       <a href={trackingUrl(r.trackingNumber)} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5 font-mono">
@@ -536,7 +523,7 @@ export default function MFNReturnsManager() {
                       </a>
                     ) : <span className="text-gray-400">-</span>}
                   </td>
-                  <td className="px-2 py-1 font-mono">{r.expectedSerial ?? <span className="text-gray-400">-</span>}</td>
+                  <td className="px-2 py-1 font-mono truncate" title={r.expectedSerial ?? ''}>{r.expectedSerial ?? <span className="text-gray-400">-</span>}</td>
                   <td className="px-2 py-1">
                     {fmiChecking.has(r.id) ? (
                       <Loader2 size={11} className="animate-spin text-blue-500" />
