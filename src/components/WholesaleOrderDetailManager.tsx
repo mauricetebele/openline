@@ -97,12 +97,10 @@ function generateInvoicePDF(order: Order) {
   }
 
   // ─── Header: Stacked logo (matching login screen) ──────────────────
-  // SVG viewBox 0 0 280 200 — icon dots at (58,104) and (212,54), midpoint (135,79)
+  // SVG viewBox 0 0 280 200 — text centered at x:140 (true visual center)
   const sc = 0.45
-  // Center of icon = midpoint of the two dots in SVG = x:135
-  // We place the icon so its center is at this PDF x coordinate:
   const iconMidX = margin + 55
-  const logoOx = iconMidX - 135 * sc // offset so SVG x:135 maps to iconMidX
+  const logoOx = iconMidX - 140 * sc // SVG x:140 (text center) maps to iconMidX
   const logoOy = 10
 
   // Cubic bezier curve: P0=(60,105) CP1=(100,120) CP2=(160,40) P3=(210,55)
