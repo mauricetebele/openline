@@ -17,6 +17,7 @@ const STATUSES = ['ALL', 'PENDING_APPROVAL', 'DRAFT', 'CONFIRMED', 'INVOICED', '
 interface Order {
   id: string
   orderNumber: string
+  invoiceNumber?: string | null
   customer: { id: string; companyName: string }
   items: { id: string }[]
   total: number
@@ -115,7 +116,7 @@ export default function WholesaleOrdersManager() {
                   onClick={() => router.push(`/wholesale/orders/${o.id}`)}
                   className="hover:bg-gray-50 cursor-pointer"
                 >
-                  <td className="px-5 py-3 font-mono text-orange-600">{o.orderNumber}</td>
+                  <td className="px-5 py-3 font-mono text-orange-600">{o.invoiceNumber ?? o.orderNumber}</td>
                   <td className="px-5 py-3 text-gray-500">{new Date(o.orderDate).toLocaleDateString()}</td>
                   <td className="px-5 py-3 font-medium">{o.customer.companyName}</td>
                   <td className="px-5 py-3 text-right text-gray-500">{o.items.length}</td>
