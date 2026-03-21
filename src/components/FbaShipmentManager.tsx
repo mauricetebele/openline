@@ -157,6 +157,8 @@ const TABS: Array<{ label: string; value: string | null }> = [
   { label: 'Cancelled', value: 'CANCELLED' },
 ]
 
+type ReceivedCounts = Record<string, { received: number; shipped: number }>
+
 function ListView({
   shipments,
   loading,
@@ -178,6 +180,28 @@ function ListView({
   search: string
   onSearch: (q: string) => void
 }) {
+  // Received counts per FBA shipment: { [fbaId]: { [confirmationId]: { received, shipped } } }
+  const [receivedMap, setReceivedMap] = useState<Record<string, ReceivedCounts>>({})
+  const fetchedIds = useRef(new Set<string>())
+
+  useEffect(() => {
+    // Fetch received counts for shipments that have labelData (have Amazon IDs)
+    const toFetch = shipments.filter(s =>
+      s.labelData && !fetchedIds.current.has(s.id) &&
+      !['DRAFT', 'SERIALIZED', 'PLAN_CREATED', 'PACKING_SET', 'CANCELLED'].includes(s.status)
+    )
+    for (const s of toFetch) {
+      fetchedIds.current.add(s.id)
+      fetch(`/api/fba-shipments/${s.id}/received`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.byShipment) {
+            setReceivedMap(prev => ({ ...prev, [s.id]: d.byShipment }))
+          }
+        })
+        .catch(() => {})
+    }
+  }, [shipments])
   const filtered = shipments.filter(s => {
     if (!tab) return true
     if (tab === 'active') return !['SHIPPED', 'CANCELLED'].includes(s.status)
@@ -257,16 +281,22 @@ function ListView({
                           ids = parsed.map((sl: { confirmationId: string }) => sl.confirmationId)
                         }
                       } catch { /* ignore */ }
-                      if (ids.length > 1) {
+                      const counts = receivedMap[s.id]
+                      if (ids.length > 0) {
                         return (
                           <div className="flex flex-col gap-0.5">
-                            {ids.map((id, i) => (
-                              <span key={i} className="whitespace-nowrap">{id}</span>
-                            ))}
+                            {ids.map((id, i) => {
+                              const c = counts?.[id]
+                              return (
+                                <span key={i} className="whitespace-nowrap">
+                                  {id}
+                                  {c && <span className={clsx('ml-1.5 text-[10px] font-semibold', c.received >= c.shipped ? 'text-green-600' : 'text-amber-600')}>({c.received}/{c.shipped})</span>}
+                                </span>
+                              )
+                            })}
                           </div>
                         )
                       }
-                      if (ids.length === 1) return ids[0]
                       return s.shipmentConfirmationId ?? '—'
                     })()}
                   </td>

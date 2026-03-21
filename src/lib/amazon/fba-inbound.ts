@@ -538,6 +538,33 @@ export async function createMarketplaceItemLabels(
   return url
 }
 
+// ─── 12d. Get Shipment Items (v0 API — includes QuantityReceived) ─────────
+
+export interface ShipmentItemV0 {
+  SellerSKU: string
+  FulfillmentNetworkSKU: string
+  QuantityShipped: number
+  QuantityReceived: number
+  QuantityInCase?: number
+}
+
+/**
+ * Fetch items for a shipment via the v0 Inbound API.
+ * Returns items with QuantityShipped and QuantityReceived.
+ * Uses the shipmentConfirmationId (e.g. FBA1998Y0RH7).
+ */
+export async function getShipmentItemsV0(
+  accountId: string,
+  amazonShipmentId: string,
+): Promise<ShipmentItemV0[]> {
+  const client = new SpApiClient(accountId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp = await client.get<any>(
+    `/fba/inbound/v0/shipments/${amazonShipmentId}/items`,
+  )
+  return resp.payload?.ItemData ?? resp.ItemData ?? []
+}
+
 // ─── 13. Get Shipment Labels (v0 API) ───────────────────────────────────────
 
 export interface ShipmentLabelsResponse {
