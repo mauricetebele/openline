@@ -1,9 +1,9 @@
 /**
  * Sync free replacement orders from Amazon SP-API.
  *
- * Fetches shipped MFN orders, filters by IsReplacementOrder,
- * cross-references MFNReturn for return tracking, and
- * refreshes stale carrier tracking statuses.
+ * Uses custom pagination with rate-limit-aware delays for the Orders API
+ * (burst: 20 requests, then 1 per ~60s). Cross-references MFNReturn for
+ * return tracking and refreshes stale carrier statuses.
  */
 import { prisma } from '@/lib/prisma'
 import { SpApiClient } from './sp-api'
@@ -29,6 +29,13 @@ interface OrderItemsResponse {
   payload?: { OrderItems?: SpApiOrderItem[] }
 }
 
+interface OrdersPageResponse {
+  payload?: {
+    Orders?: SpApiOrder[]
+    NextToken?: string
+  }
+}
+
 const STALE_HOURS = 4
 
 export interface SyncResult {
@@ -39,15 +46,74 @@ export interface SyncResult {
     totalOrdersFetched: number
     replacementsFound: number
     lookbackDays: number
+    pagesFetched: number
     sampleOrderKeys?: string[]
-    knownTestOrder?: Record<string, unknown> | null
     error?: string
   }
 }
 
+function sleep(ms: number) {
+  return new Promise(r => setTimeout(r, ms))
+}
+
+/**
+ * Fetch orders with rate-limit-aware pagination.
+ * Orders API: burst 20, then ~1 req/60s.
+ * Uses 3s delays for burst pages, 65s delays after burst.
+ */
+async function fetchOrdersWithRateLimit(
+  sp: SpApiClient,
+  params: Record<string, string>,
+  maxPages = 25,
+): Promise<{ orders: SpApiOrder[]; pagesFetched: number }> {
+  const allOrders: SpApiOrder[] = []
+  let nextToken: string | undefined
+  let page = 0
+  const BURST_LIMIT = 18 // stay under 20 burst to leave headroom
+
+  do {
+    const queryParams: Record<string, string> = { ...params }
+    if (nextToken) queryParams['NextToken'] = nextToken
+
+    let response: OrdersPageResponse
+    try {
+      response = await sp.get<OrdersPageResponse>('/orders/v0/orders', queryParams)
+    } catch (err) {
+      const errStr = String(err)
+      // If quota exceeded, wait 65s and retry once
+      if (errStr.includes('429') || errStr.includes('QuotaExceeded')) {
+        console.log(`[sync-replacements] Rate limited on page ${page + 1}, waiting 65s...`)
+        await sleep(65_000)
+        try {
+          response = await sp.get<OrdersPageResponse>('/orders/v0/orders', queryParams)
+        } catch (retryErr) {
+          console.error(`[sync-replacements] Retry also failed on page ${page + 1}:`, retryErr)
+          break // Return what we have so far
+        }
+      } else {
+        throw err
+      }
+    }
+
+    const orders = response!.payload?.Orders ?? []
+    allOrders.push(...orders)
+    nextToken = response!.payload?.NextToken
+    page++
+
+    console.log(`[sync-replacements] Page ${page}: ${orders.length} orders (total: ${allOrders.length})`)
+
+    if (nextToken && page < maxPages) {
+      // Use longer delays after burst to respect rate limits
+      const delay = page < BURST_LIMIT ? 3_000 : 65_000
+      await sleep(delay)
+    }
+  } while (nextToken && page < maxPages)
+
+  return { orders: allOrders, pagesFetched: page }
+}
+
 /**
  * Probe a single known order to see what fields SP-API returns.
- * This is a lightweight debug call (1 request) to verify IsReplacementOrder is present.
  */
 export async function probeOrder(accountId: string, orderId: string): Promise<Record<string, unknown> | null> {
   const sp = new SpApiClient(accountId)
@@ -66,37 +132,27 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
 
   // Check if there are existing records to decide lookback window
   const existingCount = await prisma.freeReplacement.count({ where: { accountId } })
-  const lookbackDays = existingCount === 0 ? 90 : 14
+  const lookbackDays = existingCount === 0 ? 30 : 14
 
   const createdAfter = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString()
 
-  // Fetch shipped MFN orders only (to avoid quota issues with all channels)
-  const orders = await sp.fetchAllPages<SpApiOrder>(
-    '/orders/v0/orders',
-    'Orders',
-    {
-      MarketplaceIds: account.marketplaceId,
-      FulfillmentChannels: 'MFN',
-      OrderStatuses: 'Shipped',
-      CreatedAfter: createdAfter,
-    },
-  )
+  // Fetch shipped MFN orders with rate-limit-aware pagination
+  const { orders, pagesFetched } = await fetchOrdersWithRateLimit(sp, {
+    MarketplaceIds: account.marketplaceId,
+    FulfillmentChannels: 'MFN',
+    OrderStatuses: 'Shipped',
+    CreatedAfter: createdAfter,
+  })
 
-  console.log(`[sync-replacements] Fetched ${orders.length} shipped MFN orders for account ${accountId}`)
+  console.log(`[sync-replacements] Fetched ${orders.length} shipped MFN orders across ${pagesFetched} pages`)
 
-  // SP-API may return IsReplacementOrder as boolean or string
+  // Filter for replacement orders
   const replacements = orders.filter(o => {
     const val = o.IsReplacementOrder
     return (val === true || val as unknown === 'true') && o.ReplacedOrderId
   })
 
   console.log(`[sync-replacements] Found ${replacements.length} replacement orders`)
-
-  if (orders.length > 0 && replacements.length === 0) {
-    const sample = orders[0]
-    console.log(`[sync-replacements] Sample order keys:`, Object.keys(sample))
-    console.log(`[sync-replacements] Sample IsReplacementOrder:`, sample.IsReplacementOrder, typeof sample.IsReplacementOrder)
-  }
 
   let created = 0
   let updated = 0
@@ -150,13 +206,12 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
       created++
     }
 
-    await new Promise(r => setTimeout(r, 1100))
+    await sleep(1100)
   }
 
   const trackingRefreshed = await refreshStaleTracking(accountId)
 
   const sampleOrderKeys = orders.length > 0 ? Object.keys(orders[0]) : undefined
-  const knownTestOrder = orders.find(o => o.AmazonOrderId === '113-1141718-0565010') as Record<string, unknown> | undefined
 
   return {
     created,
@@ -166,8 +221,8 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
       totalOrdersFetched: orders.length,
       replacementsFound: replacements.length,
       lookbackDays,
+      pagesFetched,
       sampleOrderKeys,
-      knownTestOrder: knownTestOrder ?? null,
     },
   }
 }
