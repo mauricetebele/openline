@@ -24,9 +24,10 @@ const TERMS_LABEL: Record<string, string> = {
 const PAYMENT_METHODS = ['CHECK', 'ACH', 'WIRE', 'CREDIT_CARD', 'CASH', 'OTHER']
 
 interface OrderItem {
-  id: string; sku?: string; title: string; description?: string
+  id: string; productId?: string; sku?: string; title: string; description?: string
   quantity: number; unitPrice: number; discount: number; total: number; taxable: boolean
   isInvoiceAddon?: boolean
+  product?: { id: string; sku: string } | null
   grade?: { grade: string } | null
 }
 
@@ -71,116 +72,309 @@ function addrLines(a: Address | null): string[] {
 function generateInvoicePDF(order: Order) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const w = doc.internal.pageSize.getWidth()
+  const h = doc.internal.pageSize.getHeight()
+  const margin = 48
+  const right = w - margin
   const isPaid = order.status === 'PAID'
+  const $  = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-  // PAID watermark
+  // Brand colors
+  const blue: [number, number, number] = [27, 94, 166]   // #1B5EA6
+  const red: [number, number, number]  = [193, 52, 44]    // #C1342C
+  const navy: [number, number, number] = [27, 58, 92]     // #1B3A5C
+  const gray50: [number, number, number] = [249, 250, 251]
+  const gray200: [number, number, number] = [229, 231, 235]
+  const gray500: [number, number, number] = [107, 114, 128]
+  const gray700: [number, number, number] = [55, 65, 81]
+  const black: [number, number, number] = [17, 24, 39]
+
+  // Helper: ensure page space
+  function ensureSpace(needed: number) {
+    if (y + needed > h - 60) {
+      doc.addPage()
+      y = margin
+    }
+  }
+
+  // ─── Header: Logo + Invoice title ─────────────────────────────────
+  // Draw OLM connected-dots logo mark
+  const logoX = margin
+  const logoY = 36
+  // Left blue dot
+  doc.setDrawColor(...blue); doc.setLineWidth(2)
+  doc.circle(logoX + 8, logoY + 8, 5.5, 'S')
+  doc.setFillColor(...blue); doc.circle(logoX + 8, logoY + 8, 1.8, 'F')
+  // Curved connecting line (approximate with bezier)
+  doc.setDrawColor(...blue); doc.setLineWidth(1.8)
+  const cx1 = logoX + 24, cy1 = logoY + 16
+  const cx2 = logoX + 42, cy2 = logoY - 4
+  const ex = logoX + 56, ey = logoY + 2
+  // jsPDF doesn't have bezier, draw with line segments
+  for (let t = 0; t <= 1; t += 0.05) {
+    const t2 = t + 0.05
+    const x1b = Math.pow(1-t,3)*(logoX+8) + 3*Math.pow(1-t,2)*t*cx1 + 3*(1-t)*t*t*cx2 + t*t*t*ex
+    const y1b = Math.pow(1-t,3)*(logoY+8) + 3*Math.pow(1-t,2)*t*cy1 + 3*(1-t)*t*t*cy2 + t*t*t*ey
+    const x2b = Math.pow(1-t2,3)*(logoX+8) + 3*Math.pow(1-t2,2)*t2*cx1 + 3*(1-t2)*t2*t2*cx2 + t2*t2*t2*ex
+    const y2b = Math.pow(1-t2,3)*(logoY+8) + 3*Math.pow(1-t2,2)*t2*cy1 + 3*(1-t2)*t2*t2*cy2 + t2*t2*t2*ey
+    // Gradient: interpolate blue→red
+    const r = Math.round(blue[0] + (red[0]-blue[0])*t)
+    const g = Math.round(blue[1] + (red[1]-blue[1])*t)
+    const b = Math.round(blue[2] + (red[2]-blue[2])*t)
+    doc.setDrawColor(r, g, b)
+    doc.line(x1b, y1b, x2b, y2b)
+  }
+  // Right red dot
+  doc.setDrawColor(...red); doc.setLineWidth(2)
+  doc.circle(ex, ey, 5.5, 'S')
+  doc.setFillColor(...red); doc.circle(ex, ey, 1.8, 'F')
+  // Company name
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...navy)
+  doc.text('OPEN LINE', logoX + 70, logoY + 4)
+  doc.setFontSize(7.5); doc.setTextColor(...red)
+  doc.text('MOBILITY', logoX + 70, logoY + 14)
+  doc.setFontSize(6); doc.setTextColor(...gray500)
+  doc.text('LTD.', logoX + 70 + doc.getTextWidth('MOBILITY') + 3, logoY + 14)
+
+  // Invoice title block (right side)
+  doc.setFontSize(24); doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
+  doc.text('INVOICE', right, 42, { align: 'right' })
+  // Colored accent line under INVOICE
+  doc.setDrawColor(...blue); doc.setLineWidth(2)
+  doc.line(right - 100, 48, right - 30, 48)
+  doc.setDrawColor(...red); doc.setLineWidth(2)
+  doc.line(right - 30, 48, right, 48)
+
+  // ─── Invoice meta (right column) ──────────────────────────────────
+  let y = 68
+  doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray500)
+  const invRef = order.invoiceNumber ?? order.orderNumber
+  const metaRows: [string, string][] = [
+    ['Invoice #', invRef],
+    ['Date', new Date(order.orderDate).toLocaleDateString()],
+  ]
+  if (order.dueDate) metaRows.push(['Due Date', new Date(order.dueDate).toLocaleDateString()])
+  metaRows.push(['Terms', TERMS_LABEL[order.customer.paymentTerms] ?? order.customer.paymentTerms])
+  if (order.customerPoNumber) metaRows.push(['Customer PO#', order.customerPoNumber])
+
+  metaRows.forEach(([label, val]) => {
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray500)
+    doc.text(label, right - 120, y)
+    doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
+    doc.text(val, right, y, { align: 'right' })
+    y += 13
+  })
+
+  // ─── Bill To / Ship To ────────────────────────────────────────────
+  y = 68
+  const colBill = margin
+  const colShip = margin + 180
+
+  doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...blue)
+  doc.text('BILL TO', colBill, y)
+  doc.text('SHIP TO', colShip, y)
+  y += 4
+  doc.setDrawColor(...blue); doc.setLineWidth(0.8)
+  doc.line(colBill, y, colBill + 50, y)
+  doc.line(colShip, y, colShip + 50, y)
+  y += 12
+
+  doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(...black)
+  doc.text(order.customer.companyName, colBill, y)
+  doc.text(order.customer.companyName, colShip, y)
+  y += 13
+
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...gray700)
+  const billAddr = addrLines(order.billingAddress)
+  const shipAddr = addrLines(order.shippingAddress)
+  const maxAddr = Math.max(billAddr.length, shipAddr.length)
+  for (let i = 0; i < maxAddr; i++) {
+    if (billAddr[i]) doc.text(billAddr[i], colBill, y)
+    if (shipAddr[i]) doc.text(shipAddr[i], colShip, y)
+    y += 12
+  }
+
+  // ─── PAID watermark ───────────────────────────────────────────────
   if (isPaid) {
-    doc.setFontSize(72)
-    doc.setTextColor(200, 200, 200)
-    doc.text('PAID', w / 2, 400, { align: 'center', angle: 45 } as Parameters<typeof doc.text>[3])
-    doc.setTextColor(0, 0, 0)
+    doc.setFontSize(80); doc.setTextColor(220, 220, 220)
+    doc.text('PAID', w / 2, h / 2 - 40, { align: 'center', angle: 40 } as Parameters<typeof doc.text>[3])
   }
 
-  doc.setFontSize(16)
-  doc.setFont('helvetica', 'bold')
-  doc.text('INVOICE', 40, 50)
-
-  doc.setFontSize(10)
-  doc.setFont('helvetica', 'normal')
-  doc.text(`Invoice #: ${order.invoiceNumber ?? order.orderNumber}`, w - 40, 40, { align: 'right' })
-  doc.text(`Date: ${new Date(order.orderDate).toLocaleDateString()}`, w - 40, 55, { align: 'right' })
-  if (order.dueDate) doc.text(`Due: ${new Date(order.dueDate).toLocaleDateString()}`, w - 40, 70, { align: 'right' })
-  doc.text(`Terms: ${TERMS_LABEL[order.customer.paymentTerms] ?? order.customer.paymentTerms}`, w - 40, 85, { align: 'right' })
-  if (order.customerPoNumber) doc.text(`Customer PO#: ${order.customerPoNumber}`, w - 40, 100, { align: 'right' })
-
-  // Bill To / Ship To
-  doc.setFont('helvetica', 'bold')
-  doc.text('Bill To:', 40, 100)
-  doc.text('Ship To:', 220, 100)
-  doc.setFont('helvetica', 'normal')
-
-  const billLines = [order.customer.companyName, ...addrLines(order.billingAddress)]
-  const shipLines = [order.customer.companyName, ...addrLines(order.shippingAddress)]
-  let y = 114
-  for (let i = 0; i < Math.max(billLines.length, shipLines.length); i++) {
-    if (billLines[i]) doc.text(billLines[i], 40, y)
-    if (shipLines[i]) doc.text(shipLines[i], 220, y)
-    y += 14
-  }
+  // ─── Line items table ─────────────────────────────────────────────
+  y = Math.max(y + 20, 180)
 
   // Table header
-  y = Math.max(y + 20, 180)
-  doc.setFillColor(245, 245, 245)
-  doc.rect(40, y - 14, w - 80, 18, 'F')
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.text('#',    45, y)
-  doc.text('SKU',  65, y)
-  doc.text('Description',               160, y)
-  doc.text('Qty',   360, y, { align: 'right' })
-  doc.text('Unit Price', 450, y, { align: 'right' })
-  doc.text('Disc%',      490, y, { align: 'right' })
-  doc.text('Amount',  w - 45, y, { align: 'right' })
-  y += 16
+  doc.setFillColor(...navy)
+  doc.rect(margin, y - 12, right - margin, 18, 'F')
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255)
+  doc.text('#', margin + 8, y)
+  doc.text('SKU', margin + 28, y)
+  doc.text('DESCRIPTION', margin + 110, y)
+  doc.text('QTY', right - 145, y, { align: 'right' })
+  doc.text('UNIT PRICE', right - 65, y, { align: 'right' })
+  doc.text('AMOUNT', right - 6, y, { align: 'right' })
+  y += 14
 
-  doc.setFont('helvetica', 'normal')
+  // Table rows
+  doc.setFontSize(8.5)
   order.items.forEach((item, i) => {
-    doc.text(String(i + 1),    45, y)
-    doc.text(item.sku ?? '',   65, y)
-    doc.text(item.title.substring(0, 45), 160, y)
-    doc.text(String(Number(item.quantity)),  360, y, { align: 'right' })
-    doc.text(`$${Number(item.unitPrice).toFixed(2)}`,  450, y, { align: 'right' })
-    doc.text(`${Number(item.discount)}%`,  490, y, { align: 'right' })
-    doc.text(`$${Number(item.total).toFixed(2)}`, w - 45, y, { align: 'right' })
+    ensureSpace(18)
+    // Alternate row bg
+    if (i % 2 === 0) {
+      doc.setFillColor(...gray50)
+      doc.rect(margin, y - 10, right - margin, 16, 'F')
+    }
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(...black)
+    doc.text(String(i + 1), margin + 8, y)
+    doc.setTextColor(...gray500)
+    doc.text(item.sku ?? '', margin + 28, y)
+    doc.setTextColor(...black)
+    const titleStr = item.isInvoiceAddon ? `* ${item.title}` : item.title
+    doc.text(titleStr.substring(0, 40), margin + 110, y)
+    doc.text(String(Number(item.quantity)), right - 145, y, { align: 'right' })
+    doc.text($(item.unitPrice), right - 65, y, { align: 'right' })
+    doc.setFont('helvetica', 'bold')
+    doc.text($(item.total), right - 6, y, { align: 'right' })
     y += 16
   })
 
-  // Totals
-  y += 10
-  doc.setLineWidth(0.5)
-  doc.line(w - 220, y, w - 45, y)
-  y += 14
+  // Bottom table border
+  doc.setDrawColor(...gray200); doc.setLineWidth(0.5)
+  doc.line(margin, y - 6, right, y - 6)
 
-  const totalsRows: [string, string][] = [
-    ['Subtotal:', `$${Number(order.subtotal).toFixed(2)}`],
-    [`Discount (${Number(order.discountPct)}%):`, `-$${Number(order.discountAmt).toFixed(2)}`],
-    [`Tax (${Number(order.taxRate)}%):`, `$${Number(order.taxAmt).toFixed(2)}`],
-    ['Shipping:', `$${Number(order.shippingCost).toFixed(2)}`],
+  // ─── Totals block (right-aligned) ─────────────────────────────────
+  y += 8
+  const totalsX = right - 180
+  ensureSpace(90)
+
+  const summaryRows: [string, string, boolean?][] = [
+    ['Subtotal', $(order.subtotal)],
+    [`Tax (${Number(order.taxRate)}%)`, $(order.taxAmt)],
+    ['Shipping', $(order.shippingCost)],
   ]
-  totalsRows.forEach(([label, val]) => {
-    doc.text(label, w - 220, y)
-    doc.text(val, w - 45, y, { align: 'right' })
-    y += 16
+  summaryRows.forEach(([label, val]) => {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...gray500)
+    doc.text(label, totalsX, y)
+    doc.setTextColor(...black)
+    doc.text(val, right - 6, y, { align: 'right' })
+    y += 14
   })
 
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.text('TOTAL DUE:', w - 220, y)
-  doc.text(`$${Number(order.total).toFixed(2)}`, w - 45, y, { align: 'right' })
-  y += 16
+  // Total due — highlighted
+  doc.setFillColor(...navy)
+  doc.rect(totalsX - 6, y - 10, right - totalsX + 12, 20, 'F')
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(255, 255, 255)
+  doc.text('TOTAL DUE', totalsX, y + 2)
+  doc.text($(order.total), right - 6, y + 2, { align: 'right' })
+  y += 26
 
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(10)
-  doc.text('Amount Paid:', w - 220, y)
-  doc.text(`-$${Number(order.paidAmount).toFixed(2)}`, w - 45, y, { align: 'right' })
-  y += 2
-  doc.setLineWidth(0.5)
-  doc.line(w - 220, y, w - 45, y)
-  y += 14
+  // Paid + Balance
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...gray500)
+  doc.text('Amount Paid', totalsX, y)
+  doc.setTextColor(22, 163, 74) // green-600
+  doc.text(`-${$(order.paidAmount)}`, right - 6, y, { align: 'right' })
+  y += 3
+  doc.setDrawColor(...gray200); doc.setLineWidth(0.5)
+  doc.line(totalsX, y, right, y)
+  y += 13
 
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.text('BALANCE DUE:', w - 220, y)
-  doc.text(`$${Number(order.balance).toFixed(2)}`, w - 45, y, { align: 'right' })
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...red)
+  doc.text('BALANCE DUE', totalsX, y)
+  doc.text($(order.balance), right - 6, y, { align: 'right' })
+  y += 6
 
+  // ─── Notes ────────────────────────────────────────────────────────
   if (order.notes) {
-    y += 30
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    doc.text(`Notes: ${order.notes}`, 40, y)
+    y += 16
+    ensureSpace(40)
+    doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...blue)
+    doc.text('NOTES', margin, y)
+    y += 3
+    doc.setDrawColor(...blue); doc.setLineWidth(0.5)
+    doc.line(margin, y, margin + 35, y)
+    y += 10
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...gray700)
+    const noteLines = doc.splitTextToSize(order.notes, right - margin)
+    doc.text(noteLines, margin, y)
+    y += noteLines.length * 11
   }
 
-  doc.save(`Invoice-${order.invoiceNumber ?? order.orderNumber}.pdf`)
+  // ─── Serial Numbers Section ───────────────────────────────────────
+  if (order.serialAssignments && order.serialAssignments.length > 0) {
+    y += 20
+    ensureSpace(50)
+
+    // Section header
+    doc.setFillColor(...gray50)
+    doc.rect(margin, y - 10, right - margin, 18, 'F')
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...navy)
+    doc.text('SERIAL NUMBERS', margin + 8, y + 1)
+    y += 16
+
+    // Group serials by product (match to items)
+    const serialsByProduct = new Map<string, { sku: string; title: string; serials: string[] }>()
+    for (const item of order.items) {
+      const pid = item.productId ?? item.product?.id
+      if (!pid) continue
+      if (!serialsByProduct.has(pid)) {
+        serialsByProduct.set(pid, {
+          sku: item.sku ?? item.product?.sku ?? '—',
+          title: item.title,
+          serials: [],
+        })
+      }
+    }
+    for (const sa of order.serialAssignments) {
+      const pid = sa.inventorySerial.productId
+      const group = serialsByProduct.get(pid)
+      if (group) {
+        group.serials.push(sa.inventorySerial.serialNumber)
+      } else {
+        serialsByProduct.set(pid, { sku: '—', title: 'Other', serials: [sa.inventorySerial.serialNumber] })
+      }
+    }
+
+    for (const [, group] of Array.from(serialsByProduct.entries())) {
+      if (group.serials.length === 0) continue
+      ensureSpace(30)
+      // Item header
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...navy)
+      doc.text(`${group.sku}`, margin + 8, y)
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray700)
+      doc.text(`— ${group.title}`, margin + 8 + doc.getTextWidth(group.sku + '  '), y)
+      y += 12
+
+      // Serials in columns
+      const colWidth = 130
+      const cols = Math.floor((right - margin - 8) / colWidth)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...gray700)
+      group.serials.forEach((sn, idx) => {
+        const col = idx % cols
+        const row = Math.floor(idx / cols)
+        if (col === 0 && row > 0) {
+          y += 11
+          ensureSpace(14)
+        }
+        const sx = margin + 12 + col * colWidth
+        // Small bullet
+        doc.setFillColor(...blue)
+        doc.circle(sx, y - 2.5, 1.5, 'F')
+        doc.setTextColor(...black)
+        doc.text(sn, sx + 6, y)
+      })
+      y += 16
+    }
+  }
+
+  // ─── Footer ───────────────────────────────────────────────────────
+  const footY = h - 36
+  doc.setDrawColor(...gray200); doc.setLineWidth(0.5)
+  doc.line(margin, footY - 8, right, footY - 8)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(...gray500)
+  doc.text('Open Line Mobility, Ltd.', margin, footY)
+  doc.text('Thank you for your business.', w / 2, footY, { align: 'center' })
+  doc.text(`${invRef}`, right, footY, { align: 'right' })
+
+  doc.save(`Invoice-${invRef}.pdf`)
 }
 
 export default function WholesaleOrderDetailManager({ id }: { id: string }) {
@@ -425,7 +619,6 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                   <th className="text-left px-5 py-2">Grade</th>
                   <th className="text-right px-5 py-2">Qty</th>
                   <th className="text-right px-5 py-2">Unit Price</th>
-                  <th className="text-right px-5 py-2">Disc%</th>
                   <th className="text-right px-5 py-2">Total</th>
                 </tr>
               </thead>
@@ -437,7 +630,6 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                     <td className="px-5 py-2 text-xs text-gray-600">{item.grade?.grade ?? '—'}</td>
                     <td className="px-5 py-2 text-right">{Number(item.quantity)}</td>
                     <td className="px-5 py-2 text-right">{fmt(Number(item.unitPrice))}</td>
-                    <td className="px-5 py-2 text-right">{Number(item.discount)}%</td>
                     <td className="px-5 py-2 text-right font-medium">{fmt(Number(item.total))}</td>
                   </tr>
                 ))}
@@ -464,10 +656,6 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
             <div className="flex justify-between">
               <span className="text-gray-500">Subtotal</span>
               <span>{fmt(Number(order.subtotal))}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Discount ({Number(order.discountPct)}%)</span>
-              <span className="text-red-500">-{fmt(Number(order.discountAmt))}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Tax ({Number(order.taxRate)}%)</span>
