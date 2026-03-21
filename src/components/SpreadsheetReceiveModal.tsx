@@ -341,7 +341,7 @@ export default function SpreadsheetReceiveModal({
             <div>
               <div className="flex items-center gap-2">
                 <ClipboardCheck size={16} className="text-amazon-blue" />
-                <h2 className="text-sm font-semibold text-gray-900">Confirm Receiving — PO #{po.poNumber}</h2>
+                <h2 className="text-sm font-semibold text-gray-900">Confirm Receiving — PO{po.poNumber}</h2>
               </div>
               <p className="text-xs text-gray-500 mt-0.5">
                 Review the items below before processing
@@ -448,7 +448,7 @@ export default function SpreadsheetReceiveModal({
           <div>
             <div className="flex items-center gap-2">
               <FileSpreadsheet size={16} className="text-amazon-blue" />
-              <h2 className="text-sm font-semibold text-gray-900">Spreadsheet Receive — PO #{po.poNumber}</h2>
+              <h2 className="text-sm font-semibold text-gray-900">Spreadsheet Receive — PO{po.poNumber}</h2>
             </div>
             <p className="text-xs text-gray-500 mt-0.5">
               {po.vendor.name} · Paste, upload CSV, or download a template

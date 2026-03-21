@@ -227,29 +227,27 @@ function ListView({
         </div>
       ) : (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-xs">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
               <tr>
-                <th className="text-left px-4 py-2 font-medium">FBA #</th>
-                <th className="text-left px-4 py-2 font-medium">Name</th>
-                <th className="text-left px-4 py-2 font-medium">Account</th>
-                <th className="text-left px-4 py-2 font-medium">Amazon ID</th>
-                <th className="text-center px-4 py-2 font-medium">Items</th>
-                <th className="text-left px-4 py-2 font-medium">Status</th>
-                <th className="text-left px-4 py-2 font-medium">Created</th>
-                <th className="w-10"></th>
+                <th className="text-left px-3 py-1.5 font-semibold">FBA #</th>
+                <th className="text-left px-3 py-1.5 font-semibold">Name</th>
+                <th className="text-left px-3 py-1.5 font-semibold">Amazon ID</th>
+                <th className="text-center px-3 py-1.5 font-semibold">Items</th>
+                <th className="text-left px-3 py-1.5 font-semibold">Status</th>
+                <th className="text-left px-3 py-1.5 font-semibold">Created</th>
+                <th className="w-8"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map(s => (
                 <tr key={s.id} onClick={() => onSelect(s.id)}
                   className="hover:bg-gray-50 cursor-pointer">
-                  <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{s.shipmentNumber ?? '—'}</td>
-                  <td className="px-4 py-2.5 font-medium text-gray-800">
+                  <td className="px-3 py-1.5 font-mono text-gray-600">{s.shipmentNumber ?? '—'}</td>
+                  <td className="px-3 py-1.5 font-medium text-gray-800">
                     {s.name || s.id.slice(-8)}
                   </td>
-                  <td className="px-4 py-2.5 text-gray-600">{s.account.marketplaceName}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-gray-500">
+                  <td className="px-3 py-1.5 font-mono text-gray-500">
                     {(() => {
                       let ids: string[] = []
                       try {
@@ -267,13 +265,14 @@ function ListView({
                           </div>
                         )
                       }
+                      if (ids.length === 1) return ids[0]
                       return s.shipmentConfirmationId ?? '—'
                     })()}
                   </td>
-                  <td className="px-4 py-2.5 text-center text-gray-600">{s._count?.items ?? s.items.length}</td>
-                  <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
-                  <td className="px-4 py-2.5 text-gray-500">{new Date(s.createdAt).toLocaleDateString()}</td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-1.5 text-center text-gray-600">{s._count?.items ?? s.items.length}</td>
+                  <td className="px-3 py-1.5"><StatusBadge status={s.status} /></td>
+                  <td className="px-3 py-1.5 text-gray-500">{new Date(s.createdAt).toLocaleDateString()}</td>
+                  <td className="px-3 py-1.5">
                     {s.status !== 'SHIPPED' && (
                       <button type="button" title="Delete shipment"
                         onClick={(e) => { e.stopPropagation(); onDelete(s.id) }}

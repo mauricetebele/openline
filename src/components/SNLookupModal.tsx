@@ -495,7 +495,7 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                                 {event.purchaseOrder && (
                                   <p>
                                     <span className="text-gray-400">PO:</span>{' '}
-                                    <span className="font-semibold text-gray-800">#{event.purchaseOrder.poNumber}</span>
+                                    <span className="font-semibold text-gray-800">PO{event.purchaseOrder.poNumber}</span>
                                     {' · '}{event.purchaseOrder.vendor.name}
                                   </p>
                                 )}

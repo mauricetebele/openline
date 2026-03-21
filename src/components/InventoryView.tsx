@@ -252,7 +252,7 @@ function SerialRow({ serial, index }: { serial: Serial; index: number }) {
                           {event.purchaseOrder && (
                             <p>
                               <span className="text-gray-400">PO:</span>{' '}
-                              <span className="font-medium text-gray-800">#{event.purchaseOrder.poNumber}</span>
+                              <span className="font-medium text-gray-800">PO{event.purchaseOrder.poNumber}</span>
                               {' '}· {event.purchaseOrder.vendor.name}
                             </p>
                           )}

@@ -458,7 +458,7 @@ export default function VendorLedgerManager() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-gray-500">
-                        {row.purchaseOrder ? `#${row.purchaseOrder.poNumber}` : '—'}
+                        {row.purchaseOrder ? `PO${row.purchaseOrder.poNumber}` : '—'}
                       </td>
                       <td
                         className={clsx(

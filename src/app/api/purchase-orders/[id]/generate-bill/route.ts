@@ -53,7 +53,7 @@ export async function POST(
       vendorId: po.vendorId,
       type: 'DEBIT',
       amount: finalAmount,
-      description: description?.trim() || `PO #${(po as any).poNumber} bill`,
+      description: description?.trim() || `PO${(po as any).poNumber} bill`,
       vendorInvoiceNo: vendorInvoiceNo?.trim() || null,
       purchaseOrderId: po.id,
       adjustments: adjustments?.length

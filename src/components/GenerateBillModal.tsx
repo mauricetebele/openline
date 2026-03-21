@@ -117,7 +117,7 @@ export default function GenerateBillModal({ po, onClose, onSuccess }: GenerateBi
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Generate Bill for PO #{po.poNumber}</h2>
+            <h2 className="text-lg font-bold text-gray-900">Generate Bill for PO{po.poNumber}</h2>
             <p className="text-sm text-gray-500">
               {po.vendor.name} &middot; {new Date(po.date).toLocaleDateString()}
             </p>

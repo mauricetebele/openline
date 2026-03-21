@@ -429,7 +429,7 @@ export default function ReceiveModal({
           <div>
             <div className="flex items-center gap-2">
               <PackageCheck size={16} className="text-amazon-blue" />
-              <h2 className="text-sm font-semibold text-gray-900">Receive PO #{po.poNumber}</h2>
+              <h2 className="text-sm font-semibold text-gray-900">Receive PO{po.poNumber}</h2>
             </div>
             <p className="text-xs text-gray-500 mt-0.5">
               {po.vendor.name} · {new Date(po.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}

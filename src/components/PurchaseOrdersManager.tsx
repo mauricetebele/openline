@@ -451,7 +451,7 @@ function POPanel({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
           <h2 className="text-sm font-semibold text-gray-900">
-            {isEdit ? `Edit PO #${editing.poNumber}` : 'New Purchase Order'}
+            {isEdit ? `Edit PO${editing.poNumber}` : 'New Purchase Order'}
           </h2>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X size={16} />
@@ -950,30 +950,30 @@ function PORow({
     <>
       <tr className={clsx('group hover:bg-gray-50 cursor-pointer', expanded && 'bg-gray-50')}
           onClick={() => setExpanded(e => !e)}>
-        <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">
-          <div className="flex items-center gap-1.5">
-            {expanded ? <ChevronUp size={13} className="text-gray-400" /> : <ChevronDown size={13} className="text-gray-400" />}
-            #{po.poNumber}
+        <td className="px-3 py-1.5 font-semibold text-gray-900 whitespace-nowrap">
+          <div className="flex items-center gap-1">
+            {expanded ? <ChevronUp size={12} className="text-gray-400" /> : <ChevronDown size={12} className="text-gray-400" />}
+            PO{po.poNumber}
           </div>
         </td>
-        <td className="px-4 py-3 text-gray-700">{po.vendor.name}</td>
-        <td className="px-4 py-3 text-gray-500 text-sm">
+        <td className="px-3 py-1.5 text-gray-700">{po.vendor.name}</td>
+        <td className="px-3 py-1.5 text-gray-500">
           {new Date(po.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
         </td>
-        <td className="px-4 py-3 text-gray-600 text-sm">{po.lines.length}</td>
-        <td className="px-4 py-3 text-right text-sm">
-          <span className="text-gray-600">{unitCount} units</span>
+        <td className="px-3 py-1.5 text-gray-600">{po.lines.length}</td>
+        <td className="px-3 py-1.5 text-right">
+          <span className="text-gray-600">{unitCount}</span>
           {returnCounts && returnCounts.totalReturns > 0 && (
-            <span className="text-amber-600 ml-1">· {returnCounts.totalReturns} returned</span>
+            <span className="text-amber-600 ml-1">· {returnCounts.totalReturns} ret</span>
           )}
         </td>
-        <td className="px-4 py-3 font-medium text-gray-900 text-right">${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        <td className="px-4 py-3">
-          <span className={clsx('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_COLOR[po.status])}>
+        <td className="px-3 py-1.5 font-medium text-gray-900 text-right">${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td className="px-3 py-1.5">
+          <span className={clsx('inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium', STATUS_COLOR[po.status])}>
             {STATUS_LABEL[po.status]}
           </span>
         </td>
-        <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+        <td className="px-3 py-1.5" onClick={e => e.stopPropagation()}>
           {err && <span className="text-xs text-red-500">{err}</span>}
           {deleteConfirm ? (
             <div className="flex items-center gap-2 justify-end">
@@ -1253,17 +1253,17 @@ export default function PurchaseOrdersManager() {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="min-w-full text-sm">
+          <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">PO #</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Vendor</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Items</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Units</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                <th className="px-4 py-3 w-36" />
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">PO #</th>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Vendor</th>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Date</th>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Items</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Units</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Total</th>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                <th className="px-3 py-2 w-32" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
