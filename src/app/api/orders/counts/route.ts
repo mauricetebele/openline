@@ -22,7 +22,10 @@ export async function GET(req: NextRequest) {
   const [y, m, d] = todayStr.split('-').map(Number)
   const tomorrowMidnight = new Date(Date.UTC(y, m - 1, d + 1))
 
-  const [pending, unshipped, awaiting, dueOutToday] = await Promise.all([
+  // Start of today in Pacific time (midnight PT → UTC)
+  const todayMidnight = new Date(Date.UTC(y, m - 1, d))
+
+  const [pending, unshipped, awaiting, dueOutToday, shippedToday] = await Promise.all([
     prisma.order.count({ where: { accountId, workflowStatus: 'PENDING' } }),
     prisma.order.count({ where: { accountId, workflowStatus: 'PROCESSING' } }),
     prisma.order.count({ where: { accountId, workflowStatus: 'AWAITING_VERIFICATION' } }),
@@ -33,7 +36,14 @@ export async function GET(req: NextRequest) {
         latestShipDate: { lt: tomorrowMidnight },
       },
     }),
+    prisma.order.count({
+      where: {
+        accountId,
+        workflowStatus: 'SHIPPED',
+        shippedAt: { gte: todayMidnight, lt: tomorrowMidnight },
+      },
+    }),
   ])
 
-  return NextResponse.json({ pending, unshipped, awaiting, dueOutToday })
+  return NextResponse.json({ pending, unshipped, awaiting, dueOutToday, shippedToday })
 }

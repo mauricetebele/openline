@@ -4607,7 +4607,7 @@ export default function UnshippedOrders() {
   const [showPickList, setShowPickList]           = useState(false)
 
   // Tab counts
-  const [tabCounts, setTabCounts] = useState<{ pending: number; unshipped: number; awaiting: number; dueOutToday: number } | null>(null)
+  const [tabCounts, setTabCounts] = useState<{ pending: number; unshipped: number; awaiting: number; dueOutToday: number; shippedToday: number } | null>(null)
 
   // Label batch state
   const [activeBatchId,    setActiveBatchId]    = useState<string | null>(null)
@@ -5510,8 +5510,17 @@ export default function UnshippedOrders() {
     return <span className={clsx('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium', cls)}>{status}</span>
   }
 
+  const shippedTodayCount = tabCounts?.shippedToday ?? 0
+
   return (
     <div className="flex flex-col h-full relative">
+      {/* Shipped today badge — positioned in the page header top-right */}
+      <div className="absolute top-[-52px] right-6 z-10 flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
+        <Truck size={14} className="text-green-600" />
+        <span className="text-xs font-medium text-green-700">Shipped Today</span>
+        <span className="text-sm font-bold text-green-800 tabular-nums">{shippedTodayCount}</span>
+      </div>
+
       {/* Modals */}
       {showPresetModal && <PresetManagementModal onClose={() => setShowPresetModal(false)} onChange={fetchPresets} />}
       {showPackagePresetModal && <PackagePresetManagementModal onClose={() => setShowPackagePresetModal(false)} onChange={fetchPackagePresets} />}
