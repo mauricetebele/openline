@@ -917,9 +917,21 @@ function PORow({
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleting,      setDeleting]      = useState(false)
   const [err,           setErr]           = useState('')
+  const [returnCounts,  setReturnCounts]  = useState<{ totalReturns: number; byLine: Record<string, number> } | null>(null)
+  const returnsFetched = useRef(false)
 
   const total = po.lines.reduce((s, l) => s + l.qty * Number(l.unitCost), 0)
   const unitCount = po.lines.reduce((s, l) => s + l.qty, 0)
+
+  useEffect(() => {
+    if (expanded && !returnsFetched.current) {
+      returnsFetched.current = true
+      fetch(`/api/purchase-orders/${po.id}/returns`)
+        .then(r => r.json())
+        .then(d => setReturnCounts(d))
+        .catch(() => {})
+    }
+  }, [expanded, po.id])
 
   async function handleDelete() {
     setDeleting(true)
@@ -949,7 +961,12 @@ function PORow({
           {new Date(po.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
         </td>
         <td className="px-4 py-3 text-gray-600 text-sm">{po.lines.length}</td>
-        <td className="px-4 py-3 text-right text-gray-600 text-sm">{unitCount}</td>
+        <td className="px-4 py-3 text-right text-sm">
+          <span className="text-gray-600">{unitCount} units</span>
+          {returnCounts && returnCounts.totalReturns > 0 && (
+            <span className="text-amber-600 ml-1">· {returnCounts.totalReturns} returned</span>
+          )}
+        </td>
         <td className="px-4 py-3 font-medium text-gray-900 text-right">${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         <td className="px-4 py-3">
           <span className={clsx('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_COLOR[po.status])}>
@@ -1034,6 +1051,7 @@ function PORow({
                     <th className="text-left text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">Description</th>
                     <th className="text-left text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">Grade</th>
                     <th className="text-right text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">Qty</th>
+                    <th className="text-right text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">Returned</th>
                     <th className="text-right text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">Unit Cost</th>
                     <th className="text-right text-[10px] font-medium text-gray-400 uppercase tracking-wide pb-1">Subtotal</th>
                   </tr>
@@ -1045,6 +1063,15 @@ function PORow({
                       <td className="py-1 pr-3 text-gray-500 truncate max-w-[200px]">{line.product.description}</td>
                       <td className="py-1 pr-3 text-gray-500">{line.grade?.grade ?? '—'}</td>
                       <td className="py-1 text-right text-gray-700">{line.qty}</td>
+                      <td className="py-1 text-right">
+                        {line.product.isSerializable ? (
+                          returnCounts?.byLine[line.id]
+                            ? <span className="text-amber-600 font-medium">{returnCounts.byLine[line.id]}</span>
+                            : <span className="text-gray-400">0</span>
+                        ) : (
+                          <span className="text-gray-300">&mdash;</span>
+                        )}
+                      </td>
                       <td className="py-1 text-right text-gray-700">${Number(line.unitCost).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td className="py-1 text-right font-medium text-gray-900">
                         ${(line.qty * Number(line.unitCost)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1054,7 +1081,7 @@ function PORow({
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-gray-200">
-                    <td colSpan={5} className="pt-1.5 text-right text-xs font-semibold text-gray-600 pr-3">Total</td>
+                    <td colSpan={6} className="pt-1.5 text-right text-xs font-semibold text-gray-600 pr-3">Total</td>
                     <td className="pt-1.5 text-right font-bold text-gray-900">${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                 </tfoot>
