@@ -64,19 +64,30 @@ export default function FreeReplacementsManager() {
     setMessage('')
     try {
       const res = await fetch('/api/free-replacements/sync', { method: 'POST' })
+      if (!res.ok) {
+        const text = await res.text()
+        try {
+          const json = JSON.parse(text)
+          setMessage(json.error ?? `Sync failed (HTTP ${res.status})`)
+        } catch {
+          setMessage(`Sync failed (HTTP ${res.status})`)
+        }
+        setSyncing(false)
+        return
+      }
       const json = await res.json()
       if (json.ok) {
         const debug = json.results?.[0]?.debug
         const debugStr = debug
-          ? ` | DEBUG: ${debug.error ? 'ERROR: ' + debug.error : `${debug.totalOrdersFetched} orders fetched (${debug.lookbackDays}d), ${debug.replacementsFound} replacements found, knownTest=${debug.knownTestOrder ? 'YES' : 'NO'}, fields=[${debug.sampleOrderKeys?.join(', ') ?? 'none'}]`}`
+          ? ` | DEBUG: ${debug.error ? 'ERROR: ' + debug.error : `${debug.totalOrdersFetched} orders fetched (${debug.lookbackDays}d), ${debug.replacementsFound} replacements found, fields=[${debug.sampleOrderKeys?.join(', ') ?? 'none'}]`}`
           : ' | NO DEBUG INFO'
         setMessage(`Sync complete: ${json.created} new, ${json.updated} updated, ${json.trackingRefreshed} tracking refreshed${debugStr}`)
         fetchData()
       } else {
-        setMessage(json.error ?? 'Sync failed')
+        setMessage(json.error ?? json.message ?? 'Sync failed — check console for details')
       }
-    } catch {
-      setMessage('Sync request failed')
+    } catch (err) {
+      setMessage(`Sync request failed: ${err instanceof Error ? err.message : 'network error'}`)
     }
     setSyncing(false)
   }

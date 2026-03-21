@@ -11,7 +11,7 @@ export async function POST() {
 
   const accounts = await prisma.amazonAccount.findMany({ where: { isActive: true } })
   if (accounts.length === 0) {
-    return NextResponse.json({ message: 'No active accounts' })
+    return NextResponse.json({ ok: false, error: 'No active Amazon accounts found' })
   }
 
   const results: (SyncResult & { accountId: string })[] = []
@@ -28,7 +28,7 @@ export async function POST() {
         created: 0,
         updated: 0,
         trackingRefreshed: 0,
-        debug: { totalOrdersFetched: 0, replacementsFound: 0, lookbackDays: 0, error: errMsg },
+        debug: { totalOrdersFetched: 0, replacementsFound: 0, lookbackDays: 0, pagesFetched: 0, error: errMsg },
       } as SyncResult & { accountId: string })
     }
   }
