@@ -255,6 +255,50 @@ function generateInvoicePDF(order: Order) {
   doc.setDrawColor(...gray200); doc.setLineWidth(0.5)
   doc.line(margin, y - 6, right, y - 6)
 
+  // ─── Shipping Info (bordered grid, full width under items) ────────
+  if (order.shipCarrier || order.shipTracking) {
+    y += 10
+    ensureSpace(60)
+
+    const gridTop = y
+    const gridH = 48
+    const gridW = right - margin
+    const colW = gridW / 3
+
+    // Outer border with rounded corners
+    doc.setDrawColor(...gray200); doc.setLineWidth(0.8)
+    doc.roundedRect(margin, gridTop, gridW, gridH, 3, 3, 'S')
+
+    // Header bar
+    doc.setFillColor(...navy)
+    doc.roundedRect(margin, gridTop, gridW, 16, 3, 3, 'F')
+    doc.rect(margin, gridTop + 8, gridW, 8, 'F')
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255)
+    doc.text('SHIPPING DETAILS', margin + 10, gridTop + 11)
+
+    // Column dividers
+    doc.setDrawColor(...gray200); doc.setLineWidth(0.5)
+    doc.line(margin + colW, gridTop + 16, margin + colW, gridTop + gridH)
+    doc.line(margin + colW * 2, gridTop + 16, margin + colW * 2, gridTop + gridH)
+
+    // Cell content
+    const cellY = gridTop + 28
+    const cells: [number, string, string][] = [
+      [margin + 10, 'Carrier', order.shipCarrier || '—'],
+      [margin + colW + 10, 'Tracking #', order.shipTracking || '—'],
+      [margin + colW * 2 + 10, 'Ship Date', order.shippedAt ? new Date(order.shippedAt).toLocaleDateString() : '—'],
+    ]
+    cells.forEach(([x, label, value]) => {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(...gray500)
+      doc.text(label.toUpperCase(), x, cellY)
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...black)
+      doc.text(value, x, cellY + 12)
+    })
+
+    y = gridTop + gridH + 6
+  }
+
   // ─── Totals block (right-aligned) ─────────────────────────────────
   y += 8
   const totalsX = right - 180
@@ -312,43 +356,10 @@ function generateInvoicePDF(order: Order) {
     y += noteLines.length * 11
   }
 
-  // ─── Shipping Info ─────────────────────────────────────────────────
-  if (order.shipCarrier || order.shipTracking) {
-    y += 16
-    ensureSpace(45)
-    doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...blue)
-    doc.text('SHIPPING', margin, y)
-    y += 3
-    doc.setDrawColor(...blue); doc.setLineWidth(0.5)
-    doc.line(margin, y, margin + 45, y)
-    y += 12
-    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray700)
-    if (order.shipCarrier) {
-      doc.setFont('helvetica', 'bold'); doc.setTextColor(...gray500)
-      doc.text('Carrier:', margin, y)
-      doc.setFont('helvetica', 'normal'); doc.setTextColor(...black)
-      doc.text(order.shipCarrier, margin + 45, y)
-    }
-    if (order.shipTracking) {
-      doc.setFont('helvetica', 'bold'); doc.setTextColor(...gray500)
-      doc.text('Tracking:', margin + 140, y)
-      doc.setFont('helvetica', 'normal'); doc.setTextColor(...black)
-      doc.text(order.shipTracking, margin + 185, y)
-    }
-    y += 12
-    if (order.shippedAt) {
-      doc.setFont('helvetica', 'bold'); doc.setTextColor(...gray500)
-      doc.text('Shipped:', margin, y)
-      doc.setFont('helvetica', 'normal'); doc.setTextColor(...black)
-      doc.text(new Date(order.shippedAt).toLocaleDateString(), margin + 45, y)
-      y += 12
-    }
-  }
-
-  // ─── Serial Numbers Section ───────────────────────────────────────
+  // ─── Serial Numbers Section (new page) ─────────────────────────────
   if (order.serialAssignments && order.serialAssignments.length > 0) {
-    y += 20
-    ensureSpace(50)
+    doc.addPage()
+    y = margin
 
     // Section header
     doc.setFillColor(...gray50)
