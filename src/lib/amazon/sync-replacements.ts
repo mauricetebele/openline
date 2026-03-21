@@ -136,12 +136,12 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
 
   const createdAfter = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString()
 
-  // Fetch shipped MFN orders with rate-limit-aware pagination
+  // Fetch MFN orders in all active statuses — replacements start as Unshipped
   // Cap at 20 pages to stay within Vercel's 300s function timeout
   const { orders, pagesFetched } = await fetchOrdersWithRateLimit(sp, {
     MarketplaceIds: account.marketplaceId,
     FulfillmentChannels: 'MFN',
-    OrderStatuses: 'Shipped',
+    OrderStatuses: 'Unshipped,PartiallyShipped,Shipped',
     CreatedAfter: createdAfter,
   }, 20)
 
