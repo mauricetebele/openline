@@ -625,6 +625,35 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
             ))}
           </div>
 
+          {/* Line items */}
+          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+            <div className="px-5 py-3 border-b border-gray-100 font-semibold text-gray-900 text-sm">Line Items</div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-500 uppercase">
+                  <th className="text-left px-5 py-2">SKU</th>
+                  <th className="text-left px-5 py-2">Description</th>
+                  <th className="text-left px-5 py-2">Grade</th>
+                  <th className="text-right px-5 py-2">Qty</th>
+                  <th className="text-right px-5 py-2">Unit Price</th>
+                  <th className="text-right px-5 py-2">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {order.items.map((item) => (
+                  <tr key={item.id}>
+                    <td className="px-5 py-2 font-mono text-xs text-gray-500">{item.sku ?? '—'}</td>
+                    <td className="px-5 py-2">{item.title}</td>
+                    <td className="px-5 py-2 text-xs text-gray-600">{item.grade?.grade ?? '—'}</td>
+                    <td className="px-5 py-2 text-right">{Number(item.quantity)}</td>
+                    <td className="px-5 py-2 text-right">{fmt(Number(item.unitPrice))}</td>
+                    <td className="px-5 py-2 text-right font-medium">{fmt(Number(item.total))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
           {/* Shipping & serial info */}
           {order.fulfillmentStatus === 'SHIPPED' && (
             <div className="bg-white rounded-xl border border-gray-200 p-5 text-sm space-y-3">
@@ -661,35 +690,6 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
               )}
             </div>
           )}
-
-          {/* Line items */}
-          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-            <div className="px-5 py-3 border-b border-gray-100 font-semibold text-gray-900 text-sm">Line Items</div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-500 uppercase">
-                  <th className="text-left px-5 py-2">SKU</th>
-                  <th className="text-left px-5 py-2">Description</th>
-                  <th className="text-left px-5 py-2">Grade</th>
-                  <th className="text-right px-5 py-2">Qty</th>
-                  <th className="text-right px-5 py-2">Unit Price</th>
-                  <th className="text-right px-5 py-2">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {order.items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="px-5 py-2 font-mono text-xs text-gray-500">{item.sku ?? '—'}</td>
-                    <td className="px-5 py-2">{item.title}</td>
-                    <td className="px-5 py-2 text-xs text-gray-600">{item.grade?.grade ?? '—'}</td>
-                    <td className="px-5 py-2 text-right">{Number(item.quantity)}</td>
-                    <td className="px-5 py-2 text-right">{fmt(Number(item.unitPrice))}</td>
-                    <td className="px-5 py-2 text-right font-medium">{fmt(Number(item.total))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
 
           {/* Notes */}
           {(order.notes || order.internalNotes) && (
