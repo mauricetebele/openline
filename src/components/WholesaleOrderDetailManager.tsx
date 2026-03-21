@@ -290,7 +290,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
               </button>
               <button onClick={() => transition('VOID')} disabled={transitioning}
                 className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 disabled:opacity-50">
-                Void
+                Delete
               </button>
             </>
           )}
@@ -302,7 +302,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
               </button>
               <button onClick={() => transition('VOID')} disabled={transitioning}
                 className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 disabled:opacity-50">
-                Void
+                Delete
               </button>
             </>
           )}
@@ -325,10 +325,12 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                   Mark as Invoiced
                 </button>
               )}
-              <button onClick={() => transition('VOID')} disabled={transitioning}
-                className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 disabled:opacity-50">
-                Void
-              </button>
+              {order.fulfillmentStatus === 'PENDING' && (
+                <button onClick={() => transition('VOID')} disabled={transitioning}
+                  className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 disabled:opacity-50">
+                  Delete
+                </button>
+              )}
             </>
           )}
           {(order.status === 'INVOICED' || order.status === 'PARTIALLY_PAID') && (
@@ -340,10 +342,6 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
               <button onClick={() => generateInvoicePDF(order)}
                 className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50">
                 Print Invoice
-              </button>
-              <button onClick={() => transition('VOID')} disabled={transitioning}
-                className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 disabled:opacity-50">
-                Void
               </button>
             </>
           )}
