@@ -275,42 +275,42 @@ function generateInvoicePDF(order: Order) {
     ensureSpace(60)
 
     const gridTop = y
-    const gridH = 48
+    const gridH = 36
     const gridW = right - margin
     const colW = gridW / 3
 
     // Outer border with rounded corners
-    doc.setDrawColor(...gray200); doc.setLineWidth(0.8)
+    doc.setDrawColor(...gray200); doc.setLineWidth(0.6)
     doc.roundedRect(margin, gridTop, gridW, gridH, 3, 3, 'S')
 
     // Header bar
     doc.setFillColor(...navy)
-    doc.roundedRect(margin, gridTop, gridW, 16, 3, 3, 'F')
-    doc.rect(margin, gridTop + 8, gridW, 8, 'F')
+    doc.roundedRect(margin, gridTop, gridW, 13, 3, 3, 'F')
+    doc.rect(margin, gridTop + 6, gridW, 7, 'F')
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255)
-    doc.text('SHIPPING DETAILS', margin + 10, gridTop + 11)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(6); doc.setTextColor(255, 255, 255)
+    doc.text('SHIPPING DETAILS', margin + 8, gridTop + 9)
 
     // Column dividers
-    doc.setDrawColor(...gray200); doc.setLineWidth(0.5)
-    doc.line(margin + colW, gridTop + 16, margin + colW, gridTop + gridH)
-    doc.line(margin + colW * 2, gridTop + 16, margin + colW * 2, gridTop + gridH)
+    doc.setDrawColor(...gray200); doc.setLineWidth(0.4)
+    doc.line(margin + colW, gridTop + 13, margin + colW, gridTop + gridH)
+    doc.line(margin + colW * 2, gridTop + 13, margin + colW * 2, gridTop + gridH)
 
     // Cell content
-    const cellY = gridTop + 28
+    const cellY = gridTop + 21
     const cells: [number, string, string][] = [
-      [margin + 10, 'Carrier', order.shipCarrier || '—'],
-      [margin + colW + 10, 'Tracking #', order.shipTracking || '—'],
-      [margin + colW * 2 + 10, 'Ship Date', order.shippedAt ? new Date(order.shippedAt).toLocaleDateString() : '—'],
+      [margin + 8, 'Carrier', order.shipCarrier || '—'],
+      [margin + colW + 8, 'Tracking #', order.shipTracking || '—'],
+      [margin + colW * 2 + 8, 'Ship Date', order.shippedAt ? new Date(order.shippedAt).toLocaleDateString() : '—'],
     ]
     cells.forEach(([x, label, value]) => {
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(...gray500)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5); doc.setTextColor(...gray500)
       doc.text(label.toUpperCase(), x, cellY)
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...black)
-      doc.text(value, x, cellY + 12)
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...black)
+      doc.text(value, x, cellY + 9)
     })
 
-    y = gridTop + gridH + 6
+    y = gridTop + gridH + 4
   }
 
   // ─── Totals block (right-aligned) ─────────────────────────────────
