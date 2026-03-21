@@ -96,27 +96,25 @@ function generateInvoicePDF(order: Order) {
     }
   }
 
-  // ─── Header: Logo + Invoice title ─────────────────────────────────
-  // Draw OLM connected-dots logo mark
-  const logoX = margin
-  const logoY = 36
+  // ─── Header: Stacked logo + Invoice title ──────────────────────────
+  // Connected-dots icon (centered over text block)
+  const logoCx = margin + 48 // center point of the logo block
+  const iconY = 28
   // Left blue dot
-  doc.setDrawColor(...blue); doc.setLineWidth(2)
-  doc.circle(logoX + 8, logoY + 8, 5.5, 'S')
-  doc.setFillColor(...blue); doc.circle(logoX + 8, logoY + 8, 1.8, 'F')
-  // Curved connecting line (approximate with bezier)
-  doc.setDrawColor(...blue); doc.setLineWidth(1.8)
-  const cx1 = logoX + 24, cy1 = logoY + 16
-  const cx2 = logoX + 42, cy2 = logoY - 4
-  const ex = logoX + 56, ey = logoY + 2
-  // jsPDF doesn't have bezier, draw with line segments
+  doc.setDrawColor(...blue); doc.setLineWidth(2.2)
+  doc.circle(logoCx - 22, iconY + 6, 6, 'S')
+  doc.setFillColor(...blue); doc.circle(logoCx - 22, iconY + 6, 2, 'F')
+  // Curved connecting line (bezier approximation with gradient)
+  doc.setLineWidth(1.8)
+  const cx1 = logoCx - 6, cy1 = iconY + 14
+  const cx2 = logoCx + 14, cy2 = iconY - 6
+  const ex = logoCx + 26, ey = iconY
   for (let t = 0; t <= 1; t += 0.05) {
-    const t2 = t + 0.05
-    const x1b = Math.pow(1-t,3)*(logoX+8) + 3*Math.pow(1-t,2)*t*cx1 + 3*(1-t)*t*t*cx2 + t*t*t*ex
-    const y1b = Math.pow(1-t,3)*(logoY+8) + 3*Math.pow(1-t,2)*t*cy1 + 3*(1-t)*t*t*cy2 + t*t*t*ey
-    const x2b = Math.pow(1-t2,3)*(logoX+8) + 3*Math.pow(1-t2,2)*t2*cx1 + 3*(1-t2)*t2*t2*cx2 + t2*t2*t2*ex
-    const y2b = Math.pow(1-t2,3)*(logoY+8) + 3*Math.pow(1-t2,2)*t2*cy1 + 3*(1-t2)*t2*t2*cy2 + t2*t2*t2*ey
-    // Gradient: interpolate blue→red
+    const t2 = Math.min(t + 0.05, 1)
+    const x1b = Math.pow(1-t,3)*(logoCx-22) + 3*Math.pow(1-t,2)*t*cx1 + 3*(1-t)*t*t*cx2 + t*t*t*ex
+    const y1b = Math.pow(1-t,3)*(iconY+6) + 3*Math.pow(1-t,2)*t*cy1 + 3*(1-t)*t*t*cy2 + t*t*t*ey
+    const x2b = Math.pow(1-t2,3)*(logoCx-22) + 3*Math.pow(1-t2,2)*t2*cx1 + 3*(1-t2)*t2*t2*cx2 + t2*t2*t2*ex
+    const y2b = Math.pow(1-t2,3)*(iconY+6) + 3*Math.pow(1-t2,2)*t2*cy1 + 3*(1-t2)*t2*t2*cy2 + t2*t2*t2*ey
     const r = Math.round(blue[0] + (red[0]-blue[0])*t)
     const g = Math.round(blue[1] + (red[1]-blue[1])*t)
     const b = Math.round(blue[2] + (red[2]-blue[2])*t)
@@ -124,16 +122,15 @@ function generateInvoicePDF(order: Order) {
     doc.line(x1b, y1b, x2b, y2b)
   }
   // Right red dot
-  doc.setDrawColor(...red); doc.setLineWidth(2)
-  doc.circle(ex, ey, 5.5, 'S')
-  doc.setFillColor(...red); doc.circle(ex, ey, 1.8, 'F')
-  // Company name
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...navy)
-  doc.text('OPEN LINE', logoX + 70, logoY + 4)
-  doc.setFontSize(7.5); doc.setTextColor(...red)
-  doc.text('MOBILITY', logoX + 70, logoY + 14)
-  doc.setFontSize(6); doc.setTextColor(...gray500)
-  doc.text('LTD.', logoX + 70 + doc.getTextWidth('MOBILITY') + 3, logoY + 14)
+  doc.setDrawColor(...red); doc.setLineWidth(2.2)
+  doc.circle(ex, ey, 6, 'S')
+  doc.setFillColor(...red); doc.circle(ex, ey, 2, 'F')
+
+  // Stacked text below icon
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...navy)
+  doc.text('OPEN LINE', logoCx, iconY + 26, { align: 'center' })
+  doc.setFontSize(8.5); doc.setTextColor(...red)
+  doc.text('MOBILITY, LTD.', logoCx, iconY + 37, { align: 'center' })
 
   // Invoice title block (right side)
   doc.setFontSize(24); doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
@@ -208,7 +205,7 @@ function generateInvoicePDF(order: Order) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255)
   doc.text('#', margin + 8, y)
   doc.text('SKU', margin + 28, y)
-  doc.text('DESCRIPTION', margin + 110, y)
+  doc.text('DESCRIPTION', margin + 150, y)
   doc.text('QTY', right - 145, y, { align: 'right' })
   doc.text('UNIT PRICE', right - 65, y, { align: 'right' })
   doc.text('AMOUNT', right - 6, y, { align: 'right' })
@@ -225,11 +222,11 @@ function generateInvoicePDF(order: Order) {
     }
     doc.setFont('helvetica', 'normal'); doc.setTextColor(...black)
     doc.text(String(i + 1), margin + 8, y)
-    doc.setTextColor(...gray500)
-    doc.text(item.sku ?? '', margin + 28, y)
-    doc.setTextColor(...black)
+    doc.setFontSize(7.5); doc.setTextColor(...gray500)
+    doc.text((item.sku ?? '').substring(0, 16), margin + 28, y)
+    doc.setFontSize(8.5); doc.setTextColor(...black)
     const titleStr = item.isInvoiceAddon ? `* ${item.title}` : item.title
-    doc.text(titleStr.substring(0, 40), margin + 110, y)
+    doc.text(titleStr.substring(0, 35), margin + 150, y)
     doc.text(String(Number(item.quantity)), right - 145, y, { align: 'right' })
     doc.text($(item.unitPrice), right - 65, y, { align: 'right' })
     doc.setFont('helvetica', 'bold')
