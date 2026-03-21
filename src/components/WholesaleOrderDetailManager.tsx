@@ -151,7 +151,7 @@ function generateInvoicePDF(order: Order) {
   doc.setFillColor(...red); doc.circle(rdx, rdy, 1.6, 'F')
 
   // "OPEN LINE" centered under icon
-  const textY = Math.max(ldy, rdy) + 14
+  const textY = Math.max(ldy, rdy) + 22
   doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...navy)
   doc.text('OPEN LINE', blockCx - olFullW / 2, textY, { charSpace: olCharSpace })
 
