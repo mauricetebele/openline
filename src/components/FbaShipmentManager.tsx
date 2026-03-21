@@ -240,10 +240,10 @@ function ListView({
                 <th className="w-8"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filtered.map(s => (
+            <tbody className="divide-y divide-gray-200">
+              {filtered.map((s, idx) => (
                 <tr key={s.id} onClick={() => onSelect(s.id)}
-                  className="hover:bg-gray-50 cursor-pointer">
+                  className={clsx('hover:bg-gray-50 cursor-pointer', idx % 2 === 1 && 'bg-gray-50/50')}>
                   <td className="px-3 py-1.5 font-mono text-gray-600">{s.shipmentNumber ?? '—'}</td>
                   <td className="px-3 py-1.5 font-medium text-gray-800">
                     {s.name || s.id.slice(-8)}
