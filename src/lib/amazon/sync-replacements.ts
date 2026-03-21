@@ -50,7 +50,21 @@ export async function syncReplacementOrders(accountId: string): Promise<{ create
     },
   )
 
-  const replacements = orders.filter(o => o.IsReplacementOrder === true && o.ReplacedOrderId)
+  console.log(`[sync-replacements] Fetched ${orders.length} shipped MFN orders for account ${accountId}`)
+
+  // SP-API may return IsReplacementOrder as boolean or string
+  const replacements = orders.filter(o => {
+    const isReplacement = o.IsReplacementOrder === true || (o as Record<string, unknown>).IsReplacementOrder === 'true'
+    return isReplacement && o.ReplacedOrderId
+  })
+
+  console.log(`[sync-replacements] Found ${replacements.length} replacement orders`)
+  if (orders.length > 0 && replacements.length === 0) {
+    // Log a sample order to see what fields are available
+    const sample = orders[0]
+    console.log(`[sync-replacements] Sample order keys:`, Object.keys(sample))
+    console.log(`[sync-replacements] Sample IsReplacementOrder:`, sample.IsReplacementOrder, typeof sample.IsReplacementOrder)
+  }
 
   let created = 0
   let updated = 0
