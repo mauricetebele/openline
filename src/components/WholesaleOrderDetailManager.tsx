@@ -397,25 +397,14 @@ function generateInvoicePDF(order: Order) {
       doc.text(`— ${group.title}`, margin + 8 + doc.getTextWidth(group.sku + '  '), y)
       y += 12
 
-      // Serials in columns
-      const colWidth = 130
-      const cols = Math.floor((right - margin - 8) / colWidth)
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...gray700)
-      group.serials.forEach((sn, idx) => {
-        const col = idx % cols
-        const row = Math.floor(idx / cols)
-        if (col === 0 && row > 0) {
-          y += 11
-          ensureSpace(14)
-        }
-        const sx = margin + 12 + col * colWidth
-        // Small bullet
-        doc.setFillColor(...blue)
-        doc.circle(sx, y - 2.5, 1.5, 'F')
-        doc.setTextColor(...black)
-        doc.text(sn, sx + 6, y)
+      // Serials in single column
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...black)
+      group.serials.forEach((sn) => {
+        ensureSpace(14)
+        doc.text(sn, margin + 12, y)
+        y += 12
       })
-      y += 16
+      y += 8
     }
   }
 
