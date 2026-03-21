@@ -1,6 +1,5 @@
 /**
- * POST /api/cron/sync-replacements
- * Triggered every 6 hours by Vercel cron.
+ * GET /api/cron/sync-replacements — Vercel Cron (every 6 hours)
  * Syncs free replacement orders for all active Amazon accounts.
  */
 export const maxDuration = 300
@@ -9,9 +8,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncReplacementOrders } from '@/lib/amazon/sync-replacements'
 
-export async function POST(req: NextRequest) {
-  const secret = req.headers.get('x-cron-secret')
-  if (!secret || secret !== process.env.CRON_SECRET) {
+export async function GET(req: NextRequest) {
+  // Verify cron secret (Vercel sends Authorization: Bearer <CRON_SECRET>)
+  const authHeader = req.headers.get('authorization')
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

@@ -40,19 +40,19 @@ export async function syncReplacementOrders(accountId: string): Promise<{ create
 
   const createdAfter = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString()
 
-  // Fetch shipped MFN orders (MarketplaceIds is required by SP-API)
+  // Fetch shipped orders — no FulfillmentChannels filter because
+  // Amazon free replacements can be either MFN or AFN (FBA)
   const orders = await sp.fetchAllPages<SpApiOrder>(
     '/orders/v0/orders',
     'Orders',
     {
       MarketplaceIds: account.marketplaceId,
-      FulfillmentChannels: 'MFN',
       OrderStatuses: 'Shipped',
       CreatedAfter: createdAfter,
     },
   )
 
-  console.log(`[sync-replacements] Fetched ${orders.length} shipped MFN orders for account ${accountId}`)
+  console.log(`[sync-replacements] Fetched ${orders.length} shipped orders for account ${accountId}`)
 
   // SP-API may return IsReplacementOrder as boolean or string
   const replacements = orders.filter(o => {
@@ -61,6 +61,13 @@ export async function syncReplacementOrders(accountId: string): Promise<{ create
   })
 
   console.log(`[sync-replacements] Found ${replacements.length} replacement orders`)
+
+  // Debug: check if a known replacement order is present
+  const knownTest = orders.find(o => o.AmazonOrderId === '113-1141718-0565010')
+  if (knownTest) {
+    console.log(`[sync-replacements] Found known replacement order:`, JSON.stringify(knownTest))
+  }
+
   if (orders.length > 0 && replacements.length === 0) {
     // Log a sample order to see what fields are available
     const sample = orders[0]
