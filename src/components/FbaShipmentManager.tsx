@@ -233,7 +233,8 @@ function ListView({
                 <th className="text-left px-3 py-1.5 font-semibold">FBA #</th>
                 <th className="text-left px-3 py-1.5 font-semibold">Name</th>
                 <th className="text-left px-3 py-1.5 font-semibold">Amazon ID</th>
-                <th className="text-center px-3 py-1.5 font-semibold">Items</th>
+                <th className="text-center px-3 py-1.5 font-semibold">SKU Count</th>
+                <th className="text-right px-3 py-1.5 font-semibold">Total Qty</th>
                 <th className="text-left px-3 py-1.5 font-semibold">Status</th>
                 <th className="text-left px-3 py-1.5 font-semibold">Created</th>
                 <th className="w-8"></th>
@@ -270,6 +271,7 @@ function ListView({
                     })()}
                   </td>
                   <td className="px-3 py-1.5 text-center text-gray-600">{s._count?.items ?? s.items.length}</td>
+                  <td className="px-3 py-1.5 text-right text-gray-600">{s.items.reduce((sum, i) => sum + i.quantity, 0)}</td>
                   <td className="px-3 py-1.5"><StatusBadge status={s.status} /></td>
                   <td className="px-3 py-1.5 text-gray-500">{new Date(s.createdAt).toLocaleDateString()}</td>
                   <td className="px-3 py-1.5">
