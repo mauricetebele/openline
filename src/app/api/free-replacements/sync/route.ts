@@ -3,7 +3,7 @@ export const maxDuration = 300
 import { NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { syncReplacementOrders } from '@/lib/amazon/sync-replacements'
+import { syncReplacementOrders, SyncResult } from '@/lib/amazon/sync-replacements'
 
 export async function POST() {
   const user = await getAuthUser()
@@ -14,7 +14,7 @@ export async function POST() {
     return NextResponse.json({ message: 'No active accounts' })
   }
 
-  const results: { accountId: string; created: number; updated: number; trackingRefreshed: number }[] = []
+  const results: (SyncResult & { accountId: string })[] = []
 
   for (const account of accounts) {
     try {

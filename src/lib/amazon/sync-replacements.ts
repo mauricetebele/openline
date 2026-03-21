@@ -30,7 +30,20 @@ interface OrderItemsResponse {
 
 const STALE_HOURS = 4
 
-export async function syncReplacementOrders(accountId: string): Promise<{ created: number; updated: number; trackingRefreshed: number }> {
+export interface SyncResult {
+  created: number
+  updated: number
+  trackingRefreshed: number
+  debug?: {
+    totalOrdersFetched: number
+    replacementsFound: number
+    lookbackDays: number
+    sampleOrderKeys?: string[]
+    knownTestOrder?: Record<string, unknown> | null
+  }
+}
+
+export async function syncReplacementOrders(accountId: string): Promise<SyncResult> {
   const sp = new SpApiClient(accountId)
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
 
@@ -136,7 +149,22 @@ export async function syncReplacementOrders(accountId: string): Promise<{ create
   // Refresh stale tracking
   const trackingRefreshed = await refreshStaleTracking(accountId)
 
-  return { created, updated, trackingRefreshed }
+  // Build debug info
+  const sampleOrderKeys = orders.length > 0 ? Object.keys(orders[0]) : undefined
+  const knownTestOrder = orders.find(o => o.AmazonOrderId === '113-1141718-0565010') as Record<string, unknown> | undefined
+
+  return {
+    created,
+    updated,
+    trackingRefreshed,
+    debug: {
+      totalOrdersFetched: orders.length,
+      replacementsFound: replacements.length,
+      lookbackDays,
+      sampleOrderKeys,
+      knownTestOrder: knownTestOrder ?? null,
+    },
+  }
 }
 
 export async function refreshStaleTracking(accountId?: string): Promise<number> {

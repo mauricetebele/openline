@@ -66,7 +66,11 @@ export default function FreeReplacementsManager() {
       const res = await fetch('/api/free-replacements/sync', { method: 'POST' })
       const json = await res.json()
       if (json.ok) {
-        setMessage(`Sync complete: ${json.created} new, ${json.updated} updated, ${json.trackingRefreshed} tracking refreshed`)
+        const debug = json.results?.[0]?.debug
+        const debugStr = debug
+          ? ` | DEBUG: ${debug.totalOrdersFetched} orders fetched (${debug.lookbackDays}d), ${debug.replacementsFound} replacements found, knownTest=${debug.knownTestOrder ? 'YES' : 'NO'}, fields=[${debug.sampleOrderKeys?.join(', ') ?? 'none'}]`
+          : ''
+        setMessage(`Sync complete: ${json.created} new, ${json.updated} updated, ${json.trackingRefreshed} tracking refreshed${debugStr}`)
         fetchData()
       } else {
         setMessage(json.error ?? 'Sync failed')
