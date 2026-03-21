@@ -20,21 +20,15 @@
 @layer base {
   :root {
     --sidebar-width: 220px;
-    --stock-bg: #F3F4F6;
-  }
-
-  html.dark {
-    --stock-bg: #0F172A;
   }
 
   body {
-    background-color: var(--stock-bg);
-    transition: background-color 1s ease;
+    background-color: #F3F4F6;
     @apply text-gray-900 antialiased;
   }
 
   html.dark body {
-    background-color: var(--stock-bg);
+    background-color: #0F172A;
     color: #F1F5F9;
   }
 }
