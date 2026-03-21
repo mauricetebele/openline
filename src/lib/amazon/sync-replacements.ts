@@ -32,6 +32,7 @@ const STALE_HOURS = 4
 
 export async function syncReplacementOrders(accountId: string): Promise<{ created: number; updated: number; trackingRefreshed: number }> {
   const sp = new SpApiClient(accountId)
+  const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
 
   // Check if there are existing records to decide lookback window
   const existingCount = await prisma.freeReplacement.count({ where: { accountId } })
@@ -39,11 +40,12 @@ export async function syncReplacementOrders(accountId: string): Promise<{ create
 
   const createdAfter = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString()
 
-  // Fetch shipped MFN orders
+  // Fetch shipped MFN orders (MarketplaceIds is required by SP-API)
   const orders = await sp.fetchAllPages<SpApiOrder>(
     '/orders/v0/orders',
     'Orders',
     {
+      MarketplaceIds: account.marketplaceId,
       FulfillmentChannels: 'MFN',
       OrderStatuses: 'Shipped',
       CreatedAfter: createdAfter,
