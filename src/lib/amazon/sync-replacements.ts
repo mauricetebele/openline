@@ -132,8 +132,50 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
   const lookbackDays = existingCount === 0 ? 180 : 14
   const cutoff = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000)
 
-  // Query our own DB for replacement orders — no SP-API pagination needed.
-  // Catches: orders flagged by Amazon (isReplacement=true) AND $0 orders.
+  // ── Backfill: probe SP-API for orders missing the isReplacement flag ──────
+  const unscanned = await prisma.order.findMany({
+    where: {
+      accountId,
+      orderSource: 'amazon',
+      fulfillmentChannel: 'MFN',
+      purchaseDate: { gte: cutoff },
+      isReplacement: null,
+    },
+    select: { id: true, amazonOrderId: true },
+    orderBy: { purchaseDate: 'desc' },
+  })
+
+  if (unscanned.length > 0) {
+    // Process up to 150 per sync call (~165s) to stay within Vercel timeout.
+    // Remaining orders will be backfilled on subsequent syncs.
+    const batch = unscanned.slice(0, 150)
+    console.log(`[sync-replacements] Backfilling isReplacement flag: ${batch.length} of ${unscanned.length} remaining`)
+    const sp = new SpApiClient(accountId)
+    let probed = 0
+    for (const o of batch) {
+      try {
+        const data = await sp.get<{ payload?: SpApiOrder }>(`/orders/v0/orders/${o.amazonOrderId}`)
+        const isRepl = data.payload?.IsReplacementOrder === true || (data.payload?.IsReplacementOrder as unknown) === 'true'
+        await prisma.order.update({
+          where: { id: o.id },
+          data: {
+            isReplacement: isRepl,
+            replacedOrderId: data.payload?.ReplacedOrderId ?? null,
+          },
+        })
+        probed++
+        // SP-API rate limit: ~1 req/s for getOrder
+        if (probed < batch.length) await sleep(1100)
+      } catch (err) {
+        console.warn(`[sync-replacements] Failed to probe ${o.amazonOrderId}:`, err)
+        // Mark as false so we don't retry endlessly
+        await prisma.order.update({ where: { id: o.id }, data: { isReplacement: false } }).catch(() => {})
+      }
+    }
+    console.log(`[sync-replacements] Backfill complete: probed ${probed}/${batch.length} (${unscanned.length - batch.length} remaining)`)
+  }
+
+  // ── Now query DB for all replacement candidates ───────────────────────────
   const candidates = await prisma.order.findMany({
     where: {
       accountId,
