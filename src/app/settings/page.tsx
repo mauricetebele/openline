@@ -23,27 +23,29 @@ import {
 } from 'firebase/auth'
 import QRCode from 'qrcode'
 
-// ─── Brand logo components ────────────────────────────────────────────────────
+// ─── Brand logo components (inline SVGs so fonts render reliably) ─────────────
 
 function AmazonLogo({ height = 20 }: { height?: number }) {
+  const w = (height / 38) * 120
   return (
-    <img
-      src="/logos/amazon.svg"
-      alt="Amazon"
-      height={height}
-      style={{ height, width: 'auto', display: 'block' }}
-    />
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 38" width={w} height={height} role="img" aria-label="Amazon">
+      <text x="0" y="26" fontFamily="Arial Black, Arial, sans-serif" fontSize="28" fontWeight="900" fill="#232F3E">amazon</text>
+      <path d="M4 33 Q60 44 116 33" stroke="#FF9900" strokeWidth="3.5" fill="none" strokeLinecap="round"/>
+      <path d="M112 29.5 L117 33.5 L111.5 36" stroke="#FF9900" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
   )
 }
 
 function BackMarketLogo({ height = 20 }: { height?: number }) {
+  const w = (height / 40) * 160
   return (
-    <img
-      src="/logos/backmarket.svg"
-      alt="Back Market"
-      height={height}
-      style={{ height, width: 'auto', display: 'block' }}
-    />
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40" width={w} height={height} role="img" aria-label="Back Market">
+      <circle cx="20" cy="20" r="18" fill="#05C35E"/>
+      <rect x="11" y="10" width="5" height="20" rx="1.5" fill="white"/>
+      <path d="M16 10h5a7 7 0 0 1 0 10h-5z" fill="white"/>
+      <path d="M16 20h6a7.5 7.5 0 0 1 0 10h-6z" fill="white"/>
+      <text x="46" y="27" fontFamily="Arial, sans-serif" fontSize="18" fontWeight="700" fill="#05C35E">Back Market</text>
+    </svg>
   )
 }
 
