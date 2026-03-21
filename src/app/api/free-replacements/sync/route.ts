@@ -21,8 +21,15 @@ export async function POST() {
       const result = await syncReplacementOrders(account.id)
       results.push({ accountId: account.id, ...result })
     } catch (err) {
-      console.error(`[sync-replacements] Account ${account.id} failed:`, err)
-      results.push({ accountId: account.id, created: 0, updated: 0, trackingRefreshed: 0 })
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.error(`[sync-replacements] Account ${account.id} failed:`, errMsg)
+      results.push({
+        accountId: account.id,
+        created: 0,
+        updated: 0,
+        trackingRefreshed: 0,
+        debug: { totalOrdersFetched: 0, replacementsFound: 0, lookbackDays: 0, error: errMsg },
+      } as SyncResult & { accountId: string })
     }
   }
 

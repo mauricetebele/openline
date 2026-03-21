@@ -68,8 +68,8 @@ export default function FreeReplacementsManager() {
       if (json.ok) {
         const debug = json.results?.[0]?.debug
         const debugStr = debug
-          ? ` | DEBUG: ${debug.totalOrdersFetched} orders fetched (${debug.lookbackDays}d), ${debug.replacementsFound} replacements found, knownTest=${debug.knownTestOrder ? 'YES' : 'NO'}, fields=[${debug.sampleOrderKeys?.join(', ') ?? 'none'}]`
-          : ''
+          ? ` | DEBUG: ${debug.error ? 'ERROR: ' + debug.error : `${debug.totalOrdersFetched} orders fetched (${debug.lookbackDays}d), ${debug.replacementsFound} replacements found, knownTest=${debug.knownTestOrder ? 'YES' : 'NO'}, fields=[${debug.sampleOrderKeys?.join(', ') ?? 'none'}]`}`
+          : ' | NO DEBUG INFO'
         setMessage(`Sync complete: ${json.created} new, ${json.updated} updated, ${json.trackingRefreshed} tracking refreshed${debugStr}`)
         fetchData()
       } else {
