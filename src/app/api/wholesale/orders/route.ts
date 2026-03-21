@@ -88,12 +88,12 @@ export async function POST(req: NextRequest) {
 
     // Generate order number
     const lastOrder = await tx.salesOrder.findFirst({ orderBy: { orderNumber: 'desc' } })
-    let nextNum = 1
+    let nextNum = 1001
     if (lastOrder) {
-      const match = lastOrder.orderNumber.match(/SO-(\d+)/)
+      const match = lastOrder.orderNumber.match(/SO-?(\d+)/)
       if (match) nextNum = parseInt(match[1]) + 1
     }
-    const orderNumber = `SO-${String(nextNum).padStart(4, '0')}`
+    const orderNumber = `SO${String(nextNum).padStart(4, '0')}`
 
     // Due date
     const oDate   = orderDate ? new Date(orderDate) : new Date()

@@ -32,6 +32,13 @@ export async function GET(
       items: { include: { product: true, grade: { select: { grade: true } } } },
       customer: { include: { addresses: true } },
       allocations: { include: { payment: true } },
+      serialAssignments: {
+        include: {
+          inventorySerial: {
+            select: { id: true, serialNumber: true, productId: true },
+          },
+        },
+      },
     },
   })
 

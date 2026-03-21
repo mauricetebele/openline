@@ -1439,6 +1439,8 @@ model SalesOrder {
   shipCarrier       String?
   shipTracking      String?
   shippedAt         DateTime?
+  invoiceNumber     String?                @unique
+  invoicedAt        DateTime?
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
 
@@ -1469,8 +1471,9 @@ model SalesOrderItem {
   unitPrice   Decimal    @db.Decimal(12, 2)
   discount    Decimal    @default(0) @db.Decimal(5, 2)
   total       Decimal    @db.Decimal(12, 2)
-  taxable     Boolean    @default(true)
-  createdAt   DateTime   @default(now())
+  taxable        Boolean    @default(true)
+  isInvoiceAddon Boolean    @default(false)
+  createdAt      DateTime   @default(now())
 
   reservations SalesOrderInventoryReservation[]
 

@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import jsPDF from 'jspdf'
-import { ClipboardCheck, MapPin, RefreshCcw, AlertCircle, X } from 'lucide-react'
+import { ClipboardCheck, MapPin, RefreshCcw, AlertCircle, X, Truck, Plus, Trash2 } from 'lucide-react'
 
 const SO_STATUS_COLOR: Record<string, string> = {
   PENDING_APPROVAL: 'bg-amber-100 text-amber-700',
@@ -26,7 +26,13 @@ const PAYMENT_METHODS = ['CHECK', 'ACH', 'WIRE', 'CREDIT_CARD', 'CASH', 'OTHER']
 interface OrderItem {
   id: string; sku?: string; title: string; description?: string
   quantity: number; unitPrice: number; discount: number; total: number; taxable: boolean
+  isInvoiceAddon?: boolean
   grade?: { grade: string } | null
+}
+
+interface SerialAssignment {
+  id: string
+  inventorySerial: { id: string; serialNumber: string; productId: string }
 }
 
 interface Allocation {
@@ -42,12 +48,15 @@ interface Order {
   customer: { id: string; companyName: string; paymentTerms: string }
   items: OrderItem[]
   allocations: Allocation[]
+  serialAssignments?: SerialAssignment[]
   shippingAddress: Address | null
   billingAddress:  Address | null
   subtotal: number; discountPct: number; discountAmt: number
   taxRate: number; taxAmt: number; shippingCost: number
   total: number; paidAmount: number; balance: number
   notes?: string; internalNotes?: string
+  invoiceNumber?: string; invoicedAt?: string
+  shipCarrier?: string; shipTracking?: string; shippedAt?: string
 }
 
 function addrLines(a: Address | null): string[] {
@@ -78,7 +87,7 @@ function generateInvoicePDF(order: Order) {
 
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
-  doc.text(`Invoice #: ${order.orderNumber}`, w - 40, 40, { align: 'right' })
+  doc.text(`Invoice #: ${order.invoiceNumber ?? order.orderNumber}`, w - 40, 40, { align: 'right' })
   doc.text(`Date: ${new Date(order.orderDate).toLocaleDateString()}`, w - 40, 55, { align: 'right' })
   if (order.dueDate) doc.text(`Due: ${new Date(order.dueDate).toLocaleDateString()}`, w - 40, 70, { align: 'right' })
   doc.text(`Terms: ${TERMS_LABEL[order.customer.paymentTerms] ?? order.customer.paymentTerms}`, w - 40, 85, { align: 'right' })
@@ -171,7 +180,7 @@ function generateInvoicePDF(order: Order) {
     doc.text(`Notes: ${order.notes}`, 40, y)
   }
 
-  doc.save(`Invoice-${order.orderNumber}.pdf`)
+  doc.save(`Invoice-${order.invoiceNumber ?? order.orderNumber}.pdf`)
 }
 
 export default function WholesaleOrderDetailManager({ id }: { id: string }) {
@@ -185,6 +194,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
   })
   const [paymentSaving, setPaymentSaving] = useState(false)
   const [showProcessModal, setShowProcessModal] = useState(false)
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -260,6 +270,11 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
         <span className={`inline-flex px-2.5 py-1 rounded text-xs font-semibold ${SO_STATUS_COLOR[order.status]}`}>
           {order.status.replace('_', ' ')}
         </span>
+        {order.status === 'CONFIRMED' && order.fulfillmentStatus === 'SHIPPED' && (
+          <span className="inline-flex px-2.5 py-1 rounded text-xs font-semibold bg-amber-100 text-amber-700">
+            SHIPPED — NOT YET INVOICED
+          </span>
+        )}
         <Link href={`/wholesale/customers/${order.customer.id}`} className="text-sm text-gray-600 hover:text-orange-600">
           {order.customer.companyName}
         </Link>
@@ -299,10 +314,17 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                   <ClipboardCheck size={12} /> Process to Fulfillment
                 </button>
               )}
-              <button onClick={() => transition('INVOICED')} disabled={transitioning}
-                className="px-3 py-1.5 bg-yellow-500 text-white rounded text-xs font-medium hover:bg-yellow-600 disabled:opacity-50">
-                Mark as Invoiced
-              </button>
+              {order.fulfillmentStatus === 'SHIPPED' ? (
+                <button onClick={() => setShowInvoiceModal(true)}
+                  className="px-3 py-1.5 bg-yellow-500 text-white rounded text-xs font-medium hover:bg-yellow-600 flex items-center gap-1">
+                  Create Invoice
+                </button>
+              ) : (
+                <button onClick={() => transition('INVOICED')} disabled={transitioning}
+                  className="px-3 py-1.5 bg-yellow-500 text-white rounded text-xs font-medium hover:bg-yellow-600 disabled:opacity-50">
+                  Mark as Invoiced
+                </button>
+              )}
               <button onClick={() => transition('VOID')} disabled={transitioning}
                 className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 disabled:opacity-50">
                 Void
@@ -356,6 +378,43 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
               </div>
             ))}
           </div>
+
+          {/* Shipping & serial info */}
+          {order.fulfillmentStatus === 'SHIPPED' && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5 text-sm space-y-3">
+              <div className="flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase">
+                <Truck size={13} /> Shipping Details
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <p className="text-xs text-gray-400">Carrier</p>
+                  <p className="font-medium text-gray-700">{order.shipCarrier || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Tracking</p>
+                  <p className="font-mono font-medium text-gray-700">{order.shipTracking || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Shipped</p>
+                  <p className="font-medium text-gray-700">
+                    {order.shippedAt ? new Date(order.shippedAt).toLocaleDateString() : '—'}
+                  </p>
+                </div>
+              </div>
+              {order.serialAssignments && order.serialAssignments.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Assigned Serial Numbers</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {order.serialAssignments.map((sa) => (
+                      <div key={sa.id} className="px-2.5 py-1.5 rounded bg-gray-50 border border-gray-100 font-mono text-xs text-gray-700">
+                        {sa.inventorySerial.serialNumber}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Line items */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
@@ -458,6 +517,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
       {/* Payment modal */}
       {/* Process to Fulfillment modal */}
       {showProcessModal && <ProcessModal orderId={order.id} orderNumber={order.orderNumber} onClose={() => setShowProcessModal(false)} onProcessed={() => { setShowProcessModal(false); load() }} />}
+      {showInvoiceModal && <CreateInvoiceModal order={order} onClose={() => setShowInvoiceModal(false)} onCreated={() => { setShowInvoiceModal(false); load() }} />}
 
       {showPaymentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -521,6 +581,195 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Create Invoice Modal ────────────────────────────────────────────────────
+
+interface AddonRow { title: string; quantity: string; unitPrice: string }
+
+function CreateInvoiceModal({ order, onClose, onCreated }: {
+  order: Order; onClose: () => void; onCreated: () => void
+}) {
+  const [addons, setAddons] = useState<AddonRow[]>([])
+  const [shippingCost, setShippingCost] = useState(String(Number(order.shippingCost)))
+  const [notes, setNotes] = useState(order.notes ?? '')
+  const [saving, setSaving] = useState(false)
+
+  const fmt = (n: number) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+
+  const existingItemsTotal = order.items
+    .filter((i) => !i.isInvoiceAddon)
+    .reduce((s, i) => s + Number(i.total), 0)
+  const addonsTotal = addons.reduce((s, r) => {
+    const q = parseFloat(r.quantity) || 0
+    const p = parseFloat(r.unitPrice) || 0
+    return s + q * p
+  }, 0)
+  const shipNum = parseFloat(shippingCost) || 0
+  const runningTotal = existingItemsTotal + addonsTotal + shipNum
+
+  function addRow() {
+    setAddons((prev) => [...prev, { title: '', quantity: '1', unitPrice: '0' }])
+  }
+  function removeRow(idx: number) {
+    setAddons((prev) => prev.filter((_, i) => i !== idx))
+  }
+  function updateRow(idx: number, field: keyof AddonRow, value: string) {
+    setAddons((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)))
+  }
+
+  async function handleSubmit() {
+    const validAddons = addons.filter((r) => r.title.trim() && parseFloat(r.quantity) > 0 && parseFloat(r.unitPrice) >= 0)
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/wholesale/orders/${order.id}/invoice`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          additionalItems: validAddons.map((r) => ({
+            title: r.title.trim(),
+            quantity: parseFloat(r.quantity),
+            unitPrice: parseFloat(r.unitPrice),
+          })),
+          shippingCost: shipNum,
+          notes: notes.trim() || undefined,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        toast.error(data.error ?? 'Failed to create invoice')
+        return
+      }
+      toast.success('Invoice created')
+      onCreated()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
+          <div>
+            <h3 className="font-semibold text-gray-900 text-sm">Create Invoice</h3>
+            <p className="text-xs text-gray-500 font-mono mt-0.5">{order.orderNumber}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Existing line items (read-only) */}
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Shipped Items</p>
+            <div className="space-y-1">
+              {order.items.filter((i) => !i.isInvoiceAddon).map((item) => (
+                <div key={item.id} className="flex items-center justify-between text-xs bg-gray-50 rounded px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <span className="font-mono text-gray-500 mr-2">{item.sku ?? '—'}</span>
+                    <span className="text-gray-700">{item.title}</span>
+                    <span className="text-gray-400 ml-2">x{Number(item.quantity)}</span>
+                  </div>
+                  <span className="font-medium text-gray-700 ml-3">{fmt(Number(item.total))}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Additional charges */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase">Additional Charges</p>
+              <button onClick={addRow} className="flex items-center gap-1 text-xs text-orange-600 hover:text-orange-700 font-medium">
+                <Plus size={12} /> Add Row
+              </button>
+            </div>
+            {addons.length === 0 && (
+              <p className="text-xs text-gray-400 italic">No additional charges. Click "Add Row" to add.</p>
+            )}
+            {addons.map((row, idx) => (
+              <div key={idx} className="flex items-center gap-2 mb-2">
+                <input
+                  type="text" placeholder="Title"
+                  value={row.title}
+                  onChange={(e) => updateRow(idx, 'title', e.target.value)}
+                  className="flex-1 border border-gray-200 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+                />
+                <input
+                  type="number" placeholder="Qty" min="1" step="1"
+                  value={row.quantity}
+                  onChange={(e) => updateRow(idx, 'quantity', e.target.value)}
+                  className="w-16 border border-gray-200 rounded px-2.5 py-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-orange-400"
+                />
+                <input
+                  type="number" placeholder="Price" min="0" step="0.01"
+                  value={row.unitPrice}
+                  onChange={(e) => updateRow(idx, 'unitPrice', e.target.value)}
+                  className="w-24 border border-gray-200 rounded px-2.5 py-1.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-orange-400"
+                />
+                <span className="text-xs font-medium text-gray-600 w-20 text-right">
+                  {fmt((parseFloat(row.quantity) || 0) * (parseFloat(row.unitPrice) || 0))}
+                </span>
+                <button onClick={() => removeRow(idx)} className="text-gray-400 hover:text-red-500">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Shipping cost */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 uppercase mb-1">Shipping Cost</label>
+            <input
+              type="number" min="0" step="0.01"
+              value={shippingCost}
+              onChange={(e) => setShippingCost(e.target.value)}
+              className="w-40 border border-gray-200 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+            />
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 uppercase mb-1">Notes</label>
+            <textarea
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+            />
+          </div>
+
+          {/* Running total */}
+          <div className="bg-gray-50 rounded-lg p-3 text-sm">
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>Line items</span><span>{fmt(existingItemsTotal)}</span>
+            </div>
+            {addonsTotal > 0 && (
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>Additional charges</span><span>{fmt(addonsTotal)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>Shipping</span><span>{fmt(shipNum)}</span>
+            </div>
+            <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 mt-2 pt-2">
+              <span>Estimated Total</span><span>{fmt(runningTotal)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t shrink-0 flex gap-2 justify-end">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
+            Cancel
+          </button>
+          <button onClick={handleSubmit} disabled={saving}
+            className="px-4 py-1.5 text-xs bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50 font-medium">
+            {saving ? 'Creating…' : 'Create Invoice'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
