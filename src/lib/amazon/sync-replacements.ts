@@ -147,13 +147,17 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
 
   console.log(`[sync-replacements] Fetched ${orders.length} shipped MFN orders across ${pagesFetched} pages`)
 
-  // Filter for replacement orders
+  // Filter for replacement orders:
+  // 1. IsReplacementOrder flag set by Amazon (most reliable when present)
+  // 2. $0 orders (OrderTotal.Amount == "0.00" or missing) — Amazon doesn't always set the flag
   const replacements = orders.filter(o => {
-    const val = o.IsReplacementOrder
-    return (val === true || val as unknown === 'true') && o.ReplacedOrderId
+    const isReplacement = o.IsReplacementOrder === true || (o.IsReplacementOrder as unknown) === 'true'
+    const orderTotal = (o.OrderTotal as { Amount?: string } | undefined)?.Amount
+    const isZeroDollar = !orderTotal || orderTotal === '0.00' || orderTotal === '0'
+    return isReplacement || isZeroDollar
   })
 
-  console.log(`[sync-replacements] Found ${replacements.length} replacement orders`)
+  console.log(`[sync-replacements] Found ${replacements.length} replacement orders (of ${orders.length} total)`)
 
   let created = 0
   let updated = 0
@@ -172,10 +176,38 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
       console.warn(`[sync-replacements] Failed to fetch items for ${order.AmazonOrderId}:`, err)
     }
 
-    const mfnReturn = await prisma.mFNReturn.findFirst({
-      where: { accountId, orderId: order.ReplacedOrderId! },
-      select: { trackingNumber: true },
-    })
+    // Determine original order ID:
+    // 1. Use ReplacedOrderId if Amazon provides it
+    // 2. Otherwise, try to find a matching MFN return by ASIN
+    let originalOrderId = order.ReplacedOrderId ?? null
+    let returnTracking: string | null = null
+
+    if (originalOrderId) {
+      // Direct lookup by original order ID
+      const mfnReturn = await prisma.mFNReturn.findFirst({
+        where: { accountId, orderId: originalOrderId },
+        select: { trackingNumber: true },
+      })
+      returnTracking = mfnReturn?.trackingNumber ?? null
+    } else if (asin) {
+      // No ReplacedOrderId — find a recent MFN return with matching ASIN
+      const mfnReturn = await prisma.mFNReturn.findFirst({
+        where: {
+          accountId,
+          asin,
+          orderDate: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) }, // 60 day window
+        },
+        orderBy: { orderDate: 'desc' },
+        select: { orderId: true, trackingNumber: true },
+      })
+      if (mfnReturn) {
+        originalOrderId = mfnReturn.orderId
+        returnTracking = mfnReturn.trackingNumber
+      }
+    }
+
+    // Fall back to 'UNKNOWN' if we can't determine the original
+    if (!originalOrderId) originalOrderId = 'UNKNOWN'
 
     const existing = await prisma.freeReplacement.findUnique({
       where: { replacementOrderId: order.AmazonOrderId },
@@ -187,8 +219,10 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
         data: {
           asin: asin || existing.asin,
           title: title || existing.title,
+          originalOrderId: existing.originalOrderId === 'UNKNOWN' && originalOrderId !== 'UNKNOWN'
+            ? originalOrderId : existing.originalOrderId,
           shippedAt: order.PurchaseDate ? new Date(order.PurchaseDate) : existing.shippedAt,
-          returnTrackingNumber: mfnReturn?.trackingNumber ?? existing.returnTrackingNumber,
+          returnTrackingNumber: returnTracking ?? existing.returnTrackingNumber,
         },
       })
       updated++
@@ -197,11 +231,11 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
         data: {
           accountId,
           replacementOrderId: order.AmazonOrderId,
-          originalOrderId: order.ReplacedOrderId!,
+          originalOrderId,
           asin,
           title,
           shippedAt: order.PurchaseDate ? new Date(order.PurchaseDate) : null,
-          returnTrackingNumber: mfnReturn?.trackingNumber ?? null,
+          returnTrackingNumber: returnTracking,
         },
       })
       created++
