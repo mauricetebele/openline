@@ -6,8 +6,11 @@ import { detectCarrier, trackingUrl } from '@/lib/tracking-utils'
 
 interface ManifestRow {
   id: string
+  source: 'marketplace' | 'wholesale'
   olmNumber: number | null
-  amazonOrderId: string
+  amazonOrderId: string | null
+  orderRef: string | null
+  customerName: string | null
   carrier: string | null
   serviceCode: string | null
   shipDate: string | null
@@ -265,8 +268,8 @@ export default function ShippingManifest() {
           <table className="w-full text-xs dark:text-gray-200">
             <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
               <tr>
-                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">OLM #</th>
-                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Marketplace Order #</th>
+                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Source</th>
+                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Order #</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Carrier</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Service</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Ship Date</th>
@@ -290,10 +293,26 @@ export default function ShippingManifest() {
                         : 'bg-gray-50 hover:bg-blue-50/50 dark:bg-gray-800/50 dark:hover:bg-gray-800/70'
                     }`}
                   >
-                    <td className="px-3 py-1.5 font-medium">
-                      {row.olmNumber ? `OLM-${row.olmNumber}` : '—'}
+                    <td className="px-3 py-1.5">
+                      {row.source === 'wholesale' ? (
+                        <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-100 text-orange-700 border border-orange-200">WS</span>
+                      ) : (
+                        <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200">MKT</span>
+                      )}
                     </td>
-                    <td className="px-3 py-1.5 font-mono">{row.amazonOrderId}</td>
+                    <td className="px-3 py-1.5 font-mono">
+                      {row.source === 'wholesale' ? (
+                        <span>
+                          <span className="text-orange-600 font-medium">{row.orderRef}</span>
+                          {row.customerName && <span className="text-gray-400 ml-1.5 font-sans">{row.customerName}</span>}
+                        </span>
+                      ) : (
+                        <span>
+                          {row.olmNumber ? <span className="text-gray-500 mr-1.5">OLM-{row.olmNumber}</span> : null}
+                          {row.amazonOrderId}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-1.5">{row.carrier || '—'}</td>
                     <td className="px-3 py-1.5">{row.serviceCode || '—'}</td>
                     <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(row.shipDate)}</td>
