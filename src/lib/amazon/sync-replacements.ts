@@ -1,9 +1,10 @@
 /**
- * Sync free replacement orders from Amazon SP-API.
+ * Sync free replacement orders.
  *
- * Uses custom pagination with rate-limit-aware delays for the Orders API
- * (burst: 20 requests, then 1 per ~60s). Cross-references MFNReturn for
- * return tracking and refreshes stale carrier statuses.
+ * Queries our own orders table for replacement candidates (isReplacement=true
+ * or $0 orderTotal), then creates FreeReplacement records. No SP-API
+ * pagination needed — the regular order sync captures the replacement flag.
+ * Also refreshes stale return tracking statuses.
  */
 import { prisma } from '@/lib/prisma'
 import { SpApiClient } from './sp-api'
@@ -127,85 +128,55 @@ export async function probeOrder(accountId: string, orderId: string): Promise<Re
 }
 
 export async function syncReplacementOrders(accountId: string): Promise<SyncResult> {
-  const sp = new SpApiClient(accountId)
-  const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
-
-  // Check if there are existing records to decide lookback window
   const existingCount = await prisma.freeReplacement.count({ where: { accountId } })
   const lookbackDays = existingCount === 0 ? 180 : 14
+  const cutoff = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000)
 
-  const createdAfter = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString()
-
-  // Fetch Shipped and Unshipped separately so one pool doesn't push the other
-  // past the page cap. Shipped is the main source; Unshipped catches new ones.
-  const shippedResult = await fetchOrdersWithRateLimit(sp, {
-    MarketplaceIds: account.marketplaceId,
-    FulfillmentChannels: 'MFN',
-    OrderStatuses: 'Shipped',
-    CreatedAfter: createdAfter,
-  }, 20)
-
-  const unshippedResult = await fetchOrdersWithRateLimit(sp, {
-    MarketplaceIds: account.marketplaceId,
-    FulfillmentChannels: 'MFN',
-    OrderStatuses: 'Unshipped',
-    CreatedAfter: createdAfter,
-  }, 5) // Unshipped pool is smaller
-
-  const orders = [...shippedResult.orders, ...unshippedResult.orders]
-  const pagesFetched = shippedResult.pagesFetched + unshippedResult.pagesFetched
-
-  console.log(`[sync-replacements] Fetched ${orders.length} MFN orders (${shippedResult.orders.length} shipped + ${unshippedResult.orders.length} unshipped) across ${pagesFetched} pages`)
-
-  // Filter for replacement orders:
-  // 1. IsReplacementOrder flag set by Amazon (most reliable when present)
-  // 2. $0 orders (OrderTotal.Amount == "0.00" or missing) — Amazon doesn't always set the flag
-  const replacements = orders.filter(o => {
-    const isReplacement = o.IsReplacementOrder === true || (o.IsReplacementOrder as unknown) === 'true'
-    const orderTotal = (o.OrderTotal as { Amount?: string } | undefined)?.Amount
-    const isZeroDollar = !orderTotal || orderTotal === '0.00' || orderTotal === '0'
-    return isReplacement || isZeroDollar
+  // Query our own DB for replacement orders — no SP-API pagination needed.
+  // Catches: orders flagged by Amazon (isReplacement=true) AND $0 orders.
+  const candidates = await prisma.order.findMany({
+    where: {
+      accountId,
+      orderSource: 'amazon',
+      fulfillmentChannel: 'MFN',
+      purchaseDate: { gte: cutoff },
+      OR: [
+        { isReplacement: true },
+        { orderTotal: null },
+        { orderTotal: 0 },
+      ],
+    },
+    include: { items: { take: 1, select: { asin: true, title: true } } },
+    orderBy: { purchaseDate: 'desc' },
   })
 
-  console.log(`[sync-replacements] Found ${replacements.length} replacement orders (of ${orders.length} total)`)
+  console.log(`[sync-replacements] Found ${candidates.length} replacement candidates in DB (${lookbackDays}d lookback)`)
 
   let created = 0
   let updated = 0
 
-  for (const order of replacements) {
-    let asin = ''
-    let title = ''
-    try {
-      const itemsRes = await sp.get<OrderItemsResponse>(
-        `/orders/v0/orders/${order.AmazonOrderId}/orderItems`,
-      )
-      const firstItem = itemsRes.payload?.OrderItems?.[0]
-      asin = firstItem?.ASIN ?? ''
-      title = firstItem?.Title ?? ''
-    } catch (err) {
-      console.warn(`[sync-replacements] Failed to fetch items for ${order.AmazonOrderId}:`, err)
-    }
+  for (const order of candidates) {
+    const asin = order.items[0]?.asin ?? ''
+    const title = order.items[0]?.title ?? ''
 
     // Determine original order ID:
-    // 1. Use ReplacedOrderId if Amazon provides it
+    // 1. Use replacedOrderId if stored from SP-API
     // 2. Otherwise, try to find a matching MFN return by ASIN
-    let originalOrderId = order.ReplacedOrderId ?? null
+    let originalOrderId = order.replacedOrderId ?? null
     let returnTracking: string | null = null
 
     if (originalOrderId) {
-      // Direct lookup by original order ID
       const mfnReturn = await prisma.mFNReturn.findFirst({
         where: { accountId, orderId: originalOrderId },
         select: { trackingNumber: true },
       })
       returnTracking = mfnReturn?.trackingNumber ?? null
     } else if (asin) {
-      // No ReplacedOrderId — find a recent MFN return with matching ASIN
       const mfnReturn = await prisma.mFNReturn.findFirst({
         where: {
           accountId,
           asin,
-          orderDate: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) }, // 60 day window
+          orderDate: { gte: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000) },
         },
         orderBy: { orderDate: 'desc' },
         select: { orderId: true, trackingNumber: true },
@@ -216,22 +187,21 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
       }
     }
 
-    // Fall back to 'UNKNOWN' if we can't determine the original
     if (!originalOrderId) originalOrderId = 'UNKNOWN'
 
     const existing = await prisma.freeReplacement.findUnique({
-      where: { replacementOrderId: order.AmazonOrderId },
+      where: { replacementOrderId: order.amazonOrderId },
     })
 
     if (existing) {
       await prisma.freeReplacement.update({
-        where: { replacementOrderId: order.AmazonOrderId },
+        where: { replacementOrderId: order.amazonOrderId },
         data: {
           asin: asin || existing.asin,
           title: title || existing.title,
           originalOrderId: existing.originalOrderId === 'UNKNOWN' && originalOrderId !== 'UNKNOWN'
             ? originalOrderId : existing.originalOrderId,
-          shippedAt: order.PurchaseDate ? new Date(order.PurchaseDate) : existing.shippedAt,
+          shippedAt: order.purchaseDate ?? existing.shippedAt,
           returnTrackingNumber: returnTracking ?? existing.returnTrackingNumber,
         },
       })
@@ -240,34 +210,29 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
       await prisma.freeReplacement.create({
         data: {
           accountId,
-          replacementOrderId: order.AmazonOrderId,
+          replacementOrderId: order.amazonOrderId,
           originalOrderId,
           asin,
           title,
-          shippedAt: order.PurchaseDate ? new Date(order.PurchaseDate) : null,
+          shippedAt: order.purchaseDate ?? null,
           returnTrackingNumber: returnTracking,
         },
       })
       created++
     }
-
-    await sleep(1100)
   }
 
   const trackingRefreshed = await refreshStaleTracking(accountId)
-
-  const sampleOrderKeys = orders.length > 0 ? Object.keys(orders[0]) : undefined
 
   return {
     created,
     updated,
     trackingRefreshed,
     debug: {
-      totalOrdersFetched: orders.length,
-      replacementsFound: replacements.length,
+      totalOrdersFetched: candidates.length,
+      replacementsFound: candidates.length,
       lookbackDays,
-      pagesFetched,
-      sampleOrderKeys,
+      pagesFetched: 0,
     },
   }
 }

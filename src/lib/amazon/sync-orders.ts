@@ -57,6 +57,8 @@ interface AmazonOrder {
   IsPrime?: boolean
   IsBuyerRequestedCancel?: boolean
   BuyerRequestedCancelReason?: string
+  IsReplacementOrder?: boolean
+  ReplacedOrderId?: string
 }
 interface GetOrdersResponse {
   payload?: { Orders?: AmazonOrder[]; NextToken?: string }
@@ -384,6 +386,8 @@ export async function syncUnshippedOrders(
                 isPrime:                 fullOrder.IsPrime ?? false,
                 isBuyerRequestedCancel:  fullOrder.IsBuyerRequestedCancel ?? false,
                 buyerCancelReason:       fullOrder.BuyerRequestedCancelReason ?? null,
+                isReplacement:           fullOrder.IsReplacementOrder ?? false,
+                replacedOrderId:         fullOrder.ReplacedOrderId ?? null,
                 latestShipDate:          fullOrder.LatestShipDate ? new Date(fullOrder.LatestShipDate) : null,
                 latestDeliveryDate:      fullOrder.LatestDeliveryDate ? new Date(fullOrder.LatestDeliveryDate) : null,
                 lastSyncedAt:            new Date(),
@@ -395,6 +399,8 @@ export async function syncUnshippedOrders(
                 isPrime:                 fullOrder.IsPrime ?? false,
                 isBuyerRequestedCancel:  fullOrder.IsBuyerRequestedCancel ?? false,
                 buyerCancelReason:       fullOrder.BuyerRequestedCancelReason ?? null,
+                isReplacement:           fullOrder.IsReplacementOrder ?? false,
+                replacedOrderId:         fullOrder.ReplacedOrderId ?? null,
                 latestShipDate:          fullOrder.LatestShipDate ? new Date(fullOrder.LatestShipDate) : null,
                 latestDeliveryDate:      fullOrder.LatestDeliveryDate ? new Date(fullOrder.LatestDeliveryDate) : null,
                 lastSyncedAt:            new Date(),
