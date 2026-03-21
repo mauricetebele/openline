@@ -133,13 +133,24 @@ function generateInvoicePDF(order: Order) {
   doc.circle(rdx, rdy, 5.5, 'S')
   doc.setFillColor(...red); doc.circle(rdx, rdy, 1.8, 'F')
 
-  // Text centered on same midpoint as icon
-  const textCx = iconMidX
+  // Text manually centered (charSpace breaks align:'center' in jsPDF)
   const textY = logoOy + 120 * sc + 8
+
+  // "OPEN LINE" — measure true width with charSpace and center manually
   doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...navy)
-  doc.text('OPEN LINE', textCx, textY, { align: 'center', charSpace: 2.5 })
+  const olChars = 'OPEN LINE'.length
+  const olBaseW = doc.getTextWidth('OPEN LINE')
+  const olCharSpace = 2.5
+  const olFullW = olBaseW + (olChars - 1) * olCharSpace
+  doc.text('OPEN LINE', iconMidX - olFullW / 2, textY, { charSpace: olCharSpace })
+
+  // "MOBILITY" — same approach
   doc.setFontSize(9); doc.setTextColor(...red)
-  doc.text('MOBILITY', textCx, textY + 13, { align: 'center', charSpace: 4 })
+  const mChars = 'MOBILITY'.length
+  const mBaseW = doc.getTextWidth('MOBILITY')
+  const mCharSpace = 4
+  const mFullW = mBaseW + (mChars - 1) * mCharSpace
+  doc.text('MOBILITY', iconMidX - mFullW / 2, textY + 13, { charSpace: mCharSpace })
 
   const logoBottom = textY + 20
 
