@@ -203,35 +203,37 @@ function generateInvoicePDF(order: Order) {
   doc.setFillColor(...navy)
   doc.rect(margin, y - 12, right - margin, 18, 'F')
   doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255)
-  doc.text('#', margin + 8, y)
-  doc.text('SKU', margin + 28, y)
-  doc.text('DESCRIPTION', margin + 150, y)
+  doc.text('ITEM', margin + 8, y)
   doc.text('QTY', right - 145, y, { align: 'right' })
   doc.text('UNIT PRICE', right - 65, y, { align: 'right' })
   doc.text('AMOUNT', right - 6, y, { align: 'right' })
   y += 14
 
-  // Table rows
-  doc.setFontSize(8.5)
+  // Table rows — two-line per item: SKU bold on top, description below
+  const rowHeight = 28
   order.items.forEach((item, i) => {
-    ensureSpace(18)
+    ensureSpace(rowHeight + 4)
     // Alternate row bg
     if (i % 2 === 0) {
       doc.setFillColor(...gray50)
-      doc.rect(margin, y - 10, right - margin, 16, 'F')
+      doc.rect(margin, y - 10, right - margin, rowHeight, 'F')
     }
-    doc.setFont('helvetica', 'normal'); doc.setTextColor(...black)
-    doc.text(String(i + 1), margin + 8, y)
-    doc.setFontSize(7.5); doc.setTextColor(...gray500)
-    doc.text((item.sku ?? '').substring(0, 16), margin + 28, y)
-    doc.setFontSize(8.5); doc.setTextColor(...black)
-    const titleStr = item.isInvoiceAddon ? `* ${item.title}` : item.title
-    doc.text(titleStr.substring(0, 35), margin + 150, y)
+    // Line 1: SKU (bold) + numeric columns
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...navy)
+    const skuLabel = item.sku ? item.sku : (item.isInvoiceAddon ? 'ADD-ON' : '—')
+    doc.text(skuLabel, margin + 8, y)
+    doc.setTextColor(...black)
     doc.text(String(Number(item.quantity)), right - 145, y, { align: 'right' })
+    doc.setFont('helvetica', 'normal')
     doc.text($(item.unitPrice), right - 65, y, { align: 'right' })
     doc.setFont('helvetica', 'bold')
     doc.text($(item.total), right - 6, y, { align: 'right' })
-    y += 16
+    // Line 2: Description
+    y += 11
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...gray500)
+    const titleStr = item.isInvoiceAddon ? `* ${item.title}` : item.title
+    doc.text(titleStr.substring(0, 70), margin + 8, y)
+    y += rowHeight - 11 + 4
   })
 
   // Bottom table border
