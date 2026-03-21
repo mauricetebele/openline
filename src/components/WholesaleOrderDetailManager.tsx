@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import jsPDF from 'jspdf'
-import { ClipboardCheck, MapPin, RefreshCcw, AlertCircle, X, Truck, Plus, Trash2 } from 'lucide-react'
+import { ClipboardCheck, MapPin, RefreshCcw, AlertCircle, X, Truck, Plus, Trash2, ExternalLink, Package } from 'lucide-react'
 
 const SO_STATUS_COLOR: Record<string, string> = {
   PENDING_APPROVAL: 'bg-amber-100 text-amber-700',
@@ -97,11 +97,27 @@ function generateInvoicePDF(order: Order) {
   }
 
   // ─── Header: Stacked logo (matching login screen) ──────────────────
-  // SVG viewBox 0 0 280 200 — text centered at x:140 (true visual center)
-  const sc = 0.45
-  const iconMidX = margin + 55
-  const logoOx = iconMidX - 140 * sc // SVG x:140 (text center) maps to iconMidX
-  const logoOy = 10
+  // Measure text widths first so icon can be centered over them
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+  const olCharSpace = 2.5
+  const olBaseW = doc.getTextWidth('OPEN LINE')
+  const olFullW = olBaseW + ('OPEN LINE'.length - 1) * olCharSpace
+
+  doc.setFontSize(9)
+  const mCharSpace = 4
+  const mBaseW = doc.getTextWidth('MOBILITY')
+  const mFullW = mBaseW + ('MOBILITY'.length - 1) * mCharSpace
+
+  // Use the wider of the two text lines as the block width
+  const blockW = Math.max(olFullW, mFullW)
+  const blockCx = margin + blockW / 2
+
+  // Icon: SVG coords range from x:50..220, y:40..130 → visual center = (135, 85)
+  const sc = 0.4
+  const iconW = (220 - 50) * sc  // visual width of icon
+  const iconCx = blockCx          // center icon over text block
+  const logoOx = iconCx - (135 * sc)   // offset so SVG x:135 maps to iconCx
+  const logoOy = 8
 
   // Cubic bezier curve: P0=(60,105) CP1=(100,120) CP2=(160,40) P3=(210,55)
   const p0x = 60*sc+logoOx, p0y = 105*sc+logoOy
@@ -109,7 +125,7 @@ function generateInvoicePDF(order: Order) {
   const c2x = 160*sc+logoOx, c2y = 40*sc+logoOy
   const p3x = 210*sc+logoOx, p3y = 55*sc+logoOy
 
-  doc.setLineWidth(1.6)
+  doc.setLineWidth(1.5)
   for (let t = 0; t < 1; t += 0.04) {
     const t2 = Math.min(t + 0.04, 1)
     const bx = (ti: number) => Math.pow(1-ti,3)*p0x + 3*Math.pow(1-ti,2)*ti*c1x + 3*(1-ti)*ti*ti*c2x + ti*ti*ti*p3x
@@ -120,39 +136,30 @@ function generateInvoicePDF(order: Order) {
     doc.setDrawColor(r, g, b)
     doc.line(bx(t), by(t), bx(t2), by(t2))
   }
+  void iconW // used for reference
 
-  // Left blue dot (ring + center fill) at SVG (58,104)
+  // Left blue dot at SVG (58,104)
   const ldx = 58*sc+logoOx, ldy = 104*sc+logoOy
-  doc.setDrawColor(...blue); doc.setLineWidth(1.8)
-  doc.circle(ldx, ldy, 5, 'S')
-  doc.setFillColor(...blue); doc.circle(ldx, ldy, 1.6, 'F')
+  doc.setDrawColor(...blue); doc.setLineWidth(1.6)
+  doc.circle(ldx, ldy, 4.5, 'S')
+  doc.setFillColor(...blue); doc.circle(ldx, ldy, 1.5, 'F')
 
-  // Right red dot (ring + center fill) at SVG (212,54)
+  // Right red dot at SVG (212,54)
   const rdx = 212*sc+logoOx, rdy = 54*sc+logoOy
-  doc.setDrawColor(...red); doc.setLineWidth(1.8)
-  doc.circle(rdx, rdy, 5.5, 'S')
-  doc.setFillColor(...red); doc.circle(rdx, rdy, 1.8, 'F')
+  doc.setDrawColor(...red); doc.setLineWidth(1.6)
+  doc.circle(rdx, rdy, 5, 'S')
+  doc.setFillColor(...red); doc.circle(rdx, rdy, 1.6, 'F')
 
-  // Text manually centered (charSpace breaks align:'center' in jsPDF)
-  const textY = logoOy + 120 * sc + 8
-
-  // "OPEN LINE" — measure true width with charSpace and center manually
+  // "OPEN LINE" centered under icon
+  const textY = Math.max(ldy, rdy) + 14
   doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...navy)
-  const olChars = 'OPEN LINE'.length
-  const olBaseW = doc.getTextWidth('OPEN LINE')
-  const olCharSpace = 2.5
-  const olFullW = olBaseW + (olChars - 1) * olCharSpace
-  doc.text('OPEN LINE', iconMidX - olFullW / 2, textY, { charSpace: olCharSpace })
+  doc.text('OPEN LINE', blockCx - olFullW / 2, textY, { charSpace: olCharSpace })
 
-  // "MOBILITY" — same approach
+  // "MOBILITY" centered under "OPEN LINE"
   doc.setFontSize(9); doc.setTextColor(...red)
-  const mChars = 'MOBILITY'.length
-  const mBaseW = doc.getTextWidth('MOBILITY')
-  const mCharSpace = 4
-  const mFullW = mBaseW + (mChars - 1) * mCharSpace
-  doc.text('MOBILITY', iconMidX - mFullW / 2, textY + 13, { charSpace: mCharSpace })
+  doc.text('MOBILITY', blockCx - mFullW / 2, textY + 13, { charSpace: mCharSpace })
 
-  const logoBottom = textY + 20
+  const logoBottom = textY + 22
 
   // Invoice title block (right side, vertically centered with logo)
   doc.setFontSize(24); doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
@@ -408,14 +415,20 @@ function generateInvoicePDF(order: Order) {
       doc.text(`— ${group.title}`, margin + 8 + doc.getTextWidth(group.sku + '  '), y)
       y += 12
 
-      // Serials in single column
+      // Serials in multi-column grid
+      const colCount = 4
+      const colWidth = (right - margin - 16) / colCount
+      const serialRowH = 8
       doc.setFont('helvetica', 'normal'); doc.setFontSize(6); doc.setTextColor(...black)
-      group.serials.forEach((sn) => {
-        ensureSpace(10)
-        doc.text(sn, margin + 12, y)
-        y += 8
+      group.serials.forEach((sn, si) => {
+        const col = si % colCount
+        const row = Math.floor(si / colCount)
+        if (col === 0 && row > 0) y += serialRowH
+        if (col === 0) ensureSpace(serialRowH + 4)
+        const sx = margin + 12 + col * colWidth
+        doc.text(sn, sx, y)
       })
-      y += 8
+      y += serialRowH + 8
     }
   }
 
@@ -443,6 +456,11 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
   const [paymentSaving, setPaymentSaving] = useState(false)
   const [showProcessModal, setShowProcessModal] = useState(false)
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [trackingStatus, setTrackingStatus] = useState<{
+    status: string | null; carrier: string; trackingUrl: string
+    deliveredAt: string | null; estimatedDelivery: string | null; error?: string
+  } | null>(null)
+  const [trackingLoading, setTrackingLoading] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -454,6 +472,19 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  const fetchTracking = useCallback(async () => {
+    setTrackingLoading(true)
+    try {
+      const res = await fetch(`/api/wholesale/orders/${id}/tracking`)
+      const data = await res.json()
+      setTrackingStatus(data)
+    } catch {
+      toast.error('Failed to fetch tracking status')
+    } finally {
+      setTrackingLoading(false)
+    }
+  }, [id])
 
   async function transition(newStatus: string) {
     setTransitioning(true)
@@ -657,8 +688,20 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
           {/* Shipping & serial info */}
           {order.fulfillmentStatus === 'SHIPPED' && (
             <div className="bg-white rounded-xl border border-gray-200 p-5 text-sm space-y-3">
-              <div className="flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase">
-                <Truck size={13} /> Shipping Details
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase">
+                  <Truck size={13} /> Shipping Details
+                </div>
+                {order.shipTracking && (
+                  <button
+                    onClick={fetchTracking}
+                    disabled={trackingLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                  >
+                    <RefreshCcw size={11} className={trackingLoading ? 'animate-spin' : ''} />
+                    {trackingLoading ? 'Checking…' : 'Check Status'}
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
@@ -676,6 +719,58 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                   </p>
                 </div>
               </div>
+
+              {/* Live tracking status */}
+              {trackingStatus && (
+                <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Package size={13} className="text-blue-600" />
+                      <span className="text-xs font-semibold text-blue-800 uppercase">Tracking Status</span>
+                    </div>
+                    {trackingStatus.trackingUrl && (
+                      <a
+                        href={trackingStatus.trackingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        Track on {trackingStatus.carrier} <ExternalLink size={10} />
+                      </a>
+                    )}
+                  </div>
+                  {trackingStatus.status ? (
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <p className="text-xs text-blue-600/70">Status</p>
+                        <p className="font-semibold text-gray-900 text-sm">{trackingStatus.status}</p>
+                      </div>
+                      {trackingStatus.deliveredAt && (
+                        <div>
+                          <p className="text-xs text-blue-600/70">Delivered</p>
+                          <p className="font-medium text-green-700 text-sm">
+                            {new Date(trackingStatus.deliveredAt).toLocaleDateString()} {new Date(trackingStatus.deliveredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      )}
+                      {!trackingStatus.deliveredAt && trackingStatus.estimatedDelivery && (
+                        <div>
+                          <p className="text-xs text-blue-600/70">Est. Delivery</p>
+                          <p className="font-medium text-gray-700 text-sm">
+                            {new Date(trackingStatus.estimatedDelivery).toLocaleDateString()}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : trackingStatus.error ? (
+                    <div className="flex items-start gap-2">
+                      <AlertCircle size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-700">{trackingStatus.error}</p>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
               {order.serialAssignments && order.serialAssignments.length > 0 && (
                 <div>
                   <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Assigned Serial Numbers</p>
