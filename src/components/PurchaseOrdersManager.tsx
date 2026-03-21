@@ -956,7 +956,7 @@ function PORow({
             #{po.poNumber}
           </div>
         </td>
-        <td className="px-4 py-3 text-gray-700">V-{po.vendor.vendorNumber} — {po.vendor.name}</td>
+        <td className="px-4 py-3 text-gray-700">{po.vendor.name}</td>
         <td className="px-4 py-3 text-gray-500 text-sm">
           {new Date(po.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
         </td>

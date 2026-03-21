@@ -21,6 +21,8 @@ export async function GET(req: NextRequest) {
     where.OR = [
       // PO number match
       ...(Number.isFinite(poNum) ? [{ poNumber: poNum }] : []),
+      // Vendor name match
+      { vendor: { name: { contains: search, mode: 'insensitive' } } },
       // SKU match (product on any line)
       { lines: { some: { product: { sku: { contains: search, mode: 'insensitive' } } } } },
       // Serial match (via receipt lines → serials)
