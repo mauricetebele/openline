@@ -503,7 +503,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
       {/* Header */}
       <div className="flex flex-wrap items-center gap-4">
         <button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-gray-700">←</button>
-        <h1 className="font-mono text-2xl font-bold text-orange-600">{order.orderNumber}</h1>
+        <h1 className="font-mono text-2xl font-bold text-orange-600">{order.invoiceNumber ?? order.orderNumber}</h1>
         <span className={`inline-flex px-2.5 py-1 rounded text-xs font-semibold ${SO_STATUS_COLOR[order.status]}`}>
           {order.status.replace('_', ' ')}
         </span>
