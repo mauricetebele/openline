@@ -54,10 +54,12 @@ export async function POST(
     }
 
     // Enforce order item's gradeId as source of truth (prevents stale frontend data)
+    // Only override if the order item has an explicit gradeId — if null, trust the
+    // frontend's gradeId which comes from the MSKU mapping.
     const itemGradeMap = new Map(order.items.map(i => [i.id, i.gradeId ?? null]))
     for (const r of reservations) {
       const authoritative = itemGradeMap.get(r.orderItemId)
-      if (authoritative !== undefined) r.gradeId = authoritative
+      if (authoritative) r.gradeId = authoritative
     }
 
     // Validate all inputs before touching inventory
