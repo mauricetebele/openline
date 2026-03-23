@@ -1,6 +1,7 @@
 /**
  * GET /api/orders/match-by-sku?sku=X&accountId=Y
  * Finds the oldest single-qty AWAITING_VERIFICATION order that needs the given SKU.
+ * Supports both direct sellerSku matches and graded items via marketplace SKU mappings.
  * Excludes BackMarket orders.
  */
 import { NextRequest, NextResponse } from 'next/server'
@@ -18,16 +19,29 @@ export async function GET(req: NextRequest) {
   if (!sku) return NextResponse.json({ error: 'Missing sku parameter' }, { status: 400 })
   if (!accountId) return NextResponse.json({ error: 'Missing accountId parameter' }, { status: 400 })
 
+  // Build the set of sellerSkus to match:
+  // 1. The SKU itself (direct match)
+  // 2. All marketplace SKUs mapped to the product with this SKU (graded items)
+  const skusToMatch = [sku]
+
+  const mappings = await prisma.productGradeMarketplaceSku.findMany({
+    where: { product: { sku } },
+    select: { sellerSku: true },
+  })
+  for (const m of mappings) {
+    if (!skusToMatch.includes(m.sellerSku)) skusToMatch.push(m.sellerSku)
+  }
+
   // Find the oldest AWAITING_VERIFICATION order where:
   // 1. orderSource is NOT 'backmarket'
-  // 2. Has an item with matching sellerSku
+  // 2. Has an item with matching sellerSku (direct or via marketplace mapping)
   // 3. Single-qty order (only one item with qty 1)
   const candidates = await prisma.order.findMany({
     where: {
       accountId,
       workflowStatus: 'AWAITING_VERIFICATION',
       orderSource: { not: 'backmarket' },
-      items: { some: { sellerSku: sku } },
+      items: { some: { sellerSku: { in: skusToMatch } } },
     },
     include: {
       items: { orderBy: { sellerSku: 'asc' } },
