@@ -4896,12 +4896,14 @@ export default function UnshippedOrders() {
         const j = await lookupRes.json().catch(() => ({}))
         throw new Error((j as { error?: string }).error ?? `Serial lookup failed (${lookupRes.status})`)
       }
-      const serial: { status: string; product?: { sku: string } } = await lookupRes.json()
+      const serial: { status: string; product?: { sku: string }; grade?: { id: string } } = await lookupRes.json()
       if (serial.status !== 'IN_STOCK') throw new Error(`Serial "${sn.trim()}" is not in stock (status: ${serial.status})`)
       if (!serial.product?.sku) throw new Error(`Serial "${sn.trim()}" has no associated SKU`)
 
-      // 2. Find matching order
-      const matchRes = await fetch(`/api/orders/match-by-sku?sku=${encodeURIComponent(serial.product.sku)}&accountId=${encodeURIComponent(selectedAccountId)}`)
+      // 2. Find matching order (pass gradeId to constrain graded items)
+      const matchParams = new URLSearchParams({ sku: serial.product.sku, accountId: selectedAccountId })
+      if (serial.grade?.id) matchParams.set('gradeId', serial.grade.id)
+      const matchRes = await fetch(`/api/orders/match-by-sku?${matchParams}`)
       if (!matchRes.ok) {
         const j = await matchRes.json().catch(() => ({}))
         throw new Error((j as { error?: string }).error ?? `Order match failed (${matchRes.status})`)

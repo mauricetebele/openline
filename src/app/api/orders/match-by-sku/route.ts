@@ -1,7 +1,8 @@
 /**
- * GET /api/orders/match-by-sku?sku=X&accountId=Y
+ * GET /api/orders/match-by-sku?sku=X&accountId=Y&gradeId=Z
  * Finds the oldest single-qty AWAITING_VERIFICATION order that needs the given SKU.
  * Supports both direct sellerSku matches and graded items via marketplace SKU mappings.
+ * When gradeId is provided, only matches marketplace SKUs for that specific grade.
  * Excludes BackMarket orders.
  */
 import { NextRequest, NextResponse } from 'next/server'
@@ -16,16 +17,20 @@ export async function GET(req: NextRequest) {
 
   const sku = req.nextUrl.searchParams.get('sku')?.trim()
   const accountId = req.nextUrl.searchParams.get('accountId')?.trim()
+  const gradeId = req.nextUrl.searchParams.get('gradeId')?.trim() || null
   if (!sku) return NextResponse.json({ error: 'Missing sku parameter' }, { status: 400 })
   if (!accountId) return NextResponse.json({ error: 'Missing accountId parameter' }, { status: 400 })
 
   // Build the set of sellerSkus to match:
-  // 1. The SKU itself (direct match)
-  // 2. All marketplace SKUs mapped to the product with this SKU (graded items)
+  // 1. The SKU itself (direct match for ungraded items)
+  // 2. Marketplace SKUs mapped to the product, filtered by grade when provided
   const skusToMatch = [sku]
 
   const mappings = await prisma.productGradeMarketplaceSku.findMany({
-    where: { product: { sku } },
+    where: {
+      product: { sku },
+      ...(gradeId ? { gradeId } : {}),
+    },
     select: { sellerSku: true },
   })
   for (const m of mappings) {
