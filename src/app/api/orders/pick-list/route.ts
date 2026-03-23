@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const raw = req.nextUrl.searchParams.get('orderIds') ?? ''
   const orderIds = raw.split(',').map(s => s.trim()).filter(Boolean)
   if (orderIds.length === 0) return NextResponse.json({ orders: [] })
-  if (orderIds.length > 100) return NextResponse.json({ error: 'Max 100 orders per pick list' }, { status: 400 })
+  if (orderIds.length > 1000) return NextResponse.json({ error: 'Max 1000 orders per pick list' }, { status: 400 })
 
   const orders = await prisma.order.findMany({
     where: { id: { in: orderIds } },
