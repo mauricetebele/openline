@@ -86,9 +86,10 @@ export async function POST(req: NextRequest) {
 
       // Build batch updates
       const updates: { id: string; data: Record<string, unknown> }[] = []
+      const unmatchedOrders: typeof needsEnrichment = []
       for (const o of needsEnrichment) {
         const ssOrder = ssMap.get(o.amazonOrderId)
-        if (!ssOrder) continue
+        if (!ssOrder) { unmatchedOrders.push(o); continue }
 
         const needsAddr = !o.shipToPostal || !o.shipToCity
         const needsSsId = !o.ssOrderId
@@ -108,6 +109,32 @@ export async function POST(req: NextRequest) {
           data.shipToPhone    = st.phone      || null
         }
         updates.push({ id: o.id, data })
+      }
+
+      // Phase 2b: Individual lookup for orders not found in the bulk list
+      if (unmatchedOrders.length > 0) {
+        send({ phase: 'individual-lookup', remaining: unmatchedOrders.length })
+        for (const o of unmatchedOrders) {
+          try {
+            const ssOrder = await ssClient.findOrderByNumber(o.amazonOrderId)
+            if (!ssOrder) continue
+
+            const needsAddr = !o.shipToPostal || !o.shipToCity
+            const data: Record<string, unknown> = { ssOrderId: ssOrder.orderId }
+            if (needsAddr && ssOrder.shipTo) {
+              const st = ssOrder.shipTo
+              data.shipToName     = st.name       || null
+              data.shipToAddress1 = st.street1    || null
+              data.shipToAddress2 = st.street2    || null
+              data.shipToCity     = st.city       || null
+              data.shipToState    = st.state      || null
+              data.shipToPostal   = st.postalCode || null
+              data.shipToCountry  = st.country    || null
+              data.shipToPhone    = st.phone      || null
+            }
+            updates.push({ id: o.id, data })
+          } catch { /* skip on error, don't block the rest */ }
+        }
       }
 
       // Phase 3: Execute in batches of 50 with progress
