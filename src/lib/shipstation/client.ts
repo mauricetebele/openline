@@ -393,11 +393,14 @@ export class ShipStationClient {
 
   /** POST https://api.shipstation.com/v2/rates */
   async getRatesV2(payload: V2RatesRequest): Promise<{ rate_response: { rates: V2Rate[]; invalid_rates?: V2Rate[] } }> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30_000)
     const res = await fetch('https://api.shipstation.com/v2/rates', {
       method: 'POST',
       headers: { 'API-Key': this.v2ApiKey, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(payload),
-    })
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer))
     const json = await res.json()
     console.log('[getRatesV2] status=%d body=%s', res.status, JSON.stringify(json, null, 2))
     if (!res.ok) {

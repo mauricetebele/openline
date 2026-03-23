@@ -102,9 +102,7 @@ export async function POST(req: NextRequest) {
     const carrierName = carrier.nickname?.trim() || carrier.name
     const isAmzCarrier = isAmazonCarrier(carrier.code)
 
-    // ── Amazon orders → Amazon Buy Shipping only (V2) ───────────────────
-    // ── Non-Amazon orders → all non-Amazon carriers (V1) ────────────────
-    if (isAmazonOrder && !isAmzCarrier) return
+    // Non-Amazon orders skip Amazon carriers
     if (!isAmazonOrder && isAmzCarrier) return
 
     if (isAmzCarrier) {
