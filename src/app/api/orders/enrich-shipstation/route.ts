@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       send({ phase: 'fetched', total: ssOrders.length })
 
       // Phase 2: Find local orders to check
-      const localOrders = await prisma.order.findMany({
+      const allLocalOrders = await prisma.order.findMany({
         where: {
           accountId,
           orderSource: { in: ['amazon', 'backmarket'] },
@@ -81,8 +81,11 @@ export async function POST(req: NextRequest) {
         select: { id: true, amazonOrderId: true, shipToPostal: true, shipToCity: true, ssOrderId: true },
       })
 
+      // Skip orders that already have address + ssOrderId
+      const localOrders = allLocalOrders.filter(o => !o.shipToPostal || !o.shipToCity || !o.ssOrderId)
+      const skipped = allLocalOrders.length - localOrders.length
       const total = localOrders.length
-      send({ phase: 'checking', checked: total, total })
+      send({ phase: 'checking', checked: total, total, skipped })
 
       // Build updates with per-order progress
       const updates: { id: string; data: Record<string, unknown> }[] = []
