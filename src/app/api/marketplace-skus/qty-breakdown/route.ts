@@ -64,6 +64,20 @@ export async function GET() {
     resMap.set(`${g.productId}:${g.gradeId ?? ''}`, g._sum.qtyReserved ?? 0)
   }
 
+  // Batch: wholesale soft reservations (qty NOT decremented in inventoryItem.qty)
+  const wholesaleGroups = await prisma.salesOrderInventoryReservation.groupBy({
+    by: ['productId', 'gradeId'],
+    where: {
+      location: { isFinishedGoods: true },
+      salesOrder: { fulfillmentStatus: { in: ['PROCESSING'] } },
+    },
+    _sum: { qtyReserved: true },
+  })
+  const wholesaleMap = new Map<string, number>()
+  for (const g of wholesaleGroups) {
+    wholesaleMap.set(`${g.productId}:${g.gradeId ?? ''}`, g._sum.qtyReserved ?? 0)
+  }
+
   // Batch: pending Amazon MFN order items
   const amazonSkus = mskus
     .filter(m => m.marketplace === 'amazon')
@@ -92,10 +106,12 @@ export async function GET() {
   const results: QtyBreakdown[] = mskus.map(msku => {
     const key = `${msku.productId}:${msku.gradeId ?? ''}`
     const availableInInventory = invMap.get(key) ?? 0
-    const reserved = resMap.get(key) ?? 0
-    const onHand = availableInInventory + reserved
+    const hardReserved = resMap.get(key) ?? 0
+    const wholesaleReserved = wholesaleMap.get(key) ?? 0
+    const onHand = availableInInventory + hardReserved
+    const reserved = hardReserved + wholesaleReserved
     const pendingOrders = msku.marketplace === 'amazon' ? (pendingMap.get(msku.sellerSku) ?? 0) : 0
-    const available = Math.max(0, availableInInventory - pendingOrders)
+    const available = Math.max(0, availableInInventory - pendingOrders - wholesaleReserved)
     const pushing = msku.maxQty != null ? Math.min(available, msku.maxQty) : available
     return { mskuId: msku.id, onHand, reserved, pendingOrders, available, maxQty: msku.maxQty, pushing }
   })
