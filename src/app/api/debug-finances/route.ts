@@ -10,8 +10,12 @@ import { SpApiClient } from '@/lib/amazon/sp-api'
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
+  const authHeader = req.headers.get('authorization')
+  const cronSecret = process.env.CRON_SECRET
   const user = await getAuthUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user && !(cronSecret && authHeader === `Bearer ${cronSecret}`)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   const accountId = req.nextUrl.searchParams.get('accountId')?.trim()
   const amazonOrderId = req.nextUrl.searchParams.get('amazonOrderId')?.trim()
