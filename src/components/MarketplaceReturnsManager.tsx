@@ -972,10 +972,10 @@ function CreateReturnModal({
                         {filteredLocs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                       </select>
                       {globalGrades.length > 0 && (
-                        state.gradeId && !regradeSerials.has(serial.id) ? (
+                        !regradeSerials.has(serial.id) ? (
                           <div className="flex items-center gap-1.5">
-                            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                              {globalGrades.find(g => g.id === state.gradeId)?.grade ?? 'Graded'}
+                            <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${state.gradeId ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-gray-50 text-gray-500 border border-gray-200'}`}>
+                              {state.gradeId ? (globalGrades.find(g => g.id === state.gradeId)?.grade ?? 'Graded') : 'No Grade'}
                             </span>
                             <button
                               type="button"
@@ -1371,10 +1371,10 @@ function ReceiveReturnModal({
                               {filteredLocs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                             </select>
                             {productGrades.length > 0 && (
-                              state.gradeId && !regradeSerials.has(serial.id) ? (
+                              !regradeSerials.has(serial.id) ? (
                                 <div className="flex items-center gap-1.5">
-                                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                                    {productGrades.find(g => g.id === state.gradeId)?.grade ?? 'Graded'}
+                                  <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${state.gradeId ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-gray-50 text-gray-500 border border-gray-200'}`}>
+                                    {state.gradeId ? (productGrades.find(g => g.id === state.gradeId)?.grade ?? 'Graded') : 'No Grade'}
                                   </span>
                                   <button
                                     type="button"
