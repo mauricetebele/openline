@@ -651,7 +651,7 @@ function CreateReturnModal({
       // Initialize step 2 state — default grade to the serial's shipped grade
       const gradeBySerialId = new Map<string, string>()
       for (const si of serializedItems) {
-        if (si.serial.gradeId) gradeBySerialId.set(si.serial.id, si.serial.gradeId)
+        if (si.serial.grade?.id) gradeBySerialId.set(si.serial.id, si.serial.grade.id)
       }
       const serialRec: typeof serialReceive = {}
       for (const item of rma.items ?? []) {
@@ -1155,7 +1155,7 @@ function ReceiveReturnModal({
               }
             } else {
               // Default grade to the serial's shipped grade
-              const shippedGradeId = s.inventorySerial?.gradeId ?? ''
+              const shippedGradeId = s.inventorySerial?.gradeId ?? s.inventorySerial?.grade?.id ?? ''
               sr[s.id] = { warehouseId: '', locationId: '', gradeId: shippedGradeId, note: '' }
             }
           }
