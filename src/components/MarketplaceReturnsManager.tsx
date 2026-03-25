@@ -545,6 +545,7 @@ function CreateReturnModal({
   }>>({})
   const [globalGrades, setGlobalGrades] = useState<Grade[]>([])
   const [receiving, setReceiving] = useState(false)
+  const [regradeSerials, setRegradeSerials] = useState<Set<string>>(new Set())
 
   // Fetch warehouses + grades when step 2
   useEffect(() => {
@@ -971,17 +972,32 @@ function CreateReturnModal({
                         {filteredLocs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                       </select>
                       {globalGrades.length > 0 && (
-                        <select
-                          value={state.gradeId}
-                          onChange={(e) => setSerialReceive(prev => ({
-                            ...prev,
-                            [serial.id]: { ...prev[serial.id], gradeId: e.target.value },
-                          }))}
-                          className="border border-gray-200 rounded px-2 py-1.5 text-sm min-w-[80px]"
-                        >
-                          <option value="">Grade...</option>
-                          {globalGrades.map(g => <option key={g.id} value={g.id}>{g.grade}</option>)}
-                        </select>
+                        state.gradeId && !regradeSerials.has(serial.id) ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                              {globalGrades.find(g => g.id === state.gradeId)?.grade ?? 'Graded'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setRegradeSerials(prev => new Set(prev).add(serial.id))}
+                              className="text-xs text-gray-500 hover:text-amazon-blue underline"
+                            >
+                              Regrade
+                            </button>
+                          </div>
+                        ) : (
+                          <select
+                            value={state.gradeId}
+                            onChange={(e) => setSerialReceive(prev => ({
+                              ...prev,
+                              [serial.id]: { ...prev[serial.id], gradeId: e.target.value },
+                            }))}
+                            className="border border-gray-200 rounded px-2 py-1.5 text-sm min-w-[80px]"
+                          >
+                            <option value="">Grade...</option>
+                            {globalGrades.map(g => <option key={g.id} value={g.id}>{g.grade}</option>)}
+                          </select>
+                        )
                       )}
                       <input
                         value={state.note}
@@ -1107,6 +1123,7 @@ function ReceiveReturnModal({
     warehouseId: string; locationId: string; gradeId: string
   }>>({})
   const [receiving, setReceiving] = useState(false)
+  const [regradeSerials, setRegradeSerials] = useState<Set<string>>(new Set())
 
   const [applyAllWh, setApplyAllWh] = useState('')
   const [applyAllLoc, setApplyAllLoc] = useState('')
@@ -1354,17 +1371,32 @@ function ReceiveReturnModal({
                               {filteredLocs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                             </select>
                             {productGrades.length > 0 && (
-                              <select
-                                value={state.gradeId}
-                                onChange={(e) => setSerialReceive(prev => ({
-                                  ...prev,
-                                  [serial.id]: { ...prev[serial.id], gradeId: e.target.value },
-                                }))}
-                                className="border border-gray-200 rounded px-2 py-1.5 text-sm min-w-[80px]"
-                              >
-                                <option value="">Grade...</option>
-                                {productGrades.map(g => <option key={g.id} value={g.id}>{g.grade}</option>)}
-                              </select>
+                              state.gradeId && !regradeSerials.has(serial.id) ? (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                    {productGrades.find(g => g.id === state.gradeId)?.grade ?? 'Graded'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRegradeSerials(prev => new Set(prev).add(serial.id))}
+                                    className="text-xs text-gray-500 hover:text-amazon-blue underline"
+                                  >
+                                    Regrade
+                                  </button>
+                                </div>
+                              ) : (
+                                <select
+                                  value={state.gradeId}
+                                  onChange={(e) => setSerialReceive(prev => ({
+                                    ...prev,
+                                    [serial.id]: { ...prev[serial.id], gradeId: e.target.value },
+                                  }))}
+                                  className="border border-gray-200 rounded px-2 py-1.5 text-sm min-w-[80px]"
+                                >
+                                  <option value="">Grade...</option>
+                                  {productGrades.map(g => <option key={g.id} value={g.id}>{g.grade}</option>)}
+                                </select>
+                              )
                             )}
                             <input
                               value={state.note}

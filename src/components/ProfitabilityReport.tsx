@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { clsx } from 'clsx'
 import {
   ChevronDown, ChevronRight, ChevronUp, DollarSign, TrendingUp, TrendingDown, Package, Wrench,
-  Search, X,
+  Search, X, RefreshCw,
 } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -295,6 +295,20 @@ export default function ProfitabilityReport() {
   const [viewMode, setViewMode] = useState<ViewMode>('order')
   const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [syncingCommissions, setSyncingCommissions] = useState(false)
+
+  async function syncCommissions() {
+    setSyncingCommissions(true)
+    try {
+      const res = await fetch('/api/sync-commissions', { method: 'POST' })
+      if (!res.ok) throw new Error('Sync failed')
+      await fetchData()
+    } catch {
+      // silently fail — data will refresh on next load
+    } finally {
+      setSyncingCommissions(false)
+    }
+  }
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -462,6 +476,15 @@ export default function ProfitabilityReport() {
           className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >
           Reset
+        </button>
+
+        <button
+          onClick={syncCommissions}
+          disabled={syncingCommissions}
+          className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+        >
+          <RefreshCw size={12} className={syncingCommissions ? 'animate-spin' : ''} />
+          {syncingCommissions ? 'Syncing...' : 'Sync Commissions'}
         </button>
 
         {/* View toggle */}
