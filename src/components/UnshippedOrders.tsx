@@ -6283,7 +6283,7 @@ export default function UnshippedOrders() {
                   'border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors align-middle',
                   hasCancelRequest
                     ? 'bg-amber-50 hover:bg-amber-100/60 dark:bg-amber-900/30 dark:hover:bg-amber-900/50'
-                    : (order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null
+                    : (order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null && !order.shipToCity
                       ? 'bg-yellow-50/70 hover:bg-yellow-100/50 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30'
                       : rowIdx % 2 === 0
                         ? 'bg-white hover:bg-blue-50/50 dark:bg-gray-900 dark:hover:bg-gray-800/70'
@@ -6344,7 +6344,7 @@ export default function UnshippedOrders() {
                               </span>
                             )}
                             {/* SS Pull button for orders not synced with ShipStation */}
-                            {(order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null && (
+                            {(order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null && !order.shipToCity && (
                               <button
                                 onClick={async (e) => {
                                   e.stopPropagation()
