@@ -62,48 +62,35 @@ export async function POST(
       if (authoritative) r.gradeId = authoritative
     }
 
-    // Validate all inputs before touching inventory
+    // Validate basic inputs before entering transaction
     for (const r of reservations) {
       if (!r.orderItemId || !r.productId || !r.locationId || r.qtyReserved < 1) {
         return NextResponse.json({ error: 'Invalid reservation data' }, { status: 400 })
       }
-      const gradeId = r.gradeId ?? null
-      const inv = gradeId
-        ? await prisma.inventoryItem.findUnique({
-            where: { productId_locationId_gradeId: { productId: r.productId, locationId: r.locationId, gradeId } },
-          })
-        : await prisma.inventoryItem.findFirst({
-            where: { productId: r.productId, locationId: r.locationId, gradeId: null },
-          })
-      if (!inv || inv.qty < r.qtyReserved) {
-        return NextResponse.json(
-          { error: `Insufficient stock at selected location (available: ${inv?.qty ?? 0})` },
-          { status: 409 },
-        )
-      }
     }
 
-    // Apply reservations in a transaction
+    // Validate stock + apply reservations atomically to prevent race conditions
     await prisma.$transaction(async tx => {
       for (const r of reservations) {
         const gradeId = r.gradeId ?? null
 
-        // Deduct from inventory
-        if (gradeId) {
-          await tx.inventoryItem.update({
-            where: { productId_locationId_gradeId: { productId: r.productId, locationId: r.locationId, gradeId } },
-            data: { qty: { decrement: r.qtyReserved } },
-          })
-        } else {
-          const inv = await tx.inventoryItem.findFirst({
-            where: { productId: r.productId, locationId: r.locationId, gradeId: null },
-          })
-          if (!inv) throw new Error(`Inventory item not found for product ${r.productId}`)
-          await tx.inventoryItem.update({
-            where: { id: inv.id },
-            data: { qty: { decrement: r.qtyReserved } },
-          })
+        // Check stock inside the transaction to prevent concurrent over-reservation
+        const inv = gradeId
+          ? await tx.inventoryItem.findUnique({
+              where: { productId_locationId_gradeId: { productId: r.productId, locationId: r.locationId, gradeId } },
+            })
+          : await tx.inventoryItem.findFirst({
+              where: { productId: r.productId, locationId: r.locationId, gradeId: null },
+            })
+        if (!inv || inv.qty < r.qtyReserved) {
+          throw new Error(`Insufficient stock at selected location (available: ${inv?.qty ?? 0})`)
         }
+
+        // Deduct from inventory
+        await tx.inventoryItem.update({
+          where: { id: inv.id },
+          data: { qty: { decrement: r.qtyReserved } },
+        })
 
         // Record the reservation
         await tx.orderInventoryReservation.create({
