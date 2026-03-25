@@ -2241,7 +2241,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
         case 'type':        av = a.product.isSerializable ? 1 : 0; bv = b.product.isSerializable ? 1 : 0; break
         case 'onHand':      av = a.onHand; bv = b.onHand; break
         case 'reserved':    av = a.reserved; bv = b.reserved; break
-        case 'available':   av = a.qty; bv = b.qty; break
+        case 'available':   av = a.onHand - a.reserved; bv = b.onHand - b.reserved; break
         case 'value':       av = (a.unitCost ?? 0) * a.onHand; bv = (b.unitCost ?? 0) * b.onHand; break
         case 'marketplace': {
           const am = (a.product.marketplaceSkus ?? []).filter(s => (s.gradeId ?? null) === (a.grade?.id ?? null))
@@ -2310,7 +2310,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
 
   const totalOnHand    = items.reduce((s, i) => s + i.onHand, 0)
   const totalReserved  = items.reduce((s, i) => s + i.reserved, 0)
-  const totalAvailable = items.reduce((s, i) => s + i.qty, 0)
+  const totalAvailable = items.reduce((s, i) => s + (i.onHand - i.reserved), 0)
 
   return (
     <div className="flex-1 overflow-auto px-6 py-4">
@@ -2506,7 +2506,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                     )}
                   </td>
                   <td className="px-2 py-1 text-right font-semibold text-gray-900 tabular-nums">
-                    {item.qty}
+                    {item.onHand - item.reserved}
                   </td>
                   <td className="px-2 py-1 text-center">
                     {(() => {
