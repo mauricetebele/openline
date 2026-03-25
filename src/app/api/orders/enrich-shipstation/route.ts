@@ -58,14 +58,7 @@ export async function POST(req: NextRequest) {
         ssAccount.apiSecretEnc ? decrypt(ssAccount.apiSecretEnc) : '',
       )
 
-      // Phase 1: Fetch SS orders
-      send({ phase: 'fetching' })
-      const modifyDateStart = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
-      const ssOrders = await ssClient.listOrders({ modifyDateStart })
-      const ssMap = new Map(ssOrders.map(o => [o.orderNumber, o]))
-      send({ phase: 'fetched', total: ssOrders.length })
-
-      // Phase 2: Find local orders to check
+      // Phase 1: Find local orders to check
       const allLocalOrders = await prisma.order.findMany({
         where: {
           accountId,
@@ -83,64 +76,89 @@ export async function POST(req: NextRequest) {
 
       // Skip orders that already have address + ssOrderId
       const localOrders = allLocalOrders.filter(o => !o.shipToPostal || !o.shipToCity || !o.ssOrderId)
-      const skipped = allLocalOrders.length - localOrders.length
       const total = localOrders.length
-      send({ phase: 'checking', checked: total, total, skipped })
 
-      // Build updates with per-order progress
-      const updates: { id: string; data: Record<string, unknown> }[] = []
-      const unmatchedOrders: typeof localOrders = []
-      let checked = 0
-
-      for (const o of localOrders) {
-        const ssOrder = ssMap.get(o.amazonOrderId)
-        if (!ssOrder) { unmatchedOrders.push(o); checked++; if (scopedIds) send({ phase: 'progress', done: checked, total }); continue }
-
-        const needsAddr = !o.shipToPostal || !o.shipToCity
-        const needsSsId = !o.ssOrderId
-        if (!needsAddr && !needsSsId) { checked++; if (scopedIds) send({ phase: 'progress', done: checked, total }); continue }
-
-        const data: Record<string, unknown> = {}
-        if (needsSsId) data.ssOrderId = ssOrder.orderId
-        if (needsAddr && ssOrder.shipTo) {
-          const st = ssOrder.shipTo
-          data.shipToName     = st.name       || null
-          data.shipToAddress1 = st.street1    || null
-          data.shipToAddress2 = st.street2    || null
-          data.shipToCity     = st.city       || null
-          data.shipToState    = st.state      || null
-          data.shipToPostal   = st.postalCode || null
-          data.shipToCountry  = st.country    || null
-          data.shipToPhone    = st.phone      || null
-        }
-        updates.push({ id: o.id, data })
-        checked++
-        if (scopedIds) send({ phase: 'progress', done: checked, total })
+      if (total === 0) {
+        send({ phase: 'done', enriched: 0, addresses: 0, total: 0, checked: 0 })
+        writer.close()
+        return
       }
 
-      // Phase 2b: Individual lookup for orders not found in the bulk list
-      if (unmatchedOrders.length > 0) {
-        if (!scopedIds) send({ phase: 'individual-lookup', remaining: unmatchedOrders.length })
-        for (const o of unmatchedOrders) {
+      // Split: orders that only need ssOrderId vs orders that also need address
+      const onlyNeedSsId = localOrders.filter(o => o.shipToPostal && o.shipToCity && !o.ssOrderId)
+      const needAddress  = localOrders.filter(o => !o.shipToPostal || !o.shipToCity)
+
+      const updates: { id: string; data: Record<string, unknown> }[] = []
+      let done = 0
+
+      // Fast path: orders with address already — quick individual SS lookup
+      if (onlyNeedSsId.length > 0) {
+        send({ phase: 'progress', done, total })
+        for (const o of onlyNeedSsId) {
           try {
             const ssOrder = await ssClient.findOrderByNumber(o.amazonOrderId)
-            if (!ssOrder) continue
+            if (ssOrder) updates.push({ id: o.id, data: { ssOrderId: ssOrder.orderId } })
+          } catch { /* skip */ }
+          done++
+          send({ phase: 'progress', done, total })
+        }
+      }
 
-            const needsAddr = !o.shipToPostal || !o.shipToCity
-            const data: Record<string, unknown> = { ssOrderId: ssOrder.orderId }
-            if (needsAddr && ssOrder.shipTo) {
-              const st = ssOrder.shipTo
-              data.shipToName     = st.name       || null
-              data.shipToAddress1 = st.street1    || null
-              data.shipToAddress2 = st.street2    || null
-              data.shipToCity     = st.city       || null
-              data.shipToState    = st.state      || null
-              data.shipToPostal   = st.postalCode || null
-              data.shipToCountry  = st.country    || null
-              data.shipToPhone    = st.phone      || null
-            }
-            updates.push({ id: o.id, data })
-          } catch { /* skip on error, don't block the rest */ }
+      // Full path: orders needing address — bulk fetch from ShipStation
+      if (needAddress.length > 0) {
+        send({ phase: 'fetching' })
+        const modifyDateStart = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+        const ssOrders = await ssClient.listOrders({ modifyDateStart })
+        const ssMap = new Map(ssOrders.map(o => [o.orderNumber, o]))
+        send({ phase: 'fetched', total: ssOrders.length })
+
+        const unmatchedOrders: typeof localOrders = []
+
+        for (const o of needAddress) {
+          const ssOrder = ssMap.get(o.amazonOrderId)
+          if (!ssOrder) { unmatchedOrders.push(o); done++; send({ phase: 'progress', done, total }); continue }
+
+          const data: Record<string, unknown> = {}
+          if (!o.ssOrderId) data.ssOrderId = ssOrder.orderId
+          if (ssOrder.shipTo) {
+            const st = ssOrder.shipTo
+            data.shipToName     = st.name       || null
+            data.shipToAddress1 = st.street1    || null
+            data.shipToAddress2 = st.street2    || null
+            data.shipToCity     = st.city       || null
+            data.shipToState    = st.state      || null
+            data.shipToPostal   = st.postalCode || null
+            data.shipToCountry  = st.country    || null
+            data.shipToPhone    = st.phone      || null
+          }
+          updates.push({ id: o.id, data })
+          done++
+          send({ phase: 'progress', done, total })
+        }
+
+        // Individual lookup for orders not found in bulk list
+        if (unmatchedOrders.length > 0) {
+          if (!scopedIds) send({ phase: 'individual-lookup', remaining: unmatchedOrders.length })
+          for (const o of unmatchedOrders) {
+            try {
+              const ssOrder = await ssClient.findOrderByNumber(o.amazonOrderId)
+              if (!ssOrder) continue
+
+              const data: Record<string, unknown> = { ssOrderId: ssOrder.orderId }
+              if (ssOrder.shipTo) {
+                const st = ssOrder.shipTo
+                data.shipToName     = st.name       || null
+                data.shipToAddress1 = st.street1    || null
+                data.shipToAddress2 = st.street2    || null
+                data.shipToCity     = st.city       || null
+                data.shipToState    = st.state      || null
+                data.shipToPostal   = st.postalCode || null
+                data.shipToCountry  = st.country    || null
+                data.shipToPhone    = st.phone      || null
+              }
+              updates.push({ id: o.id, data })
+            } catch { /* skip */ }
+          }
         }
       }
 
@@ -165,7 +183,7 @@ export async function POST(req: NextRequest) {
         phase: 'done',
         enriched: ssIdCount,
         addresses: addrCount,
-        total: ssOrders.length,
+        total: localOrders.length,
         checked: localOrders.length,
       })
     } catch (err: unknown) {
