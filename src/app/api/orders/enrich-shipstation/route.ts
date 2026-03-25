@@ -42,8 +42,9 @@ export async function POST(req: NextRequest) {
       const user = await getAuthUser()
       if (!user) { send({ phase: 'error', error: 'Unauthorized' }); writer.close(); return }
 
-      const { accountId } = await req.json()
+      const { accountId, orderIds } = await req.json()
       if (!accountId) { send({ phase: 'error', error: 'Missing accountId' }); writer.close(); return }
+      const scopedIds: string[] | undefined = Array.isArray(orderIds) && orderIds.length > 0 ? orderIds : undefined
 
       // Load active ShipStation credentials
       const ssAccount = await prisma.shipStationAccount.findFirst({
@@ -74,6 +75,7 @@ export async function POST(req: NextRequest) {
         where: {
           accountId,
           orderSource: { in: ['amazon', 'backmarket'] },
+          ...(scopedIds ? { id: { in: scopedIds } } : {}),
           OR: [
             { shipToPostal: null },
             { shipToCity: null },
@@ -82,7 +84,8 @@ export async function POST(req: NextRequest) {
         },
         select: { id: true, amazonOrderId: true, shipToPostal: true, shipToCity: true, ssOrderId: true },
       })
-      send({ phase: 'checking', checked: needsEnrichment.length })
+      const total = scopedIds ? scopedIds.length : needsEnrichment.length
+      send({ phase: 'checking', checked: needsEnrichment.length, total })
 
       // Build batch updates
       const updates: { id: string; data: Record<string, unknown> }[] = []

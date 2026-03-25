@@ -4989,12 +4989,16 @@ export default function UnshippedOrders() {
 
   async function checkShipStationSync() {
     if (!selectedAccountId) return
-    setSsEnriching(true); setSsEnrichResult(null); setSsProgress('Starting…')
+    const useSelectedOnly = selectedOrderIds.size > 0
+    const orderIds = useSelectedOnly ? Array.from(selectedOrderIds) : undefined
+    const denominator = useSelectedOnly ? selectedOrderIds.size : 0
+    setSsEnriching(true); setSsEnrichResult(null)
+    setSsProgress(useSelectedOnly ? `0/${denominator} checked` : 'Starting…')
     try {
       const res = await fetch('/api/orders/enrich-shipstation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: selectedAccountId }),
+        body: JSON.stringify({ accountId: selectedAccountId, orderIds }),
       })
       if (!res.ok) throw new Error('SS sync failed')
       const reader = res.body?.getReader()
@@ -5013,7 +5017,10 @@ export default function UnshippedOrders() {
           const evt = JSON.parse(line)
           if (evt.phase === 'fetching') setSsProgress('Fetching ShipStation orders…')
           else if (evt.phase === 'fetched') setSsProgress(`Fetched ${evt.total} SS orders`)
-          else if (evt.phase === 'checking') setSsProgress(`Checking ${evt.checked} local orders…`)
+          else if (evt.phase === 'checking') {
+            const total = evt.total ?? evt.checked
+            setSsProgress(`Checking ${evt.checked}/${total} orders…`)
+          }
           else if (evt.phase === 'updating') setSsProgress(`Updating ${evt.done}/${evt.of} orders…`)
           else if (evt.phase === 'done') {
             finalResult = { enriched: evt.enriched, addresses: evt.addresses }
@@ -5823,10 +5830,11 @@ export default function UnshippedOrders() {
                 ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 : ssEnrichResult && ssEnrichResult.enriched > 0
                   ? 'bg-blue-500 text-white hover:bg-blue-600'
-                  : 'bg-white border border-gray-300 text-gray-700 hover:border-blue-400 hover:text-blue-700')}>
+                  : 'bg-white border border-gray-300 text-gray-700 hover:border-blue-400 hover:text-blue-700')}
+            title={selectedOrderIds.size > 0 ? `Sync ${selectedOrderIds.size} selected orders` : 'Sync all orders needing SS data'}>
             {ssEnriching
-              ? <><RefreshCcw size={12} className="animate-spin" /> SS…</>
-              : <><Link2 size={12} /> SS Sync{ssEnrichResult ? ` (${ssEnrichResult.enriched})` : ''}</>
+              ? <><RefreshCcw size={12} className="animate-spin" /> {ssProgress || 'SS…'}</>
+              : <><Link2 size={12} /> SS Sync{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ssEnrichResult ? ` (${ssEnrichResult.enriched})` : ''}</>
             }
           </button>
           <div className="flex items-center">
