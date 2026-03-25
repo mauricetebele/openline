@@ -67,6 +67,7 @@ export async function POST(
   const updated = await prisma.order.update({
     where: { id: order.id },
     data: {
+      ssOrderId:      ssOrder.orderId,
       shipToName:     shipTo.name     || null,
       shipToAddress1: shipTo.street1  || null,
       shipToAddress2: shipTo.street2  || null,

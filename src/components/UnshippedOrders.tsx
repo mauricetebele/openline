@@ -5015,13 +5015,11 @@ export default function UnshippedOrders() {
         for (const line of lines) {
           if (!line.trim()) continue
           const evt = JSON.parse(line)
-          if (evt.phase === 'fetching') setSsProgress('Fetching ShipStation orders…')
+          if (evt.phase === 'fetching') setSsProgress('Fetching SS orders…')
           else if (evt.phase === 'fetched') setSsProgress(`Fetched ${evt.total} SS orders`)
-          else if (evt.phase === 'checking') {
-            const total = evt.total ?? evt.checked
-            setSsProgress(`Checking ${evt.checked}/${total} orders…`)
-          }
-          else if (evt.phase === 'updating') setSsProgress(`Updating ${evt.done}/${evt.of} orders…`)
+          else if (evt.phase === 'progress') setSsProgress(`${evt.done}/${evt.total}`)
+          else if (evt.phase === 'checking') setSsProgress(`Checking ${evt.checked} orders…`)
+          else if (evt.phase === 'updating') setSsProgress(`Updating ${evt.done}/${evt.of}…`)
           else if (evt.phase === 'done') {
             finalResult = { enriched: evt.enriched, addresses: evt.addresses }
             setSsProgress('')

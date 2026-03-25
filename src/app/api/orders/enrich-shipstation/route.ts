@@ -1,6 +1,6 @@
 /**
  * POST /api/orders/enrich-shipstation
- * Body: { accountId: string }
+ * Body: { accountId: string, orderIds?: string[] }
  *
  * Bulk-fetches recent ShipStation orders and matches them to local orders
  * (Amazon + BackMarket) by orderNumber → amazonOrderId. Updates:
@@ -8,16 +8,11 @@
  *  2) Shipping address — Amazon masks addresses on unshipped MFN orders;
  *     ShipStation has the real address
  *
+ * When orderIds is provided, only those orders are checked and per-order
+ * progress is streamed: { phase: "progress", done: N, total: M }
+ *
  * Streams progress events as newline-delimited JSON so the UI can show
  * real-time status.
- *
- * Events:
- *   { phase: "fetching" }
- *   { phase: "fetched", total: N }
- *   { phase: "checking", checked: N }
- *   { phase: "updating", done: N, of: N }
- *   { phase: "done", enriched: N, addresses: N, total: N, checked: N }
- *   { phase: "error", error: "..." }
  */
 import { NextRequest } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
@@ -70,33 +65,37 @@ export async function POST(req: NextRequest) {
       const ssMap = new Map(ssOrders.map(o => [o.orderNumber, o]))
       send({ phase: 'fetched', total: ssOrders.length })
 
-      // Phase 2: Find local orders needing enrichment
-      const needsEnrichment = await prisma.order.findMany({
+      // Phase 2: Find local orders to check
+      const localOrders = await prisma.order.findMany({
         where: {
           accountId,
           orderSource: { in: ['amazon', 'backmarket'] },
-          ...(scopedIds ? { id: { in: scopedIds } } : {}),
-          OR: [
-            { shipToPostal: null },
-            { shipToCity: null },
-            { ssOrderId: null },
-          ],
+          ...(scopedIds ? { id: { in: scopedIds } } : {
+            OR: [
+              { shipToPostal: null },
+              { shipToCity: null },
+              { ssOrderId: null },
+            ],
+          }),
         },
         select: { id: true, amazonOrderId: true, shipToPostal: true, shipToCity: true, ssOrderId: true },
       })
-      const total = scopedIds ? scopedIds.length : needsEnrichment.length
-      send({ phase: 'checking', checked: needsEnrichment.length, total })
 
-      // Build batch updates
+      const total = localOrders.length
+      send({ phase: 'checking', checked: total, total })
+
+      // Build updates with per-order progress
       const updates: { id: string; data: Record<string, unknown> }[] = []
-      const unmatchedOrders: typeof needsEnrichment = []
-      for (const o of needsEnrichment) {
+      const unmatchedOrders: typeof localOrders = []
+      let checked = 0
+
+      for (const o of localOrders) {
         const ssOrder = ssMap.get(o.amazonOrderId)
-        if (!ssOrder) { unmatchedOrders.push(o); continue }
+        if (!ssOrder) { unmatchedOrders.push(o); checked++; if (scopedIds) send({ phase: 'progress', done: checked, total }); continue }
 
         const needsAddr = !o.shipToPostal || !o.shipToCity
         const needsSsId = !o.ssOrderId
-        if (!needsAddr && !needsSsId) continue
+        if (!needsAddr && !needsSsId) { checked++; if (scopedIds) send({ phase: 'progress', done: checked, total }); continue }
 
         const data: Record<string, unknown> = {}
         if (needsSsId) data.ssOrderId = ssOrder.orderId
@@ -112,11 +111,13 @@ export async function POST(req: NextRequest) {
           data.shipToPhone    = st.phone      || null
         }
         updates.push({ id: o.id, data })
+        checked++
+        if (scopedIds) send({ phase: 'progress', done: checked, total })
       }
 
       // Phase 2b: Individual lookup for orders not found in the bulk list
       if (unmatchedOrders.length > 0) {
-        send({ phase: 'individual-lookup', remaining: unmatchedOrders.length })
+        if (!scopedIds) send({ phase: 'individual-lookup', remaining: unmatchedOrders.length })
         for (const o of unmatchedOrders) {
           try {
             const ssOrder = await ssClient.findOrderByNumber(o.amazonOrderId)
@@ -162,7 +163,7 @@ export async function POST(req: NextRequest) {
         enriched: ssIdCount,
         addresses: addrCount,
         total: ssOrders.length,
-        checked: needsEnrichment.length,
+        checked: localOrders.length,
       })
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
