@@ -137,7 +137,7 @@ export async function GET(req: NextRequest) {
       }
       return { ...item, product, reserved, onHand, unitCost }
     })
-    .filter(item => item.onHand > 0)
+    .filter(item => item.onHand > 0 || item.reserved > 0)
 
   return NextResponse.json({ data })
 }
