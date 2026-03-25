@@ -93,7 +93,7 @@ function profitColor(val: number) {
 
 // ─── Expandable Row ─────────────────────────────────────────────────────────
 
-function ExpandableRow({ row, index }: { row: ProfitRow; index: number }) {
+function ExpandableRow({ row, index, selected, onToggle }: { row: ProfitRow; index: number; selected: boolean; onToggle: () => void }) {
   const [expanded, setExpanded] = useState(false)
   const [lineItems, setLineItems] = useState<LineItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -131,6 +131,14 @@ function ExpandableRow({ row, index }: { row: ProfitRow; index: number }) {
           'hover:bg-blue-50/50 dark:hover:bg-blue-900/10',
         )}
       >
+        <td className="px-2 py-1.5 w-8" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue cursor-pointer"
+          />
+        </td>
         <td className="px-2 py-1.5 w-8">
           {expanded
             ? <ChevronDown size={12} className="text-gray-400" />
@@ -162,7 +170,7 @@ function ExpandableRow({ row, index }: { row: ProfitRow; index: number }) {
       {/* Expanded line items */}
       {expanded && (
         <tr className="border-b border-gray-200 dark:border-gray-700">
-          <td colSpan={11} className="p-0">
+          <td colSpan={12} className="p-0">
             <div className="bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 py-2">
               {loading ? (
                 <p className="text-xs text-gray-400 py-3 text-center">Loading line items...</p>
@@ -295,18 +303,65 @@ export default function ProfitabilityReport() {
   const [viewMode, setViewMode] = useState<ViewMode>('order')
   const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [syncingCommissions, setSyncingCommissions] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<{ synced: number; total: number } | null>(null)
+
+  function toggleSelected(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === sortedRows.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(sortedRows.map(r => r.id)))
+    }
+  }
 
   async function syncCommissions() {
+    if (selectedIds.size === 0) return
     setSyncingCommissions(true)
+    setSyncProgress({ synced: 0, total: selectedIds.size })
     try {
-      const res = await fetch('/api/sync-commissions', { method: 'POST' })
-      if (!res.ok) throw new Error('Sync failed')
+      const res = await fetch('/api/sync-commissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderIds: Array.from(selectedIds) }),
+      })
+      if (!res.ok || !res.body) throw new Error('Sync failed')
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const evt = JSON.parse(line.slice(6))
+              if (evt.synced !== undefined) setSyncProgress({ synced: evt.synced, total: evt.total })
+            } catch { /* skip malformed */ }
+          }
+        }
+      }
+
+      setSelectedIds(new Set())
       await fetchData()
     } catch {
-      // silently fail — data will refresh on next load
+      // silently fail
     } finally {
       setSyncingCommissions(false)
+      setSyncProgress(null)
     }
   }
 
@@ -416,7 +471,7 @@ export default function ProfitabilityReport() {
   ]
 
   const columns = viewMode === 'lineItem' ? lineItemColumns : orderColumns
-  const colSpan = viewMode === 'lineItem' ? 14 : 12
+  const colSpan = viewMode === 'lineItem' ? 14 : 13
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -480,11 +535,16 @@ export default function ProfitabilityReport() {
 
         <button
           onClick={syncCommissions}
-          disabled={syncingCommissions}
+          disabled={syncingCommissions || selectedIds.size === 0}
           className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+          title={selectedIds.size === 0 ? 'Select orders to sync' : `Sync ${selectedIds.size} selected orders`}
         >
           <RefreshCw size={12} className={syncingCommissions ? 'animate-spin' : ''} />
-          {syncingCommissions ? 'Syncing...' : 'Sync Commissions'}
+          {syncProgress
+            ? `${syncProgress.synced}/${syncProgress.total} synced`
+            : selectedIds.size > 0
+              ? `Sync (${selectedIds.size})`
+              : 'Sync Commissions'}
         </button>
 
         {/* View toggle */}
@@ -573,6 +633,16 @@ export default function ProfitabilityReport() {
         <table className="w-full text-xs dark:text-gray-200">
           <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
             <tr>
+              {viewMode === 'order' && (
+                <th className="px-2 py-2.5 w-8">
+                  <input
+                    type="checkbox"
+                    checked={sortedRows.length > 0 && selectedIds.size === sortedRows.length}
+                    onChange={toggleSelectAll}
+                    className="rounded border-gray-500 text-amazon-blue focus:ring-amazon-blue cursor-pointer"
+                  />
+                </th>
+              )}
               {viewMode === 'order' && <th className="px-2 py-2.5 w-8" />}
               {columns.map(({ key, label, align }) => (
                 <th
@@ -610,7 +680,7 @@ export default function ProfitabilityReport() {
               ))
             ) : (
               sortedRows.map((row, i) => (
-                <ExpandableRow key={row.id} row={row} index={i} />
+                <ExpandableRow key={row.id} row={row} index={i} selected={selectedIds.has(row.id)} onToggle={() => toggleSelected(row.id)} />
               ))
             )}
           </tbody>

@@ -50,6 +50,7 @@ export async function syncAmazonCommissions(
   accountId: string,
   startDate: Date,
   endDate: Date,
+  filterOrderIds?: Set<string | null>,
 ): Promise<{ updated: number }> {
   const client = new SpApiClient(accountId)
 
@@ -103,6 +104,8 @@ export async function syncAmazonCommissions(
   let updated = 0
   const entries = Array.from(commissionByOrderId.entries())
   for (const [amazonOrderId, commission] of entries) {
+    // If a filter is provided, skip orders not in the filter set
+    if (filterOrderIds && !filterOrderIds.has(amazonOrderId)) continue
     const result = await prisma.order.updateMany({
       where: {
         accountId,
