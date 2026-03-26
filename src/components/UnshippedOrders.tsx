@@ -4604,6 +4604,10 @@ export default function UnshippedOrders() {
   const [defaultPresetApplyingIds, setDefaultPresetApplyingIds] = useState<Set<string>>(new Set())
   const [applyDefaultResult, setApplyDefaultResult]           = useState<{ applied: number; total: number; skipped: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
   const [filterPkgPreset, setFilterPkgPreset]                 = useState<'all' | 'assigned' | 'unassigned'>('all')
+  // Rate shop using applied presets
+  const [rateShoppingApplied, setRateShoppingApplied]         = useState(false)
+  const [rateShopAppliedIds, setRateShopAppliedIds]           = useState<Set<string>>(new Set())
+  const [rateShopAppliedResult, setRateShopAppliedResult]     = useState<{ applied: number; total: number; skipped: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
   const [selectedPresetId, setSelectedPresetId] = useState('')
   const [presetShipDate, setPresetShipDate]     = useState(() => new Date().toISOString().slice(0, 10))
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set())
@@ -5540,6 +5544,84 @@ export default function UnshippedOrders() {
     }
   }
 
+  async function rateShopAppliedPresets() {
+    if (selectedOrderIds.size === 0 || !selectedAccountId) return
+    const ids = [...selectedOrderIds]
+    setRateShoppingApplied(true)
+    setRateShopAppliedResult(null)
+    setRateShopAppliedIds(new Set(ids))
+
+    try {
+      const res = await fetch('/api/orders/rate-shop-applied-presets', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ orderIds: ids, accountId: selectedAccountId, shipDate: presetShipDate }),
+      })
+
+      if (!res.ok || res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json()
+        throw new Error(data.error ?? `${res.status}`)
+      }
+
+      const reader  = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer    = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+
+        for (const part of parts) {
+          const line = part.trim()
+          if (!line.startsWith('data: ')) continue
+          try {
+            const event = JSON.parse(line.slice(6)) as {
+              type: 'rate' | 'done' | 'error'
+              orderId?: string; rateAmount?: number | null; rateCarrier?: string | null
+              rateService?: string | null; rateId?: string | null; error?: string | null
+              applied?: number; total?: number; skipped?: number
+              errors?: { orderId: string; amazonOrderId: string; error: string }[]
+            }
+
+            if (event.type === 'rate' && event.orderId) {
+              setOrders(prev => prev.map(o =>
+                o.id === event.orderId
+                  ? {
+                      ...o,
+                      presetRateAmount:    event.rateAmount != null ? String(event.rateAmount) : null,
+                      presetRateCarrier:   event.rateCarrier   ?? null,
+                      presetRateService:   event.rateService   ?? null,
+                      presetRateId:        event.rateId        ?? null,
+                      presetRateError:     event.error         ?? null,
+                      presetRateCheckedAt: new Date().toISOString(),
+                    }
+                  : o,
+              ))
+              setRateShopAppliedIds(prev => { const n = new Set(prev); n.delete(event.orderId!); return n })
+            }
+
+            if (event.type === 'done') {
+              setRateShopAppliedResult({ applied: event.applied ?? 0, total: event.total ?? ids.length, skipped: event.skipped ?? 0, errors: event.errors ?? [] })
+            }
+
+            if (event.type === 'error') throw new Error(event.error ?? 'Unknown error')
+          } catch (parseErr) {
+            if (parseErr instanceof SyntaxError) continue
+            throw parseErr
+          }
+        }
+      }
+    } catch (e) {
+      setRateShopAppliedResult({ applied: 0, total: ids.length, skipped: 0, errors: [{ orderId: '', amazonOrderId: '', error: e instanceof Error ? e.message : 'Failed' }] })
+    } finally {
+      setRateShoppingApplied(false)
+      setRateShopAppliedIds(new Set())
+    }
+  }
+
   function orderTotal(order: Order) {
     if (order.orderTotal) return fmt(order.orderTotal, order.currency)
     let sum = 0
@@ -5848,6 +5930,39 @@ export default function UnshippedOrders() {
         </div>
       )}
 
+      {/* Rate shop applied presets result banner */}
+      {rateShopAppliedResult !== null && (
+        <div className={clsx(
+          'flex items-start justify-between gap-3 px-6 py-2 border-b text-xs',
+          rateShopAppliedResult.errors.length > 0
+            ? 'bg-amber-50 border-amber-300 text-amber-900'
+            : 'bg-green-50 border-green-200 text-green-800',
+        )}>
+          <div className="flex items-start gap-2">
+            {rateShopAppliedResult.errors.length === 0
+              ? <CheckCircle2 size={13} className="shrink-0 mt-0.5 text-green-600" />
+              : <AlertTriangle size={13} className="shrink-0 mt-0.5 text-amber-600" />
+            }
+            <div>
+              <span className="font-semibold">
+                Rate Shop: {rateShopAppliedResult.applied} of {rateShopAppliedResult.total} order{rateShopAppliedResult.total !== 1 ? 's' : ''} rated
+                {rateShopAppliedResult.skipped > 0 && ` (${rateShopAppliedResult.skipped} skipped — no preset)`}
+              </span>
+              {rateShopAppliedResult.errors.length > 0 && (
+                <div className="mt-1 space-y-0.5">
+                  {rateShopAppliedResult.errors.map((e, i) => (
+                    <p key={i} className="text-[10px] font-mono text-amber-800">
+                      {e.amazonOrderId || e.orderId}: {e.error}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <button onClick={() => setRateShopAppliedResult(null)} className="shrink-0 mt-0.5"><X size={13} /></button>
+        </div>
+      )}
+
       {/* Bulk cancel result banner */}
       {bulkCancelResult !== null && (
         <div className={clsx(
@@ -6046,7 +6161,7 @@ export default function UnshippedOrders() {
               )}
               <button onClick={applyPackagePreset}
                 disabled={applyingPackagePreset || selectedOrderIds.size === 0 || !selectedPackagePresetId || !selectedAccountId}
-                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
+                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
                   applyingPackagePreset || selectedOrderIds.size === 0 || !selectedPackagePresetId || !selectedAccountId
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     : 'bg-emerald-600 text-white hover:bg-emerald-700')}>
@@ -6068,13 +6183,25 @@ export default function UnshippedOrders() {
               <button onClick={applyDefaultPackagePresets}
                 disabled={applyingDefaultPresets || selectedOrderIds.size === 0 || !selectedAccountId}
                 title="Auto-apply default package presets from product mappings"
-                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
+                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
                   applyingDefaultPresets || selectedOrderIds.size === 0 || !selectedAccountId
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     : 'bg-teal-600 text-white hover:bg-teal-700')}>
                 {applyingDefaultPresets
                   ? <><RefreshCcw size={11} className="animate-spin" /> {defaultPresetApplyingIds.size > 0 ? `${defaultPresetApplyingIds.size} left` : 'Applying…'}</>
                   : <><Package size={11} /> Apply Defaults{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>
+                }
+              </button>
+              <button onClick={rateShopAppliedPresets}
+                disabled={rateShoppingApplied || selectedOrderIds.size === 0 || !selectedAccountId}
+                title="Rate shop selected orders using their applied package presets"
+                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
+                  rateShoppingApplied || selectedOrderIds.size === 0 || !selectedAccountId
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-amber-600 text-white hover:bg-amber-700')}>
+                {rateShoppingApplied
+                  ? <><RefreshCcw size={11} className="animate-spin" /> {rateShopAppliedIds.size > 0 ? `${rateShopAppliedIds.size} left` : 'Rating…'}</>
+                  : <><Truck size={11} /> Rate Shop{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>
                 }
               </button>
             </div>
@@ -6642,8 +6769,8 @@ export default function UnshippedOrders() {
                     )}
                   </td>
                   {/* Preset Rate */}
-                  <td className={clsx('px-3 py-1.5 text-right', order.presetRateError && !ratingOrderIds.has(order.id) && !pkgRatingOrderIds.has(order.id) ? 'whitespace-normal' : 'whitespace-nowrap')}>
-                    {(ratingOrderIds.has(order.id) || pkgRatingOrderIds.has(order.id)) ? (
+                  <td className={clsx('px-3 py-1.5 text-right', order.presetRateError && !ratingOrderIds.has(order.id) && !pkgRatingOrderIds.has(order.id) && !rateShopAppliedIds.has(order.id) ? 'whitespace-normal' : 'whitespace-nowrap')}>
+                    {(ratingOrderIds.has(order.id) || pkgRatingOrderIds.has(order.id) || rateShopAppliedIds.has(order.id)) ? (
                       <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600">
                         <RefreshCcw size={10} className="animate-spin" /> Rating…
                       </span>
