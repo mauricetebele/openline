@@ -311,11 +311,21 @@ export default function TopNav() {
 
         {/* Logo */}
         <Link href="/" className="flex items-center mr-2 shrink-0 group">
-          <img
-            src={storeLogo ?? '/logos/olm-logo.svg'}
-            alt="Open Line Mobility"
-            className="h-8 w-auto object-contain group-hover:brightness-110 transition"
-          />
+          {storeLogo ? (
+            <img
+              src={storeLogo}
+              alt="Open Line Mobility"
+              className="h-8 w-auto object-contain group-hover:brightness-110 transition"
+            />
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <img src="/logos/olm-icon.svg" alt="" className="h-7 w-auto" />
+              <div className="flex flex-col leading-tight">
+                <span className="text-white font-bold text-[13px] leading-none tracking-wide">OPEN LINE</span>
+                <span className="text-amazon-orange font-bold text-[10px] leading-none tracking-[0.15em]">MOBILITY</span>
+              </div>
+            </div>
+          )}
         </Link>
 
         <div className="hidden lg:block w-px h-6 bg-white/10 shrink-0" />

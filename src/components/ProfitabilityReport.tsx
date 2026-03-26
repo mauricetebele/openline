@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { clsx } from 'clsx'
 import {
   ChevronDown, ChevronRight, ChevronUp, DollarSign, TrendingUp, TrendingDown, Package, Wrench,
-  Search, X, RefreshCw,
+  Search, X,
 } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -304,8 +304,6 @@ export default function ProfitabilityReport() {
   const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [syncingCommissions, setSyncingCommissions] = useState(false)
-  const [syncProgress, setSyncProgress] = useState<{ synced: number; total: number } | null>(null)
 
   function toggleSelected(id: string) {
     setSelectedIds(prev => {
@@ -320,48 +318,6 @@ export default function ProfitabilityReport() {
       setSelectedIds(new Set())
     } else {
       setSelectedIds(new Set(sortedRows.map(r => r.id)))
-    }
-  }
-
-  async function syncCommissions() {
-    if (selectedIds.size === 0) return
-    setSyncingCommissions(true)
-    setSyncProgress({ synced: 0, total: selectedIds.size })
-    try {
-      const res = await fetch('/api/sync-commissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderIds: Array.from(selectedIds) }),
-      })
-      if (!res.ok || !res.body) throw new Error('Sync failed')
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const evt = JSON.parse(line.slice(6))
-              if (evt.synced !== undefined) setSyncProgress({ synced: evt.synced, total: evt.total })
-            } catch { /* skip malformed */ }
-          }
-        }
-      }
-
-      setSelectedIds(new Set())
-      await fetchData()
-    } catch {
-      // silently fail
-    } finally {
-      setSyncingCommissions(false)
-      setSyncProgress(null)
     }
   }
 
@@ -531,20 +487,6 @@ export default function ProfitabilityReport() {
           className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >
           Reset
-        </button>
-
-        <button
-          onClick={syncCommissions}
-          disabled={syncingCommissions || selectedIds.size === 0}
-          className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 flex items-center gap-1.5"
-          title={selectedIds.size === 0 ? 'Select orders to sync' : `Sync ${selectedIds.size} selected orders`}
-        >
-          <RefreshCw size={12} className={syncingCommissions ? 'animate-spin' : ''} />
-          {syncProgress
-            ? `${syncProgress.synced}/${syncProgress.total} synced`
-            : selectedIds.size > 0
-              ? `Sync (${selectedIds.size})`
-              : 'Sync Commissions'}
         </button>
 
         {/* View toggle */}

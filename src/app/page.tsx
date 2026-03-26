@@ -28,7 +28,7 @@ function HomeContent() {
         src={logo}
         alt=""
         aria-hidden="true"
-        className="absolute inset-0 m-auto w-[420px] max-w-[70vw] h-auto object-contain opacity-[0.06] dark:opacity-[0.08] pointer-events-none select-none"
+        className="absolute inset-0 m-auto w-[480px] max-w-[75vw] h-auto object-contain opacity-[0.07] dark:opacity-[0.10] dark:invert pointer-events-none select-none"
       />
 
       {/* Greeting content */}
