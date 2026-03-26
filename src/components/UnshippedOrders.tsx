@@ -6644,16 +6644,16 @@ export default function UnshippedOrders() {
                     </div>
                   </td>
                   {/* Item — SKU × Qty + Product name */}
-                  <td className="px-1.5 py-1 max-w-[220px]">
+                  <td className="px-1.5 py-1">
                     <div className={clsx('flex flex-col', multi && 'gap-0.5')}>
                       {order.items.map(i => (
                         <div key={i.id} className="leading-tight">
-                          <span className="font-mono text-[11px] font-semibold text-gray-900">
-                            {i.internalSku ?? i.sellerSku ?? '—'}
+                          <span className="whitespace-nowrap">
+                            <span className="font-mono text-[11px] font-semibold text-gray-900">{i.internalSku ?? i.sellerSku ?? '—'}</span>
+                            {i.quantityOrdered > 1 && <span className="text-[10px] font-bold text-red-600 ml-0.5">×{i.quantityOrdered}</span>}
+                            {i.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600 ml-1">Grade {i.mappedGradeName}</span>}
                           </span>
-                          {i.quantityOrdered > 1 && <span className="text-[10px] font-bold text-red-600 ml-0.5">×{i.quantityOrdered}</span>}
-                          {i.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600 ml-1">Grade {i.mappedGradeName}</span>}
-                          {i.title && <span className="block text-[9px] text-gray-500 truncate" title={i.title}>{i.title}</span>}
+                          {i.title && <span className="block text-[9px] text-gray-500 truncate max-w-[180px]" title={i.title}>{i.title}</span>}
                         </div>
                       ))}
                     </div>
@@ -6721,18 +6721,11 @@ export default function UnshippedOrders() {
                         </span>
                       </div>
                     ) : order.presetRateAmount ? (
-                      <div className="flex flex-col items-end">
+                      <div className="flex flex-col items-end gap-0.5">
                         <span className="text-[11px] font-semibold text-gray-900 tabular-nums">
                           {fmt(order.presetRateAmount)}
                         </span>
-                        <div className="flex items-center gap-0.5">
-                          <CarrierLogo carrierCode={order.presetRateCarrier} serviceName={order.presetRateService} size={12} />
-                          {order.presetRateService && (
-                            <span className="text-[8px] text-gray-400 leading-tight" title={order.presetRateService}>
-                              {order.presetRateService}
-                            </span>
-                          )}
-                        </div>
+                        <CarrierLogo carrierCode={order.presetRateCarrier} serviceName={order.presetRateService} size={20} />
                       </div>
                     ) : (
                       <span className="text-gray-300 text-[9px]">—</span>
