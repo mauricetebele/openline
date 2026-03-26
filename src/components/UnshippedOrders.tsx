@@ -6112,173 +6112,182 @@ export default function UnshippedOrders() {
         )}
       </div>
 
-      {/* ── Toolbar Row 2: Tab-Contextual Actions ────────────────────────────── */}
-      {(selectedOrderIds.size > 0 || activeTab === 'unshipped' || activeTab === 'pending') && (
-        <div className="flex items-center gap-2 px-4 py-1.5 border-b bg-white">
-          {/* Shipping preset group (pending & unshipped) */}
-          {(activeTab === 'pending' || activeTab === 'unshipped') && (
-            <div className="flex items-center gap-1.5 pr-3 border-r border-gray-200 mr-1">
-              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Shipping</span>
-              {presets.length > 0 && (
-                <select value={selectedPresetId} onChange={e => setSelectedPresetId(e.target.value)}
-                  className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue max-w-[160px]">
-                  <option value="">— Preset —</option>
-                  {presets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              )}
-              <input type="date" value={presetShipDate} onChange={e => setPresetShipDate(e.target.value)}
-                min={new Date().toISOString().slice(0, 10)}
-                className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue"
-                title="Ship date (carrier pickup date)" />
-              <button onClick={applyPreset}
-                disabled={applyingPreset || selectedOrderIds.size === 0 || !selectedPresetId || !selectedAccountId}
-                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
-                  applyingPreset || selectedOrderIds.size === 0 || !selectedPresetId || !selectedAccountId
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-indigo-600 text-white hover:bg-indigo-700')}>
-                {applyingPreset
-                  ? <><RefreshCcw size={11} className="animate-spin" /> {ratingOrderIds.size > 0 ? `${ratingOrderIds.size} left` : 'Rating…'}</>
-                  : <><Truck size={11} /> Apply{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>
-                }
-              </button>
-              <button onClick={() => setShowPresetModal(true)} title="Manage shipping presets"
-                className="h-7 w-7 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:border-indigo-400 hover:text-indigo-600 transition-colors">
-                <Settings size={11} />
-              </button>
-            </div>
-          )}
-
-          {/* Package preset group (pending & unshipped) */}
-          {(activeTab === 'pending' || activeTab === 'unshipped') && (
-            <div className="flex items-center gap-1.5 pr-3 border-r border-gray-200 mr-1">
-              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Package</span>
-              {packagePresets.length > 0 && (
-                <select value={selectedPackagePresetId} onChange={e => setSelectedPackagePresetId(e.target.value)}
-                  className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 max-w-[160px]">
-                  <option value="">— Preset —</option>
-                  {packagePresets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              )}
-              <button onClick={applyPackagePreset}
-                disabled={applyingPackagePreset || selectedOrderIds.size === 0 || !selectedPackagePresetId || !selectedAccountId}
-                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
-                  applyingPackagePreset || selectedOrderIds.size === 0 || !selectedPackagePresetId || !selectedAccountId
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-emerald-600 text-white hover:bg-emerald-700')}>
-                {applyingPackagePreset
-                  ? <><RefreshCcw size={11} className="animate-spin" /> {pkgRatingOrderIds.size > 0 ? `${pkgRatingOrderIds.size} left` : 'Pricing…'}</>
-                  : <><Truck size={11} /> Rate Shop{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>
-                }
-              </button>
-              <button onClick={() => setShowPackagePresetModal(true)} title="Manage package presets"
-                className="h-7 w-7 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:border-emerald-500 hover:text-emerald-600 transition-colors">
-                <Settings size={11} />
-              </button>
-              <select value={filterPkgPreset} onChange={e => setFilterPkgPreset(e.target.value as 'all' | 'assigned' | 'unassigned')}
-                className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-teal-500">
-                <option value="all">All Orders</option>
-                <option value="assigned">Has Pkg Preset</option>
-                <option value="unassigned">No Pkg Preset</option>
-              </select>
-              <button onClick={applyDefaultPackagePresets}
-                disabled={applyingDefaultPresets || selectedOrderIds.size === 0 || !selectedAccountId}
-                title="Auto-apply default package presets from product mappings"
-                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
-                  applyingDefaultPresets || selectedOrderIds.size === 0 || !selectedAccountId
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-teal-600 text-white hover:bg-teal-700')}>
-                {applyingDefaultPresets
-                  ? <><RefreshCcw size={11} className="animate-spin" /> {defaultPresetApplyingIds.size > 0 ? `${defaultPresetApplyingIds.size} left` : 'Applying…'}</>
-                  : <><Package size={11} /> Apply Defaults{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>
-                }
-              </button>
-              <button onClick={rateShopAppliedPresets}
-                disabled={rateShoppingApplied || selectedOrderIds.size === 0 || !selectedAccountId}
-                title="Rate shop selected orders using their applied package presets"
-                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
-                  rateShoppingApplied || selectedOrderIds.size === 0 || !selectedAccountId
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-amber-600 text-white hover:bg-amber-700')}>
-                {rateShoppingApplied
-                  ? <><RefreshCcw size={11} className="animate-spin" /> {rateShopAppliedIds.size > 0 ? `${rateShopAppliedIds.size} left` : 'Rating…'}</>
-                  : <><Truck size={11} /> Rate Shop{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>
-                }
-              </button>
-            </div>
-          )}
-
-          {/* Bulk actions */}
+      {/* ── Toolbar Row 2: Presets & Rate Shopping ──────────────────────────── */}
+      {(activeTab === 'pending' || activeTab === 'unshipped') && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2 border-b bg-white">
+          {/* ── Package Presets: Apply Defaults → Filter → Rate Shop ── */}
           <div className="flex items-center gap-1.5">
-            {/* Bulk process (pending tab) */}
-            {activeTab === 'pending' && selectedOrderIds.size > 0 && (
-              <button
-                onClick={handleBulkProcess}
-                disabled={bulkProcessing}
-                className={clsx(
-                  'flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
-                  bulkProcessing
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-amazon-blue text-white hover:bg-blue-700',
-                )}
-              >
-                {bulkProcessing
-                  ? <><RefreshCcw size={11} className="animate-spin" /> Loading…</>
-                  : <><ClipboardCheck size={11} /> Process ({selectedOrderIds.size})</>
-                }
-              </button>
-            )}
-
-            {/* Bulk cancel (pending + unshipped tabs) */}
-            {(activeTab === 'pending' || activeTab === 'unshipped') && selectedOrderIds.size > 0 && (
-              <button
-                onClick={handleBulkCancel}
-                disabled={bulkCancelling}
-                className={clsx(
-                  'flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
-                  bulkCancelling
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-red-600 text-white hover:bg-red-700',
-                )}
-              >
-                {bulkCancelling
-                  ? <><RefreshCcw size={11} className="animate-spin" /> Cancelling…</>
-                  : <><XCircle size={11} /> Cancel ({selectedOrderIds.size})</>
-                }
-              </button>
-            )}
-
-            {/* Create label batch (unshipped tab) */}
-            {activeTab === 'unshipped' && selectedOrderIds.size > 0 && (
-              <button
-                onClick={() => setShowBatchConfirm(true)}
-                disabled={applyingPreset || applyingPackagePreset || batchEligible.length !== selectedOrderIds.size}
-                title={batchEligible.length !== selectedOrderIds.size ? `${selectedOrderIds.size - batchEligible.length} selected order(s) need a shopped rate first` : undefined}
-                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
-                  applyingPreset || applyingPackagePreset || batchEligible.length !== selectedOrderIds.size
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-indigo-600 text-white hover:bg-indigo-700')}
-              >
-                <Tag size={11} /> Label Batch ({batchEligible.length}/{selectedOrderIds.size})
-              </button>
-            )}
-
-            {/* Pick list */}
-            {selectedOrderIds.size > 0 && (
-              <button onClick={() => setShowPickList(true)}
-                className="flex items-center gap-1 h-7 px-2.5 rounded border border-gray-300 text-xs text-gray-600 hover:border-green-500 hover:text-green-700 transition-colors">
-                <FileText size={11} /> Pick List ({selectedOrderIds.size})
-              </button>
-            )}
-
-            {/* Batch history */}
-            <button
-              onClick={() => setShowBatchHistory(true)}
-              className="flex items-center gap-1 h-7 px-2.5 rounded border border-gray-200 text-xs text-gray-500 hover:border-indigo-400 hover:text-indigo-700 transition-colors"
-              title="View label batch history"
-            >
-              <History size={11} /> Batches
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-0.5">Pkg Preset</span>
+            <button onClick={applyDefaultPackagePresets}
+              disabled={applyingDefaultPresets || selectedOrderIds.size === 0 || !selectedAccountId}
+              title="Auto-apply default package presets from product SKU mappings"
+              className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
+                applyingDefaultPresets || selectedOrderIds.size === 0 || !selectedAccountId
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-teal-600 text-white hover:bg-teal-700')}>
+              {applyingDefaultPresets
+                ? <><RefreshCcw size={11} className="animate-spin" /> {defaultPresetApplyingIds.size > 0 ? `${defaultPresetApplyingIds.size} left` : 'Applying…'}</>
+                : <><Package size={11} /> Apply Defaults{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>
+              }
+            </button>
+            <select value={filterPkgPreset} onChange={e => setFilterPkgPreset(e.target.value as 'all' | 'assigned' | 'unassigned')}
+              className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-teal-500">
+              <option value="all">All Orders</option>
+              <option value="assigned">Has Pkg Preset</option>
+              <option value="unassigned">No Pkg Preset</option>
+            </select>
+            <button onClick={rateShopAppliedPresets}
+              disabled={rateShoppingApplied || selectedOrderIds.size === 0 || !selectedAccountId}
+              title="Rate shop using each order's applied package preset"
+              className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
+                rateShoppingApplied || selectedOrderIds.size === 0 || !selectedAccountId
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-amber-600 text-white hover:bg-amber-700')}>
+              {rateShoppingApplied
+                ? <><RefreshCcw size={11} className="animate-spin" /> {rateShopAppliedIds.size > 0 ? `${rateShopAppliedIds.size} left` : 'Rating…'}</>
+                : <><Truck size={11} /> Rate Shop{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>
+              }
+            </button>
+            <button onClick={() => setShowPackagePresetModal(true)} title="Manage package presets"
+              className="h-7 w-7 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:border-teal-500 hover:text-teal-600 transition-colors">
+              <Settings size={11} />
             </button>
           </div>
+
+          {/* Divider */}
+          <div className="w-px h-5 bg-gray-200" />
+
+          {/* ── Manual Rate Shop (pick preset + carrier) ── */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-0.5">Manual</span>
+            {packagePresets.length > 0 && (
+              <select value={selectedPackagePresetId} onChange={e => setSelectedPackagePresetId(e.target.value)}
+                className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 max-w-[140px]">
+                <option value="">— Pkg —</option>
+                {packagePresets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
+            <button onClick={applyPackagePreset}
+              disabled={applyingPackagePreset || selectedOrderIds.size === 0 || !selectedPackagePresetId || !selectedAccountId}
+              className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
+                applyingPackagePreset || selectedOrderIds.size === 0 || !selectedPackagePresetId || !selectedAccountId
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-emerald-600 text-white hover:bg-emerald-700')}>
+              {applyingPackagePreset
+                ? <><RefreshCcw size={11} className="animate-spin" /> {pkgRatingOrderIds.size > 0 ? `${pkgRatingOrderIds.size} left` : 'Pricing…'}</>
+                : <><Truck size={11} /> Rate Shop</>
+              }
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div className="w-px h-5 bg-gray-200" />
+
+          {/* ── Shipping Preset ── */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-0.5">Shipping</span>
+            {presets.length > 0 && (
+              <select value={selectedPresetId} onChange={e => setSelectedPresetId(e.target.value)}
+                className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 max-w-[140px]">
+                <option value="">— Preset —</option>
+                {presets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
+            <input type="date" value={presetShipDate} onChange={e => setPresetShipDate(e.target.value)}
+              min={new Date().toISOString().slice(0, 10)}
+              className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              title="Ship date" />
+            <button onClick={applyPreset}
+              disabled={applyingPreset || selectedOrderIds.size === 0 || !selectedPresetId || !selectedAccountId}
+              className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
+                applyingPreset || selectedOrderIds.size === 0 || !selectedPresetId || !selectedAccountId
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700')}>
+              {applyingPreset
+                ? <><RefreshCcw size={11} className="animate-spin" /> {ratingOrderIds.size > 0 ? `${ratingOrderIds.size} left` : 'Rating…'}</>
+                : <><Truck size={11} /> Apply</>
+              }
+            </button>
+            <button onClick={() => setShowPresetModal(true)} title="Manage shipping presets"
+              className="h-7 w-7 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:border-indigo-400 hover:text-indigo-600 transition-colors">
+              <Settings size={11} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toolbar Row 3: Bulk Actions ──────────────────────────────────────── */}
+      {(selectedOrderIds.size > 0 || activeTab === 'unshipped' || activeTab === 'pending') && (
+        <div className="flex items-center gap-1.5 px-4 py-1.5 border-b bg-gray-50">
+          {/* Bulk process (pending tab) */}
+          {activeTab === 'pending' && selectedOrderIds.size > 0 && (
+            <button
+              onClick={handleBulkProcess}
+              disabled={bulkProcessing}
+              className={clsx(
+                'flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
+                bulkProcessing
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-amazon-blue text-white hover:bg-blue-700',
+              )}
+            >
+              {bulkProcessing
+                ? <><RefreshCcw size={11} className="animate-spin" /> Loading…</>
+                : <><ClipboardCheck size={11} /> Process ({selectedOrderIds.size})</>
+              }
+            </button>
+          )}
+
+          {/* Bulk cancel (pending + unshipped tabs) */}
+          {(activeTab === 'pending' || activeTab === 'unshipped') && selectedOrderIds.size > 0 && (
+            <button
+              onClick={handleBulkCancel}
+              disabled={bulkCancelling}
+              className={clsx(
+                'flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
+                bulkCancelling
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-red-600 text-white hover:bg-red-700',
+              )}
+            >
+              {bulkCancelling
+                ? <><RefreshCcw size={11} className="animate-spin" /> Cancelling…</>
+                : <><XCircle size={11} /> Cancel ({selectedOrderIds.size})</>
+              }
+            </button>
+          )}
+
+          {/* Create label batch (unshipped tab) */}
+          {activeTab === 'unshipped' && selectedOrderIds.size > 0 && (
+            <button
+              onClick={() => setShowBatchConfirm(true)}
+              disabled={applyingPreset || applyingPackagePreset || batchEligible.length !== selectedOrderIds.size}
+              title={batchEligible.length !== selectedOrderIds.size ? `${selectedOrderIds.size - batchEligible.length} selected order(s) need a shopped rate first` : undefined}
+              className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
+                applyingPreset || applyingPackagePreset || batchEligible.length !== selectedOrderIds.size
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700')}
+            >
+              <Tag size={11} /> Label Batch ({batchEligible.length}/{selectedOrderIds.size})
+            </button>
+          )}
+
+          {/* Pick list */}
+          {selectedOrderIds.size > 0 && (
+            <button onClick={() => setShowPickList(true)}
+              className="flex items-center gap-1 h-7 px-2.5 rounded border border-gray-300 text-xs text-gray-600 hover:border-green-500 hover:text-green-700 whitespace-nowrap transition-colors">
+              <FileText size={11} /> Pick List ({selectedOrderIds.size})
+            </button>
+          )}
+
+          {/* Batch history */}
+          <button
+            onClick={() => setShowBatchHistory(true)}
+            className="flex items-center gap-1 h-7 px-2.5 rounded border border-gray-200 text-xs text-gray-500 hover:border-indigo-400 hover:text-indigo-700 whitespace-nowrap transition-colors"
+            title="View label batch history"
+          >
+            <History size={11} /> Batches
+          </button>
 
           <div className="flex-1" />
 
