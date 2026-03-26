@@ -50,9 +50,6 @@ function HomeContent() {
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-bold text-gray-900 dark:text-white tracking-tight">
           Hello, <span className="text-amazon-orange">{firstName}</span>
         </h1>
-        <p className="mt-4 text-lg text-gray-400 dark:text-gray-500 max-w-md mx-auto">
-          Welcome to Open Line Mobility
-        </p>
       </div>
     </div>
   )
