@@ -40,6 +40,8 @@ interface BMOrderLine {
   quantity?: number
   price?: string | number
   shipping_price?: string | number
+  orderline_fee?: string | number
+  sales_taxes?: string | number
   image?: string
   product_image?: string
   imei?: string
@@ -135,6 +137,13 @@ export async function syncBackMarketOrders(
 
       const shipToName = [addr?.first_name, addr?.last_name].filter(Boolean).join(' ') || null
 
+      // Sum orderline_fee from all orderlines for actual commission
+      const totalFee = o.orderlines?.reduce((sum, line) => {
+        const fee = line.orderline_fee != null ? parseFloat(String(line.orderline_fee)) : 0
+        return sum + (isNaN(fee) ? 0 : fee)
+      }, 0) ?? 0
+      const hasRealCommission = totalFee > 0
+
       const orderRecord = await (async () => {
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
@@ -170,6 +179,10 @@ export async function syncBackMarketOrders(
                 shipToPhone: addr?.phone ?? null,
                 isPrime: false,
                 lastSyncedAt: new Date(),
+                ...(hasRealCommission ? {
+                  marketplaceCommission: Math.round(totalFee * 100) / 100,
+                  commissionSyncedAt: new Date(),
+                } : {}),
               },
               update: {
                 orderStatus: mapBMState(o.state),
@@ -185,6 +198,10 @@ export async function syncBackMarketOrders(
                   shipToPostal: addr.zipcode ?? null,
                   shipToCountry: addr.country ?? null,
                   shipToPhone: addr.phone ?? null,
+                } : {}),
+                ...(hasRealCommission ? {
+                  marketplaceCommission: Math.round(totalFee * 100) / 100,
+                  commissionSyncedAt: new Date(),
                 } : {}),
               },
             })

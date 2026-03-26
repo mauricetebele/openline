@@ -130,10 +130,13 @@ export async function syncAmazonCommissions(
   return { updated }
 }
 
-// ─── BackMarket commission sync (flat 12%) ──────────────────────────────────
+// ─── BackMarket commission sync ──────────────────────────────────────────────
+// Real commission comes from orderline_fee during order sync.
+// This fallback only covers shipped orders where the API didn't provide fee data
+// (e.g. orders synced before this feature, or missing orderline_fee).
 
 export async function syncBackMarketCommissions(): Promise<{ updated: number }> {
-  const BACKMARKET_RATE = 0.12
+  const BACKMARKET_FALLBACK_RATE = 0.12
 
   const orders = await prisma.order.findMany({
     where: {
@@ -148,7 +151,7 @@ export async function syncBackMarketCommissions(): Promise<{ updated: number }> 
   let updated = 0
   for (const order of orders) {
     const total = Number(order.orderTotal ?? 0)
-    const commission = Math.round(total * BACKMARKET_RATE * 100) / 100
+    const commission = Math.round(total * BACKMARKET_FALLBACK_RATE * 100) / 100
 
     await prisma.order.update({
       where: { id: order.id },
@@ -160,6 +163,6 @@ export async function syncBackMarketCommissions(): Promise<{ updated: number }> 
     updated++
   }
 
-  console.log(`[sync-commissions] BackMarket: ${updated} orders updated`)
+  console.log(`[sync-commissions] BackMarket fallback: ${updated} orders updated (no API fee data)`)
   return { updated }
 }
