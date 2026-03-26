@@ -316,22 +316,17 @@ export default function TopNav() {
       <div className="flex items-center gap-3 px-4 h-12 border-b border-white/[0.06]">
 
         {/* Logo */}
-        <Link href="/" className="flex items-center mr-2 shrink-0 group">
-          {storeLogo ? (
-            <img
-              src={storeLogo}
-              alt="Open Line Mobility"
-              className="h-8 w-auto object-contain group-hover:brightness-110 transition"
-            />
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <img src="/logos/olm-icon.svg" alt="" className="h-7 w-auto" />
-              <div className="flex flex-col leading-tight">
-                <span className="text-white font-bold text-[13px] leading-none tracking-wide">OPEN LINE</span>
-                <span className="text-amazon-orange font-bold text-[10px] leading-none tracking-[0.15em]">MOBILITY</span>
-              </div>
-            </div>
-          )}
+        <Link href="/" className="flex items-center gap-2 mr-2 shrink-0 group">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40" fill="none" className="h-7 w-auto shrink-0">
+            <defs><linearGradient id="lg" x1="0" y1="1" x2="1" y2="0"><stop offset="0%" stopColor="#1B5EA6"/><stop offset="100%" stopColor="#C1342C"/></linearGradient></defs>
+            <path d="M10 28 C20 34, 38 6, 50 12" stroke="url(#lg)" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+            <circle cx="9" cy="27.5" r="5.5" stroke="#1B5EA6" strokeWidth="2" fill="none"/><circle cx="9" cy="27.5" r="1.8" fill="#1B5EA6"/>
+            <circle cx="50.5" cy="12" r="6" stroke="#C1342C" strokeWidth="2" fill="none"/><circle cx="50.5" cy="12" r="2" fill="#C1342C"/>
+          </svg>
+          <div className="flex flex-col leading-tight">
+            <span className="text-white font-bold text-[13px] leading-none tracking-wide">OPEN LINE</span>
+            <span className="text-[#C1342C] font-bold text-[10px] leading-none tracking-[0.15em]">MOBILITY</span>
+          </div>
         </Link>
 
         <div className="hidden lg:block w-px h-6 bg-white/10 shrink-0" />

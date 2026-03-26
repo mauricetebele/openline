@@ -3,24 +3,34 @@ import { useState, useEffect } from 'react'
 import AppShell from '@/components/AppShell'
 import { useAuth } from '@/context/AuthContext'
 
+function OlmLogoWatermark() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 200" fill="none"
+      className="absolute inset-0 m-auto w-[480px] max-w-[75vw] h-auto opacity-[0.06] dark:opacity-[0.08] pointer-events-none select-none"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id="wm-lg" x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0%" stopColor="#1B5EA6"/>
+          <stop offset="100%" stopColor="#C1342C"/>
+        </linearGradient>
+      </defs>
+      <path d="M60 105 C100 120, 160 40, 210 55" stroke="url(#wm-lg)" strokeWidth="3.5" fill="none" strokeLinecap="round"/>
+      <circle cx="58" cy="104" r="10" stroke="#1B5EA6" strokeWidth="3.5" fill="none"/>
+      <circle cx="58" cy="104" r="3" fill="#1B5EA6"/>
+      <circle cx="212" cy="54" r="11" stroke="#C1342C" strokeWidth="3.5" fill="none"/>
+      <circle cx="212" cy="54" r="3.5" fill="#C1342C"/>
+      <text x="140" y="148" textAnchor="middle" fontFamily="Arial, Helvetica, sans-serif" fontWeight="700" fontSize="32" fill="#1B3A5C" letterSpacing="3">OPEN LINE</text>
+      <text x="140" y="175" textAnchor="middle" fontFamily="Arial, Helvetica, sans-serif" fontWeight="700" fontSize="22" fill="#C1342C" letterSpacing="6">MOBILITY</text>
+    </svg>
+  )
+}
+
 function HomeContent() {
   const { user } = useAuth()
-  const [logo, setLogo] = useState('/logos/olm-logo.svg')
   const [mounted, setMounted] = useState(false)
 
-  useEffect(() => {
-    setMounted(true)
-    fetch('/api/store-settings')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (d?.logoBase64 && typeof d.logoBase64 === 'string' && d.logoBase64.startsWith('data:image')) {
-          const img = new Image()
-          img.onload = () => setLogo(d.logoBase64)
-          img.src = d.logoBase64
-        }
-      })
-      .catch(() => {})
-  }, [])
+  useEffect(() => { setMounted(true) }, [])
 
   const firstName = user?.name?.split(' ')[0] ?? user?.email?.split('@')[0] ?? ''
 
@@ -29,15 +39,8 @@ function HomeContent() {
 
   return (
     <div className="relative flex items-center justify-center min-h-[calc(100vh-8rem)] overflow-hidden">
-      {/* Translucent logo watermark */}
-      <img
-        src={logo}
-        alt=""
-        aria-hidden="true"
-        className="absolute inset-0 m-auto w-[480px] max-w-[75vw] h-auto object-contain opacity-[0.07] dark:opacity-[0.10] dark:invert pointer-events-none select-none"
-      />
+      <OlmLogoWatermark />
 
-      {/* Greeting content */}
       <div className={`relative z-10 text-center px-6 transition-all duration-700 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
         <p className="text-sm font-medium text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-3">
           {greeting}
