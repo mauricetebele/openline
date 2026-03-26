@@ -7,7 +7,7 @@ export const maxDuration = 300
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { syncAmazonCommissions } from '@/lib/amazon/sync-commissions'
+import { syncAmazonCommissions, syncBackMarketCommissions } from '@/lib/amazon/sync-commissions'
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
@@ -51,6 +51,18 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     results.push({ source: 'wholesale', status: 'error', message })
+  }
+
+  // BackMarket fallback: apply 12% commission for shipped orders missing fee data
+  try {
+    const bmResult = await syncBackMarketCommissions()
+    if (bmResult.updated > 0) {
+      results.push({ source: 'backmarket', status: 'ok', message: `${bmResult.updated} orders updated (12% fallback)` })
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[cron/sync-commissions] BackMarket fallback`, message)
+    results.push({ source: 'backmarket', status: 'error', message })
   }
 
   return NextResponse.json({ status: 'success', results })
