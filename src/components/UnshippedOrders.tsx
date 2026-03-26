@@ -6646,9 +6646,9 @@ export default function UnshippedOrders() {
                   </td>
                   {/* Item — SKU + Product name */}
                   <td className="px-1.5 py-1">
-                    <div className={clsx('flex flex-col', multi && 'gap-0.5')}>
+                    <div className={clsx('flex flex-col', multi && 'divide-y divide-gray-200')}>
                       {order.items.map(i => (
-                        <div key={i.id} className="leading-tight">
+                        <div key={i.id} className={clsx('leading-tight', multi && 'py-0.5 first:pt-0 last:pb-0')}>
                           <span className="whitespace-nowrap">
                             <span className="font-mono text-[11px] font-semibold text-gray-900">{i.internalSku ?? i.sellerSku ?? '—'}</span>
                             {i.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600 ml-1">Grade {i.mappedGradeName}</span>}
@@ -6660,9 +6660,9 @@ export default function UnshippedOrders() {
                   </td>
                   {/* Qty */}
                   <td className="px-1 py-1 text-center whitespace-nowrap w-8">
-                    <div className={clsx('flex flex-col', multi && 'gap-0.5')}>
+                    <div className={clsx('flex flex-col', multi && 'divide-y divide-gray-200')}>
                       {order.items.map(i => (
-                        <span key={i.id} className={clsx('text-[11px] leading-tight tabular-nums', i.quantityOrdered > 1 ? 'font-bold text-red-600' : 'text-gray-700')}>
+                        <span key={i.id} className={clsx('text-[11px] leading-tight tabular-nums', multi && 'py-0.5 first:pt-0 last:pb-0', i.quantityOrdered > 1 ? 'font-bold text-red-600' : 'text-gray-700')}>
                           {i.quantityOrdered}
                         </span>
                       ))}
