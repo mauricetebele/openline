@@ -206,19 +206,62 @@ export async function generateOrderInvoicePDF(order: InvoiceOrder) {
   let logoBottomY = 40
 
   // Logo or text branding
+  let logoRendered = false
   if (store.logoBase64) {
     try {
       doc.addImage(store.logoBase64, 'AUTO', ML, 16, 0, 120)
       logoBottomY = 140
-    } catch {
-      doc.setFontSize(15); doc.setFont('helvetica', 'bold'); tc(doc, primary)
-      doc.text(store.storeName.toUpperCase(), ML, 36)
-      logoBottomY = 44
+      logoRendered = true
+    } catch { /* fall through to drawn logo */ }
+  }
+  if (!logoRendered) {
+    // Draw the OLM logo programmatically (same as wholesale invoice)
+    const blue: RGB = [27, 94, 166]
+    const red: RGB = [193, 52, 44]
+    const navy: RGB = [27, 58, 92]
+
+    const sc = 0.4
+    const logoOx = ML
+    const logoOy = 10
+
+    // Curved connecting line
+    const p0x = 60*sc+logoOx, p0y = 105*sc+logoOy
+    const c1x = 100*sc+logoOx, c1y = 120*sc+logoOy
+    const c2x = 160*sc+logoOx, c2y = 40*sc+logoOy
+    const p3x = 210*sc+logoOx, p3y = 55*sc+logoOy
+
+    doc.setLineWidth(1.5)
+    for (let t = 0; t < 1; t += 0.04) {
+      const t2 = Math.min(t + 0.04, 1)
+      const bx = (ti: number) => Math.pow(1-ti,3)*p0x + 3*Math.pow(1-ti,2)*ti*c1x + 3*(1-ti)*ti*ti*c2x + ti*ti*ti*p3x
+      const by = (ti: number) => Math.pow(1-ti,3)*p0y + 3*Math.pow(1-ti,2)*ti*c1y + 3*(1-ti)*ti*ti*c2y + ti*ti*ti*p3y
+      const r1 = t / 1, r2 = t2 / 1
+      doc.setDrawColor(Math.round(blue[0]+(red[0]-blue[0])*((r1+r2)/2)), Math.round(blue[1]+(red[1]-blue[1])*((r1+r2)/2)), Math.round(blue[2]+(red[2]-blue[2])*((r1+r2)/2)))
+      doc.line(bx(t), by(t), bx(t2), by(t2))
     }
-  } else {
-    doc.setFontSize(15); doc.setFont('helvetica', 'bold'); tc(doc, primary)
-    doc.text(store.storeName.toUpperCase(), ML, 36)
-    logoBottomY = 44
+
+    // Left blue dot
+    const ldx = 58*sc+logoOx, ldy = 104*sc+logoOy
+    doc.setDrawColor(...blue); doc.setLineWidth(1.6)
+    doc.circle(ldx, ldy, 4.5, 'S')
+    doc.setFillColor(...blue); doc.circle(ldx, ldy, 1.5, 'F')
+
+    // Right red dot
+    const rdx = 212*sc+logoOx, rdy = 54*sc+logoOy
+    doc.setDrawColor(...red); doc.setLineWidth(1.6)
+    doc.circle(rdx, rdy, 5, 'S')
+    doc.setFillColor(...red); doc.circle(rdx, rdy, 1.6, 'F')
+
+    // "OPEN LINE" text
+    const textY = p0y + 18
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...navy)
+    doc.text('OPEN LINE', ML, textY, { charSpace: 2.5 })
+
+    // "MOBILITY" text
+    doc.setFontSize(9); doc.setTextColor(...red)
+    doc.text('MOBILITY', ML, textY + 13, { charSpace: 6 })
+
+    logoBottomY = textY + 26
   }
 
   // Store contact info — stacked lines under logo
