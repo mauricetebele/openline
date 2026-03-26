@@ -6297,9 +6297,9 @@ export default function UnshippedOrders() {
             <tr>
               <th className="px-3 py-2.5 text-center w-8">
                 <input type="checkbox"
-                  checked={orders.length > 0 && orders.every(o => selectedOrderIds.has(o.id))}
+                  checked={displayOrders.length > 0 && displayOrders.every(o => selectedOrderIds.has(o.id))}
                   onChange={e => {
-                    if (e.target.checked) setSelectedOrderIds(new Set(orders.map(o => o.id)))
+                    if (e.target.checked) setSelectedOrderIds(new Set(displayOrders.map(o => o.id)))
                     else setSelectedOrderIds(new Set())
                   }}
                   className="rounded border-gray-500 text-indigo-400 focus:ring-indigo-500"
