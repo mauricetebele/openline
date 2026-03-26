@@ -50,6 +50,8 @@ export async function GET(req: NextRequest) {
         orderBy: { createdAt: 'asc' },
         select: {
           id: true, sku: true, title: true, quantity: true, unitPrice: true,
+          gradeId: true,
+          grade: { select: { grade: true } },
           product: { select: { isSerializable: true } },
         },
       },
@@ -122,6 +124,8 @@ export async function GET(req: NextRequest) {
         itemPrice:       i.unitPrice.toString(),
         shippingPrice:   null,
         isSerializable:  i.product?.isSerializable ?? false,
+        gradeId:         i.gradeId ?? null,
+        mappedGradeName: i.grade?.grade ?? null,
       })),
 
       // No ShipStation label for wholesale

@@ -6,9 +6,10 @@
  *   serials?: Array<{ serialId: string; salesOrderItemId?: string }>
  * }
  *
- * - Assigns serial numbers to the wholesale order (marks them SOLD)
- * - Records carrier + tracking
- * - Moves fulfillmentStatus PROCESSING → SHIPPED  (skips AWAITING_VERIFICATION)
+ * Supports two flows:
+ * 1. All-at-once: serials in body → creates assignments + marks SOLD + ships
+ * 2. Pre-serialized: no serials in body, existing SalesOrderSerialAssignment records
+ *    → marks pre-assigned serials SOLD + ships
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -34,7 +35,13 @@ export async function POST(
   if (!carrier?.trim()) return NextResponse.json({ error: 'carrier is required' }, { status: 400 })
   if (!tracking?.trim()) return NextResponse.json({ error: 'tracking is required' }, { status: 400 })
 
-  const so = await prisma.salesOrder.findUnique({ where: { id: params.id } })
+  const so = await prisma.salesOrder.findUnique({
+    where: { id: params.id },
+    include: {
+      items: { select: { id: true, quantity: true, product: { select: { isSerializable: true } } } },
+      serialAssignments: { select: { id: true, serialId: true, salesOrderItemId: true } },
+    },
+  })
   if (!so) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (so.fulfillmentStatus !== 'PROCESSING') {
     return NextResponse.json(
@@ -43,8 +50,23 @@ export async function POST(
     )
   }
 
-  // Validate serials exist and are IN_STOCK
-  if (serials.length > 0) {
+  // Determine which serials to use
+  const hasPreAssigned = so.serialAssignments.length > 0
+  const hasBodySerials = serials.length > 0
+  const totalSerializable = so.items
+    .filter(i => i.product?.isSerializable)
+    .reduce((sum, i) => sum + Math.round(Number(i.quantity)), 0)
+
+  // If no serials provided and no pre-assigned, but items need serials → 400
+  if (!hasBodySerials && !hasPreAssigned && totalSerializable > 0) {
+    return NextResponse.json(
+      { error: 'Order has serializable items but no serial numbers were provided or pre-assigned' },
+      { status: 400 },
+    )
+  }
+
+  // Validate body serials if provided (all-at-once flow)
+  if (hasBodySerials) {
     const serialIds = serials.map(s => s.serialId)
     const found = await prisma.inventorySerial.findMany({
       where: { id: { in: serialIds } },
@@ -57,6 +79,21 @@ export async function POST(
     if (notInStock.length > 0) {
       return NextResponse.json({
         error: `Serial${notInStock.length > 1 ? 's' : ''} not IN_STOCK: ${notInStock.map(s => s.serialNumber).join(', ')}`,
+      }, { status: 409 })
+    }
+  }
+
+  // For pre-serialized flow, validate the pre-assigned serials are still IN_STOCK
+  if (!hasBodySerials && hasPreAssigned) {
+    const preSerialIds = so.serialAssignments.map(sa => sa.serialId)
+    const found = await prisma.inventorySerial.findMany({
+      where: { id: { in: preSerialIds } },
+      select: { id: true, status: true, serialNumber: true },
+    })
+    const notInStock = found.filter(s => s.status !== 'IN_STOCK')
+    if (notInStock.length > 0) {
+      return NextResponse.json({
+        error: `Pre-assigned serial${notInStock.length > 1 ? 's' : ''} no longer IN_STOCK: ${notInStock.map(s => s.serialNumber).join(', ')}`,
       }, { status: 409 })
     }
   }
@@ -88,19 +125,29 @@ export async function POST(
       }
     }
 
-    // Mark serials as SOLD and create assignment records
-    for (const s of serials) {
-      await tx.inventorySerial.update({
-        where: { id: s.serialId },
-        data: { status: 'OUT_OF_STOCK' },
-      })
-      await tx.salesOrderSerialAssignment.create({
-        data: {
-          salesOrderId:    params.id,
-          salesOrderItemId: s.salesOrderItemId ?? null,
-          serialId:        s.serialId,
-        },
-      })
+    if (hasBodySerials) {
+      // All-at-once flow: create assignments + mark SOLD
+      for (const s of serials) {
+        await tx.inventorySerial.update({
+          where: { id: s.serialId },
+          data: { status: 'OUT_OF_STOCK' },
+        })
+        await tx.salesOrderSerialAssignment.create({
+          data: {
+            salesOrderId:    params.id,
+            salesOrderItemId: s.salesOrderItemId ?? null,
+            serialId:        s.serialId,
+          },
+        })
+      }
+    } else if (hasPreAssigned) {
+      // Pre-serialized flow: just mark pre-assigned serials as SOLD
+      for (const sa of so.serialAssignments) {
+        await tx.inventorySerial.update({
+          where: { id: sa.serialId },
+          data: { status: 'OUT_OF_STOCK' },
+        })
+      }
     }
 
     // Ship the order

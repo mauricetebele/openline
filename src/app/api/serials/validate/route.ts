@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
   const sn      = req.nextUrl.searchParams.get('sn')?.trim()
   const sku     = req.nextUrl.searchParams.get('sku')?.trim()
   let   gradeId = req.nextUrl.searchParams.get('gradeId')?.trim() || null
+  const excludeSalesOrderId = req.nextUrl.searchParams.get('excludeSalesOrderId')?.trim() || null
 
   if (!sn || !sku) {
     return NextResponse.json({ error: 'sn and sku query params are required' }, { status: 400 })
@@ -50,6 +51,7 @@ export async function GET(req: NextRequest) {
       product:        true,
       location:       { include: { warehouse: true } },
       orderAssignment: { include: { order: { select: { workflowStatus: true } } } },
+      salesOrderAssignment: { include: { salesOrder: { select: { fulfillmentStatus: true } } } },
     },
   })
 
@@ -88,7 +90,7 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  // Already assigned to an active (non-terminal) order
+  // Already assigned to an active (non-terminal) Amazon order
   const activeAssignment = serial.orderAssignment &&
     !['SHIPPED', 'CANCELLED'].includes(serial.orderAssignment.order.workflowStatus)
   if (activeAssignment) {
@@ -96,6 +98,18 @@ export async function GET(req: NextRequest) {
       valid:  false,
       reason: 'ALREADY_ASSIGNED',
       detail: `Serial "${sn}" is already assigned to another order`,
+    })
+  }
+
+  // Already assigned to an active wholesale order (skip if assigned to the excluded order)
+  const activeWholesaleAssignment = serial.salesOrderAssignment &&
+    !['SHIPPED', 'CANCELLED'].includes(serial.salesOrderAssignment.salesOrder.fulfillmentStatus) &&
+    serial.salesOrderAssignment.salesOrderId !== excludeSalesOrderId
+  if (activeWholesaleAssignment) {
+    return NextResponse.json({
+      valid:  false,
+      reason: 'ALREADY_ASSIGNED',
+      detail: `Serial "${sn}" is already assigned to a wholesale order`,
     })
   }
 

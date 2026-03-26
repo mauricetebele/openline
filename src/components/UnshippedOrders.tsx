@@ -1254,9 +1254,284 @@ function WholesaleProcessModal({ order, onClose, onProcessed }: {
   )
 }
 
-// ─── Wholesale Ship Modal ──────────────────────────────────────────────────────
+// ─── Wholesale Serialize Modal ─────────────────────────────────────────────────
 
 type WholesaleSerialState = { value: string; valid: boolean | null; message: string; checking: boolean; serialId?: string }
+
+function WholesaleSerializeModal({ order, onClose, onSaved }: {
+  order: Order; onClose: () => void; onSaved: () => void
+}) {
+  const [serialInputs, setSerialInputs] = useState<Record<string, WholesaleSerialState>>({})
+  const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const [submitErr, setSubmitErr]   = useState<string | null>(null)
+
+  const serializableItems = order.items.filter(i => i.isSerializable)
+
+  // Pre-fill from existing serial assignments
+  useEffect(() => {
+    const initial: Record<string, WholesaleSerialState> = {}
+    const existingByItem = new Map<string, { serialNumber: string; id: string }[]>()
+    for (const sa of (order.serialAssignments ?? [])) {
+      const arr = existingByItem.get(sa.orderItemId) ?? []
+      arr.push({ serialNumber: sa.inventorySerial.serialNumber, id: sa.id })
+      existingByItem.set(sa.orderItemId, arr)
+    }
+
+    for (const item of serializableItems) {
+      const existing = existingByItem.get(item.orderItemId) ?? []
+      for (let i = 0; i < item.quantityOrdered; i++) {
+        const key = `${item.orderItemId}-${i}`
+        if (existing[i]) {
+          initial[key] = { value: existing[i].serialNumber, valid: null, message: '', checking: false }
+        } else {
+          initial[key] = { value: '', valid: null, message: '', checking: false }
+        }
+      }
+    }
+    setSerialInputs(initial)
+
+    // Re-validate existing serials
+    for (const item of serializableItems) {
+      const existing = existingByItem.get(item.orderItemId) ?? []
+      for (let i = 0; i < existing.length && i < item.quantityOrdered; i++) {
+        const key = `${item.orderItemId}-${i}`
+        validateSerial(key, existing[i].serialNumber, item.sellerSku ?? '', true, item.gradeId)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id])
+
+  const orderIdRef = useRef(order.id)
+
+  const validateSerial = useCallback((key: string, sn: string, sku: string, immediate = false, gradeId?: string | null) => {
+    if (!sn.trim()) {
+      setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, valid: null, message: '', checking: false, serialId: undefined } }))
+      return
+    }
+    setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, checking: true, valid: null, message: '', serialId: undefined } }))
+    if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key])
+    const doValidate = async () => {
+      try {
+        let url = `/api/serials/validate?sn=${encodeURIComponent(sn.trim())}&sku=${encodeURIComponent(sku)}`
+        if (gradeId) url += `&gradeId=${encodeURIComponent(gradeId)}`
+        url += `&excludeSalesOrderId=${encodeURIComponent(orderIdRef.current)}`
+        const res = await fetch(url)
+        const data: { valid: boolean; reason?: string; detail?: string; location?: string; serialId?: string } = await res.json()
+        setSerialInputs(prev => ({
+          ...prev,
+          [key]: {
+            value: sn,
+            valid: data.valid,
+            message: data.valid ? (data.location ?? '✓ Valid') : (data.detail ?? 'Invalid'),
+            checking: false,
+            serialId: data.valid ? data.serialId : undefined,
+          },
+        }))
+        if (immediate) {
+          playTone(data.valid)
+          if (!data.valid) {
+            setTimeout(() => {
+              setSerialInputs(prev => ({ ...prev, [key]: { value: '', valid: null, message: '', checking: false, serialId: undefined } }))
+            }, 1500)
+          }
+        }
+      } catch {
+        setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], checking: false, valid: false, message: 'Validation error', serialId: undefined } }))
+        if (immediate) {
+          playTone(false)
+          setTimeout(() => {
+            setSerialInputs(prev => ({ ...prev, [key]: { value: '', valid: null, message: '', checking: false, serialId: undefined } }))
+          }, 1500)
+        }
+      }
+    }
+    if (immediate) { doValidate() } else { debounceRefs.current[key] = setTimeout(doValidate, 350) }
+  }, [])
+
+  const allSerialsValid = (() => {
+    for (const item of serializableItems) {
+      for (let i = 0; i < item.quantityOrdered; i++) {
+        const key = `${item.orderItemId}-${i}`
+        const state = serialInputs[key]
+        if (!state || !state.valid || state.checking) return false
+      }
+    }
+    return true
+  })()
+
+  async function handleSave() {
+    if (!allSerialsValid) return
+    setSubmitting(true); setSubmitErr(null)
+    try {
+      const serials: { serialId: string; salesOrderItemId: string }[] = []
+      for (const item of serializableItems) {
+        for (let i = 0; i < item.quantityOrdered; i++) {
+          const key = `${item.orderItemId}-${i}`
+          const state = serialInputs[key]
+          if (state?.valid && state.serialId) {
+            serials.push({ serialId: state.serialId, salesOrderItemId: item.orderItemId })
+          }
+        }
+      }
+      const res = await fetch(`/api/wholesale/orders/${order.id}/serialize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serials }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `${res.status}`)
+      onSaved()
+    } catch (e) {
+      setSubmitErr(e instanceof Error ? e.message : 'Failed to save serials')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
+          <div>
+            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+              <Hash size={15} className="text-purple-600" /> Serialize Wholesale Order
+            </h3>
+            <p className="text-xs text-gray-500 font-mono mt-0.5">{order.wholesaleOrderNumber ?? order.amazonOrderId}</p>
+            {order.wholesaleCustomerName && (
+              <p className="text-xs text-gray-400 mt-0.5">{order.wholesaleCustomerName}</p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Order Items with serial inputs */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+              Assign Serial Numbers
+            </p>
+            <div className="space-y-3">
+              {order.items.map(item => (
+                <div key={item.id} className={clsx('rounded-lg border p-3 space-y-2', item.isSerializable ? 'border-gray-200' : 'border-gray-100 bg-gray-50/60')}>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
+                      <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
+                      {item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-700">Grade {item.mappedGradeName}</span>}
+                      {item.title && <p className="text-xs text-gray-500 truncate mt-0.5">{item.title}</p>}
+                    </div>
+                    {!item.isSerializable && <span className="text-[9px] text-gray-400 italic shrink-0">Not serializable</span>}
+                  </div>
+                  {item.isSerializable && (
+                    <div className="space-y-1.5">
+                      {/* Bulk paste area */}
+                      <div className="mb-1">
+                        <textarea
+                          placeholder={`Paste up to ${item.quantityOrdered} serials (one per line)…`}
+                          rows={2}
+                          className="w-full rounded border border-dashed border-gray-300 px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none placeholder:text-gray-400"
+                          onPaste={e => {
+                            e.preventDefault()
+                            const text = e.clipboardData.getData('text')
+                            const lines = text.split(/[\n\r\t]+/).map(s => s.trim()).filter(Boolean)
+                            const sku = item.sellerSku ?? ''
+                            lines.slice(0, item.quantityOrdered).forEach((sn, i) => {
+                              const key = `${item.orderItemId}-${i}`
+                              validateSerial(key, sn, sku, true, item.gradeId)
+                            })
+                            ;(e.target as HTMLTextAreaElement).value = ''
+                          }}
+                          onChange={e => {
+                            const text = e.target.value
+                            if (!text.includes('\n') && !text.includes('\t')) return
+                            const lines = text.split(/[\n\r\t]+/).map(s => s.trim()).filter(Boolean)
+                            if (lines.length > 1) {
+                              const sku = item.sellerSku ?? ''
+                              lines.slice(0, item.quantityOrdered).forEach((sn, i) => {
+                                const key = `${item.orderItemId}-${i}`
+                                validateSerial(key, sn, sku, true, item.gradeId)
+                              })
+                              e.target.value = ''
+                            }
+                          }}
+                        />
+                      </div>
+                      {Array.from({ length: item.quantityOrdered }, (_, i) => {
+                        const key   = `${item.orderItemId}-${i}`
+                        const state = serialInputs[key] ?? { value: '', valid: null, message: '', checking: false }
+                        return (
+                          <div key={key} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400 w-4 shrink-0">#{i + 1}</span>
+                            <input
+                              type="text"
+                              placeholder="Scan or enter serial…"
+                              value={state.value}
+                              onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '', false, item.gradeId)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  const val = (e.target as HTMLInputElement).value
+                                  if (val.trim()) validateSerial(key, val, item.sellerSku ?? '', true, item.gradeId)
+                                }
+                              }}
+                              className={clsx(
+                                'flex-1 h-8 rounded border px-2 text-xs font-mono focus:outline-none focus:ring-1',
+                                state.valid === true  ? 'border-green-400 bg-green-50 focus:ring-green-400' :
+                                state.valid === false ? 'border-red-400   bg-red-50   focus:ring-red-400' :
+                                'border-gray-300 focus:ring-purple-500',
+                              )}
+                            />
+                            <div className="w-5 shrink-0">
+                              {state.checking && <RefreshCcw size={12} className="animate-spin text-gray-400" />}
+                              {!state.checking && state.valid === true  && <CheckCircle2 size={14} className="text-green-500" />}
+                              {!state.checking && state.valid === false && <AlertCircle  size={14} className="text-red-500" />}
+                            </div>
+                          </div>
+                        )
+                      })}
+                      {Object.entries(serialInputs)
+                        .filter(([k]) => k.startsWith(item.orderItemId))
+                        .map(([k, s]) => s.message ? (
+                          <p key={k} className={clsx('text-xs pl-6', s.valid ? 'text-green-600' : 'text-red-600')}>
+                            {s.message}
+                          </p>
+                        ) : null)
+                      }
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t shrink-0 space-y-2">
+          {submitErr && (
+            <div className="flex items-start gap-2 p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs">
+              <AlertCircle size={12} className="shrink-0 mt-0.5" />{submitErr}
+            </div>
+          )}
+          {!allSerialsValid && (
+            <p className="text-xs text-amber-700 flex items-center gap-1">
+              <AlertCircle size={11} /> All serial numbers must be validated before saving.
+            </p>
+          )}
+          <div className="flex gap-2 justify-end">
+            <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+            <button onClick={handleSave} disabled={submitting || !allSerialsValid}
+              className="px-3 py-1.5 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-1.5">
+              {submitting ? <><RefreshCcw size={12} className="animate-spin" /> Saving…</> : <><Hash size={12} /> Save Serials</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Wholesale Ship Modal ──────────────────────────────────────────────────────
 
 function WholesaleShipModal({ order, onClose, onShipped }: {
   order: Order; onClose: () => void; onShipped: () => void
@@ -1269,8 +1544,13 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
   const [submitErr, setSubmitErr]   = useState<string | null>(null)
 
   const serializableItems = order.items.filter(i => i.isSerializable)
+  const totalSerializable = serializableItems.reduce((s, i) => s + i.quantityOrdered, 0)
+  const assigned = order.serialAssignments?.length ?? 0
+  const isPreSerialized = totalSerializable > 0 && assigned >= totalSerializable
+  const needsSerials = serializableItems.length > 0 && !isPreSerialized
 
   useEffect(() => {
+    if (isPreSerialized) return // no serial inputs needed
     const initial: Record<string, WholesaleSerialState> = {}
     for (const item of serializableItems) {
       for (let i = 0; i < item.quantityOrdered; i++) {
@@ -1326,9 +1606,8 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
     if (immediate) { doValidate() } else { debounceRefs.current[key] = setTimeout(doValidate, 350) }
   }, [])
 
-  const needsSerials = serializableItems.length > 0
-
   const allSerialsValid = (() => {
+    if (isPreSerialized) return true
     if (!needsSerials) return true
     for (const item of serializableItems) {
       for (let i = 0; i < item.quantityOrdered; i++) {
@@ -1346,20 +1625,23 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
     if (!canSubmit) return
     setSubmitting(true); setSubmitErr(null)
     try {
+      // Build serials only for all-at-once flow (not pre-serialized)
       const serials: { serialId: string; salesOrderItemId: string }[] = []
-      for (const item of serializableItems) {
-        for (let i = 0; i < item.quantityOrdered; i++) {
-          const key = `${item.orderItemId}-${i}`
-          const state = serialInputs[key]
-          if (state?.valid && state.serialId) {
-            serials.push({ serialId: state.serialId, salesOrderItemId: item.orderItemId })
+      if (!isPreSerialized) {
+        for (const item of serializableItems) {
+          for (let i = 0; i < item.quantityOrdered; i++) {
+            const key = `${item.orderItemId}-${i}`
+            const state = serialInputs[key]
+            if (state?.valid && state.serialId) {
+              serials.push({ serialId: state.serialId, salesOrderItemId: item.orderItemId })
+            }
           }
         }
       }
       const res = await fetch(`/api/wholesale/orders/${order.id}/ship`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ carrier: carrier.trim(), tracking: tracking.trim(), serials }),
+        body: JSON.stringify({ carrier: carrier.trim(), tracking: tracking.trim(), ...(serials.length > 0 ? { serials } : {}) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `${res.status}`)
@@ -1370,6 +1652,18 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
       setSubmitting(false)
     }
   }
+
+  // Group pre-assigned serials by item for read-only display
+  const preAssignedByItem = useMemo(() => {
+    if (!isPreSerialized) return new Map<string, string[]>()
+    const map = new Map<string, string[]>()
+    for (const sa of (order.serialAssignments ?? [])) {
+      const arr = map.get(sa.orderItemId) ?? []
+      arr.push(sa.inventorySerial.serialNumber)
+      map.set(sa.orderItemId, arr)
+    }
+    return map
+  }, [isPreSerialized, order.serialAssignments])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1416,7 +1710,11 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
           {/* Order Items */}
           <div>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-              Order Items {needsSerials && <span className="text-amber-600 normal-case font-normal">(serial numbers required)</span>}
+              Order Items {isPreSerialized
+                ? <span className="text-green-600 normal-case font-normal">(serials pre-assigned)</span>
+                : needsSerials
+                  ? <span className="text-amber-600 normal-case font-normal">(serial numbers required)</span>
+                  : null}
             </p>
             <div className="space-y-3">
               {order.items.map(item => (
@@ -1424,13 +1722,23 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
                   <div className="flex items-start justify-between">
                     <div>
                       <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
-                      <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
+                      <span className="text-xs text-gray-400 ml-2">x{item.quantityOrdered}</span>
                       {item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-700">Grade {item.mappedGradeName}</span>}
                       {item.title && <p className="text-xs text-gray-500 truncate mt-0.5">{item.title}</p>}
                     </div>
                     {!item.isSerializable && <span className="text-[9px] text-gray-400 italic shrink-0">Not serializable</span>}
                   </div>
-                  {item.isSerializable && (
+                  {item.isSerializable && isPreSerialized && (
+                    <div className="space-y-0.5">
+                      {(preAssignedByItem.get(item.orderItemId) ?? []).map((sn, i) => (
+                        <div key={i} className="flex items-center gap-2 py-1 px-2 rounded bg-green-50 border border-green-200">
+                          <CheckCircle2 size={11} className="text-green-500 shrink-0" />
+                          <span className="font-mono text-xs text-gray-800">{sn}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {item.isSerializable && !isPreSerialized && (
                     <div className="space-y-1.5">
                       {/* Bulk paste area */}
                       <div className="mb-1">
@@ -1447,11 +1755,9 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
                               const key = `${item.orderItemId}-${i}`
                               validateSerial(key, sn, sku, true, item.gradeId)
                             })
-                            // Clear the textarea after paste
                             ;(e.target as HTMLTextAreaElement).value = ''
                           }}
                           onChange={e => {
-                            // Also handle typing/pasting via onChange as fallback
                             const text = e.target.value
                             if (!text.includes('\n') && !text.includes('\t')) return
                             const lines = text.split(/[\n\r\t]+/).map(s => s.trim()).filter(Boolean)
@@ -1565,7 +1871,10 @@ function UnserializeModal({ order, onClose, onUnserialized }: {
   async function handleUnserialize() {
     setSubmitting(true); setErr(null)
     try {
-      const res = await fetch(`/api/orders/${order.id}/unserialize`, { method: 'DELETE' })
+      const url = order.orderSource === 'wholesale'
+        ? `/api/wholesale/orders/${order.id}/unserialize`
+        : `/api/orders/${order.id}/unserialize`
+      const res = await fetch(url, { method: 'DELETE' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to unserialize')
       onUnserialized()
@@ -4583,6 +4892,7 @@ export default function UnshippedOrders() {
   // Wholesale state
   const [wholesaleOrders, setWholesaleOrders]             = useState<Order[]>([])
   const [wholesaleShipOrder, setWholesaleShipOrder]       = useState<Order | null>(null)
+  const [wholesaleSerializeOrder, setWholesaleSerializeOrder] = useState<Order | null>(null)
   const [manualShipOrder, setManualShipOrder]             = useState<Order | null>(null)
   const [wholesaleProcessOrder, setWholesaleProcessOrder] = useState<Order | null>(null)
 
@@ -5755,6 +6065,7 @@ export default function UnshippedOrders() {
       )}
       {wholesaleProcessOrder && <WholesaleProcessModal order={wholesaleProcessOrder} onClose={() => setWholesaleProcessOrder(null)} onProcessed={() => { setWholesaleProcessOrder(null); setFetchKey(k => k + 1) }} />}
       {wholesaleShipOrder && <WholesaleShipModal order={wholesaleShipOrder} onClose={() => setWholesaleShipOrder(null)} onShipped={() => { setWholesaleShipOrder(null); setFetchKey(k => k + 1) }} />}
+      {wholesaleSerializeOrder && <WholesaleSerializeModal order={wholesaleSerializeOrder} onClose={() => setWholesaleSerializeOrder(null)} onSaved={() => { setWholesaleSerializeOrder(null); setFetchKey(k => k + 1) }} />}
       {manualShipOrder && <ManualShipModal order={manualShipOrder} onClose={() => setManualShipOrder(null)} onShipped={() => { setManualShipOrder(null); setFetchKey(k => k + 1) }} />}
       {unserializeOrder && <UnserializeModal order={unserializeOrder} onClose={() => setUnserializeOrder(null)} onUnserialized={() => { setUnserializeOrder(null); setFetchKey(k => k + 1) }} />}
       {bmSerializeOrder && (
@@ -6799,10 +7110,62 @@ export default function UnshippedOrders() {
                   {showShipCol && (
                     <td className="px-1.5 py-1 text-center whitespace-nowrap">
                       {order.orderSource === 'wholesale' ? (
-                        <button onClick={() => setWholesaleShipOrder(order)}
-                          className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-emerald-600 text-white hover:bg-emerald-700">
-                          <Truck size={10} /> Ship
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          {(() => {
+                            const wsTotalSerializable = order.items.filter(i => i.isSerializable).reduce((s, i) => s + i.quantityOrdered, 0)
+                            const wsAssigned = order.serialAssignments?.length ?? 0
+                            const wsFullySerialized = wsTotalSerializable > 0 && wsAssigned >= wsTotalSerializable
+                            const wsPartiallySerialized = wsTotalSerializable > 0 && wsAssigned > 0 && wsAssigned < wsTotalSerializable
+                            const wsNeedsSerialization = wsTotalSerializable > 0 && wsAssigned === 0
+
+                            return (
+                              <>
+                                {/* Serialize button */}
+                                {wsNeedsSerialization && (
+                                  <button onClick={() => setWholesaleSerializeOrder(order)}
+                                    className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-purple-600 text-white hover:bg-purple-700 transition-colors">
+                                    <Hash size={10} /> Serialize
+                                  </button>
+                                )}
+                                {wsPartiallySerialized && (
+                                  <button onClick={() => setWholesaleSerializeOrder(order)}
+                                    className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-purple-600 text-white hover:bg-purple-700 transition-colors">
+                                    <Hash size={10} /> Serialize ({wsAssigned}/{wsTotalSerializable})
+                                  </button>
+                                )}
+                                {wsFullySerialized && (
+                                  <span className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                                    <CheckCircle2 size={10} /> Serialized
+                                  </span>
+                                )}
+                                {/* Ship button — always visible for non-serializable, or when fully serialized, or as legacy all-at-once */}
+                                {(wsTotalSerializable === 0 || wsFullySerialized || wsNeedsSerialization) && (
+                                  <button onClick={() => setWholesaleShipOrder(order)}
+                                    className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
+                                    <Truck size={10} /> Ship
+                                  </button>
+                                )}
+                                {/* SN unserialize button — when serialized */}
+                                {wsFullySerialized && (
+                                  <button
+                                    onClick={() => setUnserializeOrder(order)}
+                                    title={`Serialized (${wsAssigned}/${wsTotalSerializable}) — click to manage`}
+                                    className="inline-flex items-center gap-[3px] h-6 px-[5px] rounded bg-gray-900 text-white hover:bg-gray-700 transition-colors cursor-pointer"
+                                  >
+                                    <svg width="14" height="12" viewBox="0 0 14 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                      <rect x="0" y="0" width="1.5" height="12" fill="white"/>
+                                      <rect x="2.5" y="0" width="2.5" height="12" fill="white"/>
+                                      <rect x="6" y="0" width="1" height="12" fill="white"/>
+                                      <rect x="8" y="0" width="1.5" height="12" fill="white"/>
+                                      <rect x="10.5" y="0" width="2.5" height="12" fill="white"/>
+                                    </svg>
+                                    <span className="text-[9px] font-bold tracking-wide leading-none">SN</span>
+                                  </button>
+                                )}
+                              </>
+                            )
+                          })()}
+                        </div>
                       ) : order.orderSource === 'backmarket' ? (
                         <div className="flex items-center justify-center gap-1">
                           {order.orderStatus === 'Unshipped' ? (
