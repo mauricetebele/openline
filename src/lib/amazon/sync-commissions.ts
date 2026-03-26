@@ -1,8 +1,12 @@
 /**
- * Sync marketplace commissions from Amazon SP-API Finances endpoint.
+ * Sync marketplace commissions from Amazon SP-API Finances v2 endpoint.
  *
- * Reads ShipmentEventList from /finances/v0/financialEvents and sums
- * ItemFeeList fees per AmazonOrderId → updates Order.marketplaceCommission.
+ * Uses /finances/2024-06-19/transactions which returns DEFERRED transactions
+ * immediately (same day as shipment), unlike the v0 API which only shows them
+ * after release (days later under DD+7 disbursement).
+ *
+ * Extracts AmazonFees from Shipment transaction breakdowns per ORDER_ID
+ * → updates Order.marketplaceCommission.
  *
  * BackMarket commissions are computed as a flat 12% of orderTotal.
  */
@@ -14,37 +18,42 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-// ─── SP-API types (Finances v0) ─────────────────────────────────────────────
+// ─── SP-API types (Finances v2024-06-19) ─────────────────────────────────────
 
-interface MoneyType {
-  CurrencyCode?: string
-  CurrencyAmount?: number
+interface CurrencyAmount {
+  currencyCode?: string
+  currencyAmount?: number
 }
 
-interface FeeComponent {
-  FeeType?: string
-  FeeAmount?: MoneyType
+interface Breakdown {
+  breakdownType?: string
+  breakdownAmount?: CurrencyAmount
+  breakdowns?: Breakdown[] | null
 }
 
-interface ChargeComponent {
-  ChargeType?: string
-  ChargeAmount?: MoneyType
+interface RelatedIdentifier {
+  relatedIdentifierName?: string
+  relatedIdentifierValue?: string
 }
 
-interface ShipmentItem {
-  SellerSKU?: string
-  OrderItemId?: string
-  ItemFeeList?: FeeComponent[]
-  ItemChargeList?: ChargeComponent[]
+interface V2Transaction {
+  transactionType?: string
+  transactionStatus?: string
+  postedDate?: string
+  totalAmount?: CurrencyAmount
+  description?: string
+  relatedIdentifiers?: RelatedIdentifier[]
+  breakdowns?: Breakdown[]
 }
 
-interface ShipmentEvent {
-  AmazonOrderId: string
-  PostedDate: string
-  ShipmentItemList?: ShipmentItem[]
+interface V2Response {
+  payload: {
+    transactions?: V2Transaction[]
+    nextToken?: string
+  }
 }
 
-// ─── Amazon commission sync ─────────────────────────────────────────────────
+// ─── Amazon commission sync (Finances v2) ────────────────────────────────────
 
 export async function syncAmazonCommissions(
   accountId: string,
@@ -54,57 +63,54 @@ export async function syncAmazonCommissions(
 ): Promise<{ updated: number }> {
   const client = new SpApiClient(accountId)
 
-  // Fetch all ShipmentEventList pages
-  const allShipmentEvents: ShipmentEvent[] = []
+  // Fetch all Shipment transactions from Finances v2
+  const allTransactions: V2Transaction[] = []
   let nextToken: string | undefined
 
   do {
     const params: Record<string, string> = {
-      PostedAfter: startDate.toISOString(),
-      PostedBefore: endDate.toISOString(),
-      MaxResultsPerPage: '100',
+      postedAfter: startDate.toISOString(),
+      postedBefore: endDate.toISOString(),
+      marketplaceId: 'ATVPDKIKX0DER',
     }
-    if (nextToken) params['NextToken'] = nextToken
+    if (nextToken) params['nextToken'] = nextToken
 
-    const resp = await client.get<{
-      payload: {
-        FinancialEvents: { ShipmentEventList?: ShipmentEvent[] }
-        NextToken?: string
-      }
-    }>('/finances/v0/financialEvents', params)
+    const resp = await client.get<V2Response>(
+      '/finances/2024-06-19/transactions',
+      params,
+    )
 
-    const events = resp.payload?.FinancialEvents?.ShipmentEventList ?? []
-    allShipmentEvents.push(...events)
-    nextToken = resp.payload?.NextToken
+    const txns = resp.payload?.transactions ?? []
+    allTransactions.push(...txns)
+    nextToken = resp.payload?.nextToken
 
-    if (nextToken) await sleep(2_100) // 0.5 req/s rate limit
+    if (nextToken) await sleep(2_100) // 0.5 req/s burst 10
   } while (nextToken)
 
-  // Aggregate total fees per AmazonOrderId
+  // Aggregate AmazonFees per ORDER_ID (Shipment transactions only)
   const commissionByOrderId = new Map<string, number>()
 
-  for (const event of allShipmentEvents) {
-    const orderId = event.AmazonOrderId
+  for (const txn of allTransactions) {
+    if (txn.transactionType !== 'Shipment') continue
+
+    const orderId = txn.relatedIdentifiers?.find(
+      (r) => r.relatedIdentifierName === 'ORDER_ID',
+    )?.relatedIdentifierValue
     if (!orderId) continue
 
-    let orderFees = commissionByOrderId.get(orderId) ?? 0
+    // Extract AmazonFees from breakdowns → Expenses → AmazonFees
+    const expenses = txn.breakdowns?.find((b) => b.breakdownType === 'Expenses')
+    const amazonFees = expenses?.breakdowns?.find((b) => b.breakdownType === 'AmazonFees')
+    const feeAmount = Math.abs(amazonFees?.breakdownAmount?.currencyAmount ?? 0)
 
-    for (const item of event.ShipmentItemList ?? []) {
-      for (const fee of item.ItemFeeList ?? []) {
-        // Amazon fee amounts are negative (deductions). We store the absolute value.
-        const amount = fee.FeeAmount?.CurrencyAmount ?? 0
-        orderFees += Math.abs(amount)
-      }
+    if (feeAmount > 0) {
+      commissionByOrderId.set(orderId, (commissionByOrderId.get(orderId) ?? 0) + feeAmount)
     }
-
-    commissionByOrderId.set(orderId, orderFees)
   }
 
   // Update matching orders in DB
   let updated = 0
-  const entries = Array.from(commissionByOrderId.entries())
-  for (const [amazonOrderId, commission] of entries) {
-    // If a filter is provided, skip orders not in the filter set
+  for (const [amazonOrderId, commission] of Array.from(commissionByOrderId.entries())) {
     if (filterOrderIds && !filterOrderIds.has(amazonOrderId)) continue
     const result = await prisma.order.updateMany({
       where: {
@@ -120,7 +126,7 @@ export async function syncAmazonCommissions(
     if (result.count > 0) updated++
   }
 
-  console.log(`[sync-commissions] Amazon account=${accountId}: ${allShipmentEvents.length} events, ${commissionByOrderId.size} orders, ${updated} updated`)
+  console.log(`[sync-commissions] Amazon account=${accountId}: ${allTransactions.length} transactions, ${commissionByOrderId.size} orders, ${updated} updated`)
   return { updated }
 }
 

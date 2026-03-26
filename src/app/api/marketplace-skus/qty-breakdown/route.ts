@@ -98,7 +98,9 @@ export async function GET() {
     })
     for (const item of pendingItems) {
       const pending = item.quantityOrdered - item.quantityShipped
-      pendingMap.set(item.sellerSku, (pendingMap.get(item.sellerSku) ?? 0) + pending)
+      if (item.sellerSku) {
+        pendingMap.set(item.sellerSku, (pendingMap.get(item.sellerSku) ?? 0) + pending)
+      }
     }
   }
 
