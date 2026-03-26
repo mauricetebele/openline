@@ -5635,7 +5635,7 @@ export default function UnshippedOrders() {
   const showReinstateCol    = activeTab === 'cancelled'
   const showShippedPrintCol = activeTab === 'shipped'
   const showActionCol       = showProcessCol || showShipCol || showVerifyCol || showReinstateCol || showShippedPrintCol
-  const colSpan             = 9 + (showActionCol ? 1 : 0)
+  const colSpan             = 10 + (showActionCol ? 1 : 0)
 
   // Amazon ship-by dates use Pacific time (e.g. stored as 2026-02-28T07:59:59Z = Feb 27 11:59pm PST).
   // Always evaluate ship-by dates in Pacific time to match Amazon's intent.
@@ -6459,6 +6459,7 @@ export default function UnshippedOrders() {
                   <span className={clsx('text-[10px]', sortBy === 'sku' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'sku' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
+              <th className="px-1 py-2 text-center font-semibold text-gray-100 whitespace-nowrap w-8">Qty</th>
               <th onClick={() => handleSort('orderTotal')}
                 className="px-1.5 py-2 text-right font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
                 <span className="inline-flex items-center justify-end gap-1">Total
@@ -6643,18 +6644,27 @@ export default function UnshippedOrders() {
                       })() : null}
                     </div>
                   </td>
-                  {/* Item — SKU × Qty + Product name */}
+                  {/* Item — SKU + Product name */}
                   <td className="px-1.5 py-1">
                     <div className={clsx('flex flex-col', multi && 'gap-0.5')}>
                       {order.items.map(i => (
                         <div key={i.id} className="leading-tight">
                           <span className="whitespace-nowrap">
                             <span className="font-mono text-[11px] font-semibold text-gray-900">{i.internalSku ?? i.sellerSku ?? '—'}</span>
-                            {i.quantityOrdered > 1 && <span className="text-[10px] font-bold text-red-600 ml-0.5">×{i.quantityOrdered}</span>}
                             {i.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600 ml-1">Grade {i.mappedGradeName}</span>}
                           </span>
                           {i.title && <span className="block text-[9px] text-gray-500 truncate max-w-[180px]" title={i.title}>{i.title}</span>}
                         </div>
+                      ))}
+                    </div>
+                  </td>
+                  {/* Qty */}
+                  <td className="px-1 py-1 text-center whitespace-nowrap w-8">
+                    <div className={clsx('flex flex-col', multi && 'gap-0.5')}>
+                      {order.items.map(i => (
+                        <span key={i.id} className={clsx('text-[11px] leading-tight tabular-nums', i.quantityOrdered > 1 ? 'font-bold text-red-600' : 'text-gray-700')}>
+                          {i.quantityOrdered}
+                        </span>
                       ))}
                     </div>
                   </td>
