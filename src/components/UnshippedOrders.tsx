@@ -6736,6 +6736,9 @@ export default function UnshippedOrders() {
                           {fmt(order.presetRateAmount)}
                         </span>
                         <CarrierLogo carrierCode={order.presetRateCarrier} serviceName={order.presetRateService} size={20} />
+                        {order.presetRateService && (
+                          <span className="text-[8px] text-gray-400 text-right whitespace-nowrap">{order.presetRateService}</span>
+                        )}
                       </div>
                     ) : (
                       <span className="text-gray-300 text-[9px]">—</span>
