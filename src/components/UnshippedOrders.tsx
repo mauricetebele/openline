@@ -6428,7 +6428,7 @@ export default function UnshippedOrders() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto dark:bg-gray-900">
-        <table className="w-full text-xs dark:text-gray-200 table-fixed">
+        <table className="w-full text-xs dark:text-gray-200">
           <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
             <tr>
               <th className="px-1.5 py-2 text-center w-7">
