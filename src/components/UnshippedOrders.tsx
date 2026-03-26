@@ -5660,18 +5660,46 @@ export default function UnshippedOrders() {
     // Pkg preset filter
     if (filterPkgPreset === 'assigned') merged = merged.filter(o => o.appliedPackagePresetId)
     else if (filterPkgPreset === 'unassigned') merged = merged.filter(o => !o.appliedPackagePresetId)
-    if (sortBy === 'sku') {
-      return merged.sort((a, b) => {
-        const skuA = a.items[0]?.sellerSku ?? ''
-        const skuB = b.items[0]?.sellerSku ?? ''
-        return sortDir === 'asc' ? skuA.localeCompare(skuB) : skuB.localeCompare(skuA)
-      })
-    }
-    // For date-based sort, re-sort the merged list so wholesale orders interleave correctly
+
+    // For wholesale orders, use lastUpdateDate (approval time) so recently approved orders sort to the top
+    const effectiveDate = (o: Order) =>
+      o.orderSource === 'wholesale' ? new Date(o.lastUpdateDate ?? o.purchaseDate).getTime() : new Date(o.purchaseDate).getTime()
+
     return merged.sort((a, b) => {
-      const dateA = new Date(a.purchaseDate).getTime()
-      const dateB = new Date(b.purchaseDate).getTime()
-      return sortDir === 'asc' ? dateA - dateB : dateB - dateA
+      let cmp = 0
+      switch (sortBy) {
+        case 'sku': {
+          const skuA = a.items[0]?.sellerSku ?? ''
+          const skuB = b.items[0]?.sellerSku ?? ''
+          cmp = skuA.localeCompare(skuB)
+          break
+        }
+        case 'olmNumber':
+          cmp = (a.olmNumber ?? 0) - (b.olmNumber ?? 0)
+          break
+        case 'orderTotal':
+          cmp = parseFloat(a.orderTotal ?? '0') - parseFloat(b.orderTotal ?? '0')
+          break
+        case 'shipToState':
+          cmp = (a.shipToState ?? '').localeCompare(b.shipToState ?? '')
+          break
+        case 'workflowStatus':
+          cmp = (a.workflowStatus ?? '').localeCompare(b.workflowStatus ?? '')
+          break
+        case 'presetRateAmount':
+          cmp = (a.presetRateAmount ?? 0) - (b.presetRateAmount ?? 0)
+          break
+        case 'latestShipDate': {
+          const dA = a.latestShipDate ? new Date(a.latestShipDate).getTime() : 0
+          const dB = b.latestShipDate ? new Date(b.latestShipDate).getTime() : 0
+          cmp = dA - dB
+          break
+        }
+        default: // purchaseDate
+          cmp = effectiveDate(a) - effectiveDate(b)
+          break
+      }
+      return sortDir === 'asc' ? cmp : -cmp
     })
   }, [orders, wholesaleOrders, sortBy, sortDir, filterPkgPreset])
 
