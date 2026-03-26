@@ -12,7 +12,13 @@ function HomeContent() {
     setMounted(true)
     fetch('/api/store-settings')
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.logoBase64) setLogo(d.logoBase64) })
+      .then(d => {
+        if (d?.logoBase64 && typeof d.logoBase64 === 'string' && d.logoBase64.startsWith('data:image')) {
+          const img = new Image()
+          img.onload = () => setLogo(d.logoBase64)
+          img.src = d.logoBase64
+        }
+      })
       .catch(() => {})
   }, [])
 

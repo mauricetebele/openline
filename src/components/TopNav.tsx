@@ -243,11 +243,17 @@ export default function TopNav() {
   const [storeLogo, setStoreLogo] = useState<string | null>(null)
   const [dueToday, setDueToday] = useState(0)
 
-  // Fetch store logo
+  // Fetch store logo — validate it actually loads before using
   useEffect(() => {
     fetch('/api/store-settings')
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.logoBase64) setStoreLogo(d.logoBase64) })
+      .then(d => {
+        if (d?.logoBase64 && typeof d.logoBase64 === 'string' && d.logoBase64.startsWith('data:image')) {
+          const img = new Image()
+          img.onload = () => setStoreLogo(d.logoBase64)
+          img.src = d.logoBase64
+        }
+      })
       .catch(() => {})
   }, [])
 
