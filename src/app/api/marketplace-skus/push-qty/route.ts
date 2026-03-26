@@ -56,17 +56,20 @@ export async function pushOneQuantity(
   })
   const onHand = _sum.qty ?? 0
 
-  // 2. Subtract Amazon Pending MFN order quantities (Amazon MSKUs only)
+  // 2. Subtract unprocessed Amazon MFN order quantities (Amazon MSKUs only)
+  // These orders haven't been processed yet (no inventory reservation), so their
+  // qty isn't reflected in onHand. Subtract them to prevent oversales.
+  // Note: Amazon flips orderStatus from 'Pending' → 'Unshipped' almost immediately,
+  // so we filter on workflowStatus='PENDING' (not orderStatus) to catch all unprocessed orders.
   let pendingQty = 0
   if (msku.marketplace === 'amazon') {
     const pendingItems = await prisma.orderItem.findMany({
       where: {
         sellerSku: msku.sellerSku,
         order: {
-          orderStatus: 'Pending',
           fulfillmentChannel: 'MFN',
           orderSource: 'amazon',
-          workflowStatus: 'PENDING', // only unprocessed — processed orders are subtracted via wholesale reservations above
+          workflowStatus: 'PENDING',
         },
       },
       select: { quantityOrdered: true, quantityShipped: true },
@@ -89,9 +92,11 @@ export async function pushOneQuantity(
   })
   const wholesaleQty = wholesaleReserved._sum.qtyReserved ?? 0
 
-  // 4. Calculate final available, applying maxQty cap if set
+  // 4. Calculate final available, applying maxQty cap and low-stock buffer
   const available = Math.max(0, onHand - pendingQty - wholesaleQty)
-  const finalQty = msku.maxQty != null ? Math.min(available, msku.maxQty) : available
+  // When stock is low (≤3), cap at 1 to give sync time to catch up before another sale
+  const buffered = available <= 3 && available > 0 ? 1 : available
+  const finalQty = msku.maxQty != null ? Math.min(buffered, msku.maxQty) : buffered
 
   // 5. Push to marketplace
   if (msku.marketplace === 'amazon') {

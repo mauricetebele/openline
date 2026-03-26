@@ -89,9 +89,9 @@ export async function GET() {
       where: {
         sellerSku: { in: amazonSkus },
         order: {
-          orderStatus: 'Pending',
           fulfillmentChannel: 'MFN',
           orderSource: 'amazon',
+          workflowStatus: 'PENDING',
         },
       },
       select: { sellerSku: true, quantityOrdered: true, quantityShipped: true },

@@ -1,6 +1,6 @@
 {
   "crons": [
-    { "path": "/api/cron/sync-orders", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/sync-orders", "schedule": "*/10 * * * *" },
     { "path": "/api/cron/push-qty", "schedule": "*/10 * * * *" },
     { "path": "/api/cron/backup-db", "schedule": "0 0 * * *" },
     { "path": "/api/cron/sync-fba-refunds", "schedule": "0 */6 * * *" },
