@@ -6526,7 +6526,7 @@ export default function UnshippedOrders() {
                 <RefreshCcw size={14} className="inline-block animate-spin mr-1.5" />Loading orders…
               </td></tr>
             )}
-            {!loading && orders.length === 0 && (
+            {!loading && displayOrders.length === 0 && (
               <tr><td colSpan={colSpan} className="px-3 py-12 text-center">
                 <p className="text-gray-500 text-xs mb-1">{EMPTY_MESSAGES[activeTab].title}</p>
                 <p className="text-gray-400 text-[11px]">{EMPTY_MESSAGES[activeTab].sub}</p>
