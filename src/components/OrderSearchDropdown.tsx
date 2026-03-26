@@ -86,6 +86,43 @@ export default function OrderSearchDropdown({ mobile }: { mobile?: boolean }) {
     router.push(`/orders/${id}`)
   }
 
+  async function handleEnter() {
+    const q = query.trim()
+    if (!q) return
+
+    // Check if there's already an exact match in current results
+    const exact = results.find(
+      r => r.amazonOrderId === q || (r.olmNumber && `OLM-${r.olmNumber}` === q) || String(r.olmNumber) === q,
+    )
+    if (exact) { handleSelect(exact.id); return }
+
+    // If only one result showing, go to it
+    if (results.length === 1) { handleSelect(results[0].id); return }
+
+    // Otherwise fire an immediate search and navigate if exact match
+    abortRef.current?.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/orders/search?q=${encodeURIComponent(q)}`, { signal: ctrl.signal })
+      const json = await res.json()
+      const data: SearchResult[] = json.data ?? []
+      if (data.length === 1) {
+        handleSelect(data[0].id)
+        return
+      }
+      const match = data.find(
+        r => r.amazonOrderId === q || (r.olmNumber && `OLM-${r.olmNumber}` === q) || String(r.olmNumber) === q,
+      )
+      if (match) { handleSelect(match.id); return }
+      // No exact match — just show the results
+      setResults(data)
+      setOpen(true)
+    } catch { /* aborted */ }
+    if (!ctrl.signal.aborted) setLoading(false)
+  }
+
   return (
     <div ref={containerRef} className={clsx('relative', mobile ? 'w-full' : 'w-64')}>
       <div className={clsx(
@@ -101,6 +138,7 @@ export default function OrderSearchDropdown({ mobile }: { mobile?: boolean }) {
           type="text"
           value={query}
           onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleEnter() } }}
           onFocus={() => { if (results.length > 0) setOpen(true) }}
           placeholder="Search orders..."
           className="bg-transparent text-sm text-white placeholder:text-gray-500 outline-none w-full"
