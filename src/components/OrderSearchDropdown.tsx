@@ -33,6 +33,7 @@ export default function OrderSearchDropdown({ mobile }: { mobile?: boolean }) {
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>()
   const abortRef = useRef<AbortController>()
 
@@ -87,20 +88,17 @@ export default function OrderSearchDropdown({ mobile }: { mobile?: boolean }) {
   }
 
   async function handleEnter() {
-    const q = query.trim()
+    // Read directly from DOM — React state may not have updated yet after paste
+    const q = (inputRef.current?.value ?? query).trim()
     if (!q) return
 
-    // Check if there's already an exact match in current results
-    const exact = results.find(
-      r => r.amazonOrderId === q || (r.olmNumber && `OLM-${r.olmNumber}` === q) || String(r.olmNumber) === q,
-    )
-    if (exact) { handleSelect(exact.id); return }
-
-    // If only one result showing, go to it
-    if (results.length === 1) { handleSelect(results[0].id); return }
-
-    // Otherwise fire an immediate search and navigate if exact match
+    // Kill any pending debounce so it doesn't fight us
+    clearTimeout(debounceRef.current)
     abortRef.current?.abort()
+
+    // Sync React state to what's in the input
+    setQuery(q)
+
     const ctrl = new AbortController()
     abortRef.current = ctrl
     setLoading(true)
@@ -108,15 +106,15 @@ export default function OrderSearchDropdown({ mobile }: { mobile?: boolean }) {
       const res = await fetch(`/api/orders/search?q=${encodeURIComponent(q)}`, { signal: ctrl.signal })
       const json = await res.json()
       const data: SearchResult[] = json.data ?? []
-      if (data.length === 1) {
-        handleSelect(data[0].id)
-        return
-      }
+
+      // Single result or exact match → navigate immediately
+      if (data.length === 1) { handleSelect(data[0].id); return }
       const match = data.find(
         r => r.amazonOrderId === q || (r.olmNumber && `OLM-${r.olmNumber}` === q) || String(r.olmNumber) === q,
       )
       if (match) { handleSelect(match.id); return }
-      // No exact match — just show the results
+
+      // No exact match — show results dropdown
       setResults(data)
       setOpen(true)
     } catch { /* aborted */ }
@@ -135,6 +133,7 @@ export default function OrderSearchDropdown({ mobile }: { mobile?: boolean }) {
           ? <Loader2 size={14} className="text-gray-400 animate-spin shrink-0" />
           : <Search size={14} className="text-gray-400 shrink-0" />}
         <input
+          ref={inputRef}
           type="text"
           value={query}
           onChange={e => setQuery(e.target.value)}
