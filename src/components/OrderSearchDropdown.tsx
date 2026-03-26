@@ -124,10 +124,10 @@ export default function OrderSearchDropdown({ mobile }: { mobile?: boolean }) {
   return (
     <div ref={containerRef} className={clsx('relative', mobile ? 'w-full' : 'w-64')}>
       <div className={clsx(
-        'flex items-center gap-2 rounded-md border transition-colors',
+        'flex items-center gap-2 rounded-md border transition-all',
         mobile
           ? 'bg-gray-800 border-white/10 px-3 py-2'
-          : 'bg-white/10 border-transparent hover:border-white/20 focus-within:border-white/30 px-2.5 py-1.5',
+          : 'bg-gray-800/60 border-white/[0.15] hover:border-white/25 focus-within:border-amazon-orange/50 focus-within:bg-gray-800/80 px-2.5 py-1.5',
       )}>
         {loading
           ? <Loader2 size={14} className="text-gray-400 animate-spin shrink-0" />
@@ -140,7 +140,7 @@ export default function OrderSearchDropdown({ mobile }: { mobile?: boolean }) {
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleEnter() } }}
           onFocus={() => { if (results.length > 0) setOpen(true) }}
           placeholder="Search orders..."
-          className="bg-transparent text-sm text-white placeholder:text-gray-500 outline-none w-full"
+          className="bg-transparent text-sm text-white placeholder:text-gray-400 outline-none w-full"
         />
         {query && (
           <button onClick={() => { setQuery(''); setResults([]); setOpen(false) }}

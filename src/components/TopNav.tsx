@@ -24,35 +24,14 @@ type NavDivider = { divider: true; label: string }
 type NavItem  = NavLeaf | NavGroup | NavDivider
 
 const NAV: NavItem[] = [
+  // ── Row 1: Core daily operations ──────────────────────────────────────────
   {
     group: true,
-    label: 'Products',
-    icon: Boxes,
+    label: 'Fulfillment',
+    icon: Package,
     children: [
-      { href: '/products',        label: 'Products',            icon: Boxes },
-      { href: '/po-line-items',   label: 'Backfill Cost Codes', icon: ListTodo },
-    ],
-  },
-  { href: '/marketplace-skus', label: 'Marketplace SKUs', icon: Tags },
-  {
-    group: true,
-    label: 'Vendors',
-    icon: Building2,
-    children: [
-      { href: '/vendors',         label: 'Vendors',         icon: Building2 },
-      { href: '/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
-      { href: '/vendor-ledger',  label: 'Vendor Ledger',   icon: BookOpen },
-    ],
-  },
-  {
-    group: true,
-    label: 'Returns',
-    icon: Undo2,
-    children: [
-      { href: '/marketplace-returns',  label: 'Marketplace Returns', icon: Undo2 },
-      { href: '/wholesale/customer-rma',    label: 'Wholesale RMA',       icon: RotateCcw },
-      { href: '/vendor-rma',            label: 'Vendor Returns',      icon: PackageMinus },
-      { href: '/free-replacements',     label: 'Free Replacements',   icon: RefreshCcw },
+      { href: '/unshipped-orders',    label: 'Order Fulfillment', icon: Package },
+      { href: '/fba-shipments',       label: 'FBA Shipments',     icon: Truck },
     ],
   },
   {
@@ -71,14 +50,36 @@ const NAV: NavItem[] = [
   },
   {
     group: true,
-    label: 'Fulfillment',
-    icon: Package,
+    label: 'Products',
+    icon: Boxes,
     children: [
-      { href: '/unshipped-orders',    label: 'Order Fulfillment', icon: Package },
-      { href: '/fba-shipments',       label: 'FBA Shipments',     icon: Truck },
+      { href: '/products',        label: 'Products',            icon: Boxes },
+      { href: '/po-line-items',   label: 'Backfill Cost Codes', icon: ListTodo },
     ],
   },
-  { href: '/cases',            label: 'Cases',       icon: FolderOpen },
+  { href: '/marketplace-skus', label: 'Marketplace SKUs', icon: Tags },
+  {
+    group: true,
+    label: 'Returns',
+    icon: Undo2,
+    children: [
+      { href: '/marketplace-returns',       label: 'Marketplace Returns', icon: Undo2 },
+      { href: '/wholesale/customer-rma',    label: 'Wholesale RMA',       icon: RotateCcw },
+      { href: '/vendor-rma',               label: 'Vendor Returns',      icon: PackageMinus },
+      { href: '/free-replacements',        label: 'Free Replacements',   icon: RefreshCcw },
+    ],
+  },
+  {
+    group: true,
+    label: 'Vendors',
+    icon: Building2,
+    children: [
+      { href: '/vendors',         label: 'Vendors',         icon: Building2 },
+      { href: '/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
+      { href: '/vendor-ledger',   label: 'Vendor Ledger',   icon: BookOpen },
+    ],
+  },
+  // ── Row 2: Analytics, support & tools ─────────────────────────────────────
   {
     group: true,
     label: 'Reports',
@@ -86,6 +87,16 @@ const NAV: NavItem[] = [
     children: [
       { href: '/profitability',      label: 'Profitability', icon: TrendingUp },
       { href: '/shipping-manifest', label: 'Manifest',      icon: ClipboardList },
+    ],
+  },
+  { href: '/cases',            label: 'Cases',       icon: FolderOpen },
+  {
+    group: true,
+    label: 'Customers',
+    icon: Users,
+    children: [
+      { href: '/customers',                label: 'View Customers', icon: Users },
+      { href: '/wholesale/customers?new=1', label: 'Add a Customer', icon: Plus },
     ],
   },
   { href: '/todo-list',        label: 'To Do',       icon: ListTodo },
@@ -107,15 +118,6 @@ const NAV: NavItem[] = [
       { href: '/pricing-rules',      label: 'Pricing Rules',      icon: Tag },
       { href: '/sickw',             label: 'SICKW',              icon: Smartphone },
       { href: '/audit',              label: 'Audit Log',          icon: ClipboardList },
-    ],
-  },
-  {
-    group: true,
-    label: 'Customers',
-    icon: Users,
-    children: [
-      { href: '/customers',             label: 'View Customers', icon: Users },
-      { href: '/wholesale/customers?new=1', label: 'Add a Customer', icon: Plus },
     ],
   },
   { divider: true, label: 'Wholesale' },
@@ -303,14 +305,14 @@ export default function TopNav() {
   }
 
   return (
-    <header className="sticky top-0 z-30 bg-amazon-dark text-white shadow-md">
+    <header className="sticky top-0 z-30 bg-gradient-to-b from-amazon-dark to-[#1a1f2e] text-white shadow-lg">
       {/* Row 1: Logo, search boxes, controls */}
-      <div className="flex items-center gap-2 px-4 h-12 border-b border-white/5">
+      <div className="flex items-center gap-3 px-4 h-12 border-b border-white/[0.06]">
 
         {/* Logo */}
-        <Link href="/" className="flex items-center mr-4 shrink-0">
+        <Link href="/" className="flex items-center mr-2 shrink-0 group">
           {storeLogo ? (
-            <img src={storeLogo} alt="Logo" className="h-7 w-auto object-contain" />
+            <img src={storeLogo} alt="Logo" className="h-7 w-auto object-contain group-hover:brightness-110 transition" />
           ) : (
             <div className="flex flex-col leading-tight">
               <span className="text-amazon-orange font-bold text-sm leading-none">Open Line</span>
@@ -319,22 +321,18 @@ export default function TopNav() {
           )}
         </Link>
 
+        <div className="hidden lg:block w-px h-6 bg-white/10 shrink-0" />
+
         <div className="flex-1" />
 
-        {/* Global inventory search — desktop */}
-        <div className="hidden lg:block shrink-0">
+        {/* Search bar group — desktop */}
+        <div className="hidden lg:flex items-center gap-2 shrink-0">
           <InventoryQuickSearch />
-        </div>
-
-        {/* Global serial lookup — desktop */}
-        <div className="hidden lg:block shrink-0">
           <SerialQuickLookup />
-        </div>
-
-        {/* Global order search — desktop */}
-        <div className="hidden lg:block shrink-0">
           <OrderSearchDropdown />
         </div>
+
+        <div className="hidden lg:block w-px h-6 bg-white/10 shrink-0 ml-1" />
 
         {/* Dark mode toggle — desktop */}
         <DarkModeToggle />
@@ -342,16 +340,16 @@ export default function TopNav() {
         {/* Settings gear — desktop */}
         <Link href="/settings" title="Settings"
           className={clsx(
-            'hidden lg:flex items-center justify-center w-8 h-8 rounded-md transition-colors shrink-0 ml-1',
+            'hidden lg:flex items-center justify-center w-8 h-8 rounded-md transition-colors shrink-0',
             isActive('/settings') ? 'bg-amazon-blue text-white' : 'text-gray-400 hover:bg-white/10 hover:text-white',
           )}>
           <Settings size={16} />
         </Link>
 
         {/* User — desktop */}
-        <div className="hidden lg:flex items-center gap-3 shrink-0 ml-2">
+        <div className="hidden lg:flex items-center gap-3 shrink-0 ml-1">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-amazon-orange flex items-center justify-center text-xs font-bold text-white uppercase shrink-0">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amazon-orange to-orange-600 flex items-center justify-center text-xs font-bold text-white uppercase shrink-0 shadow-sm">
               {user?.email?.[0] ?? '?'}
             </div>
             <span className="text-xs text-gray-300 max-w-[140px] truncate">
@@ -378,7 +376,7 @@ export default function TopNav() {
       </div>
 
       {/* Row 2: Desktop navigation links — top row */}
-      <nav className="hidden lg:flex items-center gap-0.5 px-4 h-10 overflow-x-auto scrollbar-hide border-b border-white/5">
+      <nav className="hidden lg:flex items-center gap-0.5 px-4 h-10 overflow-x-auto scrollbar-hide border-b border-white/[0.06]">
         {row1Items.map((item) => {
           if ('divider' in item) return null
           if ('group' in item) {

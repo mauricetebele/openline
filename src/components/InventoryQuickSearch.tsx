@@ -85,10 +85,10 @@ export default function InventoryQuickSearch({ mobile }: { mobile?: boolean }) {
   return (
     <div ref={wrapperRef} className={clsx('relative', mobile ? 'w-full' : 'w-56')}>
       <div className={clsx(
-        'flex items-center gap-2 rounded-md border transition-colors',
+        'flex items-center gap-2 rounded-md border transition-all',
         mobile
           ? 'bg-gray-800 border-white/10 px-3 py-2'
-          : 'bg-white/10 border-transparent hover:border-white/20 focus-within:border-white/30 px-2.5 py-1.5',
+          : 'bg-gray-800/60 border-white/[0.15] hover:border-white/25 focus-within:border-amazon-orange/50 focus-within:bg-gray-800/80 px-2.5 py-1.5',
       )}>
         <Package size={14} className="text-gray-400 shrink-0" />
         <input
@@ -98,7 +98,7 @@ export default function InventoryQuickSearch({ mobile }: { mobile?: boolean }) {
           onKeyDown={handleKeyDown}
           onFocus={() => { if (results.length > 0) setOpen(true) }}
           placeholder="Inventory search"
-          className="bg-transparent text-sm text-white placeholder:text-gray-500 outline-none w-full"
+          className="bg-transparent text-sm text-white placeholder:text-gray-400 outline-none w-full"
         />
         {loading && <Search size={12} className="text-gray-500 animate-pulse shrink-0" />}
       </div>
