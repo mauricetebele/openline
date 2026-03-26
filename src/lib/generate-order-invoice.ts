@@ -10,6 +10,7 @@ interface InvoiceOrderItem {
   quantityOrdered: number
   itemPrice: string | null
   itemTax?: string | null
+  shippingPrice?: string | null
 }
 
 interface InvoiceSerialAssignment {
@@ -271,108 +272,35 @@ export async function generateOrderInvoicePDF(order: InvoiceOrder) {
     doc.setFont('helvetica', 'bold'); tc(doc, C.dark); doc.text(order.customerPo, MR, mY, { align: 'right' })
   }
 
-  // PAID rubber-stamp for shipped marketplace orders
+  // PAID stamp for shipped marketplace orders — top area, no tilt
   if (isMarketplace) {
     const stampColor: RGB = [180, 30, 30]
-    const cx = W / 2, cy = 85
-    const ang = -16 * Math.PI / 180
-    const ca = Math.cos(ang), sa = Math.sin(ang)
-    const hw = 66, hh = 24
-    const iw = hw - 5, ih = hh - 5
+    // Position in the white space between logo and meta columns
+    const stampX = ML + 160
+    const stampY = 22
 
     doc.saveGraphicsState()
     doc.setGState(new GState({ opacity: 0.18 }))
 
-    // PDF transform: translate to (cx, cy) then rotate — all subsequent draws are axis-aligned at origin
-    // PDF y-axis is flipped (0 at bottom), so cy becomes H - cy, and sin is negated
-    const pdfCy = H - cy
-    doc.internal.write(
-      `${ca.toFixed(6)} ${(-sa).toFixed(6)} ${sa.toFixed(6)} ${ca.toFixed(6)} ${cx.toFixed(2)} ${pdfCy.toFixed(2)} cm`
-    )
+    dc(doc, stampColor)
 
-    dc(doc, stampColor); fc(doc, stampColor)
+    // Outer border
+    doc.setLineWidth(3)
+    doc.roundedRect(stampX, stampY, 100, 36, 5, 5, 'S')
 
-    // Seeded pseudo-random for deterministic wobble per order
-    let seed = 0
-    for (let i = 0; i < order.amazonOrderId.length; i++) seed = ((seed << 5) - seed + order.amazonOrderId.charCodeAt(i)) | 0
-    function rand() { seed = (seed * 16807 + 0) % 2147483647; return (seed & 0x7fffffff) / 2147483647 }
-    function jitter(amount: number) { return (rand() - 0.5) * amount }
+    // Inner border
+    doc.setLineWidth(1)
+    doc.roundedRect(stampX + 4, stampY + 4, 92, 28, 3, 3, 'S')
 
-    // Wobbly rounded rect — breaks each edge into small segments with perpendicular jitter
-    function wobblyRect(w2: number, h2: number, r: number, wobble: number) {
-      const f = (n: number) => n.toFixed(2)
-      const K = 0.5523, kr = K * r
-      const segs = 8 // segments per edge
-      let path = ''
-
-      // Start at top-left + r (with jitter)
-      path += `${f(-w2 + r + jitter(wobble))} ${f(h2 + jitter(wobble))} m `
-
-      // Top edge: left→right, jitter y
-      for (let i = 1; i <= segs; i++) {
-        const t = i / segs
-        const x = (-w2 + r) + t * (2 * w2 - 2 * r)
-        path += `${f(x + jitter(wobble))} ${f(h2 + jitter(wobble))} l `
-      }
-      // Top-right corner
-      path += `${f(w2 - r + kr + jitter(wobble * 0.5))} ${f(h2 + jitter(wobble * 0.5))} ${f(w2 + jitter(wobble * 0.5))} ${f(h2 - r + kr + jitter(wobble * 0.5))} ${f(w2 + jitter(wobble * 0.5))} ${f(h2 - r + jitter(wobble * 0.5))} c `
-
-      // Right edge: top→bottom, jitter x
-      for (let i = 1; i <= segs; i++) {
-        const t = i / segs
-        const yy = (h2 - r) - t * (2 * h2 - 2 * r)
-        path += `${f(w2 + jitter(wobble))} ${f(yy + jitter(wobble))} l `
-      }
-      // Bottom-right corner
-      path += `${f(w2 + jitter(wobble * 0.5))} ${f(-h2 + r - kr + jitter(wobble * 0.5))} ${f(w2 - r + kr + jitter(wobble * 0.5))} ${f(-h2 + jitter(wobble * 0.5))} ${f(w2 - r + jitter(wobble * 0.5))} ${f(-h2 + jitter(wobble * 0.5))} c `
-
-      // Bottom edge: right→left, jitter y
-      for (let i = 1; i <= segs; i++) {
-        const t = i / segs
-        const x = (w2 - r) - t * (2 * w2 - 2 * r)
-        path += `${f(x + jitter(wobble))} ${f(-h2 + jitter(wobble))} l `
-      }
-      // Bottom-left corner
-      path += `${f(-w2 + r - kr + jitter(wobble * 0.5))} ${f(-h2 + jitter(wobble * 0.5))} ${f(-w2 + jitter(wobble * 0.5))} ${f(-h2 + r - kr + jitter(wobble * 0.5))} ${f(-w2 + jitter(wobble * 0.5))} ${f(-h2 + r + jitter(wobble * 0.5))} c `
-
-      // Left edge: bottom→top, jitter x
-      for (let i = 1; i <= segs; i++) {
-        const t = i / segs
-        const yy = (-h2 + r) + t * (2 * h2 - 2 * r)
-        path += `${f(-w2 + jitter(wobble))} ${f(yy + jitter(wobble))} l `
-      }
-      // Top-left corner (close)
-      path += `${f(-w2 + jitter(wobble * 0.5))} ${f(h2 - r + kr + jitter(wobble * 0.5))} ${f(-w2 + r - kr + jitter(wobble * 0.5))} ${f(h2 + jitter(wobble * 0.5))} ${f(-w2 + r + jitter(wobble * 0.5))} ${f(h2 + jitter(wobble * 0.5))} c `
-
-      path += 'S'
-      doc.internal.write(path)
-    }
-
-    // Outer border (thick, wobbly)
-    doc.setLineWidth(3.5)
-    wobblyRect(hw, hh, 6, 1.4)
-
-    // Inner border (thin, wobbly)
-    doc.setLineWidth(1.2)
-    wobblyRect(iw, ih, 4, 1.0)
-
-    // Text — raw PDF operators so it respects the cm transform (jsPDF's text() flips y internally)
-    doc.setFontSize(42); doc.setFont('helvetica', 'bold'); tc(doc, stampColor)
-    const tw = doc.getTextWidth('PAID')
-    // Get the internal font object name for the Tf operator
-    const fontObj = (doc as unknown as { internal: { getFont: () => { id: string } } }).internal.getFont()
-    const fontKey = `/${fontObj.id}`
-    doc.internal.write('BT')
-    doc.internal.write(`${fontKey} 42 Tf`)
-    doc.internal.write(`${(-tw / 2).toFixed(2)} -15 Td`)
-    doc.internal.write('(PAID) Tj')
-    doc.internal.write('ET')
+    // Text
+    doc.setFontSize(30); doc.setFont('helvetica', 'bold'); tc(doc, stampColor)
+    doc.text('PAID', stampX + 50, stampY + 27, { align: 'center' })
 
     doc.restoreGraphicsState()
   }
 
-  // Divider
-  let y = Math.max(logoBottomY + 6, 78)
+  // Divider — ensure it's below both the logo/contact block and the right-side meta
+  let y = Math.max(logoBottomY + 6, mY + 10, 78)
   dc(doc, C.border); doc.setLineWidth(0.75)
   doc.line(ML, y, MR, y)
   y += 14
@@ -383,7 +311,8 @@ export async function generateOrderInvoicePDF(order: InvoiceOrder) {
 
   const itemsSub = order.items.reduce((s, i) => s + (i.itemPrice ? parseFloat(i.itemPrice) * i.quantityOrdered : 0), 0)
   const taxTotal = order.items.reduce((s, i) => s + (i.itemTax ? parseFloat(i.itemTax) : 0), 0)
-  const shipCost = order.label?.shipmentCost ? parseFloat(order.label.shipmentCost) : 0
+  // Use customer-paid shipping (from order items) rather than our label cost
+  const shipCost = order.items.reduce((s, i) => s + (i.shippingPrice ? parseFloat(i.shippingPrice) : 0), 0)
   const totalNum = order.orderTotal ? parseFloat(order.orderTotal) : itemsSub + taxTotal + shipCost
 
   const col1W = 190
@@ -673,10 +602,12 @@ export async function generateOrderInvoicePDF(order: InvoiceOrder) {
   doc.setFontSize(9); doc.setFont('helvetica', 'bolditalic'); tc(doc, accent)
   doc.text(store.thankYouMsg, W / 2, footY + 6, { align: 'center' })
 
-  // Store name left, date right
+  // Store name left, generated date right (non-marketplace only)
   doc.setFontSize(6.5); doc.setFont('helvetica', 'normal'); tc(doc, [170, 175, 185])
   doc.text(store.storeName, ML, footY + 20)
-  doc.text(`Generated ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}`, MR, footY + 20, { align: 'right' })
+  if (!isMarketplace) {
+    doc.text(`Generated ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}`, MR, footY + 20, { align: 'right' })
+  }
 
   // ─── Open in new tab ─────────────────────────────────────────────────────────
   const blob = doc.output('blob')

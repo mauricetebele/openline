@@ -7,6 +7,8 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
+import CreateReturnModal from './CreateMarketplaceReturnModal'
+import type { OrderSearchResult } from './CreateMarketplaceReturnModal'
 
 // ─── Badge maps ────────────────────────────────────────────────────────────────
 
@@ -113,6 +115,8 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
   const [order, setOrder] = useState<FullOrder | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [returnModalOrder, setReturnModalOrder] = useState<OrderSearchResult | null>(null)
+  const [returnLoading, setReturnLoading] = useState(false)
 
   useEffect(() => {
     fetch(`/api/orders/${orderId}`)
@@ -158,7 +162,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
       shipToCountry: order.shipToCountry,
       items: order.items.map(i => ({
         id: i.id, orderItemId: i.orderItemId, sellerSku: i.sellerSku,
-        title: i.title, quantityOrdered: i.quantityOrdered, itemPrice: i.itemPrice, itemTax: i.itemTax,
+        title: i.title, quantityOrdered: i.quantityOrdered, itemPrice: i.itemPrice, itemTax: i.itemTax, shippingPrice: i.shippingPrice,
       })),
       serialAssignments: order.serialAssignments.map(sa => ({
         orderItemId: sa.orderItemId,
@@ -176,6 +180,30 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
       shipTracking: order.shipTracking,
       orderSource: order.orderSource,
     })
+  }
+
+  async function handleOpenReturnModal() {
+    if (!order) return
+    setReturnLoading(true)
+    try {
+      const res = await fetch(`/api/marketplace-rma/order-search?q=${encodeURIComponent(order.amazonOrderId)}`)
+      const json = await res.json()
+      const match = (json.data ?? []).find((o: OrderSearchResult) => o.id === order.id)
+      if (!match) throw new Error('Order not found in search results')
+      setReturnModalOrder(match)
+    } catch {
+      alert('Failed to load order details for return')
+    }
+    setReturnLoading(false)
+  }
+
+  function handleReturnCreated() {
+    setReturnModalOrder(null)
+    // Re-fetch order to refresh Returns section
+    fetch(`/api/orders/${orderId}`)
+      .then(r => r.json())
+      .then(j => setOrder(j.data))
+      .catch(() => {})
   }
 
   return (
@@ -206,12 +234,23 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
             )}
           </div>
         </div>
-        <button
-          onClick={handlePrintInvoice}
-          className="flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/20 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-md transition-colors shrink-0"
-        >
-          <Printer size={14} /> Print Invoice
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {isShipped && (
+            <button
+              onClick={handleOpenReturnModal}
+              disabled={returnLoading}
+              className="flex items-center gap-1.5 text-xs font-medium bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700/40 px-3 py-1.5 rounded-md transition-colors"
+            >
+              <RotateCcw size={14} /> {returnLoading ? 'Loading...' : 'Create Return'}
+            </button>
+          )}
+          <button
+            onClick={handlePrintInvoice}
+            className="flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/20 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-md transition-colors"
+          >
+            <Printer size={14} /> Print Invoice
+          </button>
+        </div>
       </div>
 
       {/* Banner for non-shipped orders */}
@@ -494,6 +533,15 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
 
         </div>
       </div>
+
+      {/* Create Return Modal */}
+      {returnModalOrder && (
+        <CreateReturnModal
+          order={returnModalOrder}
+          onClose={() => setReturnModalOrder(null)}
+          onCreated={handleReturnCreated}
+        />
+      )}
     </div>
   )
 }
