@@ -224,6 +224,46 @@ export async function GET(req: NextRequest) {
 
   const rows: ProfitRow[] = []
 
+  // ── Batch-resolve BackMarket bmSerials costs ─────────────────────────
+  // BackMarket orders store shipped serials in bmSerials[] instead of
+  // order_serial_assignments, so we resolve their PO costs here.
+  const allBmSerialNumbers: string[] = []
+  for (const order of marketplaceOrders) {
+    if (order.orderSource !== 'backmarket') continue
+    for (const item of order.items) {
+      const serials = item.bmSerials as string[] | null
+      if (serials?.length) allBmSerialNumbers.push(...serials)
+    }
+  }
+  const bmSerialCostMap = new Map<string, { unitCost: number; costCodeAmount: number; productId: string; gradeId: string | null }>()
+  if (allBmSerialNumbers.length > 0) {
+    const bmSerials = await prisma.inventorySerial.findMany({
+      where: { serialNumber: { in: allBmSerialNumbers } },
+      select: {
+        serialNumber: true,
+        productId: true,
+        gradeId: true,
+        receiptLine: {
+          select: {
+            purchaseOrderLine: {
+              select: { unitCost: true, costCode: { select: { amount: true } } },
+            },
+          },
+        },
+      },
+    })
+    for (const s of bmSerials) {
+      const pol = s.receiptLine?.purchaseOrderLine
+      const key = `${s.productId}:${s.gradeId ?? ''}`
+      bmSerialCostMap.set(s.serialNumber, {
+        unitCost: pol ? Number(pol.unitCost) : (cogsMap.get(key) ?? cogsProductOnly.get(s.productId) ?? 0),
+        costCodeAmount: pol?.costCode ? Number(pol.costCode.amount) : (costCodeMap.get(key) ?? costCodeProductOnly.get(s.productId) ?? 0),
+        productId: s.productId,
+        gradeId: s.gradeId,
+      })
+    }
+  }
+
   // ── Marketplace rows ──────────────────────────────────────────────────
   for (const order of marketplaceOrders) {
     const saleValue = order.items.reduce((sum, item) => sum + Number(item.itemPrice ?? 0), 0)
@@ -252,12 +292,24 @@ export async function GET(req: NextRequest) {
         totalCogs += serialCosts.cogs
         costCodeDeductions += serialCosts.cc
       } else {
-        // Non-serialized: fall back to SKU mapping
-        const mapping = item.sellerSku ? skuMap.get(item.sellerSku) : null
-        if (mapping) {
-          const key = `${mapping.productId}:${mapping.gradeId ?? ''}`
-          totalCogs += (cogsMap.get(key) ?? cogsProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
-          costCodeDeductions += (costCodeMap.get(key) ?? costCodeProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
+        // BackMarket: resolve cost from bmSerials
+        const bmSerials = item.bmSerials as string[] | null
+        if (bmSerials?.length) {
+          for (const sn of bmSerials) {
+            const sc = bmSerialCostMap.get(sn)
+            if (sc) {
+              totalCogs += sc.unitCost
+              costCodeDeductions += sc.costCodeAmount
+            }
+          }
+        } else {
+          // Non-serialized: fall back to SKU mapping
+          const mapping = item.sellerSku ? skuMap.get(item.sellerSku) : null
+          if (mapping) {
+            const key = `${mapping.productId}:${mapping.gradeId ?? ''}`
+            totalCogs += (cogsMap.get(key) ?? cogsProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
+            costCodeDeductions += (costCodeMap.get(key) ?? costCodeProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
+          }
         }
       }
     }
