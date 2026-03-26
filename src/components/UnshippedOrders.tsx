@@ -4603,6 +4603,7 @@ export default function UnshippedOrders() {
   const [applyingDefaultPresets, setApplyingDefaultPresets]   = useState(false)
   const [defaultPresetApplyingIds, setDefaultPresetApplyingIds] = useState<Set<string>>(new Set())
   const [applyDefaultResult, setApplyDefaultResult]           = useState<{ applied: number; total: number; skipped: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
+  const [filterPkgPreset, setFilterPkgPreset]                 = useState<'all' | 'assigned' | 'unassigned'>('all')
   const [selectedPresetId, setSelectedPresetId] = useState('')
   const [presetShipDate, setPresetShipDate]     = useState(() => new Date().toISOString().slice(0, 10))
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set())
@@ -5573,7 +5574,10 @@ export default function UnshippedOrders() {
 
   // Merge Amazon + wholesale orders, sorted client-side
   const displayOrders = useMemo(() => {
-    const merged = [...orders, ...wholesaleOrders]
+    let merged = [...orders, ...wholesaleOrders]
+    // Pkg preset filter
+    if (filterPkgPreset === 'assigned') merged = merged.filter(o => o.appliedPackagePresetId)
+    else if (filterPkgPreset === 'unassigned') merged = merged.filter(o => !o.appliedPackagePresetId)
     if (sortBy === 'sku') {
       return merged.sort((a, b) => {
         const skuA = a.items[0]?.sellerSku ?? ''
@@ -5587,7 +5591,7 @@ export default function UnshippedOrders() {
       const dateB = new Date(b.purchaseDate).getTime()
       return sortDir === 'asc' ? dateA - dateB : dateB - dateA
     })
-  }, [orders, wholesaleOrders, sortBy, sortDir])
+  }, [orders, wholesaleOrders, sortBy, sortDir, filterPkgPreset])
 
   // Status badge helper
   function statusBadge(status: string) {
@@ -6055,6 +6059,12 @@ export default function UnshippedOrders() {
                 className="h-7 w-7 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:border-emerald-500 hover:text-emerald-600 transition-colors">
                 <Settings size={11} />
               </button>
+              <select value={filterPkgPreset} onChange={e => setFilterPkgPreset(e.target.value as 'all' | 'assigned' | 'unassigned')}
+                className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-teal-500">
+                <option value="all">All Orders</option>
+                <option value="assigned">Has Pkg Preset</option>
+                <option value="unassigned">No Pkg Preset</option>
+              </select>
               <button onClick={applyDefaultPackagePresets}
                 disabled={applyingDefaultPresets || selectedOrderIds.size === 0 || !selectedAccountId}
                 title="Auto-apply default package presets from product mappings"
