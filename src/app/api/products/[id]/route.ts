@@ -10,7 +10,7 @@ export async function PUT(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { description, sku, isSerializable } = body
+  const { description, sku, isSerializable, defaultPackagePresetId } = body
 
   if (!description?.trim()) return NextResponse.json({ error: 'Description is required' }, { status: 400 })
   if (!sku?.trim()) return NextResponse.json({ error: 'SKU is required' }, { status: 400 })
@@ -27,6 +27,7 @@ export async function PUT(
       description: description.trim(),
       sku: sku.trim(),
       isSerializable: Boolean(isSerializable),
+      defaultPackagePresetId: defaultPackagePresetId !== undefined ? (defaultPackagePresetId || null) : undefined,
     },
   })
 

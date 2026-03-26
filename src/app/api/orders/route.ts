@@ -94,6 +94,9 @@ export async function GET(req: NextRequest) {
               inventorySerial: { select: { serialNumber: true } },
             },
           },
+          appliedPackagePreset: {
+            select: { id: true, name: true },
+          },
         },
       }),
     ])

@@ -93,6 +93,8 @@ interface Order {
   presetRateCheckedAt: string | null
   presetShipDate: string | null
   appliedPresetId: string | null
+  appliedPackagePresetId: string | null
+  appliedPackagePreset: { id: string; name: string } | null
   ssOrderId: number | null
   requiresTransparency?: boolean
   // Source: amazon, backmarket, or wholesale
@@ -4597,6 +4599,10 @@ export default function UnshippedOrders() {
   const [pkgRatingOrderIds, setPkgRatingOrderIds]             = useState<Set<string>>(new Set())
   const [applyPkgResult, setApplyPkgResult]                   = useState<{ applied: number; total: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
   const [showPackagePresetModal, setShowPackagePresetModal]   = useState(false)
+  // Default package presets state (apply defaults from product mapping)
+  const [applyingDefaultPresets, setApplyingDefaultPresets]   = useState(false)
+  const [defaultPresetApplyingIds, setDefaultPresetApplyingIds] = useState<Set<string>>(new Set())
+  const [applyDefaultResult, setApplyDefaultResult]           = useState<{ applied: number; total: number; skipped: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
   const [selectedPresetId, setSelectedPresetId] = useState('')
   const [presetShipDate, setPresetShipDate]     = useState(() => new Date().toISOString().slice(0, 10))
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set())
@@ -5457,6 +5463,82 @@ export default function UnshippedOrders() {
     }
   }
 
+  async function applyDefaultPackagePresets() {
+    if (selectedOrderIds.size === 0 || !selectedAccountId) return
+    const ids = [...selectedOrderIds]
+    setApplyingDefaultPresets(true)
+    setApplyDefaultResult(null)
+    setDefaultPresetApplyingIds(new Set(ids))
+
+    try {
+      const res = await fetch('/api/orders/apply-default-package-presets', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ orderIds: ids, accountId: selectedAccountId }),
+      })
+
+      if (!res.ok || res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json()
+        throw new Error(data.error ?? `${res.status}`)
+      }
+
+      const reader  = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer    = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+
+        for (const part of parts) {
+          const line = part.trim()
+          if (!line.startsWith('data: ')) continue
+          try {
+            const event = JSON.parse(line.slice(6)) as {
+              type: 'applied' | 'done' | 'error'
+              orderId?: string; presetId?: string | null; presetName?: string | null
+              error?: string | null
+              applied?: number; total?: number; skipped?: number
+              errors?: { orderId: string; amazonOrderId: string; error: string }[]
+            }
+
+            if (event.type === 'applied' && event.orderId) {
+              setOrders(prev => prev.map(o =>
+                o.id === event.orderId
+                  ? {
+                      ...o,
+                      appliedPackagePresetId: event.presetId ?? null,
+                      appliedPackagePreset: event.presetId && event.presetName
+                        ? { id: event.presetId, name: event.presetName }
+                        : o.appliedPackagePreset,
+                    }
+                  : o,
+              ))
+              setDefaultPresetApplyingIds(prev => { const n = new Set(prev); n.delete(event.orderId!); return n })
+            }
+
+            if (event.type === 'done') {
+              setApplyDefaultResult({ applied: event.applied ?? 0, total: event.total ?? ids.length, skipped: event.skipped ?? 0, errors: event.errors ?? [] })
+            }
+
+            if (event.type === 'error') throw new Error(event.error ?? 'Unknown error')
+          } catch (parseErr) {
+            if (parseErr instanceof SyntaxError) continue
+            throw parseErr
+          }
+        }
+      }
+    } catch (e) {
+      setApplyDefaultResult({ applied: 0, total: ids.length, skipped: 0, errors: [{ orderId: '', amazonOrderId: '', error: e instanceof Error ? e.message : 'Failed' }] })
+    } finally {
+      setApplyingDefaultPresets(false)
+      setDefaultPresetApplyingIds(new Set())
+    }
+  }
+
   function orderTotal(order: Order) {
     if (order.orderTotal) return fmt(order.orderTotal, order.currency)
     let sum = 0
@@ -5470,7 +5552,7 @@ export default function UnshippedOrders() {
   const showReinstateCol    = activeTab === 'cancelled'
   const showShippedPrintCol = activeTab === 'shipped'
   const showActionCol       = showProcessCol || showShipCol || showVerifyCol || showReinstateCol || showShippedPrintCol
-  const colSpan             = 12 + (showActionCol ? 1 : 0)
+  const colSpan             = 13 + (showActionCol ? 1 : 0)
 
   // Amazon ship-by dates use Pacific time (e.g. stored as 2026-02-28T07:59:59Z = Feb 27 11:59pm PST).
   // Always evaluate ship-by dates in Pacific time to match Amazon's intent.
@@ -5729,6 +5811,39 @@ export default function UnshippedOrders() {
         </div>
       )}
 
+      {/* Apply default package presets result banner */}
+      {applyDefaultResult !== null && (
+        <div className={clsx(
+          'flex items-start justify-between gap-3 px-6 py-2 border-b text-xs',
+          applyDefaultResult.errors.length > 0
+            ? 'bg-amber-50 border-amber-300 text-amber-900'
+            : 'bg-teal-50 border-teal-200 text-teal-800',
+        )}>
+          <div className="flex items-start gap-2">
+            {applyDefaultResult.errors.length === 0
+              ? <CheckCircle2 size={13} className="shrink-0 mt-0.5 text-teal-600" />
+              : <AlertTriangle size={13} className="shrink-0 mt-0.5 text-amber-600" />
+            }
+            <div>
+              <span className="font-semibold">
+                Default Presets: {applyDefaultResult.applied} of {applyDefaultResult.total} order{applyDefaultResult.total !== 1 ? 's' : ''} assigned
+                {applyDefaultResult.skipped > 0 && ` (${applyDefaultResult.skipped} skipped)`}
+              </span>
+              {applyDefaultResult.errors.length > 0 && (
+                <div className="mt-1 space-y-0.5">
+                  {applyDefaultResult.errors.map((e, i) => (
+                    <p key={i} className="text-[10px] font-mono text-amber-800">
+                      {e.amazonOrderId || e.orderId}: {e.error}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <button onClick={() => setApplyDefaultResult(null)} className="shrink-0 mt-0.5"><X size={13} /></button>
+        </div>
+      )}
+
       {/* Bulk cancel result banner */}
       {bulkCancelResult !== null && (
         <div className={clsx(
@@ -5939,6 +6054,18 @@ export default function UnshippedOrders() {
               <button onClick={() => setShowPackagePresetModal(true)} title="Manage package presets"
                 className="h-7 w-7 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:border-emerald-500 hover:text-emerald-600 transition-colors">
                 <Settings size={11} />
+              </button>
+              <button onClick={applyDefaultPackagePresets}
+                disabled={applyingDefaultPresets || selectedOrderIds.size === 0 || !selectedAccountId}
+                title="Auto-apply default package presets from product mappings"
+                className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium transition-colors',
+                  applyingDefaultPresets || selectedOrderIds.size === 0 || !selectedAccountId
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-teal-600 text-white hover:bg-teal-700')}>
+                {applyingDefaultPresets
+                  ? <><RefreshCcw size={11} className="animate-spin" /> {defaultPresetApplyingIds.size > 0 ? `${defaultPresetApplyingIds.size} left` : 'Applying…'}</>
+                  : <><Package size={11} /> Apply Defaults{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>
+                }
               </button>
             </div>
           )}
@@ -6244,6 +6371,7 @@ export default function UnshippedOrders() {
                   </span>
                 </span>
               </th>
+              <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Pkg Preset</th>
               <th
                 onClick={() => handleSort('presetRateAmount')}
                 className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors"
@@ -6488,6 +6616,20 @@ export default function UnshippedOrders() {
                         {order.shipmentServiceLevel}
                       </span>
                     ) : <span className="text-gray-300">—</span>}
+                  </td>
+                  {/* Pkg Preset */}
+                  <td className="px-3 py-1.5 whitespace-nowrap">
+                    {defaultPresetApplyingIds.has(order.id) ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-teal-600">
+                        <RefreshCcw size={10} className="animate-spin" /> Applying…
+                      </span>
+                    ) : order.appliedPackagePreset ? (
+                      <span className="inline-flex items-center rounded-full bg-teal-100 text-teal-700 px-2 py-0.5 text-[10px] font-medium">
+                        {order.appliedPackagePreset.name}
+                      </span>
+                    ) : (
+                      <span className="text-gray-300 text-[10px]">—</span>
+                    )}
                   </td>
                   {/* Preset Rate */}
                   <td className={clsx('px-3 py-1.5 text-right', order.presetRateError && !ratingOrderIds.has(order.id) && !pkgRatingOrderIds.has(order.id) ? 'whitespace-normal' : 'whitespace-nowrap')}>

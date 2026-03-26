@@ -5,6 +5,11 @@ import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface PackagePresetOption {
+  id: string
+  name: string
+}
+
 interface Product {
   id: string
   description: string
@@ -12,6 +17,8 @@ interface Product {
   isSerializable: boolean
   createdAt: string
   archivedAt: string | null
+  defaultPackagePresetId: string | null
+  defaultPackagePreset: PackagePresetOption | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -303,6 +310,7 @@ interface FormState {
   description: string
   sku: string
   isSerializable: boolean | null  // null = not yet chosen
+  defaultPackagePresetId: string
 }
 
 function ProductPanel({
@@ -321,12 +329,18 @@ function ProductPanel({
     description: editing?.description ?? '',
     sku: editing?.sku ?? '',
     isSerializable: editing != null ? editing.isSerializable : null,
+    defaultPackagePresetId: editing?.defaultPackagePresetId ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  const [pkgPresets, setPkgPresets] = useState<PackagePresetOption[]>([])
 
   useEffect(() => {
     descRef.current?.focus()
+    fetch('/api/package-presets')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: PackagePresetOption[]) => { if (Array.isArray(data)) setPkgPresets(data) })
+      .catch(() => {})
   }, [])
 
   function set(field: keyof FormState, value: string | boolean | null) {
@@ -446,6 +460,22 @@ function ProductPanel({
             </div>
           </div>
 
+          {/* Default Package Preset */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Default Package Preset
+            </label>
+            <select
+              value={form.defaultPackagePresetId}
+              onChange={(e) => set('defaultPackagePresetId', e.target.value)}
+              className="w-full h-9 rounded-md border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue bg-white"
+            >
+              <option value="">— None —</option>
+              {pkgPresets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <p className="mt-1 text-[11px] text-gray-400">Auto-applied when using &quot;Apply Default Presets&quot; on fulfillment page.</p>
+          </div>
+
         </div>
 
         {/* Footer */}
@@ -485,6 +515,57 @@ export default function ProductsManager() {
   const [viewArchived, setViewArchived] = useState(false)
   const [actionId, setActionId] = useState<string | null>(null) // restoring/purging
   const [purgeConfirm, setPurgeConfirm] = useState<string | null>(null)
+  // Bulk selection + preset assignment
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkPresetId, setBulkPresetId] = useState('')
+  const [bulkPresets, setBulkPresets] = useState<PackagePresetOption[]>([])
+  const [bulkApplying, setBulkApplying] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/package-presets')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: PackagePresetOption[]) => { if (Array.isArray(data)) setBulkPresets(data) })
+      .catch(() => {})
+  }, [])
+
+  // Clear selection when switching views or reloading
+  useEffect(() => { setSelectedIds(new Set()) }, [viewArchived, search])
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  function toggleSelectAll() {
+    if (selectedIds.size === products.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(products.map(p => p.id)))
+    }
+  }
+
+  async function handleBulkSetPreset() {
+    if (selectedIds.size === 0) return
+    setBulkApplying(true)
+    setErr('')
+    try {
+      const res = await fetch('/api/products/bulk-set-preset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productIds: Array.from(selectedIds), packagePresetId: bulkPresetId || null }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed')
+      setSelectedIds(new Set())
+      load()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Bulk update failed')
+    } finally {
+      setBulkApplying(false)
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -621,6 +702,38 @@ export default function ProductsManager() {
 
       {err && <ErrorBanner msg={err} onClose={() => setErr('')} />}
 
+      {/* Bulk preset bar */}
+      {!viewArchived && selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 mb-3 px-3 py-2 rounded-lg bg-teal-50 border border-teal-200">
+          <span className="text-xs font-medium text-teal-800">
+            {selectedIds.size} product{selectedIds.size !== 1 ? 's' : ''} selected
+          </span>
+          <select
+            value={bulkPresetId}
+            onChange={e => setBulkPresetId(e.target.value)}
+            className="h-7 rounded border border-teal-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+          >
+            <option value="">— Remove Preset —</option>
+            {bulkPresets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <button
+            type="button"
+            onClick={handleBulkSetPreset}
+            disabled={bulkApplying}
+            className="flex items-center gap-1 h-7 px-3 rounded text-xs font-medium bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60"
+          >
+            {bulkApplying ? 'Applying…' : bulkPresetId ? 'Set Preset' : 'Clear Preset'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            className="text-xs text-teal-600 hover:underline ml-auto"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="py-20 text-center text-sm text-gray-400">Loading…</div>
       ) : products.length === 0 ? (
@@ -728,16 +841,25 @@ export default function ProductsManager() {
           <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="px-2 py-1.5 w-8">
+                  <input type="checkbox" checked={products.length > 0 && selectedIds.size === products.length} onChange={toggleSelectAll}
+                    className="h-3.5 w-3.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                </th>
                 <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
                 <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Description</th>
                 <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Serialization</th>
+                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Pkg Preset</th>
                 <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Created</th>
                 <th className="px-2 py-1.5 w-16" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {products.map((product) => (
-                <tr key={product.id} className="hover:bg-gray-50 group">
+                <tr key={product.id} className={clsx('hover:bg-gray-50 group', selectedIds.has(product.id) && 'bg-teal-50/50')}>
+                  <td className="px-2 py-1">
+                    <input type="checkbox" checked={selectedIds.has(product.id)} onChange={() => toggleSelect(product.id)}
+                      className="h-3.5 w-3.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                  </td>
                   <td className="px-2 py-1 font-mono text-xs font-semibold text-gray-900 whitespace-nowrap">{product.sku}</td>
                   <td className="px-2 py-1 text-gray-700">{product.description}</td>
                   <td className="px-2 py-1">
@@ -749,6 +871,15 @@ export default function ProductsManager() {
                       <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-600 px-2 py-0.5 text-[10px] font-medium">
                         Non-Serializable
                       </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1">
+                    {product.defaultPackagePreset ? (
+                      <span className="inline-flex items-center rounded-full bg-teal-100 text-teal-700 px-2 py-0.5 text-[10px] font-medium">
+                        {product.defaultPackagePreset.name}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-gray-300">—</span>
                     )}
                   </td>
                   <td className="px-2 py-1 text-gray-400 text-[10px] whitespace-nowrap">

@@ -498,6 +498,8 @@ model Order {
   presetShipDate         String?
   appliedPresetId        String?
   appliedPreset          ShippingPreset?             @relation(fields: [appliedPresetId], references: [id], onDelete: SetNull)
+  appliedPackagePresetId String?
+  appliedPackagePreset   PackagePreset?              @relation(fields: [appliedPackagePresetId], references: [id], onDelete: SetNull)
   ssOrderId              Int?
   customerPo             String?
   shipCarrier            String?
@@ -761,6 +763,9 @@ model PackagePreset {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  products     Product[] @relation("ProductDefaultPackagePreset")
+  orders       Order[]
+
   @@map("package_presets")
 }
 
@@ -833,6 +838,9 @@ model Product {
   updatedAt      DateTime @updatedAt
 
   archivedAt             DateTime? // null = active, non-null = archived
+
+  defaultPackagePresetId String?
+  defaultPackagePreset   PackagePreset? @relation("ProductDefaultPackagePreset", fields: [defaultPackagePresetId], references: [id], onDelete: SetNull)
 
   poLines                PurchaseOrderLine[]
   receiptLines           POReceiptLine[]

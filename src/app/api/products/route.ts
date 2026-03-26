@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: 'desc' },
     include: {
       inventoryItems: { select: { qty: true, gradeId: true, grade: { select: { grade: true } } } },
+      defaultPackagePreset: { select: { id: true, name: true } },
     },
   })
 
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { description, sku, isSerializable } = body
+  const { description, sku, isSerializable, defaultPackagePresetId } = body
 
   if (!description?.trim()) return NextResponse.json({ error: 'Description is required' }, { status: 400 })
   if (!sku?.trim()) return NextResponse.json({ error: 'SKU is required' }, { status: 400 })
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
       description: description.trim(),
       sku: sku.trim(),
       isSerializable: Boolean(isSerializable),
+      defaultPackagePresetId: defaultPackagePresetId || null,
     },
   })
 
