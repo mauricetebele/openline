@@ -38,6 +38,7 @@ interface GradeOption {
 }
 
 interface LineItem {
+  _key: string
   productId?: string
   gradeId?: string
   sku: string
@@ -63,7 +64,9 @@ function calcTotals(items: LineItem[], discountPct: number, taxRate: number, shi
   return { subtotal, discountAmt, taxAmt, total }
 }
 
+let lineKeyCounter = 0
 const blankLine = (): LineItem => ({
+  _key: `line-${++lineKeyCounter}`,
   sku: '', title: '', description: '', quantity: 1, unitPrice: 0, discount: 0, taxable: true,
 })
 
@@ -170,6 +173,7 @@ export default function WholesaleOrderCreateManager() {
     const avail = p.inventoryItems?.reduce((s, i) => s + i.qty, 0) ?? 0
     setProductInventoryMap(prev => ({ ...prev, [p.id]: p.inventoryItems }))
     setItems((prev) => [...prev, {
+      _key: `line-${++lineKeyCounter}`,
       productId: p.id, gradeId: '', sku: p.sku, title: p.description, description: `Available: ${avail}`,
       quantity: 1, unitPrice: 0, discount: discountPct, taxable: true,
     }])
@@ -468,7 +472,7 @@ export default function WholesaleOrderCreateManager() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {items.map((item, i) => (
-                    <tr key={i}>
+                    <tr key={item._key}>
                       <td className="py-2 pr-2">
                         <input
                           value={item.sku}
@@ -596,8 +600,8 @@ export default function WholesaleOrderCreateManager() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {items.filter((i) => i.title.trim()).map((item, i) => (
-                    <tr key={i}>
+                  {items.filter((i) => i.title.trim()).map((item) => (
+                    <tr key={item._key}>
                       <td className="py-1.5">{item.title}</td>
                       <td className="py-1.5 text-right">{item.quantity}</td>
                       <td className="py-1.5 text-right">{fmt(item.unitPrice)}</td>
