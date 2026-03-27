@@ -25,7 +25,8 @@ export async function GET(req: NextRequest) {
   // Start of today in Pacific time (midnight PT → UTC)
   const todayMidnight = new Date(Date.UTC(y, m - 1, d))
 
-  const [pending, unshipped, awaiting, dueOutToday, shippedToday] = await Promise.all([
+  const [pending, unshipped, awaiting, dueOutToday, shippedToday,
+         wsPending, wsUnshipped, wsShippedToday] = await Promise.all([
     prisma.order.count({ where: { accountId, workflowStatus: 'PENDING' } }),
     prisma.order.count({ where: { accountId, workflowStatus: 'PROCESSING' } }),
     prisma.order.count({ where: { accountId, workflowStatus: 'AWAITING_VERIFICATION' } }),
@@ -43,7 +44,23 @@ export async function GET(req: NextRequest) {
         shippedAt: { gte: todayMidnight, lt: tomorrowMidnight },
       },
     }),
+    // Wholesale counts (not account-scoped)
+    prisma.salesOrder.count({
+      where: { status: { notIn: ['PENDING_APPROVAL', 'VOID'] }, fulfillmentStatus: 'PENDING' },
+    }),
+    prisma.salesOrder.count({
+      where: { status: { notIn: ['PENDING_APPROVAL', 'VOID'] }, fulfillmentStatus: 'PROCESSING' },
+    }),
+    prisma.salesOrder.count({
+      where: { fulfillmentStatus: 'SHIPPED', shippedAt: { gte: todayMidnight, lt: tomorrowMidnight } },
+    }),
   ])
 
-  return NextResponse.json({ pending, unshipped, awaiting, dueOutToday, shippedToday })
+  return NextResponse.json({
+    pending:      pending + wsPending,
+    unshipped:    unshipped + wsUnshipped,
+    awaiting,
+    dueOutToday,
+    shippedToday: shippedToday + wsShippedToday,
+  })
 }
