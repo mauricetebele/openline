@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   const search            = searchParams.get('search')?.trim()
 
   const where: Record<string, unknown> = {
-    status: { not: 'PENDING_APPROVAL' },
+    status: { notIn: ['PENDING_APPROVAL', 'VOID'] },
   }
   if (fulfillmentStatus) where.fulfillmentStatus = fulfillmentStatus
 
