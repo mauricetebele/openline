@@ -149,10 +149,42 @@ export async function POST(
     }
   }
 
-  await prisma.salesOrder.update({
-    where: { id: params.id },
-    data:  { status: newStatus as never },
-  })
+  if (newStatus === 'VOID') {
+    // Cancel fulfillment: set fulfillmentStatus to CANCELLED, release reservations & serial assignments
+    await prisma.$transaction(async tx => {
+      // Release inventory reservations
+      await tx.salesOrderInventoryReservation.deleteMany({ where: { salesOrderId: params.id } })
+
+      // Remove serial assignments and revert any OUT_OF_STOCK serials
+      const assignments = await tx.salesOrderSerialAssignment.findMany({
+        where: { salesOrderId: params.id },
+        include: { inventorySerial: { select: { id: true, status: true } } },
+      })
+      for (const sa of assignments) {
+        if (sa.inventorySerial.status !== 'IN_STOCK') {
+          await tx.inventorySerial.update({
+            where: { id: sa.inventorySerial.id },
+            data: { status: 'IN_STOCK' },
+          })
+        }
+      }
+      await tx.salesOrderSerialAssignment.deleteMany({ where: { salesOrderId: params.id } })
+
+      await tx.salesOrder.update({
+        where: { id: params.id },
+        data: { status: 'VOID', fulfillmentStatus: 'CANCELLED' },
+      })
+    })
+
+    // Push updated qty since reservations were released
+    const productIds = order.items.filter(i => i.productId).map(i => i.productId!)
+    if (productIds.length > 0) pushQtyForProducts(productIds)
+  } else {
+    await prisma.salesOrder.update({
+      where: { id: params.id },
+      data:  { status: newStatus as never },
+    })
+  }
 
   return NextResponse.json({ ok: true, warning, alerts, autoProcessed })
 }
