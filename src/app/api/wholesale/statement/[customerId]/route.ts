@@ -19,7 +19,7 @@ export async function GET(
     prisma.salesOrder.findMany({
       where: {
         customerId: params.customerId,
-        status: { in: ['INVOICED', 'PARTIALLY_PAID', 'PAID', 'VOID'] },
+        status: { in: ['INVOICED', 'PARTIALLY_PAID', 'PAID'] },
       },
       orderBy: { orderDate: 'asc' },
     }),

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { pushQtyForProducts } from '@/lib/push-qty-for-product'
 
 function calcTotals(items: Array<{
   quantity: number; unitPrice: number; discount: number; taxable: boolean
@@ -126,6 +127,8 @@ export async function PUT(
   return NextResponse.json(order)
 }
 
+const DELETABLE_STATUSES = ['PENDING_APPROVAL', 'DRAFT', 'CONFIRMED']
+
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } },
@@ -133,12 +136,50 @@ export async function DELETE(
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const existing = await prisma.salesOrder.findUnique({ where: { id: params.id } })
+  const existing = await prisma.salesOrder.findUnique({
+    where: { id: params.id },
+    include: { items: { select: { productId: true } } },
+  })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (existing.status !== 'DRAFT') {
-    return NextResponse.json({ error: 'Only DRAFT orders can be deleted' }, { status: 400 })
+
+  if (!DELETABLE_STATUSES.includes(existing.status)) {
+    return NextResponse.json(
+      { error: 'Only non-invoiced orders can be deleted' },
+      { status: 400 },
+    )
   }
 
-  await prisma.salesOrder.delete({ where: { id: params.id } })
+  // Collect product IDs for qty push after cleanup
+  const productIds = existing.items.filter(i => i.productId).map(i => i.productId!)
+
+  await prisma.$transaction(async (tx) => {
+    // Release inventory reservations
+    await tx.salesOrderInventoryReservation.deleteMany({ where: { salesOrderId: params.id } })
+
+    // Revert serial assignments — set any OUT_OF_STOCK serials back to IN_STOCK
+    const assignments = await tx.salesOrderSerialAssignment.findMany({
+      where: { salesOrderId: params.id },
+      include: { inventorySerial: { select: { id: true, status: true } } },
+    })
+    for (const sa of assignments) {
+      if (sa.inventorySerial.status !== 'IN_STOCK') {
+        await tx.inventorySerial.update({
+          where: { id: sa.inventorySerial.id },
+          data: { status: 'IN_STOCK' },
+        })
+      }
+    }
+    await tx.salesOrderSerialAssignment.deleteMany({ where: { salesOrderId: params.id } })
+
+    // Remove any payment allocations (Restrict policy prevents cascade)
+    await tx.paymentAllocation.deleteMany({ where: { orderId: params.id } })
+
+    // Delete the order (cascade deletes items, etc.)
+    await tx.salesOrder.delete({ where: { id: params.id } })
+  })
+
+  // Push updated qty to marketplaces since reservations were released
+  if (productIds.length > 0) pushQtyForProducts(productIds)
+
   return NextResponse.json({ ok: true })
 }

@@ -9,10 +9,9 @@ const SO_STATUS_COLOR: Record<string, string> = {
   INVOICED: 'bg-yellow-100 text-yellow-700',
   PARTIALLY_PAID: 'bg-orange-100 text-orange-700',
   PAID: 'bg-green-100 text-green-700',
-  VOID: 'bg-red-100 text-red-500',
 }
 
-const STATUSES = ['ALL', 'PENDING_APPROVAL', 'DRAFT', 'CONFIRMED', 'INVOICED', 'PARTIALLY_PAID', 'PAID', 'VOID']
+const STATUSES = ['ALL', 'PENDING_APPROVAL', 'DRAFT', 'CONFIRMED', 'INVOICED', 'PARTIALLY_PAID', 'PAID']
 
 interface Order {
   id: string

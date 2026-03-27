@@ -13,7 +13,6 @@ const SO_STATUS_COLOR: Record<string, string> = {
   INVOICED: 'bg-yellow-100 text-yellow-700',
   PARTIALLY_PAID: 'bg-orange-100 text-orange-700',
   PAID: 'bg-green-100 text-green-700',
-  VOID: 'bg-red-100 text-red-500',
 }
 
 const TERMS_LABEL: Record<string, string> = {
@@ -461,6 +460,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
     deliveredAt: string | null; estimatedDelivery: string | null; error?: string
   } | null>(null)
   const [trackingLoading, setTrackingLoading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -506,6 +506,20 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
       load()
     } finally {
       setTransitioning(false)
+    }
+  }
+
+  async function deleteOrder() {
+    if (!confirm('Are you sure you want to delete this order? This cannot be undone.')) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/wholesale/orders/${id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error ?? 'Failed to delete'); return }
+      toast.success('Order deleted')
+      router.push('/wholesale/orders')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -567,9 +581,9 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                 className="px-3 py-1.5 bg-green-500 text-white rounded text-xs font-medium hover:bg-green-600 disabled:opacity-50">
                 {transitioning ? 'Approving…' : 'Approve Order'}
               </button>
-              <button onClick={() => transition('VOID')} disabled={transitioning}
+              <button onClick={deleteOrder} disabled={deleting}
                 className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 disabled:opacity-50">
-                Delete
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
             </>
           )}
@@ -579,9 +593,9 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                 className="px-3 py-1.5 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 disabled:opacity-50">
                 Confirm Order
               </button>
-              <button onClick={() => transition('VOID')} disabled={transitioning}
+              <button onClick={deleteOrder} disabled={deleting}
                 className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 disabled:opacity-50">
-                Delete
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
             </>
           )}
@@ -604,12 +618,10 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                   Mark as Invoiced
                 </button>
               )}
-              {order.fulfillmentStatus === 'PENDING' && (
-                <button onClick={() => transition('VOID')} disabled={transitioning}
-                  className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 disabled:opacity-50">
-                  Delete
-                </button>
-              )}
+              <button onClick={deleteOrder} disabled={deleting}
+                className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 disabled:opacity-50">
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
             </>
           )}
           {(order.status === 'INVOICED' || order.status === 'PARTIALLY_PAID') && (
