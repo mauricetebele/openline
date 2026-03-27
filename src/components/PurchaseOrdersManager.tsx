@@ -24,6 +24,7 @@ interface POLine {
   costCode: CostCode | null
   qty: number
   unitCost: string
+  qtyReceived?: number
 }
 
 interface PurchaseOrder {
@@ -41,6 +42,7 @@ interface PurchaseOrder {
 }
 
 interface FormLine {
+  id?: string
   productId: string
   sku: string
   description: string
@@ -50,6 +52,7 @@ interface FormLine {
   gradeName: string | null
   grades: Grade[]
   costCodeId: string | null
+  qtyReceived: number
 }
 
 interface ReceiptSerial {
@@ -208,6 +211,7 @@ function POPanel({
   useEffect(() => {
     if (isEdit && editing.lines.length) {
       const formLines: FormLine[] = editing.lines.map((l) => ({
+        id: l.id,
         productId: l.productId,
         sku: l.product.sku,
         description: l.product.description,
@@ -217,6 +221,7 @@ function POPanel({
         gradeName: l.grade?.grade ?? null,
         grades: globalGrades,
         costCodeId: l.costCodeId ?? null,
+        qtyReceived: l.qtyReceived ?? 0,
       }))
       setLines(formLines)
       setLinesReady(true)
@@ -226,7 +231,10 @@ function POPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function removeLine(i: number) { setLines(p => p.filter((_, idx) => idx !== i)) }
+  function removeLine(i: number) {
+    if (lines[i]?.qtyReceived > 0) { setErr('Cannot remove a line that has been partially received'); return }
+    setLines(p => p.filter((_, idx) => idx !== i))
+  }
   function updateLine(i: number, patch: Partial<FormLine>) {
     setLines(p => p.map((l, idx) => idx === i ? { ...l, ...patch } : l))
   }
@@ -271,6 +279,7 @@ function POPanel({
       gradeName: null,
       grades: globalGrades,
       costCodeId: null,
+      qtyReceived: 0,
     }])
   }
 
@@ -369,6 +378,7 @@ function POPanel({
         gradeName,
         grades: globalGrades,
         costCodeId: null,
+        qtyReceived: 0,
       })
     }
 
@@ -411,6 +421,7 @@ function POPanel({
       const l = lines[i]
       if (!l.productId) { setErr(`Line ${i + 1}: select a product`); return }
       if (!l.qty || l.qty < 1) { setErr(`Line ${i + 1}: qty must be at least 1`); return }
+      if (l.qtyReceived > 0 && l.qty < l.qtyReceived) { setErr(`Line ${i + 1}: qty cannot be less than ${l.qtyReceived} received units`); return }
     }
 
     setSaving(true)
@@ -421,6 +432,7 @@ function POPanel({
         vendorInvoiceBase64: invoiceBase64,
         vendorInvoiceFilename: invoiceFilename,
         lines: lines.map(l => ({
+          ...(l.id ? { id: l.id } : {}),
           productId: l.productId,
           qty: Number(l.qty),
           unitCost: Number(l.unitCost),
@@ -685,12 +697,15 @@ function POPanel({
                       {/* Qty */}
                       <input
                         type="number"
-                        min={1}
+                        min={Math.max(1, line.qtyReceived)}
                         value={line.qty}
-                        onChange={e => updateLine(i, { qty: Math.max(1, parseInt(e.target.value) || 1) })}
+                        onChange={e => updateLine(i, { qty: Math.max(Math.max(1, line.qtyReceived), parseInt(e.target.value) || 1) })}
                         autoComplete="off"
                         className="h-9 w-full rounded-md border border-gray-300 px-2 text-xs text-center focus:outline-none focus:ring-2 focus:ring-amazon-blue"
                       />
+                      {line.qtyReceived > 0 && (
+                        <p className="text-[10px] text-gray-400 text-center mt-0.5">{line.qtyReceived} received</p>
+                      )}
 
                       {/* Unit Cost */}
                       <div className="relative">

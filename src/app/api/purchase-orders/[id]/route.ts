@@ -22,6 +22,7 @@ export async function GET(
           },
           grade: { select: { id: true, grade: true } },
           costCode: { select: { id: true, name: true, amount: true } },
+          receiptLines: { select: { qtyReceived: true } },
         },
         orderBy: { createdAt: 'asc' },
       },
@@ -29,7 +30,18 @@ export async function GET(
   })
 
   if (!po) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(po)
+
+  // Attach qtyReceived sum to each line
+  const result = {
+    ...po,
+    lines: po.lines.map(l => ({
+      ...l,
+      qtyReceived: l.receiptLines.reduce((sum, rl) => sum + rl.qtyReceived, 0),
+      receiptLines: undefined,
+    })),
+  }
+
+  return NextResponse.json(result)
 }
 
 export async function PUT(
@@ -61,9 +73,95 @@ export async function PUT(
     return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
   }
 
-  const po = await prisma.$transaction(async (tx) => {
-    // Replace all lines
-    await tx.purchaseOrderLine.deleteMany({ where: { purchaseOrderId: params.id } })
+  let po
+  try {
+  po = await prisma.$transaction(async (tx) => {
+    // For partially received POs, we can't delete lines that have receipt records
+    // (FK Restrict). Instead, upsert: update existing lines, create new ones,
+    // and only delete lines with no receipts that aren't in the payload.
+    const existingLines = await tx.purchaseOrderLine.findMany({
+      where: { purchaseOrderId: params.id },
+      include: {
+        _count: { select: { receiptLines: true } },
+        receiptLines: { select: { qtyReceived: true } },
+      },
+    })
+
+    type LineInput = { id?: string; productId: string; qty: number; unitCost: number; gradeId?: string | null; costCodeId?: string | null }
+    const incomingLines = lines as LineInput[]
+
+    // Match incoming lines to existing by id, or by productId+gradeId
+    const usedExistingIds = new Set<string>()
+    const toUpdate: { existingId: string; data: LineInput }[] = []
+    const toCreate: LineInput[] = []
+
+    for (const incoming of incomingLines) {
+      // Try to match by id first
+      let match = incoming.id ? existingLines.find(e => e.id === incoming.id) : undefined
+      // Fall back to matching by productId + gradeId
+      if (!match) {
+        match = existingLines.find(e =>
+          e.productId === incoming.productId &&
+          (e.gradeId ?? null) === (incoming.gradeId ?? null) &&
+          !usedExistingIds.has(e.id),
+        )
+      }
+      if (match) {
+        usedExistingIds.add(match.id)
+        toUpdate.push({ existingId: match.id, data: incoming })
+      } else {
+        toCreate.push(incoming)
+      }
+    }
+
+    // Validate: qty cannot be less than received qty
+    for (const { existingId, data } of toUpdate) {
+      const existing = existingLines.find(e => e.id === existingId)!
+      const received = existing.receiptLines.reduce((sum, rl) => sum + rl.qtyReceived, 0)
+      if (Number(data.qty) < received) {
+        throw new Error(`Cannot reduce qty below ${received} received units for this line`)
+      }
+    }
+
+    // Prevent removing lines that have receipts
+    const cannotRemove = existingLines.filter(e => !usedExistingIds.has(e.id) && e._count.receiptLines > 0)
+    if (cannotRemove.length > 0) {
+      throw new Error('Cannot remove line items that have been partially received')
+    }
+
+    // Delete unreferenced lines that have no receipts
+    const toDelete = existingLines.filter(e => !usedExistingIds.has(e.id) && e._count.receiptLines === 0)
+    if (toDelete.length > 0) {
+      await tx.purchaseOrderLine.deleteMany({ where: { id: { in: toDelete.map(d => d.id) } } })
+    }
+
+    // Update matched lines
+    for (const { existingId, data } of toUpdate) {
+      await tx.purchaseOrderLine.update({
+        where: { id: existingId },
+        data: {
+          productId: data.productId,
+          qty: Number(data.qty),
+          unitCost: Number(data.unitCost),
+          gradeId: data.gradeId || null,
+          costCodeId: data.costCodeId || null,
+        },
+      })
+    }
+
+    // Create new lines
+    if (toCreate.length > 0) {
+      await tx.purchaseOrderLine.createMany({
+        data: toCreate.map(l => ({
+          purchaseOrderId: params.id,
+          productId: l.productId,
+          qty: Number(l.qty),
+          unitCost: Number(l.unitCost),
+          gradeId: l.gradeId || null,
+          costCodeId: l.costCodeId || null,
+        })),
+      })
+    }
 
     return tx.purchaseOrder.update({
       where: { id: params.id },
@@ -74,15 +172,6 @@ export async function PUT(
         status: status ?? 'OPEN',
         ...(vendorInvoiceBase64 !== undefined ? { vendorInvoiceBase64: vendorInvoiceBase64 || null } : {}),
         ...(vendorInvoiceFilename !== undefined ? { vendorInvoiceFilename: vendorInvoiceFilename || null } : {}),
-        lines: {
-          create: lines.map((l: { productId: string; qty: number; unitCost: number; gradeId?: string | null; costCodeId?: string | null }) => ({
-            productId: l.productId,
-            qty: Number(l.qty),
-            unitCost: Number(l.unitCost),
-            ...(l.gradeId ? { gradeId: l.gradeId } : {}),
-            ...(l.costCodeId ? { costCodeId: l.costCodeId } : {}),
-          })),
-        },
       },
       include: {
         vendor: { select: { id: true, vendorNumber: true, name: true } },
@@ -101,6 +190,10 @@ export async function PUT(
       },
     })
   })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Update failed'
+    return NextResponse.json({ error: message }, { status: 400 })
+  }
 
   return NextResponse.json(po)
 }
