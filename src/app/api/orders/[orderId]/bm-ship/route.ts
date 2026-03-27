@@ -136,6 +136,47 @@ export async function POST(
       }
     }
 
+    // Collect all serial numbers from bmSerials across items
+    const allBmSerials = order.items.flatMap(i => (i.bmSerials ?? []).map(s => s.trim())).filter(Boolean)
+
+    // Mark inventory serials as OUT_OF_STOCK + create assignment records
+    if (allBmSerials.length > 0) {
+      const inventorySerials = await prisma.inventorySerial.findMany({
+        where: { serialNumber: { in: allBmSerials } },
+        select: { id: true, serialNumber: true, status: true },
+      })
+
+      const serialMap = new Map(inventorySerials.map(s => [s.serialNumber, s]))
+
+      await prisma.$transaction(async (tx) => {
+        for (const item of order.items) {
+          for (const sn of (item.bmSerials ?? [])) {
+            const serial = serialMap.get(sn.trim())
+            if (!serial) continue
+            if (serial.status === 'IN_STOCK') {
+              await tx.inventorySerial.update({
+                where: { id: serial.id },
+                data: { status: 'OUT_OF_STOCK' },
+              })
+            }
+            // Create assignment record (skip if already exists)
+            const existing = await tx.orderSerialAssignment.findFirst({
+              where: { orderId, inventorySerialId: serial.id },
+            })
+            if (!existing) {
+              await tx.orderSerialAssignment.create({
+                data: {
+                  orderId,
+                  orderItemId: item.id,
+                  inventorySerialId: serial.id,
+                },
+              })
+            }
+          }
+        }
+      })
+    }
+
     // Release inventory reservations — qty was already decremented during processing
     await prisma.orderInventoryReservation.deleteMany({ where: { orderId } })
 
