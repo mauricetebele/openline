@@ -984,12 +984,12 @@ function PORow({
           )}
         </td>
         <td className="px-3 py-1.5 text-right">
-          <span className={clsx(
-            receivedCount === unitCount && unitCount > 0 ? 'text-green-600 font-medium' : 'text-gray-500',
+          <span className={clsx('font-medium',
+            receivedCount === 0 ? 'text-red-500' :
+            receivedCount >= unitCount ? 'text-green-600' : 'text-orange-500',
           )}>
             {receivedCount}
           </span>
-          <span className="text-gray-300">/{unitCount}</span>
         </td>
         <td className="px-3 py-1.5 font-medium text-gray-900 text-right">${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         <td className="px-3 py-1.5">
