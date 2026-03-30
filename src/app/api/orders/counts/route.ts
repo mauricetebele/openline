@@ -27,13 +27,14 @@ export async function GET(req: NextRequest) {
 
   const [pending, unshipped, awaiting, dueOutToday, shippedToday,
          wsPending, wsUnshipped, wsShippedToday] = await Promise.all([
-    prisma.order.count({ where: { accountId, workflowStatus: 'PENDING' } }),
+    prisma.order.count({ where: { accountId, workflowStatus: 'PENDING', orderStatus: { not: 'Pending' } } }),
     prisma.order.count({ where: { accountId, workflowStatus: 'PROCESSING' } }),
     prisma.order.count({ where: { accountId, workflowStatus: 'AWAITING_VERIFICATION' } }),
     prisma.order.count({
       where: {
         accountId,
         workflowStatus: { in: ['PENDING', 'PROCESSING', 'AWAITING_VERIFICATION'] },
+        orderStatus: { not: 'Pending' },
         latestShipDate: { lt: tomorrowMidnight },
       },
     }),

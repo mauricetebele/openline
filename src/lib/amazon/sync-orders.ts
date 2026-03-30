@@ -87,7 +87,12 @@ interface GetOrderItemsResponse {
  */
 async function autoProcessPendingOrders(accountId: string): Promise<string[]> {
   const pendingOrders = await prisma.order.findMany({
-    where: { accountId, workflowStatus: 'PENDING' },
+    where: {
+      accountId,
+      workflowStatus: 'PENDING',
+      // Don't auto-process orders still awaiting payment on Amazon
+      orderStatus: { not: 'Pending' },
+    },
     include: { items: true },
   })
 
@@ -250,7 +255,7 @@ export async function syncUnshippedOrders(
       do {
         const params: Record<string, string> = {
           MarketplaceIds:      account.marketplaceId,
-          OrderStatuses:       'Unshipped,PartiallyShipped',
+          OrderStatuses:       'Pending,Unshipped,PartiallyShipped',
           FulfillmentChannels: 'MFN',
           LastUpdatedAfter:    lastUpdatedAfter,
           MaxResultsPerPage:   '100',
@@ -277,7 +282,7 @@ export async function syncUnshippedOrders(
       do {
         const params: Record<string, string> = {
           MarketplaceIds:      account.marketplaceId,
-          OrderStatuses:       'Unshipped,PartiallyShipped',
+          OrderStatuses:       'Pending,Unshipped,PartiallyShipped',
           FulfillmentChannels: 'MFN',
           CreatedAfter:        createdAfter,
           MaxResultsPerPage:   '100',
@@ -400,7 +405,7 @@ export async function syncUnshippedOrders(
                 latestShipDate:          fullOrder.LatestShipDate ? new Date(fullOrder.LatestShipDate) : null,
                 latestDeliveryDate:      fullOrder.LatestDeliveryDate ? new Date(fullOrder.LatestDeliveryDate) : null,
                 lastSyncedAt:            new Date(),
-                ...(isNew && addr ? {
+                ...(addr ? {
                   shipToName:     addr.Name         ?? null,
                   shipToAddress1: addr.AddressLine1 ?? null,
                   shipToAddress2: addr.AddressLine2 ?? null,
@@ -484,8 +489,8 @@ export async function syncUnshippedOrders(
     // separate step triggered by the frontend AFTER sync completes.
     // See /api/orders/enrich-shipstation
 
-    // Remove orders that are no longer Unshipped/PartiallyShipped on Amazon
-    // (shipped, cancelled, or reverted to Pending). Only touch PENDING internal
+    // Remove orders that are no longer Pending/Unshipped/PartiallyShipped on Amazon
+    // (shipped, cancelled, or payment failed). Only touch PENDING internal
     // status — orders already being processed stay in the system.
     // Skip cleanup on incremental syncs since we only fetched a subset of orders.
     if (!isIncremental) {

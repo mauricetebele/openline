@@ -54,6 +54,9 @@ export async function GET(req: NextRequest) {
     const where: Prisma.OrderWhereInput = {
       accountId,
       workflowStatus,
+      // Exclude Amazon Pending-payment orders from the grid — they exist only
+      // for background available-qty calculation, not for fulfillment.
+      orderStatus: { not: 'Pending' },
     }
 
     if (search) {
