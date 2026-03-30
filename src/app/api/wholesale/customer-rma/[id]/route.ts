@@ -15,6 +15,17 @@ const INCLUDE = {
       product: { select: { id: true, sku: true, description: true } },
     },
   },
+  serials: {
+    include: {
+      product: { select: { id: true, sku: true, description: true } },
+      grade: { select: { id: true, grade: true } },
+      inventorySerial: { select: { status: true, locationId: true } },
+      receivedLocation: {
+        select: { name: true, warehouse: { select: { name: true } } },
+      },
+    },
+    orderBy: { createdAt: 'asc' as const },
+  },
 }
 
 export async function GET(

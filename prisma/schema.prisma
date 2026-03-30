@@ -851,6 +851,7 @@ model Product {
   salesOrderItems        SalesOrderItem[]
   vendorRMAItems         VendorRMAItem[]
   customerRMAItems       CustomerRMAItem[]
+  customerRMASerials     CustomerRMASerial[]
   orderReservations      OrderInventoryReservation[]
   salesOrderReservations SalesOrderInventoryReservation[]
   marketplaceSkus        ProductGradeMarketplaceSku[]
@@ -876,6 +877,7 @@ model Grade {
   orderReservations      OrderInventoryReservation[]
   salesOrderReservations SalesOrderInventoryReservation[]
   marketplaceRMASerials  MarketplaceRMASerial[]
+  customerRMASerials     CustomerRMASerial[]
   purchaseOrderLines     PurchaseOrderLine[]
   orderItems             OrderItem[]
   salesOrderItems        SalesOrderItem[]   @relation("GradeSalesOrderItems")
@@ -1134,6 +1136,7 @@ model Location {
   orderReservations      OrderInventoryReservation[]
   salesOrderReservations SalesOrderInventoryReservation[]
   marketplaceRMASerials  MarketplaceRMASerial[]
+  customerRMASerials     CustomerRMASerial[]
   fbaReservations        FbaInventoryReservation[]
 
   @@unique([warehouseId, name])
@@ -1218,6 +1221,7 @@ model InventorySerial {
   salesOrderAssignment   SalesOrderSerialAssignment?
   fbaShipmentAssignment  FbaShipmentSerialAssignment?
   marketplaceRMASerials  MarketplaceRMASerial[]
+  customerRMASerials     CustomerRMASerial[]
 
   @@unique([productId, serialNumber])
   @@index([productId, locationId])
@@ -1284,6 +1288,7 @@ enum SerialEventType {
   MP_RMA_RETURN
   FBA_SHIPMENT
   VENDOR_RMA_SHIPPED
+  WHOLESALE_RMA_RETURN
 }
 
 // ─── RMA (Return Merchandise Authorization) ───────────────────────────────────
@@ -1459,6 +1464,7 @@ model SalesOrder {
   allocations           PaymentAllocation[]
   serialAssignments     SalesOrderSerialAssignment[]
   inventoryReservations SalesOrderInventoryReservation[]
+  customerRMASerials    CustomerRMASerial[]
 
   @@index([customerId])
   @@index([status])
@@ -1582,13 +1588,14 @@ model CustomerRMA {
   customerId   String
   customer     WholesaleCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
   status       CustomerRMAStatus @default(PENDING)
-  reason       String
+  reason       String?
   notes        String?
   creditAmount Decimal?          @db.Decimal(12, 2)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
-  items CustomerRMAItem[]
+  items   CustomerRMAItem[]
+  serials CustomerRMASerial[]
 
   @@index([customerId])
   @@index([status])
@@ -1609,6 +1616,34 @@ model CustomerRMAItem {
 
   @@index([rmaId])
   @@map("customer_rma_items")
+}
+
+model CustomerRMASerial {
+  id                 String           @id @default(cuid())
+  rmaId              String
+  rma                CustomerRMA      @relation(fields: [rmaId], references: [id], onDelete: Cascade)
+  inventorySerialId  String
+  inventorySerial    InventorySerial  @relation(fields: [inventorySerialId], references: [id], onDelete: Restrict)
+  productId          String
+  product            Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  gradeId            String?
+  grade              Grade?           @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  serialNumber       String           // denormalized for display/PDF
+  salePrice          Decimal?         @db.Decimal(12, 2)
+  salesOrderId       String?
+  salesOrder         SalesOrder?      @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
+  soldAt             DateTime?        // SalesOrder.shippedAt snapshot
+  returnReason       String
+  receivedAt         DateTime?
+  receivedLocationId String?
+  receivedLocation   Location?        @relation(fields: [receivedLocationId], references: [id], onDelete: SetNull)
+  notes              String?
+  createdAt          DateTime         @default(now())
+
+  @@unique([rmaId, inventorySerialId])
+  @@index([rmaId])
+  @@index([inventorySerialId])
+  @@map("customer_rma_serials")
 }
 
 model VendorRMA {
