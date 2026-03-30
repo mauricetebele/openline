@@ -18,6 +18,7 @@ export interface QtyBreakdown {
   onHand: number
   reserved: number
   pendingOrders: number
+  pendingPayment: number
   available: number
   maxQty: number | null
   pushing: number
@@ -84,6 +85,7 @@ export async function GET() {
     .map(m => m.sellerSku)
 
   const pendingMap = new Map<string, number>()
+  const pendingPaymentMap = new Map<string, number>()
   if (amazonSkus.length > 0) {
     const pendingItems = await prisma.orderItem.findMany({
       where: {
@@ -94,11 +96,14 @@ export async function GET() {
           workflowStatus: 'PENDING',
         },
       },
-      select: { sellerSku: true, quantityOrdered: true, quantityShipped: true },
+      select: { sellerSku: true, quantityOrdered: true, quantityShipped: true, order: { select: { orderStatus: true } } },
     })
     for (const item of pendingItems) {
       const pending = item.quantityOrdered - item.quantityShipped
-      if (item.sellerSku) {
+      if (!item.sellerSku) continue
+      if (item.order.orderStatus === 'Pending') {
+        pendingPaymentMap.set(item.sellerSku, (pendingPaymentMap.get(item.sellerSku) ?? 0) + pending)
+      } else {
         pendingMap.set(item.sellerSku, (pendingMap.get(item.sellerSku) ?? 0) + pending)
       }
     }
@@ -113,9 +118,10 @@ export async function GET() {
     const onHand = availableInInventory + hardReserved
     const reserved = hardReserved + wholesaleReserved
     const pendingOrders = msku.marketplace === 'amazon' ? (pendingMap.get(msku.sellerSku) ?? 0) : 0
-    const available = Math.max(0, availableInInventory - pendingOrders - wholesaleReserved)
+    const pendingPayment = msku.marketplace === 'amazon' ? (pendingPaymentMap.get(msku.sellerSku) ?? 0) : 0
+    const available = Math.max(0, availableInInventory - pendingOrders - pendingPayment - wholesaleReserved)
     const pushing = msku.maxQty != null ? Math.min(available, msku.maxQty) : available
-    return { mskuId: msku.id, onHand, reserved, pendingOrders, available, maxQty: msku.maxQty, pushing }
+    return { mskuId: msku.id, onHand, reserved, pendingOrders, pendingPayment, available, maxQty: msku.maxQty, pushing }
   })
 
   return NextResponse.json({ data: results })

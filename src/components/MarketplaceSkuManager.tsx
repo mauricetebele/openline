@@ -65,6 +65,7 @@ interface QtyBreakdown {
   onHand: number
   reserved: number
   pendingOrders: number
+  pendingPayment: number
   available: number
   maxQty: number | null
   pushing: number
@@ -328,6 +329,12 @@ function QtyBadge({ breakdown }: { breakdown: QtyBreakdown }) {
               <div className="flex justify-between gap-4">
                 <span className="text-gray-300">Pending Orders</span>
                 <span className="font-mono text-red-300">-{breakdown.pendingOrders}</span>
+              </div>
+            )}
+            {breakdown.pendingPayment > 0 && (
+              <div className="flex justify-between gap-4">
+                <span className="text-gray-300">Pending Payment</span>
+                <span className="font-mono text-amber-300">-{breakdown.pendingPayment}</span>
               </div>
             )}
             <div className="flex justify-between gap-4 border-t border-gray-700 mt-1 pt-1">
