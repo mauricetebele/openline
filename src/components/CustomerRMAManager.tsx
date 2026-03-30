@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, X, ChevronDown, ChevronUp, AlertCircle, Search,
-  CheckCircle2, XCircle, Download, ArrowLeft, PackageCheck,
+  CheckCircle2, XCircle, Download, ArrowLeft, PackageCheck, Trash2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import jsPDF from 'jspdf'
@@ -684,6 +684,8 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
 
   const [advancing, setAdvancing] = useState(false)
   const [rejecting, setRejecting] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const loadRMA = useCallback(async () => {
     setLoading(true)
@@ -769,6 +771,24 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
     }
   }
 
+  async function handleDelete() {
+    if (!rma) return
+    setDeleting(true)
+    setErr('')
+    try {
+      const res = await fetch(`/api/wholesale/customer-rma/${rma.id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Delete failed')
+      onUpdated()
+      onBack()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Delete failed')
+      setDeleteConfirm(false)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   if (loading) return <div className="py-20 text-center text-sm text-gray-400">Loading...</div>
   if (!rma) return <div className="py-20 text-center text-sm text-gray-400">RMA not found</div>
 
@@ -776,6 +796,7 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
   const totalSerials = rma.serials.length
   const next = NEXT_STATUS[rma.status]
   const canReceive = rma.status === 'PENDING' || rma.status === 'RECEIVED'
+  const canDelete = receivedCount === 0
 
   return (
     <div className="flex-1 overflow-auto px-6 py-4">
@@ -816,6 +837,23 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
           >
             {rejecting ? '...' : 'Reject'}
           </button>
+        )}
+        {canDelete && !deleteConfirm && (
+          <button
+            onClick={() => setDeleteConfirm(true)}
+            className="h-8 px-3 rounded-md border border-red-300 text-red-600 text-xs font-medium hover:bg-red-50"
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
+        {deleteConfirm && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-red-600">Delete?</span>
+            <button onClick={handleDelete} disabled={deleting}
+              className="text-xs font-medium text-red-600 hover:underline disabled:opacity-60">Yes</button>
+            <button onClick={() => setDeleteConfirm(false)}
+              className="text-xs text-gray-500 hover:underline">No</button>
+          </div>
         )}
       </div>
 

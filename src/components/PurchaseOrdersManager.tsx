@@ -937,6 +937,7 @@ function PORow({
 
   const total = po.lines.reduce((s, l) => s + l.qty * Number(l.unitCost), 0)
   const unitCount = po.lines.reduce((s, l) => s + l.qty, 0)
+  const receivedCount = po.lines.reduce((s, l) => s + (l.qtyReceived ?? 0), 0)
 
   useEffect(() => {
     if (expanded && !returnsFetched.current) {
@@ -981,6 +982,14 @@ function PORow({
           {returnCounts && returnCounts.totalReturns > 0 && (
             <span className="text-amber-600 ml-1">· {returnCounts.totalReturns} ret</span>
           )}
+        </td>
+        <td className="px-3 py-1.5 text-right">
+          <span className={clsx(
+            receivedCount === unitCount && unitCount > 0 ? 'text-green-600 font-medium' : 'text-gray-500',
+          )}>
+            {receivedCount}
+          </span>
+          <span className="text-gray-300">/{unitCount}</span>
         </td>
         <td className="px-3 py-1.5 font-medium text-gray-900 text-right">${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         <td className="px-3 py-1.5">
@@ -1054,7 +1063,7 @@ function PORow({
       {/* Expanded: line items + receipt history */}
       {expanded && (
         <tr>
-          <td colSpan={8} className="px-0 py-0 border-b border-gray-100">
+          <td colSpan={9} className="px-0 py-0 border-b border-gray-100">
             <div className="bg-gray-50 border-t border-gray-100 px-6 py-3">
               {po.notes && (
                 <p className="text-xs text-gray-500 italic mb-2">{po.notes}</p>
@@ -1276,6 +1285,7 @@ export default function PurchaseOrdersManager() {
                 <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Date</th>
                 <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Items</th>
                 <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Units</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Received</th>
                 <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Total</th>
                 <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                 <th className="px-3 py-2 w-32" />

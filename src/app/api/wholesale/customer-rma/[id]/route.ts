@@ -1,6 +1,7 @@
 /**
- * GET   /api/wholesale/customer-rma/[id]  — get single RMA
- * PATCH /api/wholesale/customer-rma/[id]  — update status / fields
+ * GET    /api/wholesale/customer-rma/[id]  — get single RMA
+ * PATCH  /api/wholesale/customer-rma/[id]  — update status / fields
+ * DELETE /api/wholesale/customer-rma/[id]  — delete unreceived RMA
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
@@ -64,4 +65,30 @@ export async function PATCH(
   })
 
   return NextResponse.json(rma)
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const rma = await prisma.customerRMA.findUnique({
+    where: { id: params.id },
+    include: { serials: { where: { receivedAt: { not: null } }, select: { id: true }, take: 1 } },
+  })
+
+  if (!rma) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  if (rma.serials.length > 0) {
+    return NextResponse.json(
+      { error: 'Cannot delete RMA with received serials' },
+      { status: 400 },
+    )
+  }
+
+  await prisma.customerRMA.delete({ where: { id: params.id } })
+
+  return NextResponse.json({ success: true })
 }

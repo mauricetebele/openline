@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
           product: { select: { id: true, description: true, sku: true, isSerializable: true } },
           grade: { select: { id: true, grade: true } },
           costCode: { select: { id: true, name: true, amount: true } },
+          receiptLines: { select: { qtyReceived: true } },
         },
         orderBy: { createdAt: 'asc' },
       },
@@ -47,7 +48,17 @@ export async function GET(req: NextRequest) {
     orderBy: { poNumber: 'desc' },
   })
 
-  return NextResponse.json({ data: orders })
+  // Flatten receiptLines into qtyReceived per line
+  const data = orders.map(po => ({
+    ...po,
+    lines: po.lines.map(l => ({
+      ...l,
+      qtyReceived: l.receiptLines.reduce((sum, rl) => sum + rl.qtyReceived, 0),
+      receiptLines: undefined,
+    })),
+  }))
+
+  return NextResponse.json({ data })
 }
 
 export async function POST(req: NextRequest) {
