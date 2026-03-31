@@ -213,6 +213,7 @@ export async function GET(req: NextRequest) {
     marketplaceOrderId: string
     source: string
     orderDate: string
+    isReplacement: boolean
     saleValue: number
     totalCogs: number
     commission: number
@@ -323,6 +324,7 @@ export async function GET(req: NextRequest) {
       marketplaceOrderId: order.amazonOrderId,
       source: order.orderSource,
       orderDate: (order.shippedAt ?? order.purchaseDate).toISOString(),
+      isReplacement: order.isReplacement === true,
       saleValue: Math.round(saleValue * 100) / 100,
       totalCogs: Math.round(totalCogs * 100) / 100,
       commission: Math.round(commission * 100) / 100,
@@ -385,6 +387,7 @@ export async function GET(req: NextRequest) {
       marketplaceOrderId: order.orderNumber,
       source: 'wholesale',
       orderDate: (order.shippedAt ?? order.orderDate).toISOString(),
+      isReplacement: false,
       saleValue,
       totalCogs: Math.round(totalCogs * 100) / 100,
       commission: 0,
@@ -460,6 +463,7 @@ export async function GET(req: NextRequest) {
           marketplaceOrderId: order.amazonOrderId,
           source: order.orderSource,
           orderDate: (order.shippedAt ?? order.purchaseDate).toISOString(),
+          isReplacement: order.isReplacement === true,
           asin: item.asin,
           sellerSku: item.sellerSku,
           title: item.title,
@@ -525,6 +529,7 @@ export async function GET(req: NextRequest) {
           marketplaceOrderId: order.orderNumber,
           source: 'wholesale',
           orderDate: (order.shippedAt ?? order.orderDate).toISOString(),
+          isReplacement: false,
           asin: null,
           sellerSku: item.sku,
           title: item.title,
@@ -558,14 +563,15 @@ export async function GET(req: NextRequest) {
   // Sort all rows by date desc
   finalRows.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())
 
-  // Summary (calculated from filtered rows)
-  const totalRevenue = finalRows.reduce((s, r) => s + r.saleValue, 0)
-  const totalCogs = finalRows.reduce((s, r) => s + r.totalCogs, 0)
-  const totalCommission = finalRows.reduce((s, r) => s + r.commission, 0)
-  const totalCustomerShipping = finalRows.reduce((s, r) => s + r.customerShipping, 0)
-  const totalShipping = finalRows.reduce((s, r) => s + r.shippingCost, 0)
-  const totalCostCodes = finalRows.reduce((s, r) => s + r.costCodeDeductions, 0)
-  const totalNetProfit = finalRows.reduce((s, r) => s + r.netProfit, 0)
+  // Summary (exclude replacement orders from totals)
+  const summaryRows = finalRows.filter(r => !r.isReplacement)
+  const totalRevenue = summaryRows.reduce((s, r) => s + r.saleValue, 0)
+  const totalCogs = summaryRows.reduce((s, r) => s + r.totalCogs, 0)
+  const totalCommission = summaryRows.reduce((s, r) => s + r.commission, 0)
+  const totalCustomerShipping = summaryRows.reduce((s, r) => s + r.customerShipping, 0)
+  const totalShipping = summaryRows.reduce((s, r) => s + r.shippingCost, 0)
+  const totalCostCodes = summaryRows.reduce((s, r) => s + r.costCodeDeductions, 0)
+  const totalNetProfit = summaryRows.reduce((s, r) => s + r.netProfit, 0)
 
   // Paginate
   const totalCount = finalRows.length

@@ -248,6 +248,7 @@ export async function GET(req: NextRequest) {
     productName: string
     grade: string
     quantity: number
+    isReplacement: boolean
     salePrice: number
     cogs: number
     costCode: number
@@ -305,6 +306,7 @@ export async function GET(req: NextRequest) {
         productName,
         grade,
         quantity: item.quantityOrdered,
+        isReplacement: order.isReplacement === true,
         salePrice: Math.round(salePrice * 100) / 100,
         cogs: Math.round(itemCogs * 100) / 100,
         costCode: Math.round(itemCostCode * 100) / 100,
@@ -333,6 +335,7 @@ export async function GET(req: NextRequest) {
     }>()
 
     for (const row of itemRows) {
+      if (row.isReplacement) continue // Exclude replacements from SKU aggregation
       const existing = skuAgg.get(row.sellerSku)
       if (existing) {
         existing.unitsSold += row.quantity
@@ -435,12 +438,14 @@ export async function GET(req: NextRequest) {
   const totalCount = orderRows.length
   const paged = orderRows.slice((page - 1) * pageSize, page * pageSize)
 
-  const totalRevenue = orderRows.reduce((s, r) => s + r.salePrice, 0)
-  const totalCogs = orderRows.reduce((s, r) => s + r.cogs, 0)
-  const totalCommissions = orderRows.reduce((s, r) => s + r.commission, 0)
-  const totalFbaFees = orderRows.reduce((s, r) => s + r.fbaFee, 0)
-  const totalCostCodes = orderRows.reduce((s, r) => s + r.costCode, 0)
-  const totalProfit = orderRows.reduce((s, r) => s + r.profit, 0)
+  // Exclude replacement orders from summary totals
+  const nonReplacementRows = orderRows.filter(r => !r.isReplacement)
+  const totalRevenue = nonReplacementRows.reduce((s, r) => s + r.salePrice, 0)
+  const totalCogs = nonReplacementRows.reduce((s, r) => s + r.cogs, 0)
+  const totalCommissions = nonReplacementRows.reduce((s, r) => s + r.commission, 0)
+  const totalFbaFees = nonReplacementRows.reduce((s, r) => s + r.fbaFee, 0)
+  const totalCostCodes = nonReplacementRows.reduce((s, r) => s + r.costCode, 0)
+  const totalProfit = nonReplacementRows.reduce((s, r) => s + r.profit, 0)
 
   return NextResponse.json({
     rows: paged,

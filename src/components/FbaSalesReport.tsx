@@ -37,6 +37,7 @@ interface OrderRow {
   sellerSku: string
   productName: string
   grade: string
+  isReplacement: boolean
   salePrice: number
   cogs: number
   costCode: number
@@ -464,7 +465,14 @@ export default function FbaSalesReport() {
                       'hover:bg-blue-50/50 dark:hover:bg-blue-900/10',
                     )}
                   >
-                    <td className="px-3 py-1.5 font-mono text-[11px]">{r.amazonOrderId}</td>
+                    <td className="px-3 py-1.5 font-mono text-[11px]">
+                      {r.amazonOrderId}
+                      {r.isReplacement && (
+                        <span className="ml-1.5 px-1.5 py-0.5 text-[9px] font-semibold rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                          REPLACEMENT
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-1.5 font-medium">
                       {r.olmNumber ? `OLM-${r.olmNumber}` : '—'}
                     </td>

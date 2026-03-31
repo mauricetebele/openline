@@ -15,6 +15,7 @@ interface ProfitRow {
   marketplaceOrderId: string
   source: string
   orderDate: string
+  isReplacement: boolean
   saleValue: number
   totalCogs: number
   commission: number
@@ -149,6 +150,11 @@ function ExpandableRow({ row, index, selected, onToggle }: { row: ProfitRow; ind
         </td>
         <td className="px-3 py-1.5 font-mono text-[11px]">
           {row.marketplaceOrderId}
+          {row.isReplacement && (
+            <span className="ml-1.5 px-1.5 py-0.5 text-[9px] font-semibold rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+              REPLACEMENT
+            </span>
+          )}
         </td>
         <td className="px-3 py-1.5">{sourceBadge(row.source)}</td>
         <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400">{formatDate(row.orderDate)}</td>
@@ -240,6 +246,11 @@ function LineItemTableRow({ row, index }: { row: LineItemRow; index: number }) {
       </td>
       <td className="px-3 py-1.5 font-mono text-[11px]">
         {row.marketplaceOrderId}
+        {row.isReplacement && (
+          <span className="ml-1.5 px-1.5 py-0.5 text-[9px] font-semibold rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+            REPLACEMENT
+          </span>
+        )}
       </td>
       <td className="px-3 py-1.5">{sourceBadge(row.source)}</td>
       <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400">{formatDate(row.orderDate)}</td>
