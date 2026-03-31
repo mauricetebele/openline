@@ -79,8 +79,12 @@ export async function POST(
     // Build item lookup for Amazon API
     const itemById = new Map(shipment.items.map(i => [i.id, i]))
 
-    // Build Amazon box inputs
-    const amazonBoxes: BoxInput[] = body.boxes.map(box => ({
+    // Track per-item prepOwner; start with NONE, auto-correct on error
+    const prepOwners = new Map<string, 'NONE' | 'SELLER' | 'AMAZON'>(
+      shipment.items.map(i => [i.sellerSku, 'NONE']),
+    )
+
+    const buildBoxes = (): BoxInput[] => body.boxes.map(box => ({
       weight: { unit: 'LB', value: box.weightLb },
       dimensions: {
         unitOfMeasurement: 'IN',
@@ -94,7 +98,7 @@ export async function POST(
           msku: item.sellerSku,
           fnSku: item.fnsku,
           quantity: bi.quantity,
-          prepOwner: 'NONE' as const,
+          prepOwner: prepOwners.get(item.sellerSku) ?? 'NONE' as const,
           labelOwner: 'SELLER' as const,
         }
       }),
@@ -102,13 +106,38 @@ export async function POST(
       quantity: 1 as const,
     }))
 
-    // 1. Set packing information
-    const packResp = await setPackingInformation(
-      shipment.accountId,
-      shipment.inboundPlanId,
-      shipment.packingGroupId,
-      amazonBoxes,
-    )
+    // 1. Set packing information (with prepOwner auto-retry)
+    let packResp
+    try {
+      packResp = await setPackingInformation(
+        shipment.accountId, shipment.inboundPlanId, shipment.packingGroupId, buildBoxes(),
+      )
+    } catch (firstErr) {
+      const errMsg = firstErr instanceof Error ? firstErr.message : String(firstErr)
+      const requiresPrep = /(\S+),\s*expected:.*?prepOwner=SELLER.*?provided:.*?prepOwner=NONE/g
+      const noPrep = /(\S+),\s*expected:.*?prepOwner=NONE.*?provided:.*?prepOwner=SELLER/g
+      // Also match the simpler format
+      const requiresPrep2 = /(\S+)\s+requires prepOwner but NONE/g
+      const noPrep2 = /(\S+)\s+does not require prepOwner but (?:SELLER|AMAZON)/g
+      let matched = false
+      let m
+      while ((m = requiresPrep.exec(errMsg)) !== null) { prepOwners.set(m[1], 'SELLER'); matched = true }
+      while ((m = noPrep.exec(errMsg)) !== null) { prepOwners.set(m[1], 'NONE'); matched = true }
+      while ((m = requiresPrep2.exec(errMsg)) !== null) { prepOwners.set(m[1], 'SELLER'); matched = true }
+      while ((m = noPrep2.exec(errMsg)) !== null) { prepOwners.set(m[1], 'NONE'); matched = true }
+
+      // Also parse "expected: Item(...prepOwner=SELLER...)" pattern from the error details
+      const expectedPattern = /for (\S+), expected:.*?prepOwner=(\w+)/g
+      while ((m = expectedPattern.exec(errMsg)) !== null) {
+        prepOwners.set(m[1], m[2] as 'SELLER' | 'AMAZON' | 'NONE')
+        matched = true
+      }
+
+      if (!matched) throw firstErr
+      packResp = await setPackingInformation(
+        shipment.accountId, shipment.inboundPlanId, shipment.packingGroupId, buildBoxes(),
+      )
+    }
     await pollOperationStatus(shipment.accountId, packResp.operationId)
 
     // 2. Generate placement options
