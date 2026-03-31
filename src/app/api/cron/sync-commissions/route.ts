@@ -33,6 +33,34 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── Backfill pass: catch orders that never got commissions synced ───────────
+  // Find the oldest un-synced shipped Amazon order and widen the window to cover it.
+  const oldestUnsyncced = await prisma.order.findFirst({
+    where: {
+      orderSource: 'amazon',
+      workflowStatus: 'SHIPPED',
+      commissionSyncedAt: null,
+    },
+    orderBy: { purchaseDate: 'asc' },
+    select: { purchaseDate: true },
+  })
+  if (oldestUnsyncced) {
+    const backfillStart = new Date(oldestUnsyncced.purchaseDate.getTime() - 24 * 60 * 60 * 1000)
+    // Only run if it's outside the normal 14-day window
+    if (backfillStart < start) {
+      for (const account of accounts) {
+        try {
+          const result = await syncAmazonCommissions(account.id, backfillStart, end)
+          results.push({ source: `amazon-backfill:${account.id}`, status: 'ok', message: `${result.updated} orders updated` })
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err)
+          console.error(`[cron/sync-commissions] Amazon backfill account=${account.id}`, message)
+          results.push({ source: `amazon-backfill:${account.id}`, status: 'error', message })
+        }
+      }
+    }
+  }
+
   // Backfill: set commission to 0 for wholesale orders missing commissionSyncedAt
   try {
     const backfilled = await prisma.order.updateMany({

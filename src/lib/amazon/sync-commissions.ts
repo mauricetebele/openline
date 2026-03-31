@@ -146,7 +146,7 @@ export async function syncAmazonCommissions(
     if (result.count > 0) updated++
   }
 
-  console.log(`[sync-commissions] Amazon account=${accountId}: ${allTransactions.length} transactions, ${commissionByOrderId.size} orders, ${updated} updated`)
+  console.log(`[sync-commissions] Amazon account=${accountId}: ${allTransactions.length} transactions, ${feesByOrderId.size} orders, ${updated} updated`)
   return { updated }
 }
 
