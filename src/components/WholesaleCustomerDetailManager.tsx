@@ -155,6 +155,16 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
       if (!rmaRes.ok) { toast.error('Failed to load RMA'); return }
       const rma = await rmaRes.json()
 
+      // Fetch customer billing address
+      let billingAddress: { addressLine1: string; addressLine2?: string | null; city: string; state: string; postalCode: string } | null = null
+      try {
+        const custRes = await fetch(`/api/wholesale/customers/${customer.id}`)
+        if (custRes.ok) {
+          const cust = await custRes.json()
+          if (cust.billingAddress) billingAddress = cust.billingAddress
+        }
+      } catch { /* skip */ }
+
       const receivedSerials = (rma.serials ?? []).filter((s: { receivedAt: string | null }) => s.receivedAt)
 
       await generateCreditMemoPDF({
@@ -162,19 +172,15 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
         createdAt: memo.createdAt,
         customerName: customer.companyName,
         rmaNumber: memo.rma.rmaNumber,
-        serials: receivedSerials.map((s: { serialNumber: string; product: { sku: string }; grade: { grade: string } | null; salePrice: string | null }) => ({
+        billingAddress,
+        serials: receivedSerials.map((s: { serialNumber: string; product: { sku: string }; salePrice: string | null }) => ({
           serialNumber: s.serialNumber,
           sku: s.product.sku,
-          grade: s.grade?.grade ?? null,
           salePrice: parseFloat(s.salePrice ?? '0'),
         })),
         subtotal: parseFloat(memo.subtotal),
         restockingFee: parseFloat(memo.restockingFee),
         total: parseFloat(memo.total),
-        allocations: (memo.allocations ?? []).map((a: { amount: string; order: { orderNumber: string } }) => ({
-          orderNumber: a.order.orderNumber,
-          amount: parseFloat(a.amount),
-        })),
         notes: memo.notes,
       })
     } catch {

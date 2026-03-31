@@ -91,7 +91,7 @@ const STATUS_LABEL: Record<RMAStatus, string> = {
   PENDING:   'Pending',
   RECEIVED:  'Received',
   INSPECTED: 'Inspected',
-  REFUNDED:  'Refunded',
+  REFUNDED:  'Credited',
   REJECTED:  'Rejected',
 }
 const STATUS_COLOR: Record<RMAStatus, string> = {
@@ -324,21 +324,19 @@ async function generateRMAPDF(rma: CustomerRMA) {
   doc.save(`RMA-${rma.rmaNumber}.pdf`)
 }
 
-async function generateCreditMemoPDF(rma: CustomerRMA) {
+async function downloadCreditMemoPDFFromRMA(rma: CustomerRMA) {
   if (!rma.creditMemo) return
+  const { generateCreditMemoPDF } = await import('@/lib/generate-credit-memo-pdf')
 
-  // Fetch full credit memo details (includes allocations + restocking info)
+  // Fetch full credit memo details
   let memo: {
     memoNumber: string
     subtotal: string
     restockingFee: string
-    restockingReason: string | null
     total: string
     notes: string | null
     createdAt: string
-    customer: { companyName: string }
     rma: { rmaNumber: string }
-    allocations: Array<{ amount: string; order: { orderNumber: string } }>
   } | null = null
 
   try {
@@ -349,205 +347,38 @@ async function generateCreditMemoPDF(rma: CustomerRMA) {
     }
   } catch { /* use basic info */ }
 
+  // Fetch customer billing address
+  let billingAddress: { addressLine1: string; addressLine2?: string | null; city: string; state: string; postalCode: string } | null = null
+  try {
+    const res = await fetch(`/api/wholesale/customers/${rma.customer.id}`)
+    if (res.ok) {
+      const cust = await res.json()
+      if (cust.billingAddress) billingAddress = cust.billingAddress
+    }
+  } catch { /* skip */ }
+
+  const receivedSerials = rma.serials.filter(s => s.receivedAt)
   const memoNumber = memo?.memoNumber ?? rma.creditMemo.memoNumber
-  const subtotal = memo ? parseFloat(memo.subtotal) : rma.serials.filter(s => s.receivedAt).reduce((sum, s) => sum + parseFloat(s.salePrice ?? '0'), 0)
+  const subtotal = memo ? parseFloat(memo.subtotal) : receivedSerials.reduce((sum, s) => sum + parseFloat(s.salePrice ?? '0'), 0)
   const restockingFee = memo ? parseFloat(memo.restockingFee) : 0
   const total = memo ? parseFloat(memo.total) : parseFloat(rma.creditMemo.total)
-  const memoNotes = memo?.notes ?? null
-  const allocations = memo?.allocations ?? []
 
-  // Fetch store settings
-  let store: StoreSettings = {
-    storeName: 'Open Line Mobility', logoBase64: null,
-    phone: null, email: null, addressLine: null, city: null, state: null, zip: null,
-  }
-  try {
-    const res = await fetch('/api/store-settings')
-    if (res.ok) store = { ...store, ...(await res.json()) }
-  } catch { /* defaults */ }
-
-  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
-  const w = doc.internal.pageSize.getWidth()
-  const margin = 45
-  const right = w - margin
-  const cw = right - margin
-  let y = margin
-
-  // ── Header
-  doc.setFillColor(20, 40, 75)
-  doc.rect(0, 0, w, 70, 'F')
-
-  if (store.logoBase64) {
-    try { doc.addImage(store.logoBase64, 'PNG', margin, 12, 44, 44) } catch { /* skip */ }
-  }
-
-  doc.setTextColor(255, 255, 255)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(18)
-  doc.text('CREDIT MEMO', store.logoBase64 ? margin + 52 : margin, 38)
-  doc.setFontSize(9)
-  doc.setFont('helvetica', 'normal')
-  doc.text(store.storeName, store.logoBase64 ? margin + 52 : margin, 52)
-
-  doc.setFontSize(11)
-  doc.text(memoNumber, right, 38, { align: 'right' })
-  doc.setFontSize(8)
-  doc.text(fmt(rma.creditMemo.createdAt), right, 52, { align: 'right' })
-
-  y = 90
-
-  // ── Info box
-  doc.setTextColor(60, 60, 60)
-  doc.setDrawColor(200, 200, 200)
-  doc.setLineWidth(0.5)
-  doc.roundedRect(margin, y, cw, 50, 4, 4, 'S')
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(8)
-  doc.text('Customer', margin + 10, y + 15)
-  doc.text('RMA Reference', margin + cw / 2, y + 15)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.text(rma.customer.companyName, margin + 10, y + 30)
-  doc.text(rma.rmaNumber, margin + cw / 2, y + 30)
-
-  y += 65
-
-  // ── Line items table (received serials)
-  const receivedSerials = rma.serials.filter(s => s.receivedAt)
-  if (receivedSerials.length > 0) {
-    const cols = [
-      { label: 'SERIAL #',   x: margin + 8,   align: 'left' as const },
-      { label: 'SKU',        x: margin + 140,  align: 'left' as const },
-      { label: 'GRADE',      x: margin + 280,  align: 'left' as const },
-      { label: 'SALE PRICE', x: right - 8,     align: 'right' as const },
-    ]
-
-    // Table header
-    doc.setFillColor(20, 40, 75)
-    doc.roundedRect(margin, y, cw, 18, 3, 3, 'F')
-    doc.setTextColor(255, 255, 255)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(7)
-    y += 12
-    for (const col of cols) {
-      doc.text(col.label, col.x, y, { align: col.align })
-    }
-    y += 12
-
-    // Rows
-    doc.setTextColor(50, 50, 50)
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-
-    receivedSerials.forEach((s, i) => {
-      if (y > doc.internal.pageSize.getHeight() - 140) {
-        doc.addPage()
-        y = margin
-      }
-      if (i % 2 === 0) {
-        doc.setFillColor(245, 247, 250)
-        doc.rect(margin, y - 10, cw, 16, 'F')
-      }
-      doc.text(s.serialNumber, cols[0].x, y)
-      doc.text(s.product.sku, cols[1].x, y)
-      doc.text(s.grade?.grade ?? '—', cols[2].x, y)
-      doc.text(s.salePrice ? `$${parseFloat(s.salePrice).toFixed(2)}` : '—', cols[3].x, y, { align: 'right' })
-      y += 16
-    })
-
-    // ── Totals section
-    y += 8
-    doc.setDrawColor(200, 200, 200)
-    doc.setLineWidth(0.5)
-    doc.line(margin + cw * 0.55, y, right, y)
-    y += 14
-
-    const labelX = margin + cw * 0.6
-    const valX = right - 8
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    doc.text('Subtotal:', labelX, y)
-    doc.text(`$${subtotal.toFixed(2)}`, valX, y, { align: 'right' })
-    y += 14
-
-    if (restockingFee > 0) {
-      doc.text('Restocking Fee:', labelX, y)
-      doc.setTextColor(180, 50, 50)
-      doc.text(`-$${restockingFee.toFixed(2)}`, valX, y, { align: 'right' })
-      doc.setTextColor(50, 50, 50)
-      y += 14
-    }
-
-    // Credit total
-    doc.setDrawColor(20, 40, 75)
-    doc.setLineWidth(1)
-    doc.line(margin + cw * 0.55, y - 4, right, y - 4)
-    y += 4
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(11)
-    doc.setTextColor(20, 120, 60)
-    doc.text('Credit Total:', labelX, y)
-    doc.text(`$${total.toFixed(2)}`, valX, y, { align: 'right' })
-    y += 24
-    doc.setTextColor(50, 50, 50)
-  }
-
-  // ── Invoice allocations
-  if (allocations.length > 0) {
-    if (y > doc.internal.pageSize.getHeight() - 100) {
-      doc.addPage()
-      y = margin
-    }
-
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(9)
-    doc.text('Applied to Invoices:', margin, y)
-    y += 14
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    for (const alloc of allocations) {
-      doc.text(alloc.order.orderNumber, margin + 10, y)
-      doc.text(`$${parseFloat(alloc.amount).toFixed(2)}`, margin + 160, y, { align: 'right' })
-      y += 14
-    }
-    y += 6
-  }
-
-  // ── Notes
-  if (memoNotes) {
-    if (y > doc.internal.pageSize.getHeight() - 80) {
-      doc.addPage()
-      y = margin
-    }
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.text('Notes:', margin, y)
-    doc.setFont('helvetica', 'normal')
-    const lines = doc.splitTextToSize(memoNotes, cw - 10)
-    doc.text(lines, margin, y + 12)
-    y += 12 + lines.length * 10
-  }
-
-  // ── Footer
-  y += 20
-  if (y > doc.internal.pageSize.getHeight() - 60) {
-    doc.addPage()
-    y = margin
-  }
-  doc.setFillColor(240, 245, 255)
-  doc.setDrawColor(20, 40, 75)
-  doc.setLineWidth(1)
-  doc.roundedRect(margin, y, cw, 36, 4, 4, 'FD')
-  doc.setTextColor(20, 40, 75)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8)
-  const footerParts = [store.storeName, store.phone, store.email].filter(Boolean)
-  doc.text(footerParts.join('  |  '), margin + 10, y + 22)
-
-  doc.save(`CreditMemo-${memoNumber}.pdf`)
+  await generateCreditMemoPDF({
+    memoNumber,
+    createdAt: memo?.createdAt ?? rma.creditMemo.createdAt,
+    customerName: rma.customer.companyName,
+    rmaNumber: memo?.rma.rmaNumber ?? rma.rmaNumber,
+    billingAddress,
+    serials: receivedSerials.map(s => ({
+      serialNumber: s.serialNumber,
+      sku: s.product.sku,
+      salePrice: parseFloat(s.salePrice ?? '0'),
+    })),
+    subtotal,
+    restockingFee,
+    total,
+    notes: memo?.notes ?? null,
+  })
 }
 
 // ─── Create Wizard Panel ──────────────────────────────────────────────────────
@@ -1169,7 +1000,7 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
                 Credit Memo {rma.creditMemo.memoNumber} &mdash; ${parseFloat(rma.creditMemo.total).toFixed(2)} issued on {fmt(rma.creditMemo.createdAt)}
               </span>
               <button
-                onClick={() => generateCreditMemoPDF(rma)}
+                onClick={() => downloadCreditMemoPDFFromRMA(rma)}
                 className="flex items-center gap-1 text-green-700 hover:text-green-900 font-medium"
               >
                 <Download size={12} /> PDF
