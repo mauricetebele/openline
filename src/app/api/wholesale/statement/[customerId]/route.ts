@@ -15,7 +15,7 @@ export async function GET(
   })
   if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const [orders, payments] = await Promise.all([
+  const [orders, payments, creditMemos] = await Promise.all([
     prisma.salesOrder.findMany({
       where: {
         customerId: params.customerId,
@@ -27,12 +27,16 @@ export async function GET(
       where: { customerId: params.customerId },
       orderBy: { paymentDate: 'asc' },
     }),
+    prisma.wholesaleCreditMemo.findMany({
+      where: { customerId: params.customerId },
+      orderBy: { createdAt: 'asc' },
+    }),
   ])
 
   // Build chronological statement lines
   type StatementLine = {
     date: Date
-    type: 'INVOICE' | 'PAYMENT'
+    type: 'INVOICE' | 'PAYMENT' | 'CREDIT_MEMO'
     reference: string
     charges: number
     credits: number
@@ -41,7 +45,7 @@ export async function GET(
 
   const lines: StatementLine[] = []
 
-  // Merge invoices + payments into timeline
+  // Merge invoices + payments + credit memos into timeline
   const events: Array<{ date: Date; line: Omit<StatementLine, 'balance'> }> = [
     ...orders.map((o) => ({
       date: o.orderDate,
@@ -61,6 +65,16 @@ export async function GET(
         reference: p.reference ?? `PMT-${p.id.slice(-6).toUpperCase()}`,
         charges:   0,
         credits:   Number(p.amount),
+      },
+    })),
+    ...creditMemos.map((cm) => ({
+      date: cm.createdAt,
+      line: {
+        date:      cm.createdAt,
+        type:      'CREDIT_MEMO' as const,
+        reference: cm.memoNumber,
+        charges:   0,
+        credits:   Number(cm.total),
       },
     })),
   ].sort((a, b) => a.date.getTime() - b.date.getTime())

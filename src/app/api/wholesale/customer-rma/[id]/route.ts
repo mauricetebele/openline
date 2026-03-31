@@ -27,6 +27,9 @@ const INCLUDE = {
     },
     orderBy: { createdAt: 'asc' as const },
   },
+  creditMemo: {
+    select: { id: true, memoNumber: true, total: true, createdAt: true },
+  },
 }
 
 export async function GET(

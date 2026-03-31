@@ -37,6 +37,13 @@ interface RMAItem {
   product: { id: string; sku: string; description: string }
 }
 
+interface CreditMemoInfo {
+  id: string
+  memoNumber: string
+  total: string
+  createdAt: string
+}
+
 interface CustomerRMA {
   id: string
   rmaNumber: string
@@ -48,6 +55,7 @@ interface CustomerRMA {
   customer: { id: string; companyName: string }
   items: RMAItem[]
   serials: RMASerialRow[]
+  creditMemo: CreditMemoInfo | null
 }
 
 interface Customer { id: string; companyName: string }
@@ -96,14 +104,14 @@ const STATUS_COLOR: Record<RMAStatus, string> = {
 const NEXT_STATUS: Record<RMAStatus, RMAStatus | null> = {
   PENDING:   null, // auto-transitions via receiving
   RECEIVED:  'INSPECTED',
-  INSPECTED: 'REFUNDED',
+  INSPECTED: null, // refunded via credit memo flow
   REFUNDED:  null,
   REJECTED:  null,
 }
 const NEXT_LABEL: Record<RMAStatus, string> = {
   PENDING:   '',
   RECEIVED:  'Mark Inspected',
-  INSPECTED: 'Mark Refunded',
+  INSPECTED: '',
   REFUNDED:  '',
   REJECTED:  '',
 }
@@ -687,6 +695,13 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // Credit memo modal
+  const [cmOpen, setCmOpen] = useState(false)
+  const [cmFee, setCmFee] = useState('')
+  const [cmReason, setCmReason] = useState('')
+  const [cmNotes, setCmNotes] = useState('')
+  const [cmSubmitting, setCmSubmitting] = useState(false)
+
   const loadRMA = useCallback(async () => {
     setLoading(true)
     try {
@@ -789,6 +804,41 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
     }
   }
 
+  async function handleCreditMemo() {
+    if (!rma) return
+    const fee = parseFloat(cmFee) || 0
+    if (fee > 0 && !cmReason.trim()) {
+      setErr('Restocking reason is required when fee > 0')
+      return
+    }
+    setCmSubmitting(true)
+    setErr('')
+    try {
+      const res = await fetch('/api/wholesale/credit-memo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rmaId: rma.id,
+          restockingFee: fee,
+          restockingReason: cmReason.trim() || undefined,
+          notes: cmNotes.trim() || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to generate credit memo')
+      setCmOpen(false)
+      setCmFee('')
+      setCmReason('')
+      setCmNotes('')
+      loadRMA()
+      onUpdated()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to generate credit memo')
+    } finally {
+      setCmSubmitting(false)
+    }
+  }
+
   if (loading) return <div className="py-20 text-center text-sm text-gray-400">Loading...</div>
   if (!rma) return <div className="py-20 text-center text-sm text-gray-400">RMA not found</div>
 
@@ -827,6 +877,14 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
             className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium hover:bg-amazon-blue/90 disabled:opacity-60"
           >
             {advancing ? '...' : NEXT_LABEL[rma.status]}
+          </button>
+        )}
+        {(rma.status === 'RECEIVED' || rma.status === 'INSPECTED') && !rma.creditMemo && (
+          <button
+            onClick={() => setCmOpen(true)}
+            className="h-8 px-3 rounded-md bg-green-600 text-white text-xs font-medium hover:bg-green-700"
+          >
+            Generate Credit Memo
           </button>
         )}
         {rma.status !== 'REJECTED' && rma.status !== 'REFUNDED' && (
@@ -920,8 +978,14 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
             </table>
           </div>
 
-          {/* Credit total */}
-          {rma.creditAmount && (
+          {/* Credit memo info */}
+          {rma.creditMemo && (
+            <div className="flex items-center gap-2 rounded-md bg-green-50 border border-green-200 px-3 py-2 text-xs text-green-700 mb-4">
+              <CheckCircle2 size={14} />
+              Credit Memo {rma.creditMemo.memoNumber} &mdash; ${parseFloat(rma.creditMemo.total).toFixed(2)} issued on {fmt(rma.creditMemo.createdAt)}
+            </div>
+          )}
+          {!rma.creditMemo && rma.creditAmount && (
             <div className="text-xs text-gray-600 mb-4">
               <span className="text-gray-400">Total Credit: </span>
               <span className="font-medium">${parseFloat(rma.creditAmount).toFixed(2)}</span>
@@ -1007,12 +1071,136 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
       )}
 
       {/* All received indicator */}
-      {totalSerials > 0 && receivedCount === totalSerials && (
+      {totalSerials > 0 && receivedCount === totalSerials && !rma.creditMemo && (
         <div className="flex items-center gap-2 rounded-md bg-green-50 border border-green-200 px-3 py-2 text-xs text-green-700 mt-4">
           <CheckCircle2 size={14} />
           All {totalSerials} serial{totalSerials !== 1 ? 's' : ''} received
         </div>
       )}
+
+      {/* Credit Memo Modal */}
+      {cmOpen && rma && (() => {
+        const receivedSerials = rma.serials.filter(s => s.receivedAt)
+        const subtotal = receivedSerials.reduce((sum, s) => sum + parseFloat(s.salePrice ?? '0'), 0)
+        const fee = parseFloat(cmFee) || 0
+        const creditTotal = Math.max(0, subtotal - fee)
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                <h2 className="text-sm font-bold text-gray-800">
+                  Generate Credit Memo &mdash; {rma.rmaNumber}
+                </h2>
+                <button onClick={() => setCmOpen(false)} className="text-gray-400 hover:text-gray-600">
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="px-6 py-4 space-y-4">
+                {/* Line items table */}
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 text-[10px] font-semibold text-gray-400 uppercase">
+                        <th className="text-left px-3 py-2">Serial #</th>
+                        <th className="text-left px-3 py-2">SKU</th>
+                        <th className="text-left px-3 py-2">Grade</th>
+                        <th className="text-right px-3 py-2">Sale Price</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {receivedSerials.map(s => (
+                        <tr key={s.id}>
+                          <td className="px-3 py-2 font-mono text-gray-700">{s.serialNumber}</td>
+                          <td className="px-3 py-2 text-gray-600">{s.product.sku}</td>
+                          <td className="px-3 py-2 text-gray-500">{s.grade?.grade ?? '—'}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">
+                            {s.salePrice ? `$${parseFloat(s.salePrice).toFixed(2)}` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Subtotal */}
+                <div className="flex justify-between text-xs text-gray-600">
+                  <span>Subtotal ({receivedSerials.length} serial{receivedSerials.length !== 1 ? 's' : ''})</span>
+                  <span className="font-medium">${subtotal.toFixed(2)}</span>
+                </div>
+
+                {/* Restocking Fee */}
+                <div className="flex items-center gap-3">
+                  <label className="text-xs text-gray-600 w-28 shrink-0">Restocking Fee</label>
+                  <div className="relative flex-1 max-w-[140px]">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={cmFee}
+                      onChange={e => setCmFee(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full h-8 rounded-md border border-gray-300 pl-6 pr-2 text-xs text-right focus:outline-none focus:ring-1 focus:ring-green-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Restocking Reason */}
+                {(parseFloat(cmFee) || 0) > 0 && (
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs text-gray-600 w-28 shrink-0">Restocking Reason <span className="text-red-400">*</span></label>
+                    <input
+                      value={cmReason}
+                      onChange={e => setCmReason(e.target.value)}
+                      placeholder="Reason for restocking fee..."
+                      className="flex-1 h-8 rounded-md border border-gray-300 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-green-500"
+                    />
+                  </div>
+                )}
+
+                {/* Credit Total */}
+                <div className="flex justify-between items-center py-2 border-t border-gray-200">
+                  <span className="text-sm font-bold text-gray-800">Credit Total</span>
+                  <span className="text-sm font-bold text-green-600">${creditTotal.toFixed(2)}</span>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-600 mb-0.5">Notes (optional)</label>
+                  <textarea
+                    value={cmNotes}
+                    onChange={e => setCmNotes(e.target.value)}
+                    rows={2}
+                    placeholder="Additional notes..."
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+                <button
+                  onClick={() => setCmOpen(false)}
+                  className="h-8 px-4 rounded-md border border-gray-300 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreditMemo}
+                  disabled={cmSubmitting || creditTotal <= 0}
+                  className="h-8 px-4 rounded-md bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-60"
+                >
+                  {cmSubmitting ? '...' : 'Generate Credit Memo'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
