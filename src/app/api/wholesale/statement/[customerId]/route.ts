@@ -99,7 +99,7 @@ export async function GET(
 
   return NextResponse.json({
     customer,
-    lines,
+    lines: lines.reverse(),
     openBalance: Number(openBalance._sum.balance ?? 0),
   })
 }
