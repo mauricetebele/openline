@@ -3,6 +3,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import jsPDF from 'jspdf'
+import { Download } from 'lucide-react'
+import { generateInvoicePDF } from '@/lib/generate-wholesale-invoice'
+import { generateCreditMemoPDF } from '@/lib/generate-credit-memo-pdf'
 
 const SO_STATUS_COLOR: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
@@ -14,7 +17,7 @@ const SO_STATUS_COLOR: Record<string, string> = {
 
 interface StatementLine {
   date: string
-  type: 'INVOICE' | 'PAYMENT'
+  type: 'INVOICE' | 'PAYMENT' | 'CREDIT_MEMO'
   reference: string
   charges: number
   credits: number
@@ -116,6 +119,70 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
     if (tab === 'statement') loadStatement()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
+
+  const [downloading, setDownloading] = useState<string | null>(null)
+
+  async function downloadInvoicePDF(orderNumber: string) {
+    if (!customer) return
+    setDownloading(orderNumber)
+    try {
+      // Find order id from customer's salesOrders
+      const order = customer.salesOrders.find(o => o.orderNumber === orderNumber)
+      if (!order) { toast.error('Order not found'); return }
+      const res = await fetch(`/api/wholesale/orders/${order.id}`)
+      if (!res.ok) { toast.error('Failed to load order'); return }
+      const data = await res.json()
+      generateInvoicePDF(data)
+    } catch {
+      toast.error('Failed to generate invoice PDF')
+    } finally {
+      setDownloading(null)
+    }
+  }
+
+  async function downloadCreditMemoPDF(memoNumber: string) {
+    if (!customer) return
+    setDownloading(memoNumber)
+    try {
+      const res = await fetch(`/api/wholesale/credit-memo?customerId=${customer.id}`)
+      if (!res.ok) { toast.error('Failed to load credit memos'); return }
+      const { data: memos } = await res.json()
+      const memo = memos.find((m: { memoNumber: string }) => m.memoNumber === memoNumber)
+      if (!memo) { toast.error('Credit memo not found'); return }
+
+      // Fetch RMA to get serials
+      const rmaRes = await fetch(`/api/wholesale/customer-rma/${memo.rma.id}`)
+      if (!rmaRes.ok) { toast.error('Failed to load RMA'); return }
+      const rma = await rmaRes.json()
+
+      const receivedSerials = (rma.serials ?? []).filter((s: { receivedAt: string | null }) => s.receivedAt)
+
+      await generateCreditMemoPDF({
+        memoNumber: memo.memoNumber,
+        createdAt: memo.createdAt,
+        customerName: customer.companyName,
+        rmaNumber: memo.rma.rmaNumber,
+        serials: receivedSerials.map((s: { serialNumber: string; product: { sku: string }; grade: { grade: string } | null; salePrice: string | null }) => ({
+          serialNumber: s.serialNumber,
+          sku: s.product.sku,
+          grade: s.grade?.grade ?? null,
+          salePrice: parseFloat(s.salePrice ?? '0'),
+        })),
+        subtotal: parseFloat(memo.subtotal),
+        restockingFee: parseFloat(memo.restockingFee),
+        total: parseFloat(memo.total),
+        allocations: (memo.allocations ?? []).map((a: { amount: string; order: { orderNumber: string } }) => ({
+          orderNumber: a.order.orderNumber,
+          amount: parseFloat(a.amount),
+        })),
+        notes: memo.notes,
+      })
+    } catch {
+      toast.error('Failed to generate credit memo PDF')
+    } finally {
+      setDownloading(null)
+    }
+  }
 
   const fmt = (n: number) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
@@ -254,21 +321,44 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                     <th className="text-right px-5 py-3">Charges</th>
                     <th className="text-right px-5 py-3">Credits</th>
                     <th className="text-right px-5 py-3">Balance</th>
+                    <th className="px-3 py-3 w-10"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {statement.lines.map((line, i) => (
-                    <tr key={i} className={line.type === 'PAYMENT' ? 'bg-green-50/30' : ''}>
+                    <tr key={i} className={line.type === 'PAYMENT' ? 'bg-green-50/30' : line.type === 'CREDIT_MEMO' ? 'bg-purple-50/30' : ''}>
                       <td className="px-5 py-2.5 text-gray-500">{new Date(line.date).toLocaleDateString()}</td>
                       <td className="px-5 py-2.5">
                         <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                          line.type === 'INVOICE' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
-                        }`}>{line.type}</span>
+                          line.type === 'INVOICE' ? 'bg-yellow-100 text-yellow-700'
+                            : line.type === 'CREDIT_MEMO' ? 'bg-purple-100 text-purple-700'
+                            : 'bg-green-100 text-green-700'
+                        }`}>{line.type === 'CREDIT_MEMO' ? 'CREDIT MEMO' : line.type}</span>
                       </td>
                       <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.reference}</td>
                       <td className="px-5 py-2.5 text-right">{line.charges > 0 ? fmt(line.charges) : ''}</td>
                       <td className="px-5 py-2.5 text-right text-green-600">{line.credits > 0 ? fmt(line.credits) : ''}</td>
                       <td className="px-5 py-2.5 text-right font-semibold">{fmt(Number(line.balance))}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        {(line.type === 'INVOICE' || line.type === 'CREDIT_MEMO') && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (line.type === 'INVOICE') downloadInvoicePDF(line.reference)
+                              else downloadCreditMemoPDF(line.reference)
+                            }}
+                            disabled={downloading === line.reference}
+                            className="text-gray-400 hover:text-gray-700 disabled:opacity-40"
+                            title={line.type === 'INVOICE' ? 'Download Invoice PDF' : 'Download Credit Memo PDF'}
+                          >
+                            {downloading === line.reference ? (
+                              <span className="text-xs">...</span>
+                            ) : (
+                              <Download size={14} />
+                            )}
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
