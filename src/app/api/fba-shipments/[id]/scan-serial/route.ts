@@ -72,15 +72,19 @@ export async function POST(
   }> = []
   const errors: string[] = []
 
+  // Batch-fetch all serials at once instead of one-by-one (prevents timeout on large batches)
+  const allSerials = await prisma.inventorySerial.findMany({
+    where: { serialNumber: { in: inputSerials, mode: 'insensitive' } },
+    include: {
+      product: { select: { sku: true } },
+      grade: { select: { grade: true } },
+      fbaShipmentAssignment: { select: { fbaShipmentId: true } },
+    },
+  })
+  const serialMap = new Map(allSerials.map(s => [s.serialNumber.toUpperCase(), s]))
+
   for (const sn of inputSerials) {
-    const serial = await prisma.inventorySerial.findFirst({
-      where: { serialNumber: { equals: sn, mode: 'insensitive' } },
-      include: {
-        product: { select: { sku: true } },
-        grade: { select: { grade: true } },
-        fbaShipmentAssignment: { select: { fbaShipmentId: true } },
-      },
-    })
+    const serial = serialMap.get(sn.toUpperCase())
 
     if (!serial) { errors.push(`"${sn}" not found`); continue }
     if (serial.status !== 'IN_STOCK') { errors.push(`"${sn}" not in stock (${serial.status})`); continue }
@@ -131,25 +135,23 @@ export async function POST(
   // For bulk, write what we can and report errors
   if (resolved.length > 0) {
     await prisma.$transaction(async tx => {
-      for (const r of resolved) {
-        await tx.fbaShipmentSerialAssignment.create({
-          data: {
-            fbaShipmentId: params.id,
-            fbaShipmentItemId: r.itemId,
-            inventorySerialId: r.serialId,
-          },
-        })
-        await tx.serialHistory.create({
-          data: {
-            inventorySerialId: r.serialId,
-            eventType: 'ASSIGNED',
-            fbaShipmentId: params.id,
-            locationId: r.locationId,
-            userId: user.dbId,
-            notes: `Scanned for ${shipment.shipmentNumber ?? 'FBA shipment'}`,
-          },
-        })
-      }
+      await tx.fbaShipmentSerialAssignment.createMany({
+        data: resolved.map(r => ({
+          fbaShipmentId: params.id,
+          fbaShipmentItemId: r.itemId,
+          inventorySerialId: r.serialId,
+        })),
+      })
+      await tx.serialHistory.createMany({
+        data: resolved.map(r => ({
+          inventorySerialId: r.serialId,
+          eventType: 'ASSIGNED',
+          fbaShipmentId: params.id,
+          locationId: r.locationId,
+          userId: user.dbId,
+          notes: `Scanned for ${shipment.shipmentNumber ?? 'FBA shipment'}`,
+        })),
+      })
     })
   }
 

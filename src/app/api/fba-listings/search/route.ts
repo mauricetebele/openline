@@ -55,7 +55,12 @@ export async function GET(req: NextRequest) {
       marketplace: 'amazon',
       accountId,
     },
-    include: {
+    select: {
+      id: true,
+      sellerSku: true,
+      productId: true,
+      gradeId: true,
+      fnsku: true,
       product: { select: { id: true, sku: true, description: true } },
       grade: { select: { id: true, grade: true } },
     },
@@ -71,7 +76,7 @@ export async function GET(req: NextRequest) {
       return {
         id: l.id,
         sku: l.sku,
-        fnsku: l.fnsku,
+        fnsku: l.fnsku || msku.fnsku || null,
         asin: l.asin,
         productTitle: l.productTitle,
         quantity: l.quantity,
