@@ -1,6 +1,7 @@
 /**
- * Orders sync — fetches Pending, Unshipped, and PartiallyShipped MFN orders
- * from SP-API and upserts them (with line items) into the DB.
+ * Orders sync — fetches MFN (Pending/Unshipped/PartiallyShipped) and
+ * AFN/FBA (Pending/Unshipped/Shipped) orders from SP-API and upserts them
+ * (with line items) into the DB. AFN orders are created as SHIPPED.
  *
  * Orders API:      GET /orders/v0/orders              — burst 20, then 0.0167 req/s
  * Order detail:    GET /orders/v0/orders/{id}         — burst 30, then 1 req/s
@@ -304,7 +305,61 @@ export async function syncUnshippedOrders(
       } while (nextToken)
     }
 
-    console.log(`[SyncOrders] Total orders fetched: ${allOrders.length} (${isIncremental ? 'incremental' : 'full'} sync, ${pagesFetched} pages)`)
+    // ── AFN (FBA) orders — separate fetch since they need 'Shipped' status ──
+    let afnNextToken: string | undefined
+    let afnPagesFetched = 0
+
+    if (isIncremental) {
+      const lastUpdatedAfter = new Date(lastSuccessfulSync.completedAt!.getTime() - 5 * 60 * 1000).toISOString()
+      do {
+        const params: Record<string, string> = {
+          MarketplaceIds:      account.marketplaceId,
+          OrderStatuses:       'Pending,Unshipped,Shipped',
+          FulfillmentChannels: 'AFN',
+          LastUpdatedAfter:    lastUpdatedAfter,
+          MaxResultsPerPage:   '100',
+        }
+        if (afnNextToken) params.NextToken = afnNextToken
+        console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (AFN incremental page ${afnPagesFetched + 1})`)
+        const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
+        afnPagesFetched++
+        if (resp?.errors?.length) {
+          const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
+          throw new Error(`SP-API AFN returned errors: ${errMsg}`)
+        }
+        const ordersOnPage = resp?.payload?.Orders ?? []
+        console.log(`[SyncOrders] AFN incremental page ${afnPagesFetched} returned ${ordersOnPage.length} orders`)
+        allOrders.push(...ordersOnPage)
+        afnNextToken = resp?.payload?.NextToken
+        if (afnNextToken && (pagesFetched + afnPagesFetched) >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
+      } while (afnNextToken)
+    } else {
+      const createdAfter = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+      do {
+        const params: Record<string, string> = {
+          MarketplaceIds:      account.marketplaceId,
+          OrderStatuses:       'Pending,Unshipped,Shipped',
+          FulfillmentChannels: 'AFN',
+          CreatedAfter:        createdAfter,
+          MaxResultsPerPage:   '100',
+        }
+        if (afnNextToken) params.NextToken = afnNextToken
+        console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (AFN page ${afnPagesFetched + 1})`)
+        const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
+        afnPagesFetched++
+        if (resp?.errors?.length) {
+          const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
+          throw new Error(`SP-API AFN returned errors: ${errMsg}`)
+        }
+        const ordersOnPage = resp?.payload?.Orders ?? []
+        console.log(`[SyncOrders] AFN page ${afnPagesFetched} returned ${ordersOnPage.length} orders`)
+        allOrders.push(...ordersOnPage)
+        afnNextToken = resp?.payload?.NextToken
+        if (afnNextToken && (pagesFetched + afnPagesFetched) >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
+      } while (afnNextToken)
+    }
+
+    console.log(`[SyncOrders] Total orders fetched: ${allOrders.length} (${isIncremental ? 'incremental' : 'full'} sync, ${pagesFetched} MFN + ${afnPagesFetched} AFN pages)`)
     await prisma.orderSyncJob.update({ where: { id: jobId }, data: { totalFound: allOrders.length } })
 
     // ── Pre-load existing orders to avoid per-order DB lookups and skip ──────
@@ -361,6 +416,8 @@ export async function syncUnshippedOrders(
       }
 
       const addr = fullOrder.ShippingAddress
+      const isAfn = fullOrder.FulfillmentChannel === 'AFN'
+      const isAfnShipped = isAfn && fullOrder.OrderStatus === 'Shipped'
 
       const orderRecord = await (async () => {
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -372,7 +429,8 @@ export async function syncUnshippedOrders(
                 amazonOrderId: o.AmazonOrderId!,
                 olmNumber: isNew ? await nextOlmNumber() : undefined,
                 orderStatus:             fullOrder.OrderStatus ?? 'Unknown',
-                workflowStatus:          'PENDING',
+                workflowStatus:          isAfnShipped ? 'SHIPPED' : 'PENDING',
+                ...(isAfnShipped ? { shippedAt: new Date(fullOrder.LastUpdateDate ?? fullOrder.PurchaseDate ?? Date.now()) } : {}),
                 purchaseDate:            new Date(fullOrder.PurchaseDate ?? Date.now()),
                 lastUpdateDate:          new Date(fullOrder.LastUpdateDate ?? Date.now()),
                 orderTotal:              fullOrder.OrderTotal?.Amount ? parseFloat(fullOrder.OrderTotal.Amount) : null,
