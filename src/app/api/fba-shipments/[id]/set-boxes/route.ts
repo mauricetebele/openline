@@ -94,7 +94,7 @@ export async function POST(
           msku: item.sellerSku,
           fnSku: item.fnsku,
           quantity: bi.quantity,
-          prepOwner: 'SELLER' as const,
+          prepOwner: 'NONE' as const,
           labelOwner: 'SELLER' as const,
         }
       }),

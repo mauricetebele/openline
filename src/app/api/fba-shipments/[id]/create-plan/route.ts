@@ -68,7 +68,7 @@ export async function POST(
         asin: item.asin ?? '',
         labelOwner: 'SELLER' as const,
         quantity: item.quantity,
-        prepOwner: 'SELLER' as const,
+        prepOwner: 'NONE' as const,
       })),
       marketplaceIds: [shipment.account.marketplaceId],
     })
