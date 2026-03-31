@@ -164,7 +164,6 @@ export async function POST(req: NextRequest) {
 
         const mapped = v2Rates
           .filter(r => r.validation_status !== 'invalid' && !r.error_messages?.length)
-          .filter(r => !r.package_type || r.package_type === 'package') // exclude flat rate envelopes/boxes
           .map(r => ({
             serviceName:  r.service_type || r.service_code,
             serviceCode:  r.service_code,

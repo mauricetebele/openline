@@ -241,7 +241,6 @@ export async function POST(req: NextRequest) {
               const allRates = v2Result.rate_response?.rates ?? []
               const v2Rates  = allRates
                 .filter(r => r.validation_status !== 'invalid')
-                .filter(r => !r.package_type || r.package_type === 'package') // exclude flat rate envelopes/boxes
 
               console.log('[apply-preset] order=%s v2 rates total=%d valid=%d', order.amazonOrderId, allRates.length, v2Rates.length)
 
