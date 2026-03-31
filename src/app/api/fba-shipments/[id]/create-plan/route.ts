@@ -51,27 +51,53 @@ export async function POST(
 
   try {
     // 1. Create inbound plan
-    const planResp = await createInboundPlan(shipment.accountId, {
-      sourceAddress: {
-        name: wh.name,
-        addressLine1: wh.addressLine1,
-        addressLine2: wh.addressLine2 ?? undefined,
-        city: wh.city,
-        stateOrProvinceCode: wh.state,
-        postalCode: wh.postalCode,
-        countryCode: wh.countryCode,
-        phoneNumber: wh.phone ?? undefined,
-      },
-      items: shipment.items.map(item => ({
-        msku: item.sellerSku,
-        fnsku: item.fnsku,
-        asin: item.asin ?? '',
-        labelOwner: 'SELLER' as const,
-        quantity: item.quantity,
-        prepOwner: 'NONE' as const,
-      })),
-      marketplaceIds: [shipment.account.marketplaceId],
-    })
+    // Some items need prep (SELLER/AMAZON) and some don't (NONE).
+    // Strategy: try with NONE, if Amazon rejects, parse errors and retry with SELLER for items that need it.
+    const sourceAddress = {
+      name: wh.name,
+      addressLine1: wh.addressLine1,
+      addressLine2: wh.addressLine2 ?? undefined,
+      city: wh.city,
+      stateOrProvinceCode: wh.state,
+      postalCode: wh.postalCode,
+      countryCode: wh.countryCode,
+      phoneNumber: wh.phone ?? undefined,
+    }
+    const marketplaceIds = [shipment.account.marketplaceId]
+
+    // Track per-item prepOwner; start with NONE for all
+    const prepOwners = new Map<string, 'NONE' | 'SELLER' | 'AMAZON'>(
+      shipment.items.map(item => [item.sellerSku, 'NONE']),
+    )
+
+    const buildItems = () => shipment.items.map(item => ({
+      msku: item.sellerSku,
+      fnsku: item.fnsku,
+      asin: item.asin ?? '',
+      labelOwner: 'SELLER' as const,
+      quantity: item.quantity,
+      prepOwner: prepOwners.get(item.sellerSku) ?? 'NONE' as const,
+    }))
+
+    let planResp
+    try {
+      planResp = await createInboundPlan(shipment.accountId, { sourceAddress, items: buildItems(), marketplaceIds })
+    } catch (firstErr) {
+      const errMsg = firstErr instanceof Error ? firstErr.message : String(firstErr)
+      // Parse prepOwner errors: "ERROR: {msku} requires prepOwner but NONE was assigned"
+      // or: "{msku} does not require prepOwner but SELLER was assigned"
+      const requiresPrep = /(\S+)\s+requires prepOwner but NONE/g
+      const noPrep = /(\S+)\s+does not require prepOwner but (?:SELLER|AMAZON)/g
+      let matched = false
+      let m
+      while ((m = requiresPrep.exec(errMsg)) !== null) { prepOwners.set(m[1], 'SELLER'); matched = true }
+      while ((m = noPrep.exec(errMsg)) !== null) { prepOwners.set(m[1], 'NONE'); matched = true }
+
+      if (!matched) throw firstErr // Not a prepOwner error, rethrow
+
+      // Retry with corrected prepOwners
+      planResp = await createInboundPlan(shipment.accountId, { sourceAddress, items: buildItems(), marketplaceIds })
+    }
 
     await pollOperationStatus(shipment.accountId, planResp.operationId)
 
