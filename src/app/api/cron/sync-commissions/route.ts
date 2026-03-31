@@ -34,7 +34,8 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Backfill pass: catch orders that never got commissions synced ───────────
-  // Find the oldest un-synced shipped Amazon order and widen the window to cover it.
+  // Find the oldest un-synced shipped Amazon order and widen the window, capped
+  // at 30 days to stay within Vercel's 300s function timeout.
   const oldestUnsyncced = await prisma.order.findFirst({
     where: {
       orderSource: 'amazon',
@@ -45,7 +46,11 @@ export async function GET(req: NextRequest) {
     select: { purchaseDate: true },
   })
   if (oldestUnsyncced) {
-    const backfillStart = new Date(oldestUnsyncced.purchaseDate.getTime() - 24 * 60 * 60 * 1000)
+    const MAX_BACKFILL_DAYS = 30
+    const backfillStart = new Date(Math.max(
+      oldestUnsyncced.purchaseDate.getTime() - 24 * 60 * 60 * 1000,
+      end.getTime() - MAX_BACKFILL_DAYS * 24 * 60 * 60 * 1000,
+    ))
     // Only run if it's outside the normal 14-day window
     if (backfillStart < start) {
       for (const account of accounts) {
