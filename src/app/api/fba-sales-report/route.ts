@@ -294,8 +294,9 @@ export async function GET(req: NextRequest) {
       const itemCommission = totalCommission * proportion
       const itemFbaFee = totalFbaFee * proportion
 
-      const profit = salePrice - itemCogs - itemCostCode - itemCommission - itemFbaFee
-      const margin = salePrice > 0 ? (profit / salePrice) * 100 : 0
+      const isRepl = order.isReplacement === true
+      const profit = isRepl ? 0 : salePrice - itemCogs - itemCostCode - itemCommission - itemFbaFee
+      const margin = isRepl ? 0 : salePrice > 0 ? (profit / salePrice) * 100 : 0
 
       itemRows.push({
         orderId: order.id,
@@ -306,14 +307,14 @@ export async function GET(req: NextRequest) {
         productName,
         grade,
         quantity: item.quantityOrdered,
-        isReplacement: order.isReplacement === true,
-        salePrice: Math.round(salePrice * 100) / 100,
-        cogs: Math.round(itemCogs * 100) / 100,
-        costCode: Math.round(itemCostCode * 100) / 100,
-        commission: Math.round(itemCommission * 100) / 100,
-        fbaFee: Math.round(itemFbaFee * 100) / 100,
-        profit: Math.round(profit * 100) / 100,
-        margin: Math.round(margin * 10) / 10,
+        isReplacement: isRepl,
+        salePrice: isRepl ? 0 : Math.round(salePrice * 100) / 100,
+        cogs: isRepl ? 0 : Math.round(itemCogs * 100) / 100,
+        costCode: isRepl ? 0 : Math.round(itemCostCode * 100) / 100,
+        commission: isRepl ? 0 : Math.round(itemCommission * 100) / 100,
+        fbaFee: isRepl ? 0 : Math.round(itemFbaFee * 100) / 100,
+        profit: isRepl ? 0 : Math.round(profit * 100) / 100,
+        margin: isRepl ? 0 : Math.round(margin * 10) / 10,
       })
     }
   }

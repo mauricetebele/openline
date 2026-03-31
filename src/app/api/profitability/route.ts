@@ -316,7 +316,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const netProfit = saleValue + customerShipping - totalCogs - commission - shippingCost - costCodeDeductions
+    const isRepl = order.isReplacement === true
+    const netProfit = isRepl ? 0 : saleValue + customerShipping - totalCogs - commission - shippingCost - costCodeDeductions
 
     rows.push({
       id: order.id,
@@ -324,14 +325,14 @@ export async function GET(req: NextRequest) {
       marketplaceOrderId: order.amazonOrderId,
       source: order.orderSource,
       orderDate: (order.shippedAt ?? order.purchaseDate).toISOString(),
-      isReplacement: order.isReplacement === true,
-      saleValue: Math.round(saleValue * 100) / 100,
-      totalCogs: Math.round(totalCogs * 100) / 100,
-      commission: Math.round(commission * 100) / 100,
-      customerShipping: Math.round(customerShipping * 100) / 100,
-      shippingCost: Math.round(shippingCost * 100) / 100,
-      costCodeDeductions: Math.round(costCodeDeductions * 100) / 100,
-      netProfit: Math.round(netProfit * 100) / 100,
+      isReplacement: isRepl,
+      saleValue: isRepl ? 0 : Math.round(saleValue * 100) / 100,
+      totalCogs: isRepl ? 0 : Math.round(totalCogs * 100) / 100,
+      commission: isRepl ? 0 : Math.round(commission * 100) / 100,
+      customerShipping: isRepl ? 0 : Math.round(customerShipping * 100) / 100,
+      shippingCost: isRepl ? 0 : Math.round(shippingCost * 100) / 100,
+      costCodeDeductions: isRepl ? 0 : Math.round(costCodeDeductions * 100) / 100,
+      netProfit: isRepl ? 0 : Math.round(netProfit * 100) / 100,
       commissionSynced,
     })
   }
