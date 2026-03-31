@@ -347,13 +347,14 @@ async function downloadCreditMemoPDFFromRMA(rma: CustomerRMA) {
     }
   } catch { /* use basic info */ }
 
-  // Fetch customer billing address
+  // Fetch customer billing address from addresses array
   let billingAddress: { addressLine1: string; addressLine2?: string | null; city: string; state: string; postalCode: string } | null = null
   try {
     const res = await fetch(`/api/wholesale/customers/${rma.customer.id}`)
     if (res.ok) {
       const cust = await res.json()
-      if (cust.billingAddress) billingAddress = cust.billingAddress
+      const addr = (cust.addresses ?? []).find((a: { type: string }) => a.type === 'BILLING')
+      if (addr) billingAddress = addr
     }
   } catch { /* skip */ }
 

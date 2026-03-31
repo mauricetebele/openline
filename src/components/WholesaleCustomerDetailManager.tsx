@@ -151,17 +151,18 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
       if (!memo) { toast.error('Credit memo not found'); return }
 
       // Fetch RMA to get serials
-      const rmaRes = await fetch(`/api/wholesale/customer-rma/${memo.rma.id}`)
+      const rmaRes = await fetch(`/api/wholesale/customer-rma/${memo.rmaId ?? memo.rma?.id}`)
       if (!rmaRes.ok) { toast.error('Failed to load RMA'); return }
       const rma = await rmaRes.json()
 
-      // Fetch customer billing address
+      // Fetch customer billing address from addresses array
       let billingAddress: { addressLine1: string; addressLine2?: string | null; city: string; state: string; postalCode: string } | null = null
       try {
         const custRes = await fetch(`/api/wholesale/customers/${customer.id}`)
         if (custRes.ok) {
           const cust = await custRes.json()
-          if (cust.billingAddress) billingAddress = cust.billingAddress
+          const addr = (cust.addresses ?? []).find((a: { type: string }) => a.type === 'BILLING')
+          if (addr) billingAddress = addr
         }
       } catch { /* skip */ }
 
@@ -171,19 +172,20 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
         memoNumber: memo.memoNumber,
         createdAt: memo.createdAt,
         customerName: customer.companyName,
-        rmaNumber: memo.rma.rmaNumber,
+        rmaNumber: memo.rma?.rmaNumber ?? rma.rmaNumber ?? memoNumber,
         billingAddress,
-        serials: receivedSerials.map((s: { serialNumber: string; product: { sku: string }; salePrice: string | null }) => ({
+        serials: receivedSerials.map((s: { serialNumber: string; product?: { sku: string }; sku?: string; salePrice: string | null }) => ({
           serialNumber: s.serialNumber,
-          sku: s.product.sku,
+          sku: s.product?.sku ?? s.sku ?? '',
           salePrice: parseFloat(s.salePrice ?? '0'),
         })),
-        subtotal: parseFloat(memo.subtotal),
-        restockingFee: parseFloat(memo.restockingFee),
-        total: parseFloat(memo.total),
-        notes: memo.notes,
+        subtotal: parseFloat(memo.subtotal ?? '0'),
+        restockingFee: parseFloat(memo.restockingFee ?? '0'),
+        total: parseFloat(memo.total ?? '0'),
+        notes: memo.notes ?? null,
       })
-    } catch {
+    } catch (err) {
+      console.error('Credit memo PDF error:', err)
       toast.error('Failed to generate credit memo PDF')
     } finally {
       setDownloading(null)
