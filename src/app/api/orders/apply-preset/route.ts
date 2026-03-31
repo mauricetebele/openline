@@ -104,6 +104,20 @@ export async function POST(req: NextRequest) {
   console.log('[apply-preset] warehouse=%s fromPostal=%s carrier=%s service=%s orders=%d isAmazon=%s',
     warehouse.warehouseName, fromPostalCode, preset.carrierCode, preset.serviceCode ?? '(cheapest)', orders.length, isAmazonCarrier)
 
+  // Fetch all V2 carrier IDs for Amazon Buy Shipping (includes UPS, USPS, etc.)
+  let v2CarrierIds: string[] = []
+  if (isAmazonCarrier && v2ApiKey) {
+    try {
+      const v2Carriers = await client.getV2Carriers()
+      v2CarrierIds = (v2Carriers.carriers ?? []).map(c => String(c.carrier_id))
+    } catch {
+      if (ssAccount.amazonCarrierId) v2CarrierIds = [ssAccount.amazonCarrierId]
+    }
+  } else if (isAmazonCarrier && ssAccount.amazonCarrierId) {
+    v2CarrierIds = [ssAccount.amazonCarrierId]
+  }
+  console.log('[apply-preset] v2CarrierIds=%o', v2CarrierIds)
+
   // ── All setup done — switch to streaming ────────────────────────────────────
   const encoder = new TextEncoder()
 
@@ -185,15 +199,15 @@ export async function POST(req: NextRequest) {
             }
 
             if (useAmazonV2) {
-              if (!ssAccount.amazonCarrierId) {
-                throw new Error('Amazon carrier ID not configured in ShipStation Settings')
+              if (v2CarrierIds.length === 0) {
+                throw new Error('No Amazon Buy Shipping carriers found — check ShipStation Settings')
               }
 
               const wtUnit  = singularUnit(preset.weightUnit) as 'ounce' | 'pound' | 'gram' | 'kilogram'
               const dimUnit = singularUnit(preset.dimUnit) as 'inch' | 'centimeter'
 
               const v2Payload: V2RatesRequest = {
-                rate_options: { carrier_ids: [ssAccount.amazonCarrierId] },
+                rate_options: { carrier_ids: v2CarrierIds },
                 shipment: {
                   ...(shipDate ? { ship_date: `${shipDate}` } : {}),
                   ship_from: {
