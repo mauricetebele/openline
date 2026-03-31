@@ -57,6 +57,8 @@ export async function GET(req: NextRequest) {
       // Exclude Amazon Pending-payment orders from the grid — they exist only
       // for background available-qty calculation, not for fulfillment.
       orderStatus: { not: 'Pending' },
+      // Exclude FBA orders — Amazon fulfills these, not us
+      fulfillmentChannel: { not: 'AFN' },
     }
 
     if (search) {
