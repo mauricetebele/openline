@@ -58,10 +58,13 @@ export async function GET(req: NextRequest) {
   ])
 
   return NextResponse.json({
-    pending:      pending + wsPending,
-    unshipped:    unshipped + wsUnshipped,
+    pending,
+    unshipped,
     awaiting,
     dueOutToday,
-    shippedToday: shippedToday + wsShippedToday,
+    shippedToday,
+    wsPending,
+    wsUnshipped,
+    wsShippedToday,
   })
 }
