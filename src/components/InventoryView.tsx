@@ -1099,7 +1099,7 @@ function RegradeModal({ warehouses, onClose }: {
   }
 
   const selectedSerials = results?.found.filter(s => selected.has(s.id)) ?? []
-  const canRegradeSerial = someSelected && !!toGradeId && !submitting
+  const canRegradeSerial = someSelected && toGradeId !== '' && !submitting
 
   async function handleRegradeSerials() {
     setSubmitting(true)
@@ -1108,7 +1108,7 @@ function RegradeModal({ warehouses, onClose }: {
       const res  = await fetch('/api/inventory/regrade', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ type: 'serial', serialIds: Array.from(selected), toGradeId: toGradeId || null }),
+        body:    JSON.stringify({ type: 'serial', serialIds: Array.from(selected), toGradeId: toGradeId === '__REMOVE__' ? null : (toGradeId || null) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Regrade failed')
@@ -1198,7 +1198,7 @@ function RegradeModal({ warehouses, onClose }: {
   }
 
   const filteredLocations = warehouses.find(w => w.id === warehouseId)?.locations ?? []
-  const canSubmitItem = !!itemProduct && !!locationId && !!fromGradeId && !!toItemGradeId && fromGradeId !== toItemGradeId && qtyNum >= 1 && !submitting
+  const canSubmitItem = !!itemProduct && !!locationId && !!fromGradeId && toItemGradeId !== '' && fromGradeId !== toItemGradeId && qtyNum >= 1 && !submitting
 
   async function handleRegradeItem() {
     if (!canSubmitItem) return
@@ -1214,7 +1214,7 @@ function RegradeModal({ warehouses, onClose }: {
           productId:   itemProduct!.id,
           locationId,
           fromGradeId: fromGradeId || null,
-          toGradeId:   toItemGradeId || null,
+          toGradeId:   toItemGradeId === '__REMOVE__' ? null : (toItemGradeId || null),
           qty:         qtyNum,
         }),
       })
@@ -1373,6 +1373,7 @@ function RegradeModal({ warehouses, onClose }: {
                       <select value={toGradeId} onChange={e => setToGradeId(e.target.value)}
                         className="h-8 flex-1 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <option value="">Select grade…</option>
+                        <option value="__REMOVE__">Remove Grade</option>
                         {gradeOptions.map(g => (
                           <option key={g.id} value={g.id}>{g.grade}{g.description ? ` — ${g.description}` : ''}</option>
                         ))}
@@ -1480,6 +1481,7 @@ function RegradeModal({ warehouses, onClose }: {
                       <select value={toItemGradeId} onChange={e => setToItemGradeId(e.target.value)}
                         className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <option value="">Select…</option>
+                        <option value="__REMOVE__">Remove Grade</option>
                         {itemGrades.filter(g => g.id !== fromGradeId).map(g => (
                           <option key={g.id} value={g.id}>{g.grade}{g.description ? ` — ${g.description}` : ''}</option>
                         ))}
