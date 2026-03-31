@@ -143,9 +143,10 @@ export async function GET(req: NextRequest) {
     },
   } as const
 
-  // ── Marketplace orders (SHIPPED) ────────────────────────────────────────
+  // ── Marketplace orders (SHIPPED, exclude FBA — those go to FBA Sales Report)
   const marketplaceWhere = {
     workflowStatus: 'SHIPPED' as const,
+    fulfillmentChannel: { not: 'AFN' },
     OR: [
       { shippedAt: { gte: dateFrom, lte: dateTo } },
       { shippedAt: null, purchaseDate: { gte: dateFrom, lte: dateTo } },
