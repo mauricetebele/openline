@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { decrypt } from '@/lib/crypto'
 import { ShipStationClient, SSRate, V2RatesRequest } from '@/lib/shipstation/client'
+import { SpApiClient } from '@/lib/amazon/sp-api'
 
 export const dynamic = 'force-dynamic'
 
@@ -224,5 +225,75 @@ export async function POST(req: NextRequest) {
 
 
   allRates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))
-  return NextResponse.json({ rates: allRates, errors: rateErrors })
+
+  // ── Amazon SP-API MerchantFulfillment (Amazon Buy Shipping rates incl. UPS) ──
+  let amazonServices: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number }[] | undefined
+  if (isAmazonOrder && body.amazonOrderId) {
+    try {
+      const order = await prisma.order.findFirst({
+        where: { amazonOrderId: body.amazonOrderId },
+        select: { accountId: true, amazonOrderId: true, items: { select: { orderItemId: true, quantityOrdered: true } } },
+      })
+      if (order) {
+        const spClient = new SpApiClient(order.accountId)
+        const mfnPayload = {
+          ShipmentRequestDetails: {
+            AmazonOrderId: order.amazonOrderId,
+            ItemList: order.items.map(item => ({
+              OrderItemId: item.orderItemId,
+              Quantity: item.quantityOrdered,
+            })),
+            ShipFromAddress: {
+              Name: body.fromName ?? 'Warehouse',
+              AddressLine1: body.fromAddress1 ?? '',
+              City: body.fromCity ?? '',
+              StateOrProvinceCode: body.fromState ?? '',
+              PostalCode: body.fromPostalCode,
+              CountryCode: body.fromCountry ?? 'US',
+              Phone: body.fromPhone ?? '555-555-5555',
+            },
+            PackageDimensions: {
+              Length: body.dimensions.length,
+              Width: body.dimensions.width,
+              Height: body.dimensions.height,
+              Unit: body.dimensions.units === 'inches' ? 'inches' : body.dimensions.units,
+            },
+            Weight: {
+              Value: body.weight.units === 'pounds'
+                ? body.weight.value * 16  // SP-API expects ounces
+                : body.weight.value,
+              Unit: 'ounces',
+            },
+            ShippingServiceOptions: {
+              DeliveryExperience: 'DeliveryConfirmationWithoutSignature',
+              CarrierWillPickUp: false,
+              CarrierWillPickUpOption: 'ShipperWillDropOff',
+            },
+          },
+        }
+        const resp = await spClient.post('/mfn/v0/eligibleShippingServices', mfnPayload)
+        const payload = (resp as Record<string, unknown>)?.payload as { ShippingServiceList?: Array<{
+          ShippingServiceId: string; ShippingServiceName: string
+          CarrierName: string; Rate?: { Amount?: number; CurrencyCode?: string }
+        }> } | undefined
+        const services = payload?.ShippingServiceList ?? []
+        if (services.length > 0) {
+          amazonServices = services.map(s => ({
+            code: s.ShippingServiceId,
+            name: s.ShippingServiceName,
+            carrierCode: s.CarrierName,
+            carrierName: s.CarrierName,
+            shipmentCost: s.Rate?.Amount,
+          }))
+          console.log('[rate-shop] SP-API MFN: %d services', amazonServices.length)
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[rate-shop] SP-API MFN error:', msg)
+      // Don't block response — amazonServices will just be undefined
+    }
+  }
+
+  return NextResponse.json({ rates: allRates, errors: rateErrors, amazonServices })
 }
