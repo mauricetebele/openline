@@ -94,19 +94,8 @@ export async function POST(req: NextRequest) {
   const from           = warehouse.originAddress
   const fromPostalCode = from.postalCode.split('-')[0].trim()
 
-  // Fetch all V2 carrier IDs for Amazon Buy Shipping (includes UPS, USPS, etc.)
-  let v2CarrierIds: string[] = []
-  if (v2ApiKey) {
-    try {
-      const v2Carriers = await client.getV2Carriers()
-      v2CarrierIds = (v2Carriers.carriers ?? []).map(c => String(c.carrier_id))
-    } catch {
-      if (ssAccount.amazonCarrierId) v2CarrierIds = [ssAccount.amazonCarrierId]
-    }
-  } else if (ssAccount.amazonCarrierId) {
-    v2CarrierIds = [ssAccount.amazonCarrierId]
-  }
-  console.log('[rate-shop-applied-presets] v2CarrierIds=%o', v2CarrierIds)
+  const amazonV2CarrierId = ssAccount.amazonCarrierId ?? null
+  console.log('[rate-shop-applied-presets] amazonV2CarrierId=%s', amazonV2CarrierId)
 
   const encoder = new TextEncoder()
 
@@ -196,12 +185,12 @@ export async function POST(req: NextRequest) {
             const orderIsAmazon = order.orderSource !== 'backmarket'
 
             if (orderIsAmazon) {
-              if (v2CarrierIds.length === 0) {
-                throw new Error('No Amazon Buy Shipping carriers found — check ShipStation Settings')
+              if (!amazonV2CarrierId) {
+                throw new Error('Amazon carrier ID not configured — go to ShipStation Settings')
               }
 
               const v2Payload: V2RatesRequest = {
-                rate_options: { carrier_ids: v2CarrierIds },
+                rate_options: { carrier_ids: [amazonV2CarrierId] },
                 shipment: {
                   ...(shipDate ? { ship_date: `${shipDate}` } : {}),
                   ship_from: {

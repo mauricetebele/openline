@@ -90,22 +90,11 @@ export async function POST(req: NextRequest) {
 
   console.log('[rate-shop] v1 carriers:', carriers.map(c => c.code))
 
-  // Fetch ALL V2 carrier IDs (Amazon Shipping, UPS via Buy Shipping, etc.)
-  let amazonV2CarrierIds: string[] = []
-  if (v2ApiKey) {
-    try {
-      const v2Carriers = await client.getV2Carriers()
-      amazonV2CarrierIds = (v2Carriers.carriers ?? []).map(c => String(c.carrier_id))
-      console.log('[rate-shop] V2 carriers:', amazonV2CarrierIds)
-    } catch (err) {
-      console.error('[rate-shop] Failed to fetch V2 carriers:', err instanceof Error ? err.message : err)
-      // Fall back to saved single carrier ID
-      if (account.amazonCarrierId) amazonV2CarrierIds = [account.amazonCarrierId]
-    }
-  } else if (account.amazonCarrierId) {
-    amazonV2CarrierIds = [account.amazonCarrierId]
-  }
-  console.log('[rate-shop] amazonV2CarrierIds=%o', amazonV2CarrierIds)
+  // Use only the Amazon Buy Shipping carrier ID for V2 rates.
+  // Amazon Buy Shipping returns rates from all carriers linked in Seller Central
+  // (including UPS) through its own carrier ID — no need to send other V2 IDs.
+  const amazonV2CarrierId = account.amazonCarrierId ?? null
+  console.log('[rate-shop] amazonV2CarrierId=%s', amazonV2CarrierId)
 
   const rateErrors: string[] = []
   const allRates: (SSRate & { carrierName: string })[] = []
@@ -120,8 +109,8 @@ export async function POST(req: NextRequest) {
 
     if (isAmzCarrier) {
       // ── Amazon Buy Shipping → V2 API ──────────────────────────────────
-      if (amazonV2CarrierIds.length === 0) {
-        rateErrors.push('Amazon Buy Shipping: no V2 carriers found — check ShipStation Settings')
+      if (!amazonV2CarrierId) {
+        rateErrors.push('Amazon Buy Shipping: no carrier ID configured — set it in ShipStation Settings')
         return
       }
 
@@ -129,7 +118,7 @@ export async function POST(req: NextRequest) {
       const dimUnit = singularUnit(body.dimensions.units) as 'inch' | 'centimeter'
 
       const v2Payload: V2RatesRequest = {
-        rate_options: { carrier_ids: amazonV2CarrierIds },
+        rate_options: { carrier_ids: [amazonV2CarrierId] },
         shipment: {
           ...(body.shipDate ? { ship_date: `${body.shipDate}` } : {}),
           ship_from: {
