@@ -3,13 +3,7 @@ import jsPDF from 'jspdf'
 interface CreditMemoSerial {
   serialNumber: string
   sku: string
-  grade: string | null
   salePrice: number
-}
-
-interface CreditMemoAllocation {
-  orderNumber: string
-  amount: number
 }
 
 export interface CreditMemoPDFData {
@@ -17,11 +11,11 @@ export interface CreditMemoPDFData {
   createdAt: string
   customerName: string
   rmaNumber: string
+  billingAddress?: { addressLine1: string; addressLine2?: string | null; city: string; state: string; postalCode: string } | null
   serials: CreditMemoSerial[]
   subtotal: number
   restockingFee: number
   total: number
-  allocations: CreditMemoAllocation[]
   notes: string | null
 }
 
@@ -30,189 +24,232 @@ function fmtDate(d: string) {
 }
 
 export async function generateCreditMemoPDF(data: CreditMemoPDFData) {
-  // Fetch store settings
-  let store = {
-    storeName: 'Open Line Mobility', logoBase64: null as string | null,
-    phone: null as string | null, email: null as string | null,
-    addressLine: null as string | null, city: null as string | null,
-    state: null as string | null, zip: null as string | null,
-  }
-  try {
-    const res = await fetch('/api/store-settings')
-    if (res.ok) store = { ...store, ...(await res.json()) }
-  } catch { /* defaults */ }
-
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const w = doc.internal.pageSize.getWidth()
-  const margin = 45
+  const h = doc.internal.pageSize.getHeight()
+  const margin = 48
   const right = w - margin
-  const cw = right - margin
-  let y = margin
 
-  // ── Header
-  doc.setFillColor(20, 40, 75)
-  doc.rect(0, 0, w, 70, 'F')
+  // Brand colors (match invoice)
+  const blue: [number, number, number] = [27, 94, 166]
+  const red: [number, number, number] = [193, 52, 44]
+  const navy: [number, number, number] = [27, 58, 92]
+  const gray50: [number, number, number] = [249, 250, 251]
+  const gray200: [number, number, number] = [229, 231, 235]
+  const gray500: [number, number, number] = [107, 114, 128]
+  const gray700: [number, number, number] = [55, 65, 81]
+  const black: [number, number, number] = [17, 24, 39]
 
-  if (store.logoBase64) {
-    try { doc.addImage(store.logoBase64, 'PNG', margin, 12, 44, 44) } catch { /* skip */ }
+  let y = 0
+
+  function ensureSpace(needed: number) {
+    if (y + needed > h - 60) {
+      doc.addPage()
+      y = margin
+    }
   }
 
-  doc.setTextColor(255, 255, 255)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(18)
-  doc.text('CREDIT MEMO', store.logoBase64 ? margin + 52 : margin, 38)
+  // ─── Header: Stacked logo (matching invoice) ──────────────────────
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+  const olCharSpace = 2.5
+  const olBaseW = doc.getTextWidth('OPEN LINE')
+  const olFullW = olBaseW + ('OPEN LINE'.length - 1) * olCharSpace
+
   doc.setFontSize(9)
-  doc.setFont('helvetica', 'normal')
-  doc.text(store.storeName, store.logoBase64 ? margin + 52 : margin, 52)
+  const mCharSpace = 4
+  const mBaseW = doc.getTextWidth('MOBILITY')
+  const mFullW = mBaseW + ('MOBILITY'.length - 1) * mCharSpace
 
-  doc.setFontSize(11)
-  doc.text(data.memoNumber, right, 38, { align: 'right' })
-  doc.setFontSize(8)
-  doc.text(fmtDate(data.createdAt), right, 52, { align: 'right' })
+  const blockW = Math.max(olFullW, mFullW)
+  const blockCx = margin + blockW / 2
 
-  y = 90
+  const sc = 0.4
+  const iconW = (220 - 50) * sc
+  const iconCx = blockCx
+  const logoOx = iconCx - (135 * sc)
+  const logoOy = 8
 
-  // ── Info box
-  doc.setTextColor(60, 60, 60)
-  doc.setDrawColor(200, 200, 200)
-  doc.setLineWidth(0.5)
-  doc.roundedRect(margin, y, cw, 50, 4, 4, 'S')
+  const p0x = 60*sc+logoOx, p0y = 105*sc+logoOy
+  const c1x = 100*sc+logoOx, c1y = 120*sc+logoOy
+  const c2x = 160*sc+logoOx, c2y = 40*sc+logoOy
+  const p3x = 210*sc+logoOx, p3y = 55*sc+logoOy
 
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(8)
-  doc.text('Customer', margin + 10, y + 15)
-  doc.text('RMA Reference', margin + cw / 2, y + 15)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.text(data.customerName, margin + 10, y + 30)
-  doc.text(data.rmaNumber, margin + cw / 2, y + 30)
+  doc.setLineWidth(1.5)
+  for (let t = 0; t < 1; t += 0.04) {
+    const t2 = Math.min(t + 0.04, 1)
+    const bx = (ti: number) => Math.pow(1-ti,3)*p0x + 3*Math.pow(1-ti,2)*ti*c1x + 3*(1-ti)*ti*ti*c2x + ti*ti*ti*p3x
+    const by = (ti: number) => Math.pow(1-ti,3)*p0y + 3*Math.pow(1-ti,2)*ti*c1y + 3*(1-ti)*ti*ti*c2y + ti*ti*ti*p3y
+    const r = Math.round(blue[0] + (red[0]-blue[0])*t)
+    const g = Math.round(blue[1] + (red[1]-blue[1])*t)
+    const b = Math.round(blue[2] + (red[2]-blue[2])*t)
+    doc.setDrawColor(r, g, b)
+    doc.line(bx(t), by(t), bx(t2), by(t2))
+  }
+  void iconW
 
-  y += 65
+  const ldx = 58*sc+logoOx, ldy = 104*sc+logoOy
+  doc.setDrawColor(...blue); doc.setLineWidth(1.6)
+  doc.circle(ldx, ldy, 4.5, 'S')
+  doc.setFillColor(...blue); doc.circle(ldx, ldy, 1.5, 'F')
 
-  // ── Line items table
+  const rdx = 212*sc+logoOx, rdy = 54*sc+logoOy
+  doc.setDrawColor(...red); doc.setLineWidth(1.6)
+  doc.circle(rdx, rdy, 5, 'S')
+  doc.setFillColor(...red); doc.circle(rdx, rdy, 1.6, 'F')
+
+  const textY = Math.max(ldy, rdy) + 22
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...navy)
+  doc.text('OPEN LINE', blockCx - olFullW / 2, textY, { charSpace: olCharSpace })
+
+  doc.setFontSize(9); doc.setTextColor(...red)
+  doc.text('MOBILITY', blockCx - mFullW / 2, textY + 13, { charSpace: mCharSpace })
+
+  const logoBottom = textY + 22
+
+  // ─── Title block (right side) ─────────────────────────────────────
+  doc.setFontSize(24); doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
+  doc.text('CREDIT MEMO', right, 42, { align: 'right' })
+  doc.setDrawColor(...blue); doc.setLineWidth(2)
+  doc.line(right - 130, 48, right - 30, 48)
+  doc.setDrawColor(...red); doc.setLineWidth(2)
+  doc.line(right - 30, 48, right, 48)
+
+  // ─── Meta (right column) ──────────────────────────────────────────
+  y = 68
+  doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray500)
+  const metaRows: [string, string][] = [
+    ['Credit Memo #', data.memoNumber || '—'],
+    ['Date', data.createdAt ? fmtDate(data.createdAt) : '—'],
+    ['RMA #', data.rmaNumber || '—'],
+  ]
+
+  metaRows.forEach(([label, val]) => {
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray500)
+    doc.text(label, right - 130, y)
+    doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
+    doc.text(val, right, y, { align: 'right' })
+    y += 13
+  })
+
+  // ─── Customer / Billing Address ───────────────────────────────────
+  y = Math.max(logoBottom, y + 6)
+
+  doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...blue)
+  doc.text('CUSTOMER', margin, y)
+  y += 4
+  doc.setDrawColor(...blue); doc.setLineWidth(0.8)
+  doc.line(margin, y, margin + 60, y)
+  y += 12
+
+  doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(...black)
+  doc.text(data.customerName || '—', margin, y)
+  y += 13
+
+  if (data.billingAddress) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...gray700)
+    doc.text(data.billingAddress.addressLine1 || '', margin, y)
+    y += 12
+    if (data.billingAddress.addressLine2) {
+      doc.text(data.billingAddress.addressLine2, margin, y)
+      y += 12
+    }
+    doc.text(`${data.billingAddress.city || ''}, ${data.billingAddress.state || ''} ${data.billingAddress.postalCode || ''}`, margin, y)
+    y += 12
+  }
+
+  // ─── Bold RMA reference ──────────────────────────────────────────
+  y += 6
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...navy)
+  doc.text(`RMA: ${data.rmaNumber || '—'}`, margin, y)
+  y += 20
+
+  // ─── Line items table (no grade column) ───────────────────────────
   if (data.serials.length > 0) {
     const cols = [
       { label: 'SERIAL #',   x: margin + 8,   align: 'left' as const },
-      { label: 'SKU',        x: margin + 140,  align: 'left' as const },
-      { label: 'GRADE',      x: margin + 280,  align: 'left' as const },
+      { label: 'SKU',        x: margin + 180,  align: 'left' as const },
       { label: 'SALE PRICE', x: right - 8,     align: 'right' as const },
     ]
 
-    doc.setFillColor(20, 40, 75)
-    doc.roundedRect(margin, y, cw, 18, 3, 3, 'F')
-    doc.setTextColor(255, 255, 255)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(7)
-    y += 12
+    ensureSpace(30)
+    doc.setFillColor(...navy)
+    doc.roundedRect(margin, y - 12, right - margin, 18, 4, 4, 'F')
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255)
     for (const col of cols) {
       doc.text(col.label, col.x, y, { align: col.align })
     }
-    y += 12
+    y += 14
 
-    doc.setTextColor(50, 50, 50)
+    doc.setTextColor(...black)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
 
     data.serials.forEach((s, i) => {
-      if (y > doc.internal.pageSize.getHeight() - 140) {
-        doc.addPage()
-        y = margin
-      }
+      ensureSpace(18)
       if (i % 2 === 0) {
-        doc.setFillColor(245, 247, 250)
-        doc.rect(margin, y - 10, cw, 16, 'F')
+        doc.setFillColor(...gray50)
+        doc.roundedRect(margin, y - 10, right - margin, 16, 2, 2, 'F')
       }
-      doc.text(s.serialNumber, cols[0].x, y)
-      doc.text(s.sku, cols[1].x, y)
-      doc.text(s.grade ?? '—', cols[2].x, y)
-      doc.text(s.salePrice > 0 ? `$${s.salePrice.toFixed(2)}` : '—', cols[3].x, y, { align: 'right' })
+      doc.setTextColor(...black)
+      doc.text(s.serialNumber || '—', cols[0].x, y)
+      doc.setTextColor(...gray700)
+      doc.text(s.sku || '—', cols[1].x, y)
+      doc.setTextColor(...black)
+      doc.text(s.salePrice > 0 ? `$${s.salePrice.toFixed(2)}` : '—', cols[2].x, y, { align: 'right' })
       y += 16
     })
 
     // ── Totals
     y += 8
-    doc.setDrawColor(200, 200, 200)
-    doc.setLineWidth(0.5)
-    doc.line(margin + cw * 0.55, y, right, y)
-    y += 14
+    const totalsX = right - 180
+    ensureSpace(70)
 
-    const labelX = margin + cw * 0.6
-    const valX = right - 8
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    doc.text('Subtotal:', labelX, y)
-    doc.text(`$${data.subtotal.toFixed(2)}`, valX, y, { align: 'right' })
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...gray500)
+    doc.text('Subtotal', totalsX, y)
+    doc.setTextColor(...black)
+    doc.text(`$${data.subtotal.toFixed(2)}`, right - 6, y, { align: 'right' })
     y += 14
 
     if (data.restockingFee > 0) {
-      doc.text('Restocking Fee:', labelX, y)
-      doc.setTextColor(180, 50, 50)
-      doc.text(`-$${data.restockingFee.toFixed(2)}`, valX, y, { align: 'right' })
-      doc.setTextColor(50, 50, 50)
+      doc.setTextColor(...gray500)
+      doc.text('Restocking Fee', totalsX, y)
+      doc.setTextColor(...red)
+      doc.text(`-$${data.restockingFee.toFixed(2)}`, right - 6, y, { align: 'right' })
       y += 14
     }
 
-    doc.setDrawColor(20, 40, 75)
-    doc.setLineWidth(1)
-    doc.line(margin + cw * 0.55, y - 4, right, y - 4)
-    y += 4
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(11)
-    doc.setTextColor(20, 120, 60)
-    doc.text('Credit Total:', labelX, y)
-    doc.text(`$${data.total.toFixed(2)}`, valX, y, { align: 'right' })
-    y += 24
-    doc.setTextColor(50, 50, 50)
-  }
-
-  // ── Invoice allocations
-  if (data.allocations.length > 0) {
-    if (y > doc.internal.pageSize.getHeight() - 100) {
-      doc.addPage()
-      y = margin
-    }
-
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(9)
-    doc.text('Applied to Invoices:', margin, y)
-    y += 14
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    for (const alloc of data.allocations) {
-      doc.text(alloc.orderNumber, margin + 10, y)
-      doc.text(`$${alloc.amount.toFixed(2)}`, margin + 160, y, { align: 'right' })
-      y += 14
-    }
-    y += 6
+    // Credit total — highlighted
+    doc.setFillColor(20, 120, 60)
+    doc.roundedRect(totalsX - 6, y - 10, right - totalsX + 12, 20, 4, 4, 'F')
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(255, 255, 255)
+    doc.text('CREDIT TOTAL', totalsX, y + 2)
+    doc.text(`$${data.total.toFixed(2)}`, right - 6, y + 2, { align: 'right' })
+    y += 30
   }
 
   // ── Notes
-  if (data.notes) {
-    if (y > doc.internal.pageSize.getHeight() - 80) {
-      doc.addPage()
-      y = margin
-    }
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.text('Notes:', margin, y)
-    doc.setFont('helvetica', 'normal')
-    const lines = doc.splitTextToSize(data.notes, cw - 10)
-    doc.text(lines, margin, y + 12)
+  if (data.notes && typeof data.notes === 'string') {
+    y += 6
+    ensureSpace(40)
+    doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...blue)
+    doc.text('NOTES', margin, y)
+    y += 3
+    doc.setDrawColor(...blue); doc.setLineWidth(0.5)
+    doc.line(margin, y, margin + 35, y)
+    y += 10
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...gray700)
+    const noteLines = doc.splitTextToSize(data.notes, right - margin)
+    doc.text(noteLines, margin, y)
   }
 
   // ── Footer
-  y = doc.internal.pageSize.getHeight() - 50
-  doc.setFillColor(240, 245, 255)
-  doc.setDrawColor(20, 40, 75)
-  doc.setLineWidth(1)
-  doc.roundedRect(margin, y, cw, 36, 4, 4, 'FD')
-  doc.setTextColor(20, 40, 75)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8)
-  const footerParts = [store.storeName, store.phone, store.email].filter(Boolean)
-  doc.text(footerParts.join('  |  '), margin + 10, y + 22)
+  const footY = h - 36
+  doc.setDrawColor(...gray200); doc.setLineWidth(0.5)
+  doc.line(margin, footY - 8, right, footY - 8)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(...gray500)
+  doc.text('Open Line Mobility, Ltd.', margin, footY)
+  doc.text('Thank you for your business.', w / 2, footY, { align: 'center' })
+  doc.text(data.memoNumber || '', right, footY, { align: 'right' })
 
   doc.save(`CreditMemo-${data.memoNumber}.pdf`)
 }
