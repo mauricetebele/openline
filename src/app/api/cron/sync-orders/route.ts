@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
       const job = await prisma.orderSyncJob.create({
         data: { accountId: account.id, status: 'PENDING', trigger: 'cron' },
       })
-      await syncUnshippedOrders(account.id, job.id)
+      await syncUnshippedOrders(account.id, job.id, 'mfn-only')
       results.push({ accountId: account.id, sellerId: account.sellerId, jobId: job.id })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

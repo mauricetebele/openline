@@ -223,9 +223,12 @@ async function autoProcessPendingOrders(accountId: string): Promise<string[]> {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+export type SyncMode = 'mfn-only' | 'afn-only' | 'all'
+
 export async function syncUnshippedOrders(
   accountId: string,
   jobId: string,
+  mode: SyncMode = 'all',
 ): Promise<void> {
   console.log(`[SyncOrders] Starting sync — accountId=${accountId} jobId=${jobId}`)
   await prisma.orderSyncJob.update({ where: { id: jobId }, data: { status: 'RUNNING' } })
@@ -248,118 +251,123 @@ export async function syncUnshippedOrders(
     const allOrders: AmazonOrder[] = []
     let nextToken: string | undefined
     let pagesFetched = 0
+    const syncMfn = mode === 'mfn-only' || mode === 'all'
+    const syncAfn = mode === 'afn-only' || mode === 'all'
 
-    if (isIncremental) {
-      // Incremental: fetch only orders updated since last sync (minus 5 min buffer)
-      const lastUpdatedAfter = new Date(lastSuccessfulSync.completedAt!.getTime() - 5 * 60 * 1000).toISOString()
-      console.log(`[SyncOrders] Incremental sync — LastUpdatedAfter=${lastUpdatedAfter}`)
-      do {
-        const params: Record<string, string> = {
-          MarketplaceIds:      account.marketplaceId,
-          OrderStatuses:       'Pending,Unshipped,PartiallyShipped',
-          FulfillmentChannels: 'MFN',
-          LastUpdatedAfter:    lastUpdatedAfter,
-          MaxResultsPerPage:   '100',
-        }
-        if (nextToken) params.NextToken = nextToken
+    // ── MFN orders (Pending/Unshipped/PartiallyShipped) ─────────────────────
+    if (syncMfn) {
+      if (isIncremental) {
+        const lastUpdatedAfter = new Date(lastSuccessfulSync.completedAt!.getTime() - 5 * 60 * 1000).toISOString()
+        console.log(`[SyncOrders] Incremental MFN sync — LastUpdatedAfter=${lastUpdatedAfter}`)
+        do {
+          const params: Record<string, string> = {
+            MarketplaceIds:      account.marketplaceId,
+            OrderStatuses:       'Pending,Unshipped,PartiallyShipped',
+            FulfillmentChannels: 'MFN',
+            LastUpdatedAfter:    lastUpdatedAfter,
+            MaxResultsPerPage:   '100',
+          }
+          if (nextToken) params.NextToken = nextToken
 
-        console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (incremental page ${pagesFetched + 1})`)
-        const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
-        pagesFetched++
-        if (resp?.errors?.length) {
-          const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
-          throw new Error(`SP-API returned errors: ${errMsg}`)
-        }
-        const ordersOnPage = resp?.payload?.Orders ?? []
-        console.log(`[SyncOrders] Incremental page ${pagesFetched} returned ${ordersOnPage.length} orders`)
-        allOrders.push(...ordersOnPage)
-        nextToken = resp?.payload?.NextToken
-        if (nextToken && pagesFetched >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
-      } while (nextToken)
-    } else {
-      // Full sync: 60-day window for first-time or fallback
-      const createdAfter = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
-      console.log(`[SyncOrders] Full sync — CreatedAfter=${createdAfter}`)
-      do {
-        const params: Record<string, string> = {
-          MarketplaceIds:      account.marketplaceId,
-          OrderStatuses:       'Pending,Unshipped,PartiallyShipped',
-          FulfillmentChannels: 'MFN',
-          CreatedAfter:        createdAfter,
-          MaxResultsPerPage:   '100',
-        }
-        if (nextToken) params.NextToken = nextToken
+          console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (MFN incremental page ${pagesFetched + 1})`)
+          const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
+          pagesFetched++
+          if (resp?.errors?.length) {
+            const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
+            throw new Error(`SP-API returned errors: ${errMsg}`)
+          }
+          const ordersOnPage = resp?.payload?.Orders ?? []
+          console.log(`[SyncOrders] MFN incremental page ${pagesFetched} returned ${ordersOnPage.length} orders`)
+          allOrders.push(...ordersOnPage)
+          nextToken = resp?.payload?.NextToken
+          if (nextToken && pagesFetched >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
+        } while (nextToken)
+      } else {
+        const createdAfter = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+        console.log(`[SyncOrders] Full MFN sync — CreatedAfter=${createdAfter}`)
+        do {
+          const params: Record<string, string> = {
+            MarketplaceIds:      account.marketplaceId,
+            OrderStatuses:       'Pending,Unshipped,PartiallyShipped',
+            FulfillmentChannels: 'MFN',
+            CreatedAfter:        createdAfter,
+            MaxResultsPerPage:   '100',
+          }
+          if (nextToken) params.NextToken = nextToken
 
-        console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (page ${pagesFetched + 1})`)
-        const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
-        pagesFetched++
-        if (resp?.errors?.length) {
-          const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
-          throw new Error(`SP-API returned errors: ${errMsg}`)
-        }
-        const ordersOnPage = resp?.payload?.Orders ?? []
-        console.log(`[SyncOrders] Page ${pagesFetched} returned ${ordersOnPage.length} orders`)
-        allOrders.push(...ordersOnPage)
-        nextToken = resp?.payload?.NextToken
-        if (nextToken && pagesFetched >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
-      } while (nextToken)
+          console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (MFN page ${pagesFetched + 1})`)
+          const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
+          pagesFetched++
+          if (resp?.errors?.length) {
+            const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
+            throw new Error(`SP-API returned errors: ${errMsg}`)
+          }
+          const ordersOnPage = resp?.payload?.Orders ?? []
+          console.log(`[SyncOrders] MFN page ${pagesFetched} returned ${ordersOnPage.length} orders`)
+          allOrders.push(...ordersOnPage)
+          nextToken = resp?.payload?.NextToken
+          if (nextToken && pagesFetched >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
+        } while (nextToken)
+      }
     }
 
     // ── AFN (FBA) orders — separate fetch since they need 'Shipped' status ──
     let afnNextToken: string | undefined
     let afnPagesFetched = 0
 
-    if (isIncremental) {
-      const lastUpdatedAfter = new Date(lastSuccessfulSync.completedAt!.getTime() - 5 * 60 * 1000).toISOString()
-      do {
-        const params: Record<string, string> = {
-          MarketplaceIds:      account.marketplaceId,
-          OrderStatuses:       'Pending,Unshipped,Shipped',
-          FulfillmentChannels: 'AFN',
-          LastUpdatedAfter:    lastUpdatedAfter,
-          MaxResultsPerPage:   '100',
-        }
-        if (afnNextToken) params.NextToken = afnNextToken
-        console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (AFN incremental page ${afnPagesFetched + 1})`)
-        const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
-        afnPagesFetched++
-        if (resp?.errors?.length) {
-          const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
-          throw new Error(`SP-API AFN returned errors: ${errMsg}`)
-        }
-        const ordersOnPage = resp?.payload?.Orders ?? []
-        console.log(`[SyncOrders] AFN incremental page ${afnPagesFetched} returned ${ordersOnPage.length} orders`)
-        allOrders.push(...ordersOnPage)
-        afnNextToken = resp?.payload?.NextToken
-        if (afnNextToken && (pagesFetched + afnPagesFetched) >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
-      } while (afnNextToken)
-    } else {
-      const createdAfter = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
-      do {
-        const params: Record<string, string> = {
-          MarketplaceIds:      account.marketplaceId,
-          OrderStatuses:       'Pending,Unshipped,Shipped',
-          FulfillmentChannels: 'AFN',
-          CreatedAfter:        createdAfter,
-          MaxResultsPerPage:   '100',
-        }
-        if (afnNextToken) params.NextToken = afnNextToken
-        console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (AFN page ${afnPagesFetched + 1})`)
-        const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
-        afnPagesFetched++
-        if (resp?.errors?.length) {
-          const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
-          throw new Error(`SP-API AFN returned errors: ${errMsg}`)
-        }
-        const ordersOnPage = resp?.payload?.Orders ?? []
-        console.log(`[SyncOrders] AFN page ${afnPagesFetched} returned ${ordersOnPage.length} orders`)
-        allOrders.push(...ordersOnPage)
-        afnNextToken = resp?.payload?.NextToken
-        if (afnNextToken && (pagesFetched + afnPagesFetched) >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
-      } while (afnNextToken)
+    if (syncAfn) {
+      if (isIncremental) {
+        const lastUpdatedAfter = new Date(lastSuccessfulSync.completedAt!.getTime() - 5 * 60 * 1000).toISOString()
+        do {
+          const params: Record<string, string> = {
+            MarketplaceIds:      account.marketplaceId,
+            OrderStatuses:       'Pending,Unshipped,Shipped',
+            FulfillmentChannels: 'AFN',
+            LastUpdatedAfter:    lastUpdatedAfter,
+            MaxResultsPerPage:   '100',
+          }
+          if (afnNextToken) params.NextToken = afnNextToken
+          console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (AFN incremental page ${afnPagesFetched + 1})`)
+          const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
+          afnPagesFetched++
+          if (resp?.errors?.length) {
+            const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
+            throw new Error(`SP-API AFN returned errors: ${errMsg}`)
+          }
+          const ordersOnPage = resp?.payload?.Orders ?? []
+          console.log(`[SyncOrders] AFN incremental page ${afnPagesFetched} returned ${ordersOnPage.length} orders`)
+          allOrders.push(...ordersOnPage)
+          afnNextToken = resp?.payload?.NextToken
+          if (afnNextToken && (pagesFetched + afnPagesFetched) >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
+        } while (afnNextToken)
+      } else {
+        const createdAfter = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+        do {
+          const params: Record<string, string> = {
+            MarketplaceIds:      account.marketplaceId,
+            OrderStatuses:       'Pending,Unshipped,Shipped',
+            FulfillmentChannels: 'AFN',
+            CreatedAfter:        createdAfter,
+            MaxResultsPerPage:   '100',
+          }
+          if (afnNextToken) params.NextToken = afnNextToken
+          console.log(`[SyncOrders] Calling SP-API /orders/v0/orders (AFN page ${afnPagesFetched + 1})`)
+          const resp = await client.get<GetOrdersResponse>('/orders/v0/orders', params)
+          afnPagesFetched++
+          if (resp?.errors?.length) {
+            const errMsg = resp.errors.map(e => `${e.code}: ${e.message}`).join('; ')
+            throw new Error(`SP-API AFN returned errors: ${errMsg}`)
+          }
+          const ordersOnPage = resp?.payload?.Orders ?? []
+          console.log(`[SyncOrders] AFN page ${afnPagesFetched} returned ${ordersOnPage.length} orders`)
+          allOrders.push(...ordersOnPage)
+          afnNextToken = resp?.payload?.NextToken
+          if (afnNextToken && (pagesFetched + afnPagesFetched) >= ORDERS_PAGE_BURST) await sleep(PAGE_SLEEP_MS)
+        } while (afnNextToken)
+      }
     }
 
-    console.log(`[SyncOrders] Total orders fetched: ${allOrders.length} (${isIncremental ? 'incremental' : 'full'} sync, ${pagesFetched} MFN + ${afnPagesFetched} AFN pages)`)
+    console.log(`[SyncOrders] Total orders fetched: ${allOrders.length} (${isIncremental ? 'incremental' : 'full'} sync, mode=${mode}, ${pagesFetched} MFN + ${afnPagesFetched} AFN pages)`)
     await prisma.orderSyncJob.update({ where: { id: jobId }, data: { totalFound: allOrders.length } })
 
     // ── Pre-load existing orders to avoid per-order DB lookups and skip ──────
@@ -539,32 +547,35 @@ export async function syncUnshippedOrders(
 
     console.log(`[SyncOrders] SP-API calls made — detail: ${detailCallCount}, items: ${itemsCallCount} (of ${allOrders.length} total orders)`)
 
-    // Auto-process orders that can be fulfilled from finished-goods inventory
-    const autoProcessedProductIds = await autoProcessPendingOrders(accountId)
-    if (autoProcessedProductIds.length > 0) {
-      pushQtyForProducts(autoProcessedProductIds)
-    }
+    // Auto-process and cleanup only apply to MFN orders
+    if (syncMfn) {
+      // Auto-process orders that can be fulfilled from finished-goods inventory
+      const autoProcessedProductIds = await autoProcessPendingOrders(accountId)
+      if (autoProcessedProductIds.length > 0) {
+        pushQtyForProducts(autoProcessedProductIds)
+      }
 
-    // NOTE: ShipStation enrichment (ssOrderId + address backfill) is now a
-    // separate step triggered by the frontend AFTER sync completes.
-    // See /api/orders/enrich-shipstation
+      // NOTE: ShipStation enrichment (ssOrderId + address backfill) is now a
+      // separate step triggered by the frontend AFTER sync completes.
+      // See /api/orders/enrich-shipstation
 
-    // Remove orders that are no longer Pending/Unshipped/PartiallyShipped on Amazon
-    // (shipped, cancelled, or payment failed). Only touch PENDING internal
-    // status — orders already being processed stay in the system.
-    // Skip cleanup on incremental syncs since we only fetched a subset of orders.
-    if (!isIncremental) {
-      const fetched = allOrders.map(o => o.AmazonOrderId!).filter(Boolean)
-      await prisma.order.deleteMany({
-        where: {
-          accountId,
-          orderSource: 'amazon',
-          fulfillmentChannel: 'MFN',
-          workflowStatus: 'PENDING',
-          amazonOrderId: { notIn: fetched },
-          purchaseDate: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
-        },
-      })
+      // Remove orders that are no longer Pending/Unshipped/PartiallyShipped on Amazon
+      // (shipped, cancelled, or payment failed). Only touch PENDING internal
+      // status — orders already being processed stay in the system.
+      // Skip cleanup on incremental syncs since we only fetched a subset of orders.
+      if (!isIncremental) {
+        const fetched = allOrders.map(o => o.AmazonOrderId!).filter(Boolean)
+        await prisma.order.deleteMany({
+          where: {
+            accountId,
+            orderSource: 'amazon',
+            fulfillmentChannel: 'MFN',
+            workflowStatus: 'PENDING',
+            amazonOrderId: { notIn: fetched },
+            purchaseDate: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
+          },
+        })
+      }
     }
 
     console.log(`[SyncOrders] Sync complete — ${synced} orders upserted`)

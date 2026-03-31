@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     })
     jobId = job.id
     waitUntil(
-      syncUnshippedOrders(accountId, job.id).catch(err =>
+      syncUnshippedOrders(accountId, job.id, 'mfn-only').catch(err =>
         console.error('[orders/sync] background error:', err),
       ),
     )
