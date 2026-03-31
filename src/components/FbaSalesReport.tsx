@@ -17,11 +17,13 @@ interface SkuRow {
   avgSalePrice: number
   avgUnitCost: number
   avgCostCode: number
+  avgCommission: number
   avgFbaFee: number
   avgProfit: number
   totalRevenue: number
   totalCogs: number
   totalCostCodes: number
+  totalCommissions: number
   totalFbaFees: number
   totalProfit: number
   margin: number
@@ -38,6 +40,7 @@ interface OrderRow {
   salePrice: number
   cogs: number
   costCode: number
+  commission: number
   fbaFee: number
   profit: number
   margin: number
@@ -46,6 +49,7 @@ interface OrderRow {
 interface Summary {
   totalRevenue: number
   totalCogs: number
+  totalCommissions: number
   totalFbaFees: number
   totalCostCodes: number
   totalProfit: number
@@ -101,7 +105,7 @@ export default function FbaSalesReport() {
   const [startDate, setStartDate] = useState(today)
   const [endDate, setEndDate] = useState(today)
   const [rows, setRows] = useState<(SkuRow | OrderRow)[]>([])
-  const [summary, setSummary] = useState<Summary>({ totalRevenue: 0, totalCogs: 0, totalFbaFees: 0, totalCostCodes: 0, totalProfit: 0, profitMargin: 0 })
+  const [summary, setSummary] = useState<Summary>({ totalRevenue: 0, totalCogs: 0, totalCommissions: 0, totalFbaFees: 0, totalCostCodes: 0, totalProfit: 0, profitMargin: 0 })
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -146,7 +150,7 @@ export default function FbaSalesReport() {
       if (!res.ok) throw new Error('Failed')
       const data = await res.json()
       setRows(data.rows ?? [])
-      setSummary(data.summary ?? { totalRevenue: 0, totalCogs: 0, totalFbaFees: 0, totalCostCodes: 0, totalProfit: 0, profitMargin: 0 })
+      setSummary(data.summary ?? { totalRevenue: 0, totalCogs: 0, totalCommissions: 0, totalFbaFees: 0, totalCostCodes: 0, totalProfit: 0, profitMargin: 0 })
       setTotalCount(data.totalCount ?? 0)
     } catch {
       setRows([])
@@ -195,6 +199,7 @@ export default function FbaSalesReport() {
     { key: 'avgSalePrice', label: 'Avg Sale Price', align: 'right' },
     { key: 'avgUnitCost', label: 'Avg Unit Cost', align: 'right' },
     { key: 'avgCostCode', label: 'Avg Cost Code', align: 'right' },
+    { key: 'avgCommission', label: 'Avg Commission', align: 'right' },
     { key: 'avgFbaFee', label: 'Avg FBA Fee', align: 'right' },
     { key: 'avgProfit', label: 'Avg Profit', align: 'right' },
     { key: 'totalProfit', label: 'Total Profit', align: 'right' },
@@ -209,6 +214,7 @@ export default function FbaSalesReport() {
     { key: 'salePrice', label: 'Sale Price', align: 'right' },
     { key: 'cogs', label: 'COGS', align: 'right' },
     { key: 'costCode', label: 'Cost Code', align: 'right' },
+    { key: 'commission', label: 'Commission', align: 'right' },
     { key: 'fbaFee', label: 'FBA Fee', align: 'right' },
     { key: 'profit', label: 'Profit', align: 'right' },
     { key: 'margin', label: 'Margin %', align: 'right' },
@@ -343,9 +349,10 @@ export default function FbaSalesReport() {
       )}
 
       {/* ── Summary cards ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 px-6 py-4 shrink-0 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+      <div className="grid grid-cols-2 lg:grid-cols-7 gap-3 px-6 py-4 shrink-0 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
         <SummaryCard label="Total Revenue" value={summary.totalRevenue} icon={DollarSign} color="bg-blue-500" />
         <SummaryCard label="Total COGS" value={summary.totalCogs} icon={Package} color="bg-gray-500" />
+        <SummaryCard label="Commissions" value={summary.totalCommissions} icon={TrendingDown} color="bg-red-500" />
         <SummaryCard label="FBA Fees" value={summary.totalFbaFees} icon={TrendingDown} color="bg-orange-500" />
         <SummaryCard label="Cost Codes" value={summary.totalCostCodes} icon={Wrench} color="bg-amber-500" />
         <SummaryCard
@@ -428,6 +435,7 @@ export default function FbaSalesReport() {
                     <td className="px-3 py-1.5 text-right">{fmt.format(r.avgSalePrice)}</td>
                     <td className="px-3 py-1.5 text-right">{fmt.format(r.avgUnitCost)}</td>
                     <td className="px-3 py-1.5 text-right">{fmt.format(r.avgCostCode)}</td>
+                    <td className="px-3 py-1.5 text-right">{fmt.format(r.avgCommission)}</td>
                     <td className="px-3 py-1.5 text-right">{fmt.format(r.avgFbaFee)}</td>
                     <td className={clsx('px-3 py-1.5 text-right font-medium', profitColor(r.avgProfit))}>
                       {fmt.format(r.avgProfit)}
@@ -465,6 +473,7 @@ export default function FbaSalesReport() {
                     <td className="px-3 py-1.5 text-right font-medium">{fmt.format(r.salePrice)}</td>
                     <td className="px-3 py-1.5 text-right">{fmt.format(r.cogs)}</td>
                     <td className="px-3 py-1.5 text-right">{fmt.format(r.costCode)}</td>
+                    <td className="px-3 py-1.5 text-right">{fmt.format(r.commission)}</td>
                     <td className="px-3 py-1.5 text-right">{fmt.format(r.fbaFee)}</td>
                     <td className={clsx('px-3 py-1.5 text-right font-semibold', profitColor(r.profit))}>
                       {fmt.format(r.profit)}

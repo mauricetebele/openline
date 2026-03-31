@@ -247,9 +247,11 @@ export async function GET(req: NextRequest) {
     sellerSku: string
     productName: string
     grade: string
+    quantity: number
     salePrice: number
     cogs: number
     costCode: number
+    commission: number
     fbaFee: number
     profit: number
     margin: number
@@ -259,6 +261,7 @@ export async function GET(req: NextRequest) {
 
   for (const order of fbaOrders) {
     const totalCommission = Number(order.marketplaceCommission ?? 0)
+    const totalFbaFee = Number(order.fbaFulfillmentFee ?? 0)
 
     // Total order price for proportional fee allocation
     const totalOrderPrice = order.items.reduce((sum, item) => sum + Number(item.itemPrice ?? 0), 0)
@@ -285,11 +288,12 @@ export async function GET(req: NextRequest) {
         itemCostCode = fifo.totalCostCode
       }
 
-      // FBA fee proportional allocation
+      // Fee proportional allocation
       const proportion = totalOrderPrice > 0 ? salePrice / totalOrderPrice : 0
-      const itemFbaFee = totalCommission * proportion
+      const itemCommission = totalCommission * proportion
+      const itemFbaFee = totalFbaFee * proportion
 
-      const profit = salePrice - itemCogs - itemCostCode - itemFbaFee
+      const profit = salePrice - itemCogs - itemCostCode - itemCommission - itemFbaFee
       const margin = salePrice > 0 ? (profit / salePrice) * 100 : 0
 
       itemRows.push({
@@ -300,9 +304,11 @@ export async function GET(req: NextRequest) {
         sellerSku: sku,
         productName,
         grade,
+        quantity: item.quantityOrdered,
         salePrice: Math.round(salePrice * 100) / 100,
         cogs: Math.round(itemCogs * 100) / 100,
         costCode: Math.round(itemCostCode * 100) / 100,
+        commission: Math.round(itemCommission * 100) / 100,
         fbaFee: Math.round(itemFbaFee * 100) / 100,
         profit: Math.round(profit * 100) / 100,
         margin: Math.round(margin * 10) / 10,
@@ -321,6 +327,7 @@ export async function GET(req: NextRequest) {
       totalRevenue: number
       totalCogs: number
       totalCostCodes: number
+      totalCommissions: number
       totalFbaFees: number
       totalProfit: number
     }>()
@@ -328,10 +335,11 @@ export async function GET(req: NextRequest) {
     for (const row of itemRows) {
       const existing = skuAgg.get(row.sellerSku)
       if (existing) {
-        existing.unitsSold += 1
+        existing.unitsSold += row.quantity
         existing.totalRevenue += row.salePrice
         existing.totalCogs += row.cogs
         existing.totalCostCodes += row.costCode
+        existing.totalCommissions += row.commission
         existing.totalFbaFees += row.fbaFee
         existing.totalProfit += row.profit
       } else {
@@ -339,10 +347,11 @@ export async function GET(req: NextRequest) {
           sellerSku: row.sellerSku,
           productName: row.productName,
           grade: row.grade,
-          unitsSold: 1,
+          unitsSold: row.quantity,
           totalRevenue: row.salePrice,
           totalCogs: row.cogs,
           totalCostCodes: row.costCode,
+          totalCommissions: row.commission,
           totalFbaFees: row.fbaFee,
           totalProfit: row.profit,
         })
@@ -357,11 +366,13 @@ export async function GET(req: NextRequest) {
       avgSalePrice: Math.round((s.totalRevenue / s.unitsSold) * 100) / 100,
       avgUnitCost: Math.round((s.totalCogs / s.unitsSold) * 100) / 100,
       avgCostCode: Math.round((s.totalCostCodes / s.unitsSold) * 100) / 100,
+      avgCommission: Math.round((s.totalCommissions / s.unitsSold) * 100) / 100,
       avgFbaFee: Math.round((s.totalFbaFees / s.unitsSold) * 100) / 100,
       avgProfit: Math.round((s.totalProfit / s.unitsSold) * 100) / 100,
       totalRevenue: Math.round(s.totalRevenue * 100) / 100,
       totalCogs: Math.round(s.totalCogs * 100) / 100,
       totalCostCodes: Math.round(s.totalCostCodes * 100) / 100,
+      totalCommissions: Math.round(s.totalCommissions * 100) / 100,
       totalFbaFees: Math.round(s.totalFbaFees * 100) / 100,
       totalProfit: Math.round(s.totalProfit * 100) / 100,
       margin: s.totalRevenue > 0 ? Math.round((s.totalProfit / s.totalRevenue) * 1000) / 10 : 0,
@@ -384,6 +395,7 @@ export async function GET(req: NextRequest) {
 
     const totalRevenue = skuRows.reduce((s, r) => s + r.totalRevenue, 0)
     const totalCogs = skuRows.reduce((s, r) => s + r.totalCogs, 0)
+    const totalCommissions = skuRows.reduce((s, r) => s + r.totalCommissions, 0)
     const totalFbaFees = skuRows.reduce((s, r) => s + r.totalFbaFees, 0)
     const totalCostCodes = skuRows.reduce((s, r) => s + r.totalCostCodes, 0)
     const totalProfit = skuRows.reduce((s, r) => s + r.totalProfit, 0)
@@ -397,6 +409,7 @@ export async function GET(req: NextRequest) {
       summary: {
         totalRevenue: Math.round(totalRevenue * 100) / 100,
         totalCogs: Math.round(totalCogs * 100) / 100,
+        totalCommissions: Math.round(totalCommissions * 100) / 100,
         totalFbaFees: Math.round(totalFbaFees * 100) / 100,
         totalCostCodes: Math.round(totalCostCodes * 100) / 100,
         totalProfit: Math.round(totalProfit * 100) / 100,
@@ -424,6 +437,7 @@ export async function GET(req: NextRequest) {
 
   const totalRevenue = orderRows.reduce((s, r) => s + r.salePrice, 0)
   const totalCogs = orderRows.reduce((s, r) => s + r.cogs, 0)
+  const totalCommissions = orderRows.reduce((s, r) => s + r.commission, 0)
   const totalFbaFees = orderRows.reduce((s, r) => s + r.fbaFee, 0)
   const totalCostCodes = orderRows.reduce((s, r) => s + r.costCode, 0)
   const totalProfit = orderRows.reduce((s, r) => s + r.profit, 0)
@@ -437,6 +451,7 @@ export async function GET(req: NextRequest) {
     summary: {
       totalRevenue: Math.round(totalRevenue * 100) / 100,
       totalCogs: Math.round(totalCogs * 100) / 100,
+      totalCommissions: Math.round(totalCommissions * 100) / 100,
       totalFbaFees: Math.round(totalFbaFees * 100) / 100,
       totalCostCodes: Math.round(totalCostCodes * 100) / 100,
       totalProfit: Math.round(totalProfit * 100) / 100,

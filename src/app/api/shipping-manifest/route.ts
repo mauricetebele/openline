@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
     prisma.order.findMany({
       where: {
         workflowStatus: 'SHIPPED',
+        fulfillmentChannel: { not: 'AFN' },
         OR: [
           { label: { createdAt: { gte: start, lte: end } } },
           { shippedAt: { gte: start, lte: end } },

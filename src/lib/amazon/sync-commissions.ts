@@ -87,8 +87,10 @@ export async function syncAmazonCommissions(
     if (nextToken) await sleep(2_100) // 0.5 req/s burst 10
   } while (nextToken)
 
-  // Aggregate AmazonFees per ORDER_ID (Shipment transactions only)
-  const commissionByOrderId = new Map<string, number>()
+  // Aggregate fees per ORDER_ID (Shipment transactions only)
+  // Split into referral commission vs FBA fulfillment fee
+  const FBA_FEE_TYPES = new Set(['FBAPerUnitFulfillmentFee', 'FBAPerOrderFulfillmentFee', 'FBAWeightBasedFee'])
+  const feesByOrderId = new Map<string, { commission: number; fbaFee: number }>()
 
   for (const txn of allTransactions) {
     if (txn.transactionType !== 'Shipment') continue
@@ -98,19 +100,36 @@ export async function syncAmazonCommissions(
     )?.relatedIdentifierValue
     if (!orderId) continue
 
-    // Extract AmazonFees from breakdowns → Expenses → AmazonFees
     const expenses = txn.breakdowns?.find((b) => b.breakdownType === 'Expenses')
     const amazonFees = expenses?.breakdowns?.find((b) => b.breakdownType === 'AmazonFees')
-    const feeAmount = Math.abs(amazonFees?.breakdownAmount?.currencyAmount ?? 0)
+    if (!amazonFees) continue
 
-    if (feeAmount > 0) {
-      commissionByOrderId.set(orderId, (commissionByOrderId.get(orderId) ?? 0) + feeAmount)
+    const existing = feesByOrderId.get(orderId) ?? { commission: 0, fbaFee: 0 }
+
+    // If sub-breakdowns exist, split commission vs FBA fulfillment
+    const subBreakdowns = amazonFees.breakdowns
+    if (subBreakdowns?.length) {
+      for (const sub of subBreakdowns) {
+        const amount = Math.abs(sub.breakdownAmount?.currencyAmount ?? 0)
+        if (amount === 0) continue
+        if (FBA_FEE_TYPES.has(sub.breakdownType ?? '')) {
+          existing.fbaFee += amount
+        } else {
+          // Commission, VariableClosingFee, etc. → referral commission
+          existing.commission += amount
+        }
+      }
+    } else {
+      // No sub-breakdowns: store total as commission (legacy/MFN behavior)
+      existing.commission += Math.abs(amazonFees.breakdownAmount?.currencyAmount ?? 0)
     }
+
+    feesByOrderId.set(orderId, existing)
   }
 
   // Update matching orders in DB
   let updated = 0
-  for (const [amazonOrderId, commission] of Array.from(commissionByOrderId.entries())) {
+  for (const [amazonOrderId, fees] of Array.from(feesByOrderId.entries())) {
     if (filterOrderIds && !filterOrderIds.has(amazonOrderId)) continue
     const result = await prisma.order.updateMany({
       where: {
@@ -119,7 +138,8 @@ export async function syncAmazonCommissions(
         orderSource: 'amazon',
       },
       data: {
-        marketplaceCommission: commission,
+        marketplaceCommission: fees.commission,
+        fbaFulfillmentFee: fees.fbaFee > 0 ? fees.fbaFee : null,
         commissionSyncedAt: new Date(),
       },
     })

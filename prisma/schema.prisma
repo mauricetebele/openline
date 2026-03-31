@@ -515,6 +515,7 @@ model Order {
   replacedOrderId        String?
   manualShipCost         Decimal?                    @db.Decimal(12, 2)
   marketplaceCommission  Decimal?                    @db.Decimal(12, 2)
+  fbaFulfillmentFee      Decimal?                    @db.Decimal(12, 2)
   commissionSyncedAt     DateTime?
   marketplaceRMAs        MarketplaceRMA[]
 
