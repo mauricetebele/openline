@@ -385,7 +385,7 @@ export default function BulkListingCreator() {
         setProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'creating' } : r))
 
         try {
-          const qtyNum = parseInt(row.quantity, 10) || 0
+          const qtyNum = fulfillment === 'FBA' ? 0 : (parseInt(row.quantity, 10) || 0)
           const body: Record<string, unknown> = {
             accountId,
             sku: row.marketplaceSku.trim(),
@@ -1176,7 +1176,7 @@ export default function BulkListingCreator() {
                         <th className="px-2 py-2">Marketplace SKU</th>
                         <th className="px-2 py-2">ASIN</th>
                         <th className="px-2 py-2">Price</th>
-                        <th className="px-2 py-2">Qty</th>
+                        {fulfillment === 'MFN' && <th className="px-2 py-2">Qty</th>}
                         {fulfillment === 'MFN' && <th className="px-2 py-2">Template</th>}
                       </tr>
                     </thead>
@@ -1195,7 +1195,7 @@ export default function BulkListingCreator() {
                           }
                         })
 
-                        const colCount = fulfillment === 'MFN' ? 9 : 8
+                        const colCount = fulfillment === 'MFN' ? 9 : 7
 
                         return groups.map((group) => {
                           const isMulti = group.rows.length > 1
@@ -1335,17 +1335,19 @@ export default function BulkListingCreator() {
                                 className="w-20 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                               />
                             </td>
-                            <td className="px-2 py-1.5">
-                              <input
-                                type="number"
-                                value={row.quantity}
-                                disabled={isLocked}
-                                onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, quantity: e.target.value } : r))}
-                                min="0"
-                                step="1"
-                                className="w-16 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
-                              />
-                            </td>
+                            {fulfillment === 'MFN' && (
+                              <td className="px-2 py-1.5">
+                                <input
+                                  type="number"
+                                  value={row.quantity}
+                                  disabled={isLocked}
+                                  onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, quantity: e.target.value } : r))}
+                                  min="0"
+                                  step="1"
+                                  className="w-16 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
+                                />
+                              </td>
+                            )}
                             {fulfillment === 'MFN' && (
                               <td className="px-2 py-1.5">
                                 <select

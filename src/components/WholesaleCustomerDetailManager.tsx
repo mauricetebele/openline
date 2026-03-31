@@ -146,13 +146,16 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
     try {
       const res = await fetch(`/api/wholesale/credit-memo?customerId=${customer.id}`)
       if (!res.ok) { toast.error('Failed to load credit memos'); return }
-      const { data: memos } = await res.json()
-      const memo = memos.find((m: { memoNumber: string }) => m.memoNumber === memoNumber)
-      if (!memo) { toast.error('Credit memo not found'); return }
+      const json = await res.json()
+      const memos = json.data ?? json
+      const memo = (Array.isArray(memos) ? memos : []).find((m: { memoNumber: string }) => m.memoNumber === memoNumber)
+      if (!memo) { toast.error(`Credit memo ${memoNumber} not found`); return }
 
       // Fetch RMA to get serials
-      const rmaRes = await fetch(`/api/wholesale/customer-rma/${memo.rmaId ?? memo.rma?.id}`)
-      if (!rmaRes.ok) { toast.error('Failed to load RMA'); return }
+      const rmaId = memo.rmaId ?? memo.rma?.id
+      if (!rmaId) { toast.error('Credit memo has no RMA reference'); return }
+      const rmaRes = await fetch(`/api/wholesale/customer-rma/${rmaId}`)
+      if (!rmaRes.ok) { toast.error(`Failed to load RMA (${rmaRes.status})`); return }
       const rma = await rmaRes.json()
 
       // Fetch customer billing address from addresses array
@@ -168,7 +171,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
 
       const receivedSerials = (rma.serials ?? []).filter((s: { receivedAt: string | null }) => s.receivedAt)
 
-      await generateCreditMemoPDF({
+      const pdfData = {
         memoNumber: memo.memoNumber,
         createdAt: memo.createdAt,
         customerName: customer.companyName,
@@ -183,10 +186,12 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
         restockingFee: parseFloat(memo.restockingFee ?? '0'),
         total: parseFloat(memo.total ?? '0'),
         notes: memo.notes ?? null,
-      })
+      }
+      console.log('Credit memo PDF data:', pdfData)
+      await generateCreditMemoPDF(pdfData)
     } catch (err) {
       console.error('Credit memo PDF error:', err)
-      toast.error('Failed to generate credit memo PDF')
+      toast.error(`CM PDF error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setDownloading(null)
     }
