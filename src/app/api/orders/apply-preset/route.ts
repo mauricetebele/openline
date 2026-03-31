@@ -305,7 +305,11 @@ export async function POST(req: NextRequest) {
                       ? { confirmation: preset.confirmation as 'none' | 'delivery' | 'signature' | 'adult_signature' }
                       : {}),
                   })
-                  for (const r of rates) allV1Rates.push(r)
+                  const hasDims = !!(preset.dimLength && preset.dimWidth && preset.dimHeight)
+                  for (const r of rates) {
+                    if (hasDims && /flat rate|envelope/i.test(r.serviceName)) continue
+                    allV1Rates.push(r)
+                  }
                 } catch (e) {
                   console.warn('[apply-preset] V1 carrier %s error: %s', c.code, e instanceof Error ? e.message : String(e))
                 }
@@ -343,10 +347,12 @@ export async function POST(req: NextRequest) {
                   : {}),
               }
 
-              const v1Rates = await client.getRates(v1Payload)
-              console.log('[apply-preset] order=%s v1 rates=%d serviceCodes=%s',
-                order.amazonOrderId, v1Rates?.length ?? 0,
-                (v1Rates ?? []).map(r => r.serviceCode).join(', ') || 'none')
+              const v1RatesRaw = await client.getRates(v1Payload)
+              const hasDimsV1 = !!(preset.dimLength && preset.dimWidth && preset.dimHeight)
+              const v1Rates = hasDimsV1 ? v1RatesRaw.filter(r => !/flat rate|envelope/i.test(r.serviceName)) : v1RatesRaw
+              console.log('[apply-preset] order=%s v1 rates=%d (raw=%d) serviceCodes=%s',
+                order.amazonOrderId, v1Rates.length, v1RatesRaw.length,
+                v1Rates.map(r => r.serviceCode).join(', ') || 'none')
 
               if (!v1Rates || v1Rates.length === 0) {
                 throw new Error(

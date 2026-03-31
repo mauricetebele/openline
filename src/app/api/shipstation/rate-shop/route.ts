@@ -219,10 +219,13 @@ export async function POST(req: NextRequest) {
 
       try {
         const v1Rates = await client.getRates(v1Payload)
+        // Filter out flat rate envelopes/boxes — they ignore actual dimensions
+        const hasDims = body.dimensions.length > 0 && body.dimensions.width > 0 && body.dimensions.height > 0
         for (const r of v1Rates) {
+          if (hasDims && /flat rate|envelope/i.test(r.serviceName)) continue
           allRates.push({ ...r, carrierName })
         }
-        console.log('[rate-shop] V1 %s: %d rates', carrier.code, v1Rates.length)
+        console.log('[rate-shop] V1 %s: %d rates (after filtering)', carrier.code, v1Rates.length)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[rate-shop] V1 %s error:', carrier.code, msg)

@@ -289,7 +289,11 @@ export async function POST(req: NextRequest) {
                       ? { dimensions: { units: preset.dimUnit as 'inches' | 'centimeters', length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight } }
                       : {}),
                   } as SSRatesPayload)
-                  for (const r of rates) allV1Rates.push(r)
+                  const hasDims = !!(preset.dimLength && preset.dimWidth && preset.dimHeight)
+                  for (const r of rates) {
+                    if (hasDims && /flat rate|envelope/i.test(r.serviceName)) continue
+                    allV1Rates.push(r)
+                  }
                 } catch (e) {
                   console.warn('[rate-shop-applied] V1 carrier %s error: %s', c.code, e instanceof Error ? e.message : String(e))
                 }
