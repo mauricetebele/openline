@@ -101,20 +101,6 @@ const STATUS_COLOR: Record<RMAStatus, string> = {
   REFUNDED:  'bg-green-100 text-green-700',
   REJECTED:  'bg-red-100 text-red-700',
 }
-const NEXT_STATUS: Record<RMAStatus, RMAStatus | null> = {
-  PENDING:   null, // auto-transitions via receiving
-  RECEIVED:  'INSPECTED',
-  INSPECTED: null, // refunded via credit memo flow
-  REFUNDED:  null,
-  REJECTED:  null,
-}
-const NEXT_LABEL: Record<RMAStatus, string> = {
-  PENDING:   '',
-  RECEIVED:  'Mark Inspected',
-  INSPECTED: '',
-  REFUNDED:  '',
-  REJECTED:  '',
-}
 
 const RETURN_REASONS = [
   'Defective',
@@ -690,7 +676,6 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
   const [locationId, setLocationId] = useState('')
   const [receiving, setReceiving] = useState(false)
 
-  const [advancing, setAdvancing] = useState(false)
   const [rejecting, setRejecting] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -749,24 +734,6 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
       setErr(e instanceof Error ? e.message : 'Receive failed')
     } finally {
       setReceiving(false)
-    }
-  }
-
-  async function advance() {
-    if (!rma) return
-    const next = NEXT_STATUS[rma.status]
-    if (!next) return
-    setAdvancing(true)
-    try {
-      await fetch(`/api/wholesale/customer-rma/${rma.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: next }),
-      })
-      loadRMA()
-      onUpdated()
-    } finally {
-      setAdvancing(false)
     }
   }
 
@@ -844,7 +811,6 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
 
   const receivedCount = rma.serials.filter(s => s.receivedAt).length
   const totalSerials = rma.serials.length
-  const next = NEXT_STATUS[rma.status]
   const canReceive = rma.status === 'PENDING' || rma.status === 'RECEIVED'
   const canDelete = receivedCount === 0
 
@@ -870,15 +836,6 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
           <Download size={13} /> Download PDF
         </button>
 
-        {next && (
-          <button
-            onClick={advance}
-            disabled={advancing}
-            className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium hover:bg-amazon-blue/90 disabled:opacity-60"
-          >
-            {advancing ? '...' : NEXT_LABEL[rma.status]}
-          </button>
-        )}
         {(rma.status === 'RECEIVED' || rma.status === 'INSPECTED') && !rma.creditMemo && (
           <button
             onClick={() => setCmOpen(true)}
