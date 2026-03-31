@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
         shipment: {
           ...(body.shipDate ? { ship_date: `${body.shipDate}` } : {}),
           ship_from: {
-            name:            body.fromName,
+            name:            body.fromName || 'Warehouse',
             phone:           body.fromPhone || '555-555-5555',
             address_line1:   body.fromAddress1 ?? '',
             city_locality:   body.fromCity ?? '',
@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
             country_code:    body.fromCountry ?? 'US',
           },
           ship_to: {
-            name:                          body.toName,
+            name:                          body.toName || 'Customer',
             phone:                         body.toPhone || '555-555-5555',
             address_line1:                 body.toAddress1 ?? '',
             address_line2:                 body.toAddress2 ?? undefined,
