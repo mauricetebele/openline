@@ -48,7 +48,7 @@ async function runEnrichment(): Promise<void> {
     if (!ssAccount) return  // no ShipStation account configured yet
 
     const orders = await prisma.order.findMany({
-      where: { OR: [{ shipToPostal: null }, { shipToCity: null }] },
+      where: { fulfillmentChannel: { not: 'AFN' }, OR: [{ shipToPostal: null }, { shipToCity: null }] },
       select: { id: true, amazonOrderId: true },
     })
     if (orders.length === 0) return

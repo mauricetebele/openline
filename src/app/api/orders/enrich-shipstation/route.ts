@@ -59,10 +59,13 @@ export async function POST(req: NextRequest) {
       )
 
       // Phase 1: Find local orders to check
+      // Only enrich MFN orders — FBA/AFN orders are fulfilled by Amazon and
+      // don't exist in ShipStation, so trying to match them just wastes time.
       const allLocalOrders = await prisma.order.findMany({
         where: {
           accountId,
           orderSource: { in: ['amazon', 'backmarket'] },
+          fulfillmentChannel: { not: 'AFN' },
           ...(scopedIds ? { id: { in: scopedIds } } : {
             OR: [
               { shipToPostal: null },

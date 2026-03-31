@@ -29,7 +29,7 @@ export async function POST() {
   if (!ssAccount) return NextResponse.json({ enriched: 0, skipped: 0 })
 
   const orders = await prisma.order.findMany({
-    where: { OR: [{ shipToPostal: null }, { shipToCity: null }] },
+    where: { fulfillmentChannel: { not: 'AFN' }, OR: [{ shipToPostal: null }, { shipToCity: null }] },
     select: { id: true, amazonOrderId: true },
   })
   if (orders.length === 0) return NextResponse.json({ enriched: 0, skipped: 0 })
