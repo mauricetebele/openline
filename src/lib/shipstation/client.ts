@@ -167,6 +167,7 @@ export interface V2Rate {
   other_amount: { amount: number; currency: string }
   estimated_delivery_date?: string | null
   carrier_delivery_days?: number | null
+  package_type?: string | null
   validation_status: string
   warning_messages?: string[]
   error_messages?: string[]

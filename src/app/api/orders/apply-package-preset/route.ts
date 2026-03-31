@@ -236,6 +236,7 @@ export async function POST(req: NextRequest) {
               const allRates = v2Result.rate_response?.rates ?? []
               const validRates = allRates
                 .filter(r => r.validation_status !== 'invalid')
+                .filter(r => !r.package_type || r.package_type === 'package') // exclude flat rate envelopes/boxes
                 .sort((a, b) =>
                   (a.shipping_amount.amount + a.other_amount.amount) -
                   (b.shipping_amount.amount + b.other_amount.amount)
