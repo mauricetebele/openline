@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { decrypt } from '@/lib/crypto'
+import { ShipStationClient } from '@/lib/shipstation/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,7 +60,44 @@ export async function POST(req: NextRequest) {
   // Load warehouse (first one)
   const warehouse = await prisma.warehouse.findFirst({ orderBy: { createdAt: 'asc' } })
 
-  // Build V2 payload — include ship_to (required by ShipStation)
+  // Get ship-to address from ShipStation (source of truth, same as main app)
+  let shipTo = {
+    name: order.shipToName || 'Customer',
+    phone: order.shipToPhone || '555-555-5555',
+    address_line1: order.shipToAddress1 || '',
+    address_line2: order.shipToAddress2 || undefined as string | undefined,
+    city_locality: order.shipToCity || '',
+    state_province: order.shipToState || '',
+    postal_code: (order.shipToPostal || '').split('-')[0].trim(),
+    country_code: order.shipToCountry || 'US',
+  }
+
+  let addressSource = 'database'
+  const ssClient = new ShipStationClient(
+    decrypt(account.apiKeyEnc),
+    account.apiSecretEnc ? decrypt(account.apiSecretEnc) : '',
+  )
+  try {
+    const ssOrder = await ssClient.findOrderByNumber(order.amazonOrderId)
+    if (ssOrder?.shipTo) {
+      const st = ssOrder.shipTo
+      shipTo = {
+        name: st.name || 'Customer',
+        phone: st.phone || '555-555-5555',
+        address_line1: st.street1 || '',
+        address_line2: st.street2 || undefined,
+        city_locality: st.city || '',
+        state_province: st.state || '',
+        postal_code: (st.postalCode || '').split('-')[0].trim(),
+        country_code: st.country || 'US',
+      }
+      addressSource = 'shipstation'
+    }
+  } catch (e) {
+    console.warn('[debug-rates] ShipStation lookup failed, using DB address:', e instanceof Error ? e.message : String(e))
+  }
+
+  // Build V2 payload
   const v2Payload = {
     rate_options: {
       carrier_ids: [account.amazonCarrierId],
@@ -76,14 +114,7 @@ export async function POST(req: NextRequest) {
         country_code: warehouse?.countryCode || 'US',
       },
       ship_to: {
-        name: order.shipToName || 'Customer',
-        phone: order.shipToPhone || '555-555-5555',
-        address_line1: order.shipToAddress1 || '',
-        address_line2: order.shipToAddress2 || undefined,
-        city_locality: order.shipToCity || '',
-        state_province: order.shipToState || '',
-        postal_code: (order.shipToPostal || '').split('-')[0].trim(),
-        country_code: order.shipToCountry || 'US',
+        ...shipTo,
         address_residential_indicator: 'unknown',
       },
       packages: [{
@@ -143,6 +174,7 @@ export async function POST(req: NextRequest) {
       amazonOrderId: order.amazonOrderId,
       itemCount: order.items.length,
     },
+    addressSource,
     carrierIdUsed: account.amazonCarrierId,
     requestPayload: v2Payload,
     response: {
