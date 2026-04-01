@@ -99,6 +99,7 @@ export async function POST(req: NextRequest) {
 
   const from            = warehouse.originAddress
   const fromPostalCode  = from.postalCode.split('-')[0].trim()
+  const ssWarehouseId   = `se-${warehouse.warehouseId}`
   const isAmazonCarrier = preset.carrierCode.toLowerCase().includes('amazon')
 
   console.log('[apply-preset] warehouse=%s fromPostal=%s carrier=%s service=%s orders=%d isAmazon=%s',
@@ -199,15 +200,7 @@ export async function POST(req: NextRequest) {
                 rate_options: { carrier_ids: [amazonV2CarrierId] },
                 shipment: {
                   ...(shipDate ? { ship_date: `${shipDate}` } : {}),
-                  ship_from: {
-                    name:           from.name,
-                    phone:          from.phone || '555-555-5555',
-                    address_line1:  from.street1,
-                    city_locality:  from.city,
-                    state_province: from.state,
-                    postal_code:    fromPostalCode,
-                    country_code:   from.country || 'US',
-                  },
+                  warehouse_id: ssWarehouseId,
                   ship_to: {
                     name:                          toName,
                     phone:                         toPhone || '555-555-5555',

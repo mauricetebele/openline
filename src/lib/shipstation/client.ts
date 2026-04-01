@@ -177,8 +177,9 @@ export interface V2RatesRequest {
   rate_options: { carrier_ids?: string[] }
   shipment: {
     ship_date?: string            // YYYY-MM-DD, e.g. '2026-03-10'
+    warehouse_id?: string         // Use instead of ship_from to get full carrier coverage (e.g. UPS via Amazon Buy Shipping)
     ship_to: V2Address
-    ship_from: V2Address
+    ship_from?: V2Address
     packages: {
       weight: { value: number; unit: 'ounce' | 'pound' | 'gram' | 'kilogram' }
       dimensions?: { length: number; width: number; height: number; unit: 'inch' | 'centimeter' }

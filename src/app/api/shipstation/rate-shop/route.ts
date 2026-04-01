@@ -94,6 +94,20 @@ export async function POST(req: NextRequest) {
   const amazonV2CarrierId = account.amazonCarrierId ?? null
   console.log('[rate-shop] amazonV2CarrierId=%s', amazonV2CarrierId)
 
+  // Resolve ShipStation warehouse_id for V2 payloads (required for UPS via Amazon Buy Shipping)
+  let ssWarehouseId: string | null = null
+  try {
+    const ssWarehouses = await client.getWarehouses()
+    const wh = ssWarehouses.find(w => body.warehouseId && w.warehouseId === body.warehouseId)
+      ?? ssWarehouses.find(w => w.warehouseName.toUpperCase().includes('MERIDIAN'))
+      ?? ssWarehouses.find(w => w.isDefault)
+      ?? ssWarehouses[0]
+    if (wh) ssWarehouseId = `se-${wh.warehouseId}`
+  } catch (e) {
+    console.warn('[rate-shop] SS warehouse lookup failed:', e instanceof Error ? e.message : String(e))
+  }
+  console.log('[rate-shop] ssWarehouseId=%s', ssWarehouseId)
+
   const rateErrors: string[] = []
   const allRates: (SSRate & { carrierName: string })[] = []
   const isAmazonOrder = body.orderSource !== 'backmarket'
@@ -120,15 +134,17 @@ export async function POST(req: NextRequest) {
         rate_options: { carrier_ids: [amazonV2CarrierId] },
         shipment: {
           ...(body.shipDate ? { ship_date: `${body.shipDate}` } : {}),
-          ship_from: {
-            name:            body.fromName || 'Warehouse',
-            phone:           body.fromPhone || '555-555-5555',
-            address_line1:   body.fromAddress1 ?? '',
-            city_locality:   body.fromCity ?? '',
-            state_province:  body.fromState ?? '',
-            postal_code:     body.fromPostalCode,
-            country_code:    body.fromCountry ?? 'US',
-          },
+          ...(ssWarehouseId
+            ? { warehouse_id: ssWarehouseId }
+            : { ship_from: {
+                name:            body.fromName || 'Warehouse',
+                phone:           body.fromPhone || '555-555-5555',
+                address_line1:   body.fromAddress1 ?? '',
+                city_locality:   body.fromCity ?? '',
+                state_province:  body.fromState ?? '',
+                postal_code:     body.fromPostalCode,
+                country_code:    body.fromCountry ?? 'US',
+              } }),
           ship_to: {
             name:                          body.toName || 'Customer',
             phone:                         body.toPhone || '555-555-5555',
