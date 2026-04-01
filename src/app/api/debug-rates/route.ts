@@ -56,9 +56,57 @@ export async function POST(req: NextRequest) {
   if (!account.amazonCarrierId) return NextResponse.json({ error: 'No Amazon carrier ID configured' }, { status: 400 })
 
   const v2ApiKey = decrypt(account.v2ApiKeyEnc)
+  const ssClient = new ShipStationClient(
+    decrypt(account.apiKeyEnc),
+    account.apiSecretEnc ? decrypt(account.apiSecretEnc) : '',
+  )
 
-  // Load warehouse (first one)
-  const warehouse = await prisma.warehouse.findFirst({ orderBy: { createdAt: 'asc' } })
+  // Get ship-from warehouse from ShipStation (use "MERIDIAN" warehouse)
+  let shipFrom = {
+    name: 'Warehouse',
+    phone: '555-555-5555',
+    address_line1: '',
+    city_locality: '',
+    state_province: '',
+    postal_code: '',
+    country_code: 'US',
+  }
+  let warehouseSource = 'fallback'
+  try {
+    const ssWarehouses = await ssClient.getWarehouses()
+    const meridian = ssWarehouses.find(w =>
+      w.warehouseName.toUpperCase().includes('MERIDIAN'),
+    ) ?? ssWarehouses[0]
+    if (meridian) {
+      const oa = meridian.originAddress
+      shipFrom = {
+        name: oa.name || meridian.warehouseName,
+        phone: oa.phone || '555-555-5555',
+        address_line1: oa.street1 || '',
+        city_locality: oa.city || '',
+        state_province: oa.state || '',
+        postal_code: oa.postalCode || '',
+        country_code: oa.country || 'US',
+      }
+      warehouseSource = `shipstation (${meridian.warehouseName})`
+    }
+  } catch (e) {
+    console.warn('[debug-rates] SS warehouse lookup failed:', e instanceof Error ? e.message : String(e))
+    // Fallback to local DB warehouse
+    const warehouse = await prisma.warehouse.findFirst({ orderBy: { createdAt: 'asc' } })
+    if (warehouse) {
+      shipFrom = {
+        name: warehouse.name || 'Warehouse',
+        phone: warehouse.phone || '555-555-5555',
+        address_line1: warehouse.addressLine1 || '',
+        city_locality: warehouse.city || '',
+        state_province: warehouse.state || '',
+        postal_code: warehouse.postalCode || '',
+        country_code: warehouse.countryCode || 'US',
+      }
+      warehouseSource = 'database'
+    }
+  }
 
   // Get ship-to address from ShipStation (source of truth, same as main app)
   let shipTo = {
@@ -74,10 +122,6 @@ export async function POST(req: NextRequest) {
 
   let addressSource = 'database'
   let ssDebug: unknown = null
-  const ssClient = new ShipStationClient(
-    decrypt(account.apiKeyEnc),
-    account.apiSecretEnc ? decrypt(account.apiSecretEnc) : '',
-  )
   try {
     const ssOrder = await ssClient.findOrderByNumber(order.amazonOrderId)
     ssDebug = ssOrder
@@ -110,15 +154,7 @@ export async function POST(req: NextRequest) {
     },
     shipment: {
       ship_date: shipDate || undefined,
-      ship_from: {
-        name: warehouse?.name || 'Warehouse',
-        phone: warehouse?.phone || '555-555-5555',
-        address_line1: warehouse?.addressLine1 || '',
-        city_locality: warehouse?.city || '',
-        state_province: warehouse?.state || '',
-        postal_code: warehouse?.postalCode || '',
-        country_code: warehouse?.countryCode || 'US',
-      },
+      ship_from: shipFrom,
       ship_to: {
         ...shipTo,
         address_residential_indicator: 'unknown',
@@ -181,6 +217,7 @@ export async function POST(req: NextRequest) {
       itemCount: order.items.length,
     },
     addressSource,
+    warehouseSource,
     shipStationLookup: ssDebug,
     carrierIdUsed: account.amazonCarrierId,
     requestPayload: v2Payload,
