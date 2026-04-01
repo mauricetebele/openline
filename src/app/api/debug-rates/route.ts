@@ -59,8 +59,7 @@ export async function POST(req: NextRequest) {
   // Load warehouse (first one)
   const warehouse = await prisma.warehouse.findFirst({ orderBy: { createdAt: 'asc' } })
 
-  // Build V2 payload — deliberately omit ship_to so ShipStation
-  // pulls destination from Amazon's linked order data directly
+  // Build V2 payload — include ship_to (required by ShipStation)
   const v2Payload = {
     rate_options: {
       carrier_ids: [account.amazonCarrierId],
@@ -75,6 +74,17 @@ export async function POST(req: NextRequest) {
         state_province: warehouse?.state || '',
         postal_code: warehouse?.postalCode || '',
         country_code: warehouse?.countryCode || 'US',
+      },
+      ship_to: {
+        name: order.shipToName || 'Customer',
+        phone: order.shipToPhone || '555-555-5555',
+        address_line1: order.shipToAddress1 || '',
+        address_line2: order.shipToAddress2 || undefined,
+        city_locality: order.shipToCity || '',
+        state_province: order.shipToState || '',
+        postal_code: (order.shipToPostal || '').split('-')[0].trim(),
+        country_code: order.shipToCountry || 'US',
+        address_residential_indicator: 'unknown',
       },
       packages: [{
         weight: { unit: 'pound', value: weightLb || 1 },
