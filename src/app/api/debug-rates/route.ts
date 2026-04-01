@@ -156,8 +156,9 @@ export async function POST(req: NextRequest) {
     },
     shipment: {
       ship_date: shipDate || undefined,
-      ...(ssWarehouseId ? { warehouse_id: ssWarehouseId } : {}),
-      ship_from: shipFrom,
+      ...(ssWarehouseId
+        ? { warehouse_id: ssWarehouseId }
+        : { ship_from: shipFrom }),
       ship_to: {
         ...shipTo,
         address_residential_indicator: 'unknown',
