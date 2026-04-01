@@ -72,12 +72,14 @@ export async function POST(req: NextRequest) {
     country_code: 'US',
   }
   let warehouseSource = 'fallback'
+  let ssWarehouseId: string | null = null
   try {
     const ssWarehouses = await ssClient.getWarehouses()
     const meridian = ssWarehouses.find(w =>
       w.warehouseName.toUpperCase().includes('MERIDIAN'),
     ) ?? ssWarehouses[0]
     if (meridian) {
+      ssWarehouseId = `se-${meridian.warehouseId}`
       const oa = meridian.originAddress
       shipFrom = {
         name: oa.name || meridian.warehouseName,
@@ -88,7 +90,7 @@ export async function POST(req: NextRequest) {
         postal_code: oa.postalCode || '',
         country_code: oa.country || 'US',
       }
-      warehouseSource = `shipstation (${meridian.warehouseName})`
+      warehouseSource = `shipstation (${meridian.warehouseName}, id=${ssWarehouseId})`
     }
   } catch (e) {
     console.warn('[debug-rates] SS warehouse lookup failed:', e instanceof Error ? e.message : String(e))
@@ -154,6 +156,7 @@ export async function POST(req: NextRequest) {
     },
     shipment: {
       ship_date: shipDate || undefined,
+      ...(ssWarehouseId ? { warehouse_id: ssWarehouseId } : {}),
       ship_from: shipFrom,
       ship_to: {
         ...shipTo,
