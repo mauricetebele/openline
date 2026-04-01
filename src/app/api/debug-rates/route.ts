@@ -73,12 +73,16 @@ export async function POST(req: NextRequest) {
   }
 
   let addressSource = 'database'
+  let ssDebug: unknown = null
   const ssClient = new ShipStationClient(
     decrypt(account.apiKeyEnc),
     account.apiSecretEnc ? decrypt(account.apiSecretEnc) : '',
   )
   try {
     const ssOrder = await ssClient.findOrderByNumber(order.amazonOrderId)
+    ssDebug = ssOrder
+      ? { found: true, orderId: ssOrder.orderId, orderNumber: ssOrder.orderNumber, shipTo: ssOrder.shipTo }
+      : { found: false }
     if (ssOrder?.shipTo) {
       const st = ssOrder.shipTo
       shipTo = {
@@ -94,7 +98,9 @@ export async function POST(req: NextRequest) {
       addressSource = 'shipstation'
     }
   } catch (e) {
-    console.warn('[debug-rates] ShipStation lookup failed, using DB address:', e instanceof Error ? e.message : String(e))
+    const errMsg = e instanceof Error ? e.message : String(e)
+    ssDebug = { found: false, error: errMsg }
+    console.warn('[debug-rates] ShipStation lookup failed, using DB address:', errMsg)
   }
 
   // Build V2 payload
@@ -175,6 +181,7 @@ export async function POST(req: NextRequest) {
       itemCount: order.items.length,
     },
     addressSource,
+    shipStationLookup: ssDebug,
     carrierIdUsed: account.amazonCarrierId,
     requestPayload: v2Payload,
     response: {
