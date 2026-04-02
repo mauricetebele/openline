@@ -198,6 +198,13 @@ export async function syncReplacementOrders(accountId: string): Promise<SyncResu
   let updated = 0
 
   for (const order of candidates) {
+    // Ensure the order record itself is flagged as replacement so
+    // profitability zeroes it out (candidates may be found via orderTotal=null/0
+    // even though isReplacement was initially set to false during order sync)
+    if (order.isReplacement !== true) {
+      await prisma.order.update({ where: { id: order.id }, data: { isReplacement: true } })
+    }
+
     const asin = order.items[0]?.asin ?? ''
     const title = order.items[0]?.title ?? ''
 
