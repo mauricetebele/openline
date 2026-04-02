@@ -25,15 +25,28 @@ interface Order {
 
 type Phase = 'review' | 'verified' | 'done'
 
-function downloadLabelData(labelData: string, labelFormat: string, filename: string) {
+function printLabelData(labelData: string, labelFormat: string) {
   const bytes = Uint8Array.from(atob(labelData), c => c.charCodeAt(0))
   const mime  = labelFormat === 'pdf' ? 'application/pdf' : 'image/png'
-  const ext   = labelFormat === 'pdf' ? 'pdf' : 'png'
   const blob  = new Blob([bytes], { type: mime })
   const url   = URL.createObjectURL(blob)
-  const a     = document.createElement('a')
-  a.href = url; a.download = `${filename}.${ext}`; a.click()
-  URL.revokeObjectURL(url)
+
+  if (labelFormat === 'pdf') {
+    const iframe = document.createElement('iframe')
+    iframe.style.display = 'none'
+    document.body.appendChild(iframe)
+    iframe.src = url
+    iframe.onload = () => {
+      iframe.contentWindow?.print()
+      setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(url) }, 1000)
+    }
+  } else {
+    const win = window.open('', '_blank')
+    if (win) {
+      win.document.write(`<html><head><title>Shipping Label</title></head><body style="margin:0;display:flex;justify-content:center;align-items:center"><img src="${url}" style="max-width:100%;max-height:100vh" onload="window.print();window.close()" /></body></html>`)
+      win.document.close()
+    }
+  }
 }
 
 export default function ShipByItemModal({ order, serialNumber, serialSku, onClose, onComplete }: {
@@ -82,7 +95,7 @@ export default function ShipByItemModal({ order, serialNumber, serialSku, onClos
         throw new Error((j as { error?: string }).error ?? 'Failed to fetch label')
       }
       const data: { labelData: string; labelFormat: string; trackingNumber: string } = await res.json()
-      downloadLabelData(data.labelData, data.labelFormat, `label-${order.amazonOrderId}`)
+      printLabelData(data.labelData, data.labelFormat)
       setPhase('done')
     } catch (e) {
       setPrintErr(e instanceof Error ? e.message : 'Failed to print label')
@@ -187,7 +200,7 @@ export default function ShipByItemModal({ order, serialNumber, serialSku, onClos
             <>
               <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200 text-green-800 text-sm">
                 <CheckCircle2 size={16} className="text-green-600 shrink-0" />
-                <span className="font-medium">Label downloaded!</span>
+                <span className="font-medium">Label sent to printer!</span>
               </div>
               <button onClick={handleDone}
                 className="w-full flex items-center justify-center gap-2 h-10 rounded-lg text-sm font-semibold bg-purple-600 text-white hover:bg-purple-700 transition-colors">
