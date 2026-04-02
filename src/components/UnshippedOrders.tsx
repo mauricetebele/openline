@@ -4,7 +4,7 @@ import {
   Search, RefreshCcw, Package, X, AlertCircle, ChevronLeft, ChevronRight,
   Download, Link2, CheckCircle2, Truck, Settings, FlaskConical, ClipboardCheck,
   MapPin, Printer, RotateCcw, Hash, XCircle, ExternalLink, Phone, FileText, Eye,
-  AlertTriangle, Pencil, Tag, History, ChevronDown, ChevronUp, Ban, ShieldCheck, Trash2, ScanLine, Clock,
+  AlertTriangle, Pencil, Tag, History, ChevronDown, ChevronUp, Ban, ShieldCheck, ScanLine, Clock,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
@@ -4935,9 +4935,6 @@ export default function UnshippedOrders() {
   const [showBatchConfirm, setShowBatchConfirm] = useState(false)
   const [showBatchHistory, setShowBatchHistory] = useState(false)
 
-  // Delete all orders state
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [deletingAll, setDeletingAll]             = useState(false)
 
   // BackMarket confirm order state
   const [confirmingBmId, setConfirmingBmId] = useState<string | null>(null)
@@ -5173,16 +5170,6 @@ export default function UnshippedOrders() {
     setSsEnriching(false)
     setSsEnrichResult(null)
     setShowSyncBar(false)
-  }
-
-  async function deleteAllOrders() {
-    setDeletingAll(true)
-    try {
-      const res = await fetch('/api/orders', { method: 'DELETE' })
-      if (!res.ok) throw new Error('Delete failed')
-      setFetchKey(k => k + 1)
-    } catch { /* ignore */ }
-    finally { setDeletingAll(false); setShowDeleteConfirm(false) }
   }
 
   async function confirmBackMarketOrder(order: Order) {
@@ -6629,34 +6616,6 @@ export default function UnshippedOrders() {
           </button>
 
           <div className="flex-1" />
-
-          {/* Danger zone: delete all */}
-          {!showDeleteConfirm ? (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              title="Delete all orders from the database"
-              className="flex items-center gap-1 h-7 px-2 rounded border border-gray-200 text-[10px] text-gray-400 hover:border-red-400 hover:text-red-600 transition-colors"
-            >
-              <Trash2 size={10} /> Delete All
-            </button>
-          ) : (
-            <div className="flex items-center gap-1.5 bg-red-50 border border-red-300 rounded px-2.5 py-1">
-              <span className="text-xs text-red-700 font-medium">Delete all orders?</span>
-              <button
-                onClick={deleteAllOrders}
-                disabled={deletingAll}
-                className="h-6 px-2 rounded text-[10px] font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                {deletingAll ? 'Deleting…' : 'Yes, Delete'}
-              </button>
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="h-6 px-2 rounded text-[10px] font-medium bg-white border border-gray-300 text-gray-600 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
         </div>
       )}
 
