@@ -25,22 +25,25 @@ export async function GET(req: NextRequest) {
   // Start of today in Pacific time (midnight PT → UTC)
   const todayMidnight = new Date(Date.UTC(y, m - 1, d))
 
+  // Base filter matching the orders list API: exclude Amazon Pending-payment
+  // orders and FBA/AFN orders (Amazon fulfills those, not us)
+  const baseWhere = { accountId, orderStatus: { not: 'Pending' } as const, fulfillmentChannel: { not: 'AFN' } as const }
+
   const [pending, unshipped, awaiting, dueOutToday, shippedToday,
          wsPending, wsUnshipped, wsShippedToday] = await Promise.all([
-    prisma.order.count({ where: { accountId, workflowStatus: 'PENDING', orderStatus: { not: 'Pending' } } }),
-    prisma.order.count({ where: { accountId, workflowStatus: 'PROCESSING' } }),
-    prisma.order.count({ where: { accountId, workflowStatus: 'AWAITING_VERIFICATION' } }),
+    prisma.order.count({ where: { ...baseWhere, workflowStatus: 'PENDING' } }),
+    prisma.order.count({ where: { ...baseWhere, workflowStatus: 'PROCESSING' } }),
+    prisma.order.count({ where: { ...baseWhere, workflowStatus: 'AWAITING_VERIFICATION' } }),
     prisma.order.count({
       where: {
-        accountId,
+        ...baseWhere,
         workflowStatus: { in: ['PENDING', 'PROCESSING', 'AWAITING_VERIFICATION'] },
-        orderStatus: { not: 'Pending' },
         latestShipDate: { lt: tomorrowMidnight },
       },
     }),
     prisma.order.count({
       where: {
-        accountId,
+        ...baseWhere,
         workflowStatus: 'SHIPPED',
         shippedAt: { gte: todayMidnight, lt: tomorrowMidnight },
       },
