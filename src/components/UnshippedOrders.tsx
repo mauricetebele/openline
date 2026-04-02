@@ -5983,9 +5983,15 @@ export default function UnshippedOrders() {
         case 'workflowStatus':
           cmp = (a.workflowStatus ?? '').localeCompare(b.workflowStatus ?? '')
           break
-        case 'presetRateAmount':
-          cmp = (a.presetRateAmount ?? 0) - (b.presetRateAmount ?? 0)
+        case 'presetRateAmount': {
+          const rA = a.presetRateAmount != null ? parseFloat(a.presetRateAmount) : null
+          const rB = b.presetRateAmount != null ? parseFloat(b.presetRateAmount) : null
+          if (rA == null && rB == null) cmp = 0
+          else if (rA == null) cmp = 1
+          else if (rB == null) cmp = -1
+          else cmp = rA - rB
           break
+        }
         case 'latestShipDate': {
           const dA = a.latestShipDate ? new Date(a.latestShipDate).getTime() : 0
           const dB = b.latestShipDate ? new Date(b.latestShipDate).getTime() : 0
