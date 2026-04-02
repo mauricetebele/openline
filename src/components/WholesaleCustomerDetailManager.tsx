@@ -19,6 +19,7 @@ interface StatementLine {
   date: string
   type: 'INVOICE' | 'PAYMENT' | 'CREDIT_MEMO'
   reference: string
+  invoiceNumber: string | null
   charges: number
   credits: number
   balance: number
@@ -53,10 +54,11 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
   doc.text('Date',      45, y)
-  doc.text('Type',     130, y)
-  doc.text('Reference',200, y)
-  doc.text('Charges',  380, y, { align: 'right' })
-  doc.text('Credits',  460, y, { align: 'right' })
+  doc.text('Type',     120, y)
+  doc.text('Reference',185, y)
+  doc.text('Invoice #', 270, y)
+  doc.text('Charges',  400, y, { align: 'right' })
+  doc.text('Credits',  475, y, { align: 'right' })
   doc.text('Balance',  w - 45, y, { align: 'right' })
   y += 16
 
@@ -64,10 +66,11 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
   for (const line of lines) {
     if (y > 720) { doc.addPage(); y = 50 }
     doc.text(new Date(line.date).toLocaleDateString(), 45, y)
-    doc.text(line.type, 130, y)
-    doc.text(line.reference.substring(0, 30), 200, y)
-    doc.text(line.charges > 0 ? `$${line.charges.toFixed(2)}` : '', 380, y, { align: 'right' })
-    doc.text(line.credits > 0 ? `$${line.credits.toFixed(2)}` : '', 460, y, { align: 'right' })
+    doc.text(line.type, 120, y)
+    doc.text(line.reference.substring(0, 20), 185, y)
+    doc.text(line.invoiceNumber ?? '', 270, y)
+    doc.text(line.charges > 0 ? `$${line.charges.toFixed(2)}` : '', 400, y, { align: 'right' })
+    doc.text(line.credits > 0 ? `$${line.credits.toFixed(2)}` : '', 475, y, { align: 'right' })
     doc.text(`$${Number(line.balance).toFixed(2)}`, w - 45, y, { align: 'right' })
     y += 16
   }
@@ -331,6 +334,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                     <th className="text-left px-5 py-3">Date</th>
                     <th className="text-left px-5 py-3">Type</th>
                     <th className="text-left px-5 py-3">Reference</th>
+                    <th className="text-left px-5 py-3">Invoice #</th>
                     <th className="text-right px-5 py-3">Charges</th>
                     <th className="text-right px-5 py-3">Credits</th>
                     <th className="text-right px-5 py-3">Balance</th>
@@ -349,6 +353,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                         }`}>{line.type === 'CREDIT_MEMO' ? 'CREDIT MEMO' : line.type}</span>
                       </td>
                       <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.reference}</td>
+                      <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.invoiceNumber ?? ''}</td>
                       <td className="px-5 py-2.5 text-right">{line.charges > 0 ? fmt(line.charges) : ''}</td>
                       <td className="px-5 py-2.5 text-right text-green-600">{line.credits > 0 ? fmt(line.credits) : ''}</td>
                       <td className="px-5 py-2.5 text-right font-semibold">{fmt(Number(line.balance))}</td>

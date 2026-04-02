@@ -38,6 +38,7 @@ export async function GET(
     date: Date
     type: 'INVOICE' | 'PAYMENT' | 'CREDIT_MEMO'
     reference: string
+    invoiceNumber: string | null
     charges: number
     credits: number
     balance: number
@@ -50,31 +51,34 @@ export async function GET(
     ...orders.map((o) => ({
       date: o.orderDate,
       line: {
-        date:      o.orderDate,
-        type:      'INVOICE' as const,
-        reference: o.orderNumber,
-        charges:   Number(o.total),
-        credits:   Number(o.paidAmount),
+        date:           o.orderDate,
+        type:           'INVOICE' as const,
+        reference:      o.orderNumber,
+        invoiceNumber:  o.invoiceNumber ?? null,
+        charges:        Number(o.total),
+        credits:        Number(o.paidAmount),
       },
     })),
     ...payments.map((p) => ({
       date: p.paymentDate,
       line: {
-        date:      p.paymentDate,
-        type:      'PAYMENT' as const,
-        reference: p.reference ?? `PMT-${p.id.slice(-6).toUpperCase()}`,
-        charges:   0,
-        credits:   Number(p.amount),
+        date:           p.paymentDate,
+        type:           'PAYMENT' as const,
+        reference:      p.reference ?? `PMT-${p.id.slice(-6).toUpperCase()}`,
+        invoiceNumber:  null,
+        charges:        0,
+        credits:        Number(p.amount),
       },
     })),
     ...creditMemos.map((cm) => ({
       date: cm.createdAt,
       line: {
-        date:      cm.createdAt,
-        type:      'CREDIT_MEMO' as const,
-        reference: cm.memoNumber,
-        charges:   0,
-        credits:   Number(cm.total),
+        date:           cm.createdAt,
+        type:           'CREDIT_MEMO' as const,
+        reference:      cm.memoNumber,
+        invoiceNumber:  null,
+        charges:        0,
+        credits:        Number(cm.total),
       },
     })),
   ].sort((a, b) => a.date.getTime() - b.date.getTime())
