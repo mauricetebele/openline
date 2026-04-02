@@ -465,6 +465,7 @@ export async function syncUnshippedOrders(
               update: {
                 orderStatus:             fullOrder.OrderStatus ?? 'Unknown',
                 lastUpdateDate:          new Date(fullOrder.LastUpdateDate ?? Date.now()),
+                orderTotal:              fullOrder.OrderTotal?.Amount ? parseFloat(fullOrder.OrderTotal.Amount) : undefined,
                 numberOfItemsUnshipped:  fullOrder.NumberOfItemsUnshipped ?? 0,
                 isPrime:                 fullOrder.IsPrime === true,
                 isReplacement:           fullOrder.IsReplacementOrder === true,
@@ -527,7 +528,9 @@ export async function syncUnshippedOrders(
                   quantityOrdered: item.QuantityOrdered ?? 1,
                   quantityShipped: item.QuantityShipped ?? 0,
                   sellerSku: item.SellerSKU ?? null,
+                  itemPrice: item.ItemPrice?.Amount ? parseFloat(item.ItemPrice.Amount) : undefined,
                   itemTax: item.ItemTax?.Amount ? parseFloat(item.ItemTax.Amount) : undefined,
+                  shippingPrice: item.ShippingPrice?.Amount ? parseFloat(item.ShippingPrice.Amount) : undefined,
                   isTransparency: item.IsTransparency === true,
                 },
               })),
