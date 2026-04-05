@@ -7129,33 +7129,11 @@ export default function UnshippedOrders() {
                               <CheckCircle2 size={10} /> Accepted
                             </span>
                           )}
-                          {(() => {
-                            const allSerialized = order.items.every(i => (i.bmSerials?.length ?? 0) >= i.quantityOrdered)
-                            return (
-                              <>
-                                <button
-                                  onClick={() => setBmSerializeOrder(order)}
-                                  title={allSerialized ? 'All serials assigned' : 'Assign serial numbers'}
-                                  className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium transition-colors',
-                                    allSerialized
-                                      ? 'bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100'
-                                      : 'bg-purple-600 text-white hover:bg-purple-700'
-                                  )}
-                                >
-                                  {allSerialized ? <><CheckCircle2 size={10} /> Serialized</> : <><ClipboardCheck size={10} /> Serialize</>}
-                                </button>
-                                {allSerialized && (
-                                  <button
-                                    onClick={() => setBmManualShipOrder(order)}
-                                    title="Ship — enter carrier and tracking to push to Back Market"
-                                    className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
-                                  >
-                                    <Truck size={10} /> Ship
-                                  </button>
-                                )}
-                              </>
-                            )
-                          })()}
+                          <button onClick={() => setLabelOrder(order)}
+                            className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium transition-colors',
+                              ssAccount ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}>
+                            <Truck size={10} /> Ship
+                          </button>
                           <button onClick={() => handleUnprocess(order)} disabled={isUnprocessing} title="Unprocess — release inventory reservation"
                             className="inline-flex items-center justify-center h-6 w-6 rounded text-[10px] text-gray-400 hover:text-amber-600 hover:bg-amber-50 disabled:opacity-40 transition-colors">
                             {isUnprocessing ? <RefreshCcw size={10} className="animate-spin" /> : <RotateCcw size={10} />}
