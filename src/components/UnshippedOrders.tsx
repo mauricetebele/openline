@@ -3362,17 +3362,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
     await executeBuyLabel(rate)
   }
 
-  // BackMarket orders must have all serial/IMEI numbers assigned before label purchase
-  const bmNeedsSerials = order.orderSource === 'backmarket' && order.items.some(
-    i => (i.bmSerials?.length ?? 0) < i.quantityOrdered,
-  )
-
   async function buyLabel(rate: SSRate) {
-    // Gate: BackMarket orders must be serialized first
-    if (bmNeedsSerials) {
-      setPurchaseErr('All serial/IMEI numbers must be assigned before purchasing a label. Use the Serialize button first.')
-      return
-    }
     // Gate: if order needs transparency codes and they haven't been saved yet
     if (needsTransparency && !codesAlreadySaved) {
       setPendingRate(rate)
@@ -3411,21 +3401,6 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
             serviceCode:    rate.serviceCode,
             isAmazonBuyShipping: !!rate.rate_id,
           })
-
-          // ── BackMarket: push tracking + serial/IMEI to BM API ────────────
-          if (order.orderSource === 'backmarket') {
-            try {
-              const bmRes = await apiPost<{ shipped?: boolean; error?: string }>(
-                `/api/orders/${order.id}/bm-ship`, {},
-              )
-              if (bmRes.shipped) {
-                console.log('[LabelPanel] BackMarket order shipped successfully')
-              }
-            } catch (bmErr) {
-              // Non-fatal: label was purchased, BM ship can be retried
-              console.error('[LabelPanel] BackMarket ship failed (can retry):', bmErr)
-            }
-          }
 
           // Auto-print via QZ Tray if connected (non-fatal)
           if (qzPrint?.connected && qzPrint.defaultPrinter && (label.labelFormat ?? 'pdf') === 'pdf') {

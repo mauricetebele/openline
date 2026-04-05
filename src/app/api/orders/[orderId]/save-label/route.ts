@@ -76,7 +76,8 @@ export async function POST(
 
   // Submit fulfillment confirmation with transparency codes to Amazon (non-blocking).
   // Skip for Amazon Buy Shipping — Amazon already owns the shipment/tracking.
-  if (!body.isAmazonBuyShipping) {
+  // Skip for non-Amazon orders (e.g. BackMarket) — they have their own notification flow.
+  if (order.orderSource === 'amazon' && !body.isAmazonBuyShipping) {
     submitFulfillmentWithTransparency(
       params.orderId,
       body.trackingNumber,
