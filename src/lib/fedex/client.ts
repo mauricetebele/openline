@@ -81,6 +81,7 @@ async function getAccessToken(creds: FedExCredentials, testMode?: boolean): Prom
       grant_type: 'client_credentials',
       client_id: creds.clientId,
       client_secret: creds.clientSecret,
+      ...(creds.accountNumber ? { account_number: creds.accountNumber } : {}),
     }),
   })
 

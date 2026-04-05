@@ -3709,32 +3709,47 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
             </section>
           )}
 
-          {rates !== null && rates.length > 0 && (
-            <section className="space-y-2">
-              <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{rates.length} Available Rate{rates.length !== 1 ? 's' : ''} — cheapest first</h3>
-              {rates.map((rate, idx) => {
-                const total = rate.shipmentCost + rate.otherCost, isBuying = purchasing === `${rate.carrierCode}-${rate.serviceCode}`
-                return (
-                  <div key={`${rate.carrierCode}-${rate.serviceCode}-${idx}`} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 hover:border-[#FF9900] transition-colors">
-                    <div className="min-w-0 flex items-center gap-2.5">
-                      <CarrierLogo carrierCode={rate.carrierCode} size={14} />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{rate.serviceName}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">{rate.carrierName ?? rate.carrierCode}{rate.transitDays != null ? ` · ${rate.transitDays}d` : ''}{rate.deliveryDate ? ` · Est. ${new Date(rate.deliveryDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-sm font-bold text-gray-900">${total.toFixed(2)}</span>
-                      <button onClick={() => buyLabel(rate)} disabled={!!purchasing}
-                        className={clsx('flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold transition-colors', purchasing ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-[#FF9900] text-white hover:bg-orange-500')}>
-                        {isBuying ? <RefreshCcw size={11} className="animate-spin" /> : <Download size={11} />}{isBuying ? 'Buying…' : 'Buy'}
-                      </button>
+          {rates !== null && rates.length > 0 && (() => {
+            const ssRates = rates.filter(r => r.carrierCode !== 'fedex_direct')
+            const fedexDirectRates = rates.filter(r => r.carrierCode === 'fedex_direct')
+            const renderRate = (rate: SSRate, idx: number) => {
+              const total = rate.shipmentCost + rate.otherCost, isBuying = purchasing === `${rate.carrierCode}-${rate.serviceCode}`
+              return (
+                <div key={`${rate.carrierCode}-${rate.serviceCode}-${idx}`} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 hover:border-[#FF9900] transition-colors">
+                  <div className="min-w-0 flex items-center gap-2.5">
+                    <CarrierLogo carrierCode={rate.carrierCode} size={14} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{rate.serviceName}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{rate.carrierName ?? rate.carrierCode}{rate.transitDays != null ? ` · ${rate.transitDays}d` : ''}{rate.deliveryDate ? ` · Est. ${new Date(rate.deliveryDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</p>
                     </div>
                   </div>
-                )
-              })}
-            </section>
-          )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-sm font-bold text-gray-900">${total.toFixed(2)}</span>
+                    <button onClick={() => buyLabel(rate)} disabled={!!purchasing}
+                      className={clsx('flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold transition-colors', purchasing ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-[#FF9900] text-white hover:bg-orange-500')}>
+                      {isBuying ? <RefreshCcw size={11} className="animate-spin" /> : <Download size={11} />}{isBuying ? 'Buying…' : 'Buy'}
+                    </button>
+                  </div>
+                </div>
+              )
+            }
+            return (
+              <div className="space-y-4">
+                {ssRates.length > 0 && (
+                  <section className="space-y-2">
+                    <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">ShipStation Rates ({ssRates.length})</h3>
+                    {ssRates.map(renderRate)}
+                  </section>
+                )}
+                {fedexDirectRates.length > 0 && (
+                  <section className="space-y-2">
+                    <h3 className="text-xs font-semibold text-purple-700 uppercase tracking-wide flex items-center gap-1.5"><CarrierLogo carrierCode="fedex_direct" size={12} /> FedEx Direct Rates ({fedexDirectRates.length})</h3>
+                    {fedexDirectRates.map(renderRate)}
+                  </section>
+                )}
+              </div>
+            )
+          })()}
           {rates !== null && rates.length === 0 && <p className="text-sm text-gray-500 text-center py-2">No shipping rates available for this route.</p>}
         </>)}
       </div>
