@@ -88,43 +88,68 @@ export async function syncAmazonCommissions(
   } while (nextToken)
 
   // Aggregate fees per ORDER_ID (Shipment transactions only)
-  // Split into referral commission vs FBA fulfillment fee
+  // Split into referral commission vs FBA fulfillment fee.
+  //
+  // IMPORTANT: Amazon Finances v2 can return multiple Shipment transactions for
+  // the same order at different lifecycle stages:
+  //   - DEFERRED      → posted immediately at shipment (commission not yet settled)
+  //   - RELEASED      → posted when disbursement settles (authoritative amount)
+  //   - DEFERRED_RELEASED → stale copy of DEFERRED after it was released (skip these)
+  //
+  // To avoid double-counting: for each order, prefer RELEASED fees. Only use
+  // DEFERRED if no RELEASED transaction exists yet (early capture for recent orders).
   const FBA_FEE_TYPES = new Set(['FBAPerUnitFulfillmentFee', 'FBAPerOrderFulfillmentFee', 'FBAWeightBasedFee'])
-  const feesByOrderId = new Map<string, { commission: number; fbaFee: number }>()
+
+  // First pass: group Shipment transactions by order + status
+  const txnsByOrder = new Map<string, { status: string; txn: V2Transaction }[]>()
 
   for (const txn of allTransactions) {
     if (txn.transactionType !== 'Shipment') continue
+    // Skip DEFERRED_RELEASED — stale copy of a DEFERRED that was already released
+    if (txn.transactionStatus === 'DEFERRED_RELEASED') continue
 
     const orderId = txn.relatedIdentifiers?.find(
       (r) => r.relatedIdentifierName === 'ORDER_ID',
     )?.relatedIdentifierValue
     if (!orderId) continue
 
-    const expenses = txn.breakdowns?.find((b) => b.breakdownType === 'Expenses')
-    const amazonFees = expenses?.breakdowns?.find((b) => b.breakdownType === 'AmazonFees')
-    if (!amazonFees) continue
+    const list = txnsByOrder.get(orderId) ?? []
+    list.push({ status: txn.transactionStatus ?? 'UNKNOWN', txn })
+    txnsByOrder.set(orderId, list)
+  }
 
-    const existing = feesByOrderId.get(orderId) ?? { commission: 0, fbaFee: 0 }
+  // Second pass: for each order, pick the best transactions (RELEASED > DEFERRED)
+  const feesByOrderId = new Map<string, { commission: number; fbaFee: number }>()
 
-    // If sub-breakdowns exist, split commission vs FBA fulfillment
-    const subBreakdowns = amazonFees.breakdowns
-    if (subBreakdowns?.length) {
-      for (const sub of subBreakdowns) {
-        const amount = Math.abs(sub.breakdownAmount?.currencyAmount ?? 0)
-        if (amount === 0) continue
-        if (FBA_FEE_TYPES.has(sub.breakdownType ?? '')) {
-          existing.fbaFee += amount
-        } else {
-          // Commission, VariableClosingFee, etc. → referral commission
-          existing.commission += amount
+  for (const [orderId, entries] of txnsByOrder) {
+    const releasedEntries = entries.filter(e => e.status === 'RELEASED')
+    // Use RELEASED transactions if any exist, otherwise fall back to DEFERRED
+    const chosen = releasedEntries.length > 0 ? releasedEntries : entries
+
+    const fees = { commission: 0, fbaFee: 0 }
+    for (const { txn } of chosen) {
+      const expenses = txn.breakdowns?.find((b) => b.breakdownType === 'Expenses')
+      const amazonFees = expenses?.breakdowns?.find((b) => b.breakdownType === 'AmazonFees')
+      if (!amazonFees) continue
+
+      // If sub-breakdowns exist, split commission vs FBA fulfillment
+      const subBreakdowns = amazonFees.breakdowns
+      if (subBreakdowns?.length) {
+        for (const sub of subBreakdowns) {
+          const amount = Math.abs(sub.breakdownAmount?.currencyAmount ?? 0)
+          if (amount === 0) continue
+          if (FBA_FEE_TYPES.has(sub.breakdownType ?? '')) {
+            fees.fbaFee += amount
+          } else {
+            fees.commission += amount
+          }
         }
+      } else {
+        fees.commission += Math.abs(amazonFees.breakdownAmount?.currencyAmount ?? 0)
       }
-    } else {
-      // No sub-breakdowns: store total as commission (legacy/MFN behavior)
-      existing.commission += Math.abs(amazonFees.breakdownAmount?.currencyAmount ?? 0)
     }
 
-    feesByOrderId.set(orderId, existing)
+    feesByOrderId.set(orderId, fees)
   }
 
   // Update matching orders in DB
