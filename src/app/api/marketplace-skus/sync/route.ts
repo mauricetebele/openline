@@ -182,43 +182,6 @@ async function syncAmazon(jobId: string) {
     })
   }
 
-  // Auto-link any unlinked listings to existing MSKU mappings by sellerSku + marketplace
-  const unlinked = await prisma.marketplaceListing.findMany({
-    where: { marketplace: 'amazon', mskuId: null },
-    select: { id: true, sellerSku: true, accountId: true },
-  })
-  if (unlinked.length > 0) {
-    const mskuMap = new Map<string, string>()
-    const mskus = await prisma.productGradeMarketplaceSku.findMany({
-      where: { marketplace: 'amazon', sellerSku: { in: unlinked.map(u => u.sellerSku) } },
-      select: { id: true, sellerSku: true },
-    })
-    // Only map MSKUs that aren't already linked to a listing
-    const alreadyLinked = new Set(
-      (await prisma.marketplaceListing.findMany({
-        where: { mskuId: { in: mskus.map(m => m.id) } },
-        select: { mskuId: true },
-      })).map(l => l.mskuId)
-    )
-    for (const m of mskus) {
-      if (!alreadyLinked.has(m.id)) mskuMap.set(m.sellerSku, m.id)
-    }
-
-    let linked = 0
-    for (const listing of unlinked) {
-      const mskuId = mskuMap.get(listing.sellerSku)
-      if (mskuId) {
-        await prisma.marketplaceListing.update({
-          where: { id: listing.id },
-          data: { mskuId },
-        })
-        mskuMap.delete(listing.sellerSku) // prevent double-linking (unique constraint)
-        linked++
-      }
-    }
-    if (linked > 0) console.log('[MarketplaceSync] Auto-linked %d listings to existing MSKUs', linked)
-  }
-
   await prisma.listingSyncJob.update({
     where: { id: jobId },
     data: { status: 'COMPLETED', totalUpserted: processed, completedAt: new Date() },
@@ -266,7 +229,7 @@ async function syncBackMarket() {
         },
       })
     } else {
-      const created = await prisma.marketplaceListing.create({
+      await prisma.marketplaceListing.create({
         data: {
           marketplace: 'backmarket',
           sellerSku: sku,
@@ -274,21 +237,6 @@ async function syncBackMarket() {
           title: bm.title || bm.product || null,
         },
       })
-      // Auto-link to existing MSKU mapping
-      const msku = await prisma.productGradeMarketplaceSku.findFirst({
-        where: { marketplace: 'backmarket', sellerSku: sku },
-      })
-      if (msku) {
-        const alreadyLinked = await prisma.marketplaceListing.findFirst({
-          where: { mskuId: msku.id },
-        })
-        if (!alreadyLinked) {
-          await prisma.marketplaceListing.update({
-            where: { id: created.id },
-            data: { mskuId: msku.id },
-          })
-        }
-      }
       newCount++
     }
   }
