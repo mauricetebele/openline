@@ -986,111 +986,199 @@ function UpsBuyShippingSection() {
 // ─── FedEx Credentials Section ────────────────────────────────────────────────
 
 function FedexCredentialsSection() {
-  const [configured, setConfigured] = useState(false)
-  const [maskedClientId, setMaskedClientId] = useState<string | null>(null)
-  const [maskedAccountNumber, setMaskedAccountNumber] = useState<string | null>(null)
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
-  const [clientId, setClientId] = useState('')
-  const [clientSecret, setClientSecret] = useState('')
-  const [accountNumber, setAccountNumber] = useState('')
-  const [saving, setSaving] = useState(false)
+  // ── Tracking credentials ──────────────────────────────────────────
+  const [trackConfigured, setTrackConfigured] = useState(false)
+  const [trackMaskedId, setTrackMaskedId] = useState<string | null>(null)
+  const [trackUpdatedAt, setTrackUpdatedAt] = useState<string | null>(null)
+  const [trackClientId, setTrackClientId] = useState('')
+  const [trackClientSecret, setTrackClientSecret] = useState('')
+  const [trackSaving, setTrackSaving] = useState(false)
 
-  useEffect(() => { fetchStatus() }, [])
+  // ── Shipping credentials ──────────────────────────────────────────
+  const [shipConfigured, setShipConfigured] = useState(false)
+  const [shipMaskedId, setShipMaskedId] = useState<string | null>(null)
+  const [shipMaskedAcct, setShipMaskedAcct] = useState<string | null>(null)
+  const [shipUpdatedAt, setShipUpdatedAt] = useState<string | null>(null)
+  const [shipClientId, setShipClientId] = useState('')
+  const [shipClientSecret, setShipClientSecret] = useState('')
+  const [shipAccountNumber, setShipAccountNumber] = useState('')
+  const [shipSaving, setShipSaving] = useState(false)
 
-  async function fetchStatus() {
+  useEffect(() => { fetchTrackingStatus(); fetchShippingStatus() }, [])
+
+  async function fetchTrackingStatus() {
     const res = await fetch('/api/fedex/credentials')
     if (res.ok) {
       const data = await res.json()
-      setConfigured(data.configured ?? false)
-      setMaskedClientId(data.maskedClientId ?? null)
-      setMaskedAccountNumber(data.maskedAccountNumber ?? null)
-      setUpdatedAt(data.updatedAt ?? null)
+      setTrackConfigured(data.configured ?? false)
+      setTrackMaskedId(data.maskedClientId ?? null)
+      setTrackUpdatedAt(data.updatedAt ?? null)
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function fetchShippingStatus() {
+    const res = await fetch('/api/fedex/shipping-credentials')
+    if (res.ok) {
+      const data = await res.json()
+      setShipConfigured(data.configured ?? false)
+      setShipMaskedId(data.maskedClientId ?? null)
+      setShipMaskedAcct(data.maskedAccountNumber ?? null)
+      setShipUpdatedAt(data.updatedAt ?? null)
+    }
+  }
+
+  async function handleTrackingSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setSaving(true)
+    setTrackSaving(true)
     try {
       const res = await fetch('/api/fedex/credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: clientId.trim(), clientSecret: clientSecret.trim(), accountNumber: accountNumber.trim() }),
+        body: JSON.stringify({ clientId: trackClientId.trim(), clientSecret: trackClientSecret.trim() }),
       })
       if (!res.ok) throw new Error((await res.json()).error)
-      toast.success('FedEx credentials saved!')
-      setClientId('')
-      setClientSecret('')
-      setAccountNumber('')
-      fetchStatus()
+      toast.success('FedEx tracking credentials saved!')
+      setTrackClientId(''); setTrackClientSecret('')
+      fetchTrackingStatus()
     } catch (err) {
       toast.error(`Failed: ${(err as Error).message}`)
-    } finally {
-      setSaving(false)
-    }
+    } finally { setTrackSaving(false) }
+  }
+
+  async function handleShippingSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setShipSaving(true)
+    try {
+      const res = await fetch('/api/fedex/shipping-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: shipClientId.trim(), clientSecret: shipClientSecret.trim(), accountNumber: shipAccountNumber.trim() }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('FedEx shipping credentials saved!')
+      setShipClientId(''); setShipClientSecret(''); setShipAccountNumber('')
+      fetchShippingStatus()
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    } finally { setShipSaving(false) }
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
-      {configured && (
-        <div className="card p-5">
-          <div className="flex items-center gap-3">
-            <CheckCircle size={16} className="text-green-500 shrink-0" />
+    <div className="max-w-2xl space-y-8">
+      {/* ── FedEx — Tracking ─────────────────────────────────────────── */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">FedEx — Tracking</h3>
+
+        {trackConfigured && (
+          <div className="card p-5">
+            <div className="flex items-center gap-3">
+              <CheckCircle size={16} className="text-green-500 shrink-0" />
+              <div>
+                <p className="font-semibold text-sm">Tracking API Connected</p>
+                <p className="text-xs text-gray-400">
+                  Client ID: <span className="font-mono">{trackMaskedId}</span>
+                  {trackUpdatedAt && ` · Updated ${new Date(trackUpdatedAt).toLocaleDateString()}`}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="card p-6">
+          <div className="flex items-start gap-4 mb-5">
+            <div className="rounded-xl p-3 bg-purple-50">
+              <Package size={20} className="text-purple-600" />
+            </div>
             <div>
-              <p className="font-semibold text-sm">FedEx API Connected</p>
-              <p className="text-xs text-gray-400">
-                Client ID: <span className="font-mono">{maskedClientId}</span>
-                {maskedAccountNumber && <> · Account #: <span className="font-mono">{maskedAccountNumber}</span></>}
-                {updatedAt && ` · Updated ${new Date(updatedAt).toLocaleDateString()}`}
+              <p className="font-semibold">{trackConfigured ? 'Update Tracking Credentials' : 'Connect FedEx Tracking'}</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Used for live tracking status on FedEx shipments. Create a project with the <strong>Track API</strong> at{' '}
+                <a href="https://developer.fedex.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">developer.fedex.com</a>.
               </p>
             </div>
           </div>
+          <form onSubmit={handleTrackingSubmit} className="space-y-4">
+            <div>
+              <label className="label">API Key (Client ID)</label>
+              <input className="input font-mono" placeholder="l7a1b2c3d4e5f6…"
+                value={trackClientId} onChange={e => setTrackClientId(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">Secret Key (Client Secret)</label>
+              <input className="input font-mono" type="password" placeholder="a1b2c3d4e5f6g7…"
+                value={trackClientSecret} onChange={e => setTrackClientSecret(e.target.value)} required />
+            </div>
+            <button type="submit" className="btn-primary" disabled={trackSaving}>
+              <RefreshCw size={14} className={trackSaving ? 'animate-spin' : ''} />
+              {trackSaving ? 'Saving…' : trackConfigured ? 'Update Credentials' : 'Save Credentials'}
+            </button>
+          </form>
         </div>
-      )}
+      </section>
 
-      <div className="card p-6">
-        <div className="flex items-start gap-4 mb-5">
-          <div className="rounded-xl p-3 bg-purple-50">
-            <Package size={20} className="text-purple-600" />
+      {/* ── FedEx — Shipping ─────────────────────────────────────────── */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">FedEx — Shipping</h3>
+
+        {shipConfigured && (
+          <div className="card p-5">
+            <div className="flex items-center gap-3">
+              <CheckCircle size={16} className="text-green-500 shrink-0" />
+              <div>
+                <p className="font-semibold text-sm">Shipping API Connected</p>
+                <p className="text-xs text-gray-400">
+                  Client ID: <span className="font-mono">{shipMaskedId}</span>
+                  {shipMaskedAcct && <> · Account #: <span className="font-mono">{shipMaskedAcct}</span></>}
+                  {shipUpdatedAt && ` · Updated ${new Date(shipUpdatedAt).toLocaleDateString()}`}
+                </p>
+              </div>
+            </div>
           </div>
-          <div>
-            <p className="font-semibold">{configured ? 'Update FedEx Credentials' : 'Connect FedEx API'}</p>
-            <p className="text-sm text-gray-500 mt-1">
-              FedEx credentials are used to fetch live tracking status for FedEx shipments.
-              Register at <a href="https://developer.fedex.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">developer.fedex.com</a>.
-            </p>
+        )}
+
+        <div className="card p-6">
+          <div className="flex items-start gap-4 mb-5">
+            <div className="rounded-xl p-3 bg-indigo-50">
+              <Package size={20} className="text-indigo-600" />
+            </div>
+            <div>
+              <p className="font-semibold">{shipConfigured ? 'Update Shipping Credentials' : 'Connect FedEx Shipping'}</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Used for direct FedEx rate shopping and label purchase on Back Market orders. Create a project with the <strong>Ship API</strong> and <strong>Rate API</strong> at{' '}
+                <a href="https://developer.fedex.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">developer.fedex.com</a>.
+              </p>
+            </div>
           </div>
+          <form onSubmit={handleShippingSubmit} className="space-y-4">
+            <div>
+              <label className="label">API Key (Client ID)</label>
+              <input className="input font-mono" placeholder="l7a1b2c3d4e5f6…"
+                value={shipClientId} onChange={e => setShipClientId(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">Secret Key (Client Secret)</label>
+              <input className="input font-mono" type="password" placeholder="a1b2c3d4e5f6g7…"
+                value={shipClientSecret} onChange={e => setShipClientSecret(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">Account Number</label>
+              <input className="input font-mono" placeholder="123456789"
+                value={shipAccountNumber} onChange={e => setShipAccountNumber(e.target.value)} required />
+            </div>
+            <button type="submit" className="btn-primary" disabled={shipSaving}>
+              <RefreshCw size={14} className={shipSaving ? 'animate-spin' : ''} />
+              {shipSaving ? 'Saving…' : shipConfigured ? 'Update Credentials' : 'Save Credentials'}
+            </button>
+          </form>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="label">API Key (Client ID)</label>
-            <input className="input font-mono" placeholder="l7a1b2c3d4e5f6…"
-              value={clientId} onChange={e => setClientId(e.target.value)} required />
-          </div>
-          <div>
-            <label className="label">Secret Key (Client Secret)</label>
-            <input className="input font-mono" type="password" placeholder="a1b2c3d4e5f6g7…"
-              value={clientSecret} onChange={e => setClientSecret(e.target.value)} required />
-          </div>
-          <div>
-            <label className="label">Account Number <span className="text-gray-400 font-normal">(optional — required for shipping labels)</span></label>
-            <input className="input font-mono" placeholder="123456789"
-              value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
-          </div>
-          <button type="submit" className="btn-primary" disabled={saving}>
-            <RefreshCw size={14} className={saving ? 'animate-spin' : ''} />
-            {saving ? 'Saving…' : configured ? 'Update Credentials' : 'Save Credentials'}
-          </button>
-        </form>
-      </div>
+      </section>
 
       <div className="bg-purple-50 border border-purple-200 rounded-xl p-5 text-sm">
         <p className="font-semibold text-purple-800 mb-2">How to get FedEx API Credentials</p>
         <ol className="list-decimal list-inside space-y-1.5 text-purple-700 text-xs">
           <li>Go to <a href="https://developer.fedex.com" target="_blank" rel="noopener noreferrer" className="underline">developer.fedex.com</a> and create an account</li>
-          <li>Create a new project under <strong>My Projects</strong></li>
-          <li>Select the <strong>Track API</strong> (and Ship API / Rate API if needed)</li>
-          <li>Copy the <strong>API Key</strong> (Client ID) and <strong>Secret Key</strong> (Client Secret)</li>
+          <li>Create a project for <strong>Tracking</strong> (Track API) and/or <strong>Shipping</strong> (Ship API + Rate API)</li>
+          <li>Copy the <strong>API Key</strong> (Client ID) and <strong>Secret Key</strong> (Client Secret) from each project</li>
           <li>Your <strong>Account Number</strong> is found in your FedEx account profile (9-digit number)</li>
         </ol>
       </div>

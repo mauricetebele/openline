@@ -59,12 +59,12 @@ function getBaseUrl(testMode?: boolean): string {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 export async function loadFedExCredentials(): Promise<FedExCredentials | null> {
-  const row = await prisma.fedexCredential.findFirst({ where: { isActive: true } })
+  const row = await prisma.fedexShippingCredential.findFirst({ where: { isActive: true } })
   if (!row) return null
   return {
     clientId: decrypt(row.clientIdEnc),
     clientSecret: decrypt(row.clientSecretEnc),
-    accountNumber: row.accountNumberEnc ? decrypt(row.accountNumberEnc) : null,
+    accountNumber: decrypt(row.accountNumberEnc),
   }
 }
 
