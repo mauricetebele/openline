@@ -2534,8 +2534,9 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                           )}
                           {hasBm && (
                             <span title="Back Market" className="inline-flex items-center justify-center shrink-0 select-none">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src="/logos/backmarket-icon.svg" alt="BM" width={16} height={16} className="inline-block" />
+                              <svg xmlns="http://www.w3.org/2000/svg" width={16} height={16} viewBox="0 0.72 182 166.32">
+                                <path d="M167.45.72H14.55C6.51.72 0 7.21 0 15.23v136.58c0 8.02 6.51 14.51 14.55 14.51h152.9c8.03 0 14.55-6.5 14.55-14.51V15.23C182 7.22 175.49.72 167.45.72ZM99.14 133.69H69.13c-.96 0-1.87-.38-2.55-1.06L18.54 84.59c-.59-.59-.59-1.55 0-2.15L66.58 34.4c.68-.68 1.59-1.06 2.55-1.06h30.01c.82 0 1.23.99.65 1.56L52.25 82.44c-.59.59-.59 1.55 0 2.15l47.54 47.54c.58.58.17 1.56-.65 1.56Zm16.04-49.1 47.54 47.54c.58.58.17 1.56-.65 1.56h-30.01c-.96 0-1.87-.38-2.55-1.06L81.47 84.58c-.59-.59-.59-1.55 0-2.15l48.04-48.04c.68-.68 1.59-1.06 2.55-1.06h30.01c.82 0 1.23.99.65 1.56l-47.54 47.54c-.59.59-.59 1.55 0 2.15Z" fill="currentColor"/>
+                              </svg>
                             </span>
                           )}
                         </span>
