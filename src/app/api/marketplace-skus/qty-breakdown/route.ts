@@ -22,6 +22,7 @@ export interface QtyBreakdown {
   available: number
   maxQty: number | null
   pushing: number
+  lowStockBuffer: boolean
 }
 
 export async function GET() {
@@ -120,8 +121,11 @@ export async function GET() {
     const pendingOrders = msku.marketplace === 'amazon' ? (pendingMap.get(msku.sellerSku) ?? 0) : 0
     const pendingPayment = msku.marketplace === 'amazon' ? (pendingPaymentMap.get(msku.sellerSku) ?? 0) : 0
     const available = Math.max(0, availableInInventory - pendingOrders - pendingPayment - wholesaleReserved)
-    const pushing = msku.maxQty != null ? Math.min(available, msku.maxQty) : available
-    return { mskuId: msku.id, onHand, reserved, pendingOrders, pendingPayment, available, maxQty: msku.maxQty, pushing }
+    // When stock is low (≤3), cap at 1 to give sync time to catch up before another sale
+    const lowStockBuffer = available > 0 && available <= 3
+    const buffered = lowStockBuffer ? 1 : available
+    const pushing = msku.maxQty != null ? Math.min(buffered, msku.maxQty) : buffered
+    return { mskuId: msku.id, onHand, reserved, pendingOrders, pendingPayment, available, maxQty: msku.maxQty, pushing, lowStockBuffer }
   })
 
   return NextResponse.json({ data: results })

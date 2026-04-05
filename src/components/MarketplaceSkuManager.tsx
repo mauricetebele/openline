@@ -69,6 +69,7 @@ interface QtyBreakdown {
   available: number
   maxQty: number | null
   pushing: number
+  lowStockBuffer: boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -347,7 +348,13 @@ function QtyBadge({ breakdown }: { breakdown: QtyBreakdown }) {
                 <span className="font-mono text-orange-300">{breakdown.maxQty}</span>
               </div>
             )}
-            {breakdown.maxQty != null && breakdown.pushing !== breakdown.available && (
+            {breakdown.lowStockBuffer && (
+              <div className="flex justify-between gap-4">
+                <span className="text-gray-300">Low Stock Buffer</span>
+                <span className="font-mono text-orange-300">cap 1</span>
+              </div>
+            )}
+            {breakdown.pushing !== breakdown.available && (
               <div className="flex justify-between gap-4 border-t border-gray-700 mt-1 pt-1">
                 <span className="text-gray-300">Pushing</span>
                 <span className="font-mono font-bold text-green-300">{breakdown.pushing}</span>
