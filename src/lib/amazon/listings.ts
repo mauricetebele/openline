@@ -765,15 +765,15 @@ export async function updateListingQuantity(
     { marketplaceIds: account.marketplaceId, includedData: 'summaries' },
   )
 
-  const productType =
+  let productType =
     listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
     ?? listingItem.summaries?.[0]?.productType
 
+  // Inactive (out-of-stock) listings may return empty summaries.
+  // Fall back to 'PRODUCT' — Amazon accepts it for quantity-only patches.
   if (!productType) {
-    throw new Error(
-      `Could not determine product type for SKU ${sku}. ` +
-      `summaries=${JSON.stringify(listingItem.summaries)}`,
-    )
+    console.warn(`[updateListingQuantity] No productType for SKU=${sku} (likely inactive), using fallback 'PRODUCT'`)
+    productType = 'PRODUCT'
   }
 
   // 2. PATCH with fulfillment_availability attribute
