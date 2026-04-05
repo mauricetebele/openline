@@ -3152,6 +3152,7 @@ const CARRIER_LOGOS: Record<string, string> = {
   ups: '/logos/ups.svg',
   ups_walleted: '/logos/ups.svg',
   fedex: '/logos/fedex.svg',
+  fedex_direct: '/logos/fedex.svg',
   dhl_express: '/logos/dhl.svg',
   dhl_express_worldwide: '/logos/dhl.svg',
 }
@@ -3376,16 +3377,38 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
     if (lookup.status !== 'found') return
     setPurchasing(`${rate.carrierCode}-${rate.serviceCode}`); setPurchaseErr(null)
     try {
-      const label = await apiPost<{ trackingNumber: string; labelData: string; labelFormat: string; shipmentCost?: number }>(
-        '/api/shipstation/label-for-order', {
-          orderId: lookup.ssOrderId, carrierCode: rate.carrierCode, serviceCode: rate.serviceCode,
-          packageCode: 'package', confirmation, shipDate: labelShipDate,
-          weight: { value: weight.value, units: weight.unit },
-          dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
-          testLabel: testMode,
-          ...(rate.rate_id ? { rateId: rate.rate_id } : {}),
-        },
-      )
+      const isFedExDirect = rate.carrierCode === 'fedex_direct'
+      const selectedWh = warehouses.find(w => String(w.warehouseId) === selectedWhId)
+      const { shipTo } = lookup
+
+      const label = isFedExDirect
+        ? await apiPost<{ trackingNumber: string; labelData: string; labelFormat: string; shipmentCost?: number }>(
+            '/api/fedex/create-label', {
+              serviceCode: rate.serviceCode,
+              fromName: selectedWh?.originAddress.name, fromPhone: selectedWh?.originAddress.phone,
+              fromAddress1: selectedWh?.originAddress.street1,
+              fromCity: selectedWh?.originAddress.city, fromState: selectedWh?.originAddress.state,
+              fromPostalCode: fromZip, fromCountry: selectedWh?.originAddress.country ?? 'US',
+              toName: shipTo.name, toPhone: shipTo.phone,
+              toAddress1: shipTo.street1, toAddress2: shipTo.street2,
+              toCity: shipTo.city, toState: shipTo.state,
+              toPostalCode: shipTo.postalCode, toCountry: shipTo.country || 'US',
+              residential: true,
+              weight: { value: weight.value, units: weight.unit },
+              dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
+              shipDate: labelShipDate, testLabel: testMode,
+            },
+          )
+        : await apiPost<{ trackingNumber: string; labelData: string; labelFormat: string; shipmentCost?: number }>(
+            '/api/shipstation/label-for-order', {
+              orderId: lookup.ssOrderId, carrierCode: rate.carrierCode, serviceCode: rate.serviceCode,
+              packageCode: 'package', confirmation, shipDate: labelShipDate,
+              weight: { value: weight.value, units: weight.unit },
+              dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
+              testLabel: testMode,
+              ...(rate.rate_id ? { rateId: rate.rate_id } : {}),
+            },
+          )
       setPurchased({ ...label, isTest: testMode })
 
       // ── Save real label to DB and move order to Awaiting Verification ──────

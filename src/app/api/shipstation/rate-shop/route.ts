@@ -4,6 +4,7 @@ import { getAuthUser } from '@/lib/get-auth-user'
 import { decrypt } from '@/lib/crypto'
 import { ShipStationClient, SSRate, V2RatesRequest } from '@/lib/shipstation/client'
 import { SpApiClient } from '@/lib/amazon/sp-api'
+import { loadFedExCredentials, getRates as getFedExRates, type FedExRateParams } from '@/lib/fedex/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -237,6 +238,49 @@ export async function POST(req: NextRequest) {
     }
   }))
 
+  // ── FedEx Direct rates (Back Market orders only) ─────────────────────────
+  if (!isAmazonOrder) {
+    try {
+      const fedexCreds = await loadFedExCredentials()
+      if (fedexCreds) {
+        const weightUnits = /pound|lb/i.test(body.weight.units) ? 'LB' as const : 'KG' as const
+        const dimUnits = /inch|in/i.test(body.dimensions.units) ? 'IN' as const : 'CM' as const
+        let weightValue = body.weight.value
+        if (/ounce|oz/i.test(body.weight.units)) {
+          weightValue = Math.round((weightValue / 16) * 100) / 100
+        }
+
+        const fedexParams: FedExRateParams = {
+          shipFrom: {
+            streetLines: body.fromAddress1 ? [body.fromAddress1] : [],
+            city: body.fromCity ?? '',
+            stateOrProvinceCode: body.fromState ?? '',
+            postalCode: body.fromPostalCode,
+            countryCode: body.fromCountry ?? 'US',
+          },
+          shipTo: {
+            streetLines: body.toAddress1 ? [body.toAddress1] : [],
+            city: body.toCity,
+            stateOrProvinceCode: body.toState,
+            postalCode: body.toPostalCode,
+            countryCode: body.toCountry ?? 'US',
+            residential: body.residential,
+          },
+          weight: { value: weightValue, units: weightUnits },
+          dimensions: { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, units: dimUnits },
+          shipDate: body.shipDate,
+        }
+
+        const fedexRates = await getFedExRates(fedexCreds, fedexParams)
+        for (const r of fedexRates) allRates.push({ ...r, carrierName: 'FedEx Direct' })
+        console.log('[rate-shop] FedEx Direct: %d rates', fedexRates.length)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[rate-shop] FedEx Direct error:', msg)
+      rateErrors.push(`FedEx Direct: ${msg}`)
+    }
+  }
 
   allRates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))
 
