@@ -112,18 +112,37 @@ export async function POST(req: NextRequest) {
   const normalizedMarketplace = marketplace.toLowerCase()
 
   try {
-    const created = await prisma.productGradeMarketplaceSku.create({
-      data: {
-        productId,
-        gradeId: gradeId || null,
-        marketplace: normalizedMarketplace,
-        accountId: normalizedAccountId,
-        sellerSku: sellerSku.trim(),
-      },
-      include: {
-        product: { select: { id: true, sku: true, description: true } },
-        grade: { select: { id: true, grade: true } },
-      },
+    const created = await prisma.$transaction(async (tx) => {
+      const msku = await tx.productGradeMarketplaceSku.create({
+        data: {
+          productId,
+          gradeId: gradeId || null,
+          marketplace: normalizedMarketplace,
+          accountId: normalizedAccountId,
+          sellerSku: sellerSku.trim(),
+        },
+        include: {
+          product: { select: { id: true, sku: true, description: true } },
+          grade: { select: { id: true, grade: true } },
+        },
+      })
+
+      // Auto-link to existing marketplace listing if one exists
+      const listing = await tx.marketplaceListing.findFirst({
+        where: {
+          marketplace: normalizedMarketplace,
+          sellerSku: sellerSku.trim(),
+          mskuId: null,
+        },
+      })
+      if (listing) {
+        await tx.marketplaceListing.update({
+          where: { id: listing.id },
+          data: { mskuId: msku.id },
+        })
+      }
+
+      return msku
     })
     return NextResponse.json(created, { status: 201 })
   } catch (err: unknown) {
