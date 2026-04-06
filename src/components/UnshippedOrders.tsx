@@ -6986,9 +6986,13 @@ export default function UnshippedOrders() {
                   <td className="px-1.5 py-1 whitespace-nowrap">
                     <div className="flex flex-col leading-tight">
                       <span className="text-[10px] text-gray-500">{fmtDate(order.purchaseDate)}</span>
-                      {order.latestShipDate ? (() => {
-                        const dayDiff = shipByDiff(order.latestShipDate)
-                        const [sy, sm, sd] = pstDateStr(order.latestShipDate).split('-').map(Number)
+                      {(() => {
+                        // For BM orders, latestDeliveryDate is the dispatch deadline (ship-by)
+                        const shipByDate = order.latestShipDate
+                          ?? (order.orderSource === 'backmarket' ? order.latestDeliveryDate : null)
+                        if (!shipByDate) return null
+                        const dayDiff = shipByDiff(shipByDate)
+                        const [sy, sm, sd] = pstDateStr(shipByDate).split('-').map(Number)
                         const label = dayDiff === 0
                           ? 'Today'
                           : new Date(sy, sm - 1, sd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -7002,8 +7006,8 @@ export default function UnshippedOrders() {
                             {!isShippedOrder && dayDiff < 0 && '⚠ '}Ship {label}
                           </span>
                         )
-                      })() : null}
-                      {order.latestDeliveryDate ? (() => {
+                      })()}
+                      {order.latestDeliveryDate && order.orderSource !== 'backmarket' ? (() => {
                         const [dy, dm, dd] = pstDateStr(order.latestDeliveryDate).split('-').map(Number)
                         const label = new Date(dy, dm - 1, dd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                         return <span className="text-[10px] text-gray-400">Del {label}</span>
