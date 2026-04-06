@@ -52,6 +52,7 @@ interface BMOrder {
   state?: number
   date_creation?: string
   date_modification?: string
+  expected_dispatch_date?: string
   price?: string | number
   currency?: string
   shipping_address?: BMShippingAddress
@@ -103,8 +104,6 @@ export async function syncBackMarketOrders(
 
     const allOrders = [...state1Orders, ...state3Orders]
     console.log(`[SyncBMOrders] Total orders fetched: ${allOrders.length}`)
-    // Log raw first order to discover all available API fields
-    if (allOrders.length > 0) console.log('[SyncBMOrders] RAW first order keys:', JSON.stringify(Object.keys(allOrders[0])), 'sample:', JSON.stringify(allOrders[0], null, 2).slice(0, 2000))
     await prisma.orderSyncJob.update({ where: { id: jobId }, data: { totalFound: allOrders.length } })
 
     // Pre-load existing BackMarket orders to skip redundant work
@@ -180,6 +179,7 @@ export async function syncBackMarketOrders(
                 shipToCountry: addr?.country ?? null,
                 shipToPhone: addr?.phone ?? null,
                 isPrime: false,
+                latestDeliveryDate: o.expected_dispatch_date ? new Date(o.expected_dispatch_date) : null,
                 lastSyncedAt: new Date(),
                 ...(hasRealCommission ? {
                   marketplaceCommission: Math.round(totalFee * 100) / 100,
@@ -190,6 +190,7 @@ export async function syncBackMarketOrders(
                 orderStatus: mapBMState(o.state),
                 lastUpdateDate: new Date(o.date_modification ?? Date.now()),
                 numberOfItemsUnshipped: o.orderlines?.reduce((sum, l) => sum + (l.quantity ?? 1), 0) ?? 0,
+                latestDeliveryDate: o.expected_dispatch_date ? new Date(o.expected_dispatch_date) : undefined,
                 lastSyncedAt: new Date(),
                 ...(addr ? {
                   shipToName,
