@@ -115,23 +115,40 @@ export async function POST(
         bmOrderId, bmOrderlineId, item.sellerSku, trackingNumber, shipper, imei,
       )
 
-      // Ship via order-level endpoint
-      await client.post(`/orders/${bmOrderId}`, {
+      // Ship via order-level endpoint — include imei + serial_number (BM may use either)
+      const shipResponse = await client.post(`/orders/${bmOrderId}`, {
         order_id:        bmOrderId,
         new_state:       3,
         sku:             item.sellerSku,
         tracking_number: trackingNumber,
         ...(shipper ? { shipper } : {}),
-        imei,
+        ...(imei ? { imei, serial_number: imei } : {}),
       })
+      console.log('[bm-ship] order-level response:', JSON.stringify(shipResponse))
 
-      // Also update IMEI directly on the orderline (more reliable for already-shipped orders)
+      // Also update serial on the orderline directly (BM may only accept it here)
       if (imei && bmOrderlineId) {
+        // Try POST /orderlines/{id} with both field names
         try {
-          await client.post(`/orderlines/${bmOrderlineId}`, { imei })
+          const lineResponse = await client.post(`/orderlines/${bmOrderlineId}`, {
+            imei,
+            serial_number: imei,
+          })
+          console.log('[bm-ship] orderline POST response:', JSON.stringify(lineResponse))
         } catch (lineErr) {
-          console.warn(`[bm-ship] orderline IMEI update failed for ${bmOrderlineId}:`, lineErr)
-          // Non-fatal — the order-level call above may have already set it
+          const lineMsg = lineErr instanceof Error ? lineErr.message : String(lineErr)
+          console.error(`[bm-ship] orderline POST failed for ${bmOrderlineId}: ${lineMsg}`)
+          // Try PATCH as fallback — some BM API versions expect PATCH for updates
+          try {
+            const patchResponse = await client.patch(`/orderlines/${bmOrderlineId}`, {
+              imei,
+              serial_number: imei,
+            })
+            console.log('[bm-ship] orderline PATCH response:', JSON.stringify(patchResponse))
+          } catch (patchErr) {
+            const patchMsg = patchErr instanceof Error ? patchErr.message : String(patchErr)
+            console.error(`[bm-ship] orderline PATCH also failed for ${bmOrderlineId}: ${patchMsg}`)
+          }
         }
       }
     }
