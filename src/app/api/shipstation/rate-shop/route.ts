@@ -114,6 +114,17 @@ export async function POST(req: NextRequest) {
   const allRates: (SSRate & { carrierName: string })[] = []
   const isAmazonOrder = body.orderSource !== 'backmarket'
 
+  // Pre-fetch V2 carrier ID map (for delivery date support on non-Amazon carriers)
+  let v2CarrierMap: Map<string, string> | null = null
+  if (v2ApiKey && !isAmazonOrder) {
+    try {
+      const { carriers: v2Carriers } = await client.getV2Carriers()
+      v2CarrierMap = new Map(v2Carriers.map(c => [c.carrier_code, String(c.carrier_id)]))
+    } catch (e) {
+      console.warn('[rate-shop] V2 carriers lookup failed, will use V1:', e instanceof Error ? e.message : String(e))
+    }
+  }
+
   await Promise.all(carriers.map(async carrier => {
     const carrierName = carrier.name
     const isAmzCarrier = isAmazonCarrier(carrier.code)
@@ -205,8 +216,73 @@ export async function POST(req: NextRequest) {
         console.error('[rate-shop] V2 error:', msg)
         rateErrors.push(`Amazon Buy Shipping: ${msg}`)
       }
+    } else if (v2CarrierMap?.has(carrier.code)) {
+      // ── Non-Amazon carriers → V2 getRates (returns delivery dates) ────
+      const wtUnit  = singularUnit(body.weight.units) as 'ounce' | 'pound' | 'gram' | 'kilogram'
+      const dimUnit = singularUnit(body.dimensions.units) as 'inch' | 'centimeter'
+      const v2CarrierId = v2CarrierMap.get(carrier.code)!
+
+      try {
+        const v2Payload: V2RatesRequest = {
+          rate_options: { carrier_ids: [v2CarrierId] },
+          shipment: {
+            ...(body.shipDate ? { ship_date: `${body.shipDate}` } : {}),
+            ...(ssWarehouseId
+              ? { warehouse_id: ssWarehouseId }
+              : { ship_from: {
+                  name:            body.fromName || 'Warehouse',
+                  phone:           body.fromPhone || '555-555-5555',
+                  address_line1:   body.fromAddress1 ?? '',
+                  city_locality:   body.fromCity ?? '',
+                  state_province:  body.fromState ?? '',
+                  postal_code:     body.fromPostalCode,
+                  country_code:    body.fromCountry ?? 'US',
+                } }),
+            ship_to: {
+              name:                          body.toName || 'Customer',
+              phone:                         body.toPhone || '555-555-5555',
+              address_line1:                 body.toAddress1 ?? '',
+              address_line2:                 body.toAddress2 ?? undefined,
+              city_locality:                 body.toCity,
+              state_province:                body.toState,
+              postal_code:                   body.toPostalCode,
+              country_code:                  body.toCountry,
+              address_residential_indicator: body.residential ? 'yes' : 'unknown',
+            },
+            packages: [{
+              weight:     { unit: wtUnit,  value: body.weight.value },
+              dimensions: { unit: dimUnit, length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height },
+            }],
+          },
+        }
+
+        const v2Result = await client.getRatesV2(v2Payload)
+        const v2Rates = v2Result.rate_response?.rates ?? []
+        const hasDims = body.dimensions.length > 0 && body.dimensions.width > 0 && body.dimensions.height > 0
+        const mapped = v2Rates
+          .filter(r => r.validation_status !== 'invalid' && !r.error_messages?.length)
+          .filter(r => !(hasDims && /flat rate|envelope/i.test(r.service_type || '')))
+          .map(r => ({
+            serviceName:  r.service_type || r.service_code,
+            serviceCode:  r.service_code,
+            carrierCode:  r.carrier_friendly_name || r.carrier_code,
+            carrierName,
+            shipmentCost: r.shipping_amount?.amount ?? 0,
+            otherCost:    r.other_amount?.amount ?? 0,
+            transitDays:  r.carrier_delivery_days ?? null,
+            deliveryDate: r.estimated_delivery_date ?? null,
+            rate_id:      r.rate_id,
+          } as SSRate & { carrierName: string }))
+
+        for (const r of mapped) allRates.push(r)
+        console.log('[rate-shop] V2 %s: %d rates', carrier.code, mapped.length)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[rate-shop] V2 %s error:', carrier.code, msg)
+        rateErrors.push(`${carrierName}: ${msg}`)
+      }
     } else {
-      // ── Non-Amazon carriers → V1 getRates per carrier ─────────────────
+      // ── V1 getRates per carrier (no delivery dates available) ──────────
       const v1Payload: import('@/lib/shipstation/client').SSRatesPayload = {
         carrierCode:    carrier.code,
         fromPostalCode: body.fromPostalCode,
@@ -224,7 +300,6 @@ export async function POST(req: NextRequest) {
 
       try {
         const v1Rates = await client.getRates(v1Payload)
-        // Filter out flat rate envelopes/boxes — they ignore actual dimensions
         const hasDims = body.dimensions.length > 0 && body.dimensions.width > 0 && body.dimensions.height > 0
         for (const r of v1Rates) {
           if (hasDims && /flat rate|envelope/i.test(r.serviceName)) continue
