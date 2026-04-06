@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
   const isAmazonOrder = body.orderSource !== 'backmarket'
 
   await Promise.all(carriers.map(async carrier => {
-    const carrierName = carrier.nickname?.trim() || carrier.name
+    const carrierName = carrier.name
     const isAmzCarrier = isAmazonCarrier(carrier.code)
 
     // Non-Amazon orders skip Amazon carriers; Amazon orders ONLY use Amazon Buy Shipping
