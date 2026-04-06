@@ -164,12 +164,14 @@ export async function getRates(
       requestedPackageLineItems: [
         {
           weight: { value: params.weight.value, units: params.weight.units },
-          dimensions: {
-            length: params.dimensions.length,
-            width: params.dimensions.width,
-            height: params.dimensions.height,
-            units: params.dimensions.units,
-          },
+          ...(params.dimensions.length > 0 && params.dimensions.width > 0 && params.dimensions.height > 0
+            ? { dimensions: {
+                length: params.dimensions.length,
+                width: params.dimensions.width,
+                height: params.dimensions.height,
+                units: params.dimensions.units,
+              } }
+            : {}),
         },
       ],
     },
