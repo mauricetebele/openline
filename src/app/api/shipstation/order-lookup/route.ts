@@ -23,10 +23,10 @@ export async function GET(req: NextRequest) {
 
   // ── Fast path: return locally-stored data if we already have ssOrderId + address ──
   const local = await prisma.order.findFirst({
-    where: { amazonOrderId, ssOrderId: { not: null }, shipToCity: { not: null } },
+    where: { amazonOrderId, ssOrderId: { not: null }, shipToCity: { not: null }, shipToState: { not: null }, shipToPostal: { not: null } },
     select: { ssOrderId: true, shipToName: true, shipToAddress1: true, shipToAddress2: true, shipToCity: true, shipToState: true, shipToPostal: true, shipToCountry: true, shipToPhone: true },
   })
-  if (local?.ssOrderId && local.shipToCity) {
+  if (local?.ssOrderId && local.shipToCity && local.shipToState && local.shipToPostal) {
     return NextResponse.json({
       found: true,
       ssOrderId: local.ssOrderId,
@@ -60,11 +60,11 @@ export async function GET(req: NextRequest) {
     }
 
     // Persist ssOrderId + address on the local Order record for the fast path next time
-    prisma.order.updateMany({
-      where: { amazonOrderId, ssOrderId: null },
-      data: {
-        ssOrderId: ssOrder.orderId,
-        ...(ssOrder.shipTo ? {
+    if (ssOrder.shipTo) {
+      prisma.order.updateMany({
+        where: { amazonOrderId },
+        data: {
+          ssOrderId: ssOrder.orderId,
           shipToName: ssOrder.shipTo.name ?? null,
           shipToAddress1: ssOrder.shipTo.street1 ?? null,
           shipToAddress2: ssOrder.shipTo.street2 ?? null,
@@ -73,9 +73,9 @@ export async function GET(req: NextRequest) {
           shipToPostal: ssOrder.shipTo.postalCode ?? null,
           shipToCountry: ssOrder.shipTo.country ?? null,
           shipToPhone: ssOrder.shipTo.phone ?? null,
-        } : {}),
-      },
-    }).catch(() => {}) // best-effort, don't block the response
+        },
+      }).catch(() => {})
+    } // best-effort, don't block the response
 
     return NextResponse.json({
       found:       true,
