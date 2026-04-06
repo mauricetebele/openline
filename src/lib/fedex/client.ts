@@ -166,7 +166,7 @@ export async function getRates(
       rateRequestType: ['ACCOUNT', 'LIST'],
       pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
       ...(params.packagingType ? { packagingType: params.packagingType } : {}),
-      ...(params.oneRate ? { specialServicesRequested: { specialServiceTypes: ['FEDEX_ONE_RATE'] } } : {}),
+      ...(params.oneRate ? { shipmentSpecialServices: { specialServiceTypes: ['FEDEX_ONE_RATE'] } } : {}),
       requestedPackageLineItems: [
         {
           weight: { value: params.weight.value, units: params.weight.units },
@@ -290,7 +290,7 @@ export async function createShipment(
       serviceType: params.serviceType,
       packagingType: params.packagingType ?? 'YOUR_PACKAGING',
       pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
-      ...(params.oneRate ? { specialServicesRequested: { specialServiceTypes: ['FEDEX_ONE_RATE'] } } : {}),
+      ...(params.oneRate ? { shipmentSpecialServices: { specialServiceTypes: ['FEDEX_ONE_RATE'] } } : {}),
       labelSpecification: {
         labelFormatType: 'COMMON2D',
         imageType: 'PDF',
