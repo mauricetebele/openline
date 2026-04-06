@@ -40,6 +40,9 @@ export async function POST(
       include: { items: { select: { id: true, gradeId: true } } },
     })
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+    if (order.fulfillmentChannel === 'AFN') {
+      return NextResponse.json({ error: 'AFN (FBA) orders are fulfilled by Amazon — cannot process locally' }, { status: 409 })
+    }
     if (order.workflowStatus !== 'PENDING') {
       return NextResponse.json({ error: 'Order has already been processed' }, { status: 409 })
     }

@@ -64,6 +64,10 @@ export async function POST(req: NextRequest) {
         include: { items: { select: { id: true, gradeId: true } } },
       })
       if (!order) { results.push({ orderId, success: false, error: 'Order not found' }); continue }
+      if (order.fulfillmentChannel === 'AFN') {
+        results.push({ orderId, success: false, error: 'AFN (FBA) orders are fulfilled by Amazon — cannot process locally' })
+        continue
+      }
       if (order.workflowStatus !== 'PENDING') {
         results.push({ orderId, success: false, error: `Order status is ${order.workflowStatus}, expected PENDING` })
         continue

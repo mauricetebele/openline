@@ -93,6 +93,9 @@ async function autoProcessPendingOrders(accountId: string): Promise<string[]> {
       workflowStatus: 'PENDING',
       // Don't auto-process orders still awaiting payment on Amazon
       orderStatus: { not: 'Pending' },
+      // Never auto-process AFN (FBA) orders — Amazon fulfills those from their warehouse.
+      // Processing them would decrement our local inventory and create phantom reservations.
+      fulfillmentChannel: { not: 'AFN' },
     },
     include: { items: true },
   })
@@ -375,9 +378,10 @@ export async function syncUnshippedOrders(
     const existingRows = await prisma.order.findMany({
       where: { accountId },
       select: {
-        amazonOrderId: true,
-        olmNumber:     true,
-        orderStatus:   true,
+        amazonOrderId:  true,
+        olmNumber:      true,
+        orderStatus:    true,
+        workflowStatus: true,
         _count: { select: { items: true } },
       },
     })
@@ -467,6 +471,7 @@ export async function syncUnshippedOrders(
                 lastUpdateDate:          new Date(fullOrder.LastUpdateDate ?? Date.now()),
                 orderTotal:              fullOrder.OrderTotal?.Amount ? parseFloat(fullOrder.OrderTotal.Amount) : undefined,
                 numberOfItemsUnshipped:  fullOrder.NumberOfItemsUnshipped ?? 0,
+                fulfillmentChannel:      fullOrder.FulfillmentChannel ?? undefined,
                 isPrime:                 fullOrder.IsPrime === true,
                 isReplacement:           fullOrder.IsReplacementOrder === true,
                 isBuyerRequestedCancel:  fullOrder.IsBuyerRequestedCancel === true,
@@ -474,6 +479,11 @@ export async function syncUnshippedOrders(
                 latestShipDate:          fullOrder.LatestShipDate ? new Date(fullOrder.LatestShipDate) : null,
                 latestDeliveryDate:      fullOrder.LatestDeliveryDate ? new Date(fullOrder.LatestDeliveryDate) : null,
                 lastSyncedAt:            new Date(),
+                // AFN orders shipped by Amazon: advance workflow to SHIPPED
+                ...(isAfnShipped ? {
+                  workflowStatus: 'SHIPPED',
+                  shippedAt: new Date(fullOrder.LastUpdateDate ?? Date.now()),
+                } : {}),
                 ...(addr ? {
                   shipToName:     addr.Name         ?? null,
                   shipToAddress1: addr.AddressLine1 ?? null,
@@ -498,6 +508,46 @@ export async function syncUnshippedOrders(
         }
         throw new Error('Unreachable')
       })()
+
+      // ── AFN shipped: release any accidental inventory reservations ──────────
+      // AFN orders should never have local reservations, but if auto-process ran
+      // before this fix, clean them up now and restore the decremented qty.
+      if (isAfnShipped && !isNew && existing?.workflowStatus !== 'SHIPPED') {
+        const staleReservations = await prisma.orderInventoryReservation.findMany({
+          where: { orderId: orderRecord.id },
+        })
+        if (staleReservations.length > 0) {
+          await prisma.$transaction(async (tx) => {
+            for (const r of staleReservations) {
+              // Restore the qty that was incorrectly decremented during auto-process
+              if (r.gradeId) {
+                await tx.inventoryItem.update({
+                  where: {
+                    productId_locationId_gradeId: {
+                      productId: r.productId,
+                      locationId: r.locationId,
+                      gradeId: r.gradeId,
+                    },
+                  },
+                  data: { qty: { increment: r.qtyReserved } },
+                })
+              } else {
+                const inv = await tx.inventoryItem.findFirst({
+                  where: { productId: r.productId, locationId: r.locationId, gradeId: null },
+                })
+                if (inv) {
+                  await tx.inventoryItem.update({
+                    where: { id: inv.id },
+                    data: { qty: { increment: r.qtyReserved } },
+                  })
+                }
+              }
+            }
+            await tx.orderInventoryReservation.deleteMany({ where: { orderId: orderRecord.id } })
+          })
+          console.log(`[SyncOrders] Released ${staleReservations.length} stale AFN reservations for ${o.AmazonOrderId}`)
+        }
+      }
 
       // ── Items call: only for new orders or those missing/changed items ─────
       if (isNew || !existingHasItems || statusChanged) {
