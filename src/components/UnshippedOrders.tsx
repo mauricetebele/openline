@@ -3532,6 +3532,9 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
 
           <section>
             <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Package</h3>
+            {fedexPkg !== 'none' ? (
+              <p className="text-xs text-purple-600 mb-2">Dimensions provided by FedEx packaging ({fedexPkg.replace(/FEDEX_/,'').replace(/_/g,' ')})</p>
+            ) : (
             <div className="flex gap-2 mb-2">
               {(['length', 'width', 'height'] as const).map(dim => (
                 <div key={dim} className="flex-1 flex flex-col gap-1">
@@ -3546,6 +3549,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
                 </select>
               </div>
             </div>
+            )}
             <div className="flex gap-2">
               <div className="flex-1 flex flex-col gap-1">
                 <label className="text-xs font-medium text-gray-600">Weight</label>

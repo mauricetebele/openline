@@ -170,7 +170,8 @@ export async function getRates(
       requestedPackageLineItems: [
         {
           weight: { value: params.weight.value, units: params.weight.units },
-          ...(params.dimensions.length > 0 && params.dimensions.width > 0 && params.dimensions.height > 0
+          // One Rate uses FedEx packaging dimensions — skip custom dims
+          ...(!params.oneRate && params.dimensions.length > 0 && params.dimensions.width > 0 && params.dimensions.height > 0
             ? { dimensions: {
                 length: params.dimensions.length,
                 width: params.dimensions.width,
@@ -298,12 +299,13 @@ export async function createShipment(
       requestedPackageLineItems: [
         {
           weight: { value: params.weight.value, units: params.weight.units },
-          dimensions: {
+          // One Rate uses FedEx packaging dimensions — skip custom dims
+          ...(!params.oneRate ? { dimensions: {
             length: params.dimensions.length,
             width: params.dimensions.width,
             height: params.dimensions.height,
             units: params.dimensions.units,
-          },
+          } } : {}),
         },
       ],
     },
