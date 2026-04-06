@@ -3213,6 +3213,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
   const [amazonServices, setAmazonServices] = useState<{ code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number }[] | null>(null)
   const [loadingRates, setLoadingRates] = useState(false)
   const [ratesErr, setRatesErr]         = useState<string | null>(null)
+  const [fedexDebug, setFedexDebug]     = useState<{ credentialsFound: boolean; requestParams?: unknown; rateCount?: number; error?: string } | null>(null)
   const [jwtStatus, setJwtStatus]       = useState<'expired' | 'missing' | null>(null)
   const [testMode, setTestMode]         = useState<boolean>(false)
   useEffect(() => {
@@ -3292,11 +3293,11 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
 
   async function getRates() {
     if (lookup.status !== 'found' || !fromZip) return
-    setLoadingRates(true); setRatesErr(null); setRates(null); setAmazonServices(null); setPurchased(null); setJwtStatus(null)
+    setLoadingRates(true); setRatesErr(null); setRates(null); setAmazonServices(null); setPurchased(null); setJwtStatus(null); setFedexDebug(null)
     try {
       const { shipTo } = lookup
       const selectedWh = warehouses.find(w => String(w.warehouseId) === selectedWhId)
-      const data = await apiPost<{ rates: SSRate[]; errors?: string[]; jwtExpired?: boolean; amazonServices?: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number }[] }>(
+      const data = await apiPost<{ rates: SSRate[]; errors?: string[]; jwtExpired?: boolean; amazonServices?: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number }[]; fedexDebug?: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; error?: string } }>(
         '/api/shipstation/rate-shop', {
           warehouseId: selectedWh?.warehouseId, orderId: lookup.ssOrderId,
           fromPostalCode: fromZip, fromCity: selectedWh?.originAddress.city,
@@ -3316,6 +3317,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
           shipDate: labelShipDate,
         })
       setRates(Array.isArray(data.rates) ? data.rates : [])
+      if (data.fedexDebug) setFedexDebug(data.fedexDebug)
       if (data.amazonServices?.length) setAmazonServices(data.amazonServices)
       if (data.jwtExpired) setJwtStatus('expired')
       else if (data.errors?.some(e => e.toLowerCase().includes('session token'))) setJwtStatus('missing')
@@ -3602,6 +3604,13 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
 
           {ratesErr && <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs"><AlertCircle size={13} className="shrink-0 mt-0.5" /><span>{ratesErr}</span></div>}
           {purchaseErr && <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs"><AlertCircle size={13} className="shrink-0 mt-0.5" /><span>{purchaseErr}</span></div>}
+
+          {fedexDebug && (
+            <details className="rounded-lg border border-gray-200 bg-gray-50 text-xs">
+              <summary className="cursor-pointer px-3 py-2 font-medium text-gray-600 select-none">FedEx Debug Info</summary>
+              <pre className="px-3 pb-3 pt-1 text-[11px] text-gray-500 overflow-x-auto whitespace-pre-wrap break-all">{JSON.stringify(fedexDebug, null, 2)}</pre>
+            </details>
+          )}
 
           {/* ── Transparency Code Entry (shown when user clicks Buy on an order that needs codes) ── */}
           {pendingRate && needsTransparency && (

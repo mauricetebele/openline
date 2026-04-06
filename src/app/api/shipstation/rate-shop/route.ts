@@ -239,9 +239,11 @@ export async function POST(req: NextRequest) {
   }))
 
   // ── FedEx Direct rates (Back Market orders only) ─────────────────────────
+  let fedexDebug: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; error?: string } | undefined
   if (!isAmazonOrder) {
     try {
       const fedexCreds = await loadFedExCredentials()
+      fedexDebug = { credentialsFound: !!fedexCreds }
       if (fedexCreds) {
         const weightUnits = /pound|lb/i.test(body.weight.units) ? 'LB' as const : 'KG' as const
         const dimUnits = /inch|in/i.test(body.dimensions.units) ? 'IN' as const : 'CM' as const
@@ -271,15 +273,16 @@ export async function POST(req: NextRequest) {
           shipDate: body.shipDate,
         }
 
-        console.log('[rate-shop] FedEx Direct params:', JSON.stringify({ weight: fedexParams.weight, dimensions: fedexParams.dimensions }))
+        fedexDebug.requestParams = { weight: fedexParams.weight, dimensions: fedexParams.dimensions, fromZip: fedexParams.shipFrom.postalCode, toZip: fedexParams.shipTo.postalCode }
         const fedexRates = await getFedExRates(fedexCreds, fedexParams)
         for (const r of fedexRates) allRates.push({ ...r, carrierName: 'FedEx Direct' })
-        console.log('[rate-shop] FedEx Direct: %d rates', fedexRates.length)
+        fedexDebug.rateCount = fedexRates.length
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[rate-shop] FedEx Direct error:', msg)
       rateErrors.push(`FedEx Direct: ${msg}`)
+      if (fedexDebug) fedexDebug.error = msg
     }
   }
 
@@ -353,5 +356,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ rates: allRates, errors: rateErrors, amazonServices })
+  return NextResponse.json({ rates: allRates, errors: rateErrors, amazonServices, fedexDebug })
 }
