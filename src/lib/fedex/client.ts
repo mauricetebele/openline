@@ -311,7 +311,7 @@ export async function createShipment(
       labelSpecification: {
         labelFormatType: 'COMMON2D',
         imageType: testMode ? 'PNG' : 'PDF',
-        labelStockType: 'STOCK_4X6',
+        ...(testMode ? {} : { labelStockType: 'STOCK_4X6' }),
       },
       requestedPackageLineItems: [
         {
