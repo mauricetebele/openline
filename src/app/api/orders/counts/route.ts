@@ -38,7 +38,11 @@ export async function GET(req: NextRequest) {
       where: {
         ...baseWhere,
         workflowStatus: { in: ['PENDING', 'PROCESSING', 'AWAITING_VERIFICATION'] },
-        latestShipDate: { lt: tomorrowMidnight },
+        OR: [
+          { latestShipDate: { lt: tomorrowMidnight } },
+          // BM orders store dispatch deadline in latestDeliveryDate
+          { orderSource: 'backmarket', latestDeliveryDate: { lt: tomorrowMidnight } },
+        ],
       },
     }),
     prisma.order.count({
