@@ -28,9 +28,14 @@ interface BMShippingAddress {
   street2?: string
   city?: string
   state?: string
+  // BM may use zipcode, postal_code, or zip depending on the API version
   zipcode?: string
+  postal_code?: string
+  zip?: string
   country?: string
+  country_code?: string
   phone?: string
+  [key: string]: unknown // catch any undocumented fields
 }
 
 interface BMOrderLine {
@@ -136,7 +141,16 @@ export async function syncBackMarketOrders(
       const isNew = !existing
       const addr = o.shipping_address
 
+      // Log first order's raw address to diagnose field naming
+      if (i === 0 && addr) {
+        console.log('[SyncBMOrders] Sample shipping_address keys:', JSON.stringify(addr))
+      }
+
       const shipToName = [addr?.first_name, addr?.last_name].filter(Boolean).join(' ') || null
+      // BM may send zip under different field names depending on API version
+      const addrZip = (addr?.zipcode ?? addr?.postal_code ?? addr?.zip ?? null) as string | null
+      const addrState = (addr?.state ?? null) as string | null
+      const addrCountry = (addr?.country ?? addr?.country_code ?? null) as string | null
 
       // Sum orderline_fee from all orderlines for actual commission
       const totalFee = o.orderlines?.reduce((sum, line) => {
@@ -174,9 +188,9 @@ export async function syncBackMarketOrders(
                 shipToAddress1: addr?.street ?? null,
                 shipToAddress2: addr?.street2 ?? null,
                 shipToCity: addr?.city ?? null,
-                shipToState: addr?.state ?? null,
-                shipToPostal: addr?.zipcode ?? null,
-                shipToCountry: addr?.country ?? null,
+                shipToState: addrState,
+                shipToPostal: addrZip,
+                shipToCountry: addrCountry,
                 shipToPhone: addr?.phone ?? null,
                 isPrime: false,
                 latestDeliveryDate: o.expected_dispatch_date ? new Date(o.expected_dispatch_date) : null,
@@ -192,14 +206,16 @@ export async function syncBackMarketOrders(
                 numberOfItemsUnshipped: o.orderlines?.reduce((sum, l) => sum + (l.quantity ?? 1), 0) ?? 0,
                 latestDeliveryDate: o.expected_dispatch_date ? new Date(o.expected_dispatch_date) : undefined,
                 lastSyncedAt: new Date(),
-                ...(addr ? {
+                // Only overwrite address fields when BM provides complete data;
+                // don't null-out fields that ShipStation may have already backfilled
+                ...(addr && addrState && addrZip ? {
                   shipToName,
                   shipToAddress1: addr.street ?? null,
                   shipToAddress2: addr.street2 ?? null,
                   shipToCity: addr.city ?? null,
-                  shipToState: addr.state ?? null,
-                  shipToPostal: addr.zipcode ?? null,
-                  shipToCountry: addr.country ?? null,
+                  shipToState: addrState,
+                  shipToPostal: addrZip,
+                  shipToCountry: addrCountry,
                   shipToPhone: addr.phone ?? null,
                 } : {}),
                 ...(hasRealCommission ? {
