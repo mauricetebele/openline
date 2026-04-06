@@ -266,6 +266,11 @@ export async function createShipment(
   params: FedExShipmentParams,
   testMode?: boolean,
 ): Promise<FedExLabelResult> {
+  // FedEx consolidated Ground Home Delivery into FEDEX_GROUND —
+  // residential routing is determined by the address residential flag.
+  const serviceType = params.serviceType === 'GROUND_HOME_DELIVERY'
+    ? 'FEDEX_GROUND' : params.serviceType
+
   const payload = {
     accountNumber: { value: creds.accountNumber },
     labelResponseOptions: 'LABEL',
@@ -300,7 +305,7 @@ export async function createShipment(
         },
       ],
       ...(params.shipDate ? { shipDatestamp: params.shipDate } : {}),
-      serviceType: params.serviceType,
+      serviceType,
       packagingType: params.packagingType ?? 'YOUR_PACKAGING',
       pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
       shippingChargesPayment: {
