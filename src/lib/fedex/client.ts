@@ -159,6 +159,7 @@ export async function getRates(
       shipper: { address: params.shipFrom },
       recipient: { address: { ...params.shipTo, residential: params.shipTo.residential } },
       ...(params.shipDate ? { shipDateStamp: params.shipDate } : {}),
+      rateRequestType: ['ACCOUNT', 'LIST'],
       pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
       requestedPackageLineItems: [
         {
