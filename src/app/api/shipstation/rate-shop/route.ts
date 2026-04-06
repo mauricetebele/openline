@@ -271,6 +271,7 @@ export async function POST(req: NextRequest) {
           shipDate: body.shipDate,
         }
 
+        console.log('[rate-shop] FedEx Direct params:', JSON.stringify({ weight: fedexParams.weight, dimensions: fedexParams.dimensions }))
         const fedexRates = await getFedExRates(fedexCreds, fedexParams)
         for (const r of fedexRates) allRates.push({ ...r, carrierName: 'FedEx Direct' })
         console.log('[rate-shop] FedEx Direct: %d rates', fedexRates.length)
