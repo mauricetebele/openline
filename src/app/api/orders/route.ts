@@ -51,6 +51,8 @@ export async function GET(req: NextRequest) {
     const sortField = SORT_FIELDS[sortByParam] ?? 'purchaseDate'
     const orderBy: Prisma.OrderOrderByWithRelationInput = { [sortField]: sortDirParam }
 
+    const orderSource = searchParams.get('orderSource')?.toLowerCase()
+
     const where: Prisma.OrderWhereInput = {
       accountId,
       workflowStatus,
@@ -59,6 +61,10 @@ export async function GET(req: NextRequest) {
       orderStatus: { not: 'Pending' },
       // Exclude FBA orders — Amazon fulfills these, not us
       fulfillmentChannel: { not: 'AFN' },
+      // Channel filter: narrow to a single order source when requested
+      ...(orderSource === 'amazon' || orderSource === 'backmarket'
+        ? { orderSource }
+        : {}),
     }
 
     if (search) {

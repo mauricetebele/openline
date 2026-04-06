@@ -303,7 +303,8 @@ export async function POST(req: NextRequest) {
         const hasDims = body.dimensions.length > 0 && body.dimensions.width > 0 && body.dimensions.height > 0
         for (const r of v1Rates) {
           if (hasDims && /flat rate|envelope/i.test(r.serviceName)) continue
-          allRates.push({ ...r, carrierName })
+          // V1 getrates doesn't return carrierCode in each rate — inject it from the carrier being queried
+          allRates.push({ ...r, carrierCode: r.carrierCode || carrier.code, carrierName })
         }
         console.log('[rate-shop] V1 %s: %d rates (after filtering)', carrier.code, v1Rates.length)
       } catch (err) {

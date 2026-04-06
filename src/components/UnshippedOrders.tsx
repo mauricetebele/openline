@@ -4975,6 +4975,7 @@ export default function UnshippedOrders() {
   const [applyingDefaultPresets, setApplyingDefaultPresets]   = useState(false)
   const [defaultPresetApplyingIds, setDefaultPresetApplyingIds] = useState<Set<string>>(new Set())
   const [applyDefaultResult, setApplyDefaultResult]           = useState<{ applied: number; total: number; skipped: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
+  const [filterChannel, setFilterChannel]                       = useState<'all' | 'amazon' | 'backmarket' | 'wholesale'>('all')
   const [filterPkgPreset, setFilterPkgPreset]                 = useState<'all' | 'assigned' | 'unassigned'>('all')
   // Rate shop using applied presets
   const [rateShoppingApplied, setRateShoppingApplied]         = useState(false)
@@ -5080,12 +5081,18 @@ export default function UnshippedOrders() {
 
   useEffect(() => {
     if (!selectedAccountId) return
+    // When filtering to wholesale only, skip the marketplace orders fetch entirely
+    if (filterChannel === 'wholesale') {
+      setOrders([]); setPagination(null); setLoading(false); setFetchError(null)
+      return
+    }
     let cancelled = false
     setLoading(true); setFetchError(null)
     // 'sku' sort is handled client-side; pass 'purchaseDate' as server sort in that case
     const serverSortBy = sortBy === 'sku' ? 'purchaseDate' : sortBy
     const params = new URLSearchParams({ accountId: selectedAccountId, tab: activeTab, page: String(page), pageSize: String(pageSize), sortBy: serverSortBy, sortDir })
     if (search) params.set('search', search)
+    if (filterChannel === 'amazon' || filterChannel === 'backmarket') params.set('orderSource', filterChannel)
     fetch(`/api/orders?${params}`)
       .then(async res => { if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error ?? `${res.status}`) } return res.json() })
       .then(({ data, pagination: p }) => {
@@ -5098,21 +5105,28 @@ export default function UnshippedOrders() {
       .catch(err => { if (!cancelled) setFetchError(err instanceof Error ? err.message : String(err)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [selectedAccountId, activeTab, page, pageSize, search, sortBy, sortDir, fetchKey])
+  }, [selectedAccountId, activeTab, page, pageSize, search, sortBy, sortDir, fetchKey, filterChannel])
 
-  useEffect(() => { setPage(1); setFetchKey(k => k + 1); setSelectedOrderIds(new Set()) }, [search, selectedAccountId, pageSize, activeTab, sortBy, sortDir])
+  useEffect(() => { setPage(1); setFetchKey(k => k + 1); setSelectedOrderIds(new Set()) }, [search, selectedAccountId, pageSize, activeTab, sortBy, sortDir, filterChannel])
 
-  // Fetch tab counts whenever the account or fetchKey changes
+  // Fetch tab counts whenever the account, fetchKey, or channel filter changes
   useEffect(() => {
     if (!selectedAccountId) return
-    fetch(`/api/orders/counts?accountId=${selectedAccountId}`)
+    const params = new URLSearchParams({ accountId: selectedAccountId })
+    if (filterChannel !== 'all') params.set('orderSource', filterChannel)
+    fetch(`/api/orders/counts?${params}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setTabCounts(d) })
       .catch(() => {})
-  }, [selectedAccountId, fetchKey])
+  }, [selectedAccountId, fetchKey, filterChannel])
 
-  // Wholesale orders fetch — runs in parallel with the Amazon orders fetch
+  // Wholesale orders fetch — runs in parallel with the marketplace orders fetch
   useEffect(() => {
+    // When filtering to a marketplace-only channel, skip wholesale fetch entirely
+    if (filterChannel === 'amazon' || filterChannel === 'backmarket') {
+      setWholesaleOrders([]); return
+    }
+
     // Map active tab → wholesale fulfillmentStatus (wholesale skips the 'awaiting' step)
     const statusMap: Partial<Record<ActiveTab, string>> = {
       pending:   'PENDING',
@@ -5135,7 +5149,7 @@ export default function UnshippedOrders() {
       .catch(() => { if (!cancelled) setWholesaleOrders([]) })
 
     return () => { cancelled = true }
-  }, [activeTab, search, fetchKey])
+  }, [activeTab, search, fetchKey, filterChannel])
 
   function dismissSyncBarLater() {
     if (syncBarTimerRef.current) clearTimeout(syncBarTimerRef.current)
@@ -6686,6 +6700,24 @@ export default function UnshippedOrders() {
           <div className="flex-1" />
         </div>
       )}
+
+      {/* Channel filter pills */}
+      <div className="flex items-center gap-1.5 px-4 py-1.5 bg-gray-50 border-b shrink-0">
+        {([
+          { key: 'all',         label: 'All' },
+          { key: 'amazon',      label: 'Amazon' },
+          { key: 'backmarket',  label: 'Back Market' },
+          { key: 'wholesale',   label: 'Wholesale' },
+        ] as const).map(ch => (
+          <button key={ch.key} onClick={() => setFilterChannel(ch.key)}
+            className={clsx('px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors',
+              filterChannel === ch.key
+                ? 'bg-amazon-blue text-white'
+                : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-400 hover:text-gray-700')}>
+            {ch.label}
+          </button>
+        ))}
+      </div>
 
       {/* Tab bar */}
       <div className="flex border-b bg-white px-4 gap-0 shrink-0">
