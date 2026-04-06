@@ -40,6 +40,7 @@ interface RateShopPayload {
   orderItems?: OrderItem[]
   orderSource?: string  // 'amazon' | 'backmarket' — controls which carriers to query
   shipDate?: string     // YYYY-MM-DD — future ship date for rate shopping
+  fedexPackaging?: string // FedEx One Rate packaging type, e.g. 'FEDEX_PAK'
 }
 
 /** 'ounces' → 'ounce', 'pounds' → 'pound', 'inches' → 'inch', etc. (V2 uses singular units) */
@@ -239,7 +240,7 @@ export async function POST(req: NextRequest) {
   }))
 
   // ── FedEx Direct rates (Back Market orders only) ─────────────────────────
-  let fedexDebug: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; error?: string } | undefined
+  let fedexDebug: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } | undefined
   if (!isAmazonOrder) {
     try {
       const fedexCreds = await loadFedExCredentials()
@@ -274,9 +275,40 @@ export async function POST(req: NextRequest) {
         }
 
         fedexDebug.requestParams = { weight: fedexParams.weight, dimensions: fedexParams.dimensions, fromZip: fedexParams.shipFrom.postalCode, toZip: fedexParams.shipTo.postalCode }
-        const fedexRates = await getFedExRates(fedexCreds, fedexParams)
-        for (const r of fedexRates) allRates.push({ ...r, carrierName: 'FedEx Direct' })
-        fedexDebug.rateCount = fedexRates.length
+
+        // Standard rates + optional One Rate in parallel
+        const wantOneRate = body.fedexPackaging && body.fedexPackaging !== 'none'
+        if (wantOneRate) fedexDebug.oneRatePackaging = body.fedexPackaging
+
+        const ratePromises: Promise<{ rates: typeof allRates; count: number }>[] = [
+          getFedExRates(fedexCreds, fedexParams).then(rates => ({
+            rates: rates.map(r => ({ ...r, carrierName: 'FedEx Direct' })),
+            count: rates.length,
+          })),
+        ]
+
+        if (wantOneRate) {
+          const oneRateParams: FedExRateParams = {
+            ...fedexParams,
+            packagingType: body.fedexPackaging!,
+            oneRate: true,
+          }
+          ratePromises.push(
+            getFedExRates(fedexCreds, oneRateParams).then(rates => ({
+              rates: rates.map(r => ({ ...r, carrierName: 'FedEx Direct' })),
+              count: rates.length,
+            })),
+          )
+        }
+
+        const results = await Promise.all(ratePromises)
+        for (const r of results[0].rates) allRates.push(r)
+        fedexDebug.rateCount = results[0].count
+
+        if (results[1]) {
+          for (const r of results[1].rates) allRates.push(r)
+          fedexDebug.oneRateCount = results[1].count
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

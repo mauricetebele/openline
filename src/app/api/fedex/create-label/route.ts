@@ -40,6 +40,8 @@ interface CreateLabelBody {
   dimensions: { units: string; length: number; width: number; height: number }
   shipDate?: string
   testLabel?: boolean
+  packagingType?: string  // e.g. 'FEDEX_PAK' — for One Rate labels
+  oneRate?: boolean       // when true, adds FEDEX_ONE_RATE special service
 }
 
 export async function POST(req: NextRequest) {
@@ -94,6 +96,8 @@ export async function POST(req: NextRequest) {
     dimensions: { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, units: dimUnits },
     serviceType: body.serviceCode,
     shipDate: body.shipDate,
+    ...(body.packagingType ? { packagingType: body.packagingType } : {}),
+    ...(body.oneRate ? { oneRate: true } : {}),
   }
 
   try {

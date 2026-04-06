@@ -3185,6 +3185,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
   const [weight, setWeight]         = useState<Weight>(DEFAULT_WT)
   const [fromZip, setFromZip]       = useState<string>('')
   const [confirmation, setConfirmation] = useState<string>('none')
+  const [fedexPkg, setFedexPkg] = useState<string>('none')
   const [labelShipDate, setLabelShipDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   // Hydrate from localStorage after mount (avoids SSR/client mismatch)
@@ -3213,7 +3214,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
   const [amazonServices, setAmazonServices] = useState<{ code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number }[] | null>(null)
   const [loadingRates, setLoadingRates] = useState(false)
   const [ratesErr, setRatesErr]         = useState<string | null>(null)
-  const [fedexDebug, setFedexDebug]     = useState<{ credentialsFound: boolean; requestParams?: unknown; rateCount?: number; error?: string } | null>(null)
+  const [fedexDebug, setFedexDebug]     = useState<{ credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } | null>(null)
   const [jwtStatus, setJwtStatus]       = useState<'expired' | 'missing' | null>(null)
   const [testMode, setTestMode]         = useState<boolean>(false)
   useEffect(() => {
@@ -3297,7 +3298,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
     try {
       const { shipTo } = lookup
       const selectedWh = warehouses.find(w => String(w.warehouseId) === selectedWhId)
-      const data = await apiPost<{ rates: SSRate[]; errors?: string[]; jwtExpired?: boolean; amazonServices?: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number }[]; fedexDebug?: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; error?: string } }>(
+      const data = await apiPost<{ rates: SSRate[]; errors?: string[]; jwtExpired?: boolean; amazonServices?: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number }[]; fedexDebug?: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } }>(
         '/api/shipstation/rate-shop', {
           warehouseId: selectedWh?.warehouseId, orderId: lookup.ssOrderId,
           fromPostalCode: fromZip, fromCity: selectedWh?.originAddress.city,
@@ -3311,6 +3312,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
           weight: { value: weight.value, units: weight.unit },
           dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
           confirmation, residential: true,
+          ...(fedexPkg !== 'none' ? { fedexPackaging: fedexPkg } : {}),
           amazonOrderId: order.amazonOrderId,
           orderSource: order.orderSource ?? 'amazon',
           orderItems: order.items.map(item => ({ orderItemId: item.orderItemId, title: item.title, quantity: item.quantityOrdered })),
@@ -3383,6 +3385,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
       const selectedWh = warehouses.find(w => String(w.warehouseId) === selectedWhId)
       const { shipTo } = lookup
 
+      const isOneRate = isFedExDirect && /\(One Rate\)/.test(rate.serviceName)
       const label = isFedExDirect
         ? await apiPost<{ trackingNumber: string; labelData: string; labelFormat: string; shipmentCost?: number }>(
             '/api/fedex/create-label', {
@@ -3399,6 +3402,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
               weight: { value: weight.value, units: weight.unit },
               dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
               shipDate: labelShipDate, testLabel: testMode,
+              ...(isOneRate ? { packagingType: fedexPkg, oneRate: true } : {}),
             },
           )
         : await apiPost<{ trackingNumber: string; labelData: string; labelFormat: string; shipmentCost?: number }>(
@@ -3576,6 +3580,21 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
                   <option value="none">None</option><option value="delivery">Delivery</option><option value="signature">Signature</option><option value="adult_signature">Adult Signature</option>
                 </select>
               </div>
+              {order.orderSource === 'backmarket' && (
+                <div className="flex flex-col gap-1 shrink-0">
+                  <label className="text-xs font-medium text-gray-600">FedEx Packaging</label>
+                  <select value={fedexPkg} onChange={e => { setFedexPkg(e.target.value); setRates(null) }} className="h-8 rounded border border-gray-300 px-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF9900]">
+                    <option value="none">None</option>
+                    <option value="FEDEX_ENVELOPE">FedEx Envelope</option>
+                    <option value="FEDEX_PAK">FedEx Pak</option>
+                    <option value="FEDEX_SMALL_BOX">FedEx Small Box</option>
+                    <option value="FEDEX_MEDIUM_BOX">FedEx Medium Box</option>
+                    <option value="FEDEX_LARGE_BOX">FedEx Large Box</option>
+                    <option value="FEDEX_EXTRA_LARGE_BOX">FedEx Extra Large Box</option>
+                    <option value="FEDEX_TUBE">FedEx Tube</option>
+                  </select>
+                </div>
+              )}
               <div className="flex flex-col gap-1 shrink-0">
                 <label className="text-xs font-medium text-gray-600">Ship Date</label>
                 <input type="date" value={labelShipDate} onChange={e => { setLabelShipDate(e.target.value); setRates(null) }}

@@ -29,6 +29,8 @@ export interface FedExRateParams {
   weight: { value: number; units: 'LB' | 'KG' }
   dimensions: { length: number; width: number; height: number; units: 'IN' | 'CM' }
   shipDate?: string // YYYY-MM-DD
+  packagingType?: string  // e.g. 'FEDEX_PAK' — defaults to YOUR_PACKAGING
+  oneRate?: boolean       // when true, requests FedEx One Rate (flat-rate) pricing
 }
 
 export interface FedExShipmentParams {
@@ -38,6 +40,8 @@ export interface FedExShipmentParams {
   dimensions: { length: number; width: number; height: number; units: 'IN' | 'CM' }
   serviceType: string
   shipDate?: string
+  packagingType?: string  // e.g. 'FEDEX_PAK' — for One Rate labels
+  oneRate?: boolean       // when true, adds FEDEX_ONE_RATE special service
 }
 
 interface TokenCache {
@@ -161,6 +165,8 @@ export async function getRates(
       ...(params.shipDate ? { shipDateStamp: params.shipDate } : {}),
       rateRequestType: ['ACCOUNT', 'LIST'],
       pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
+      ...(params.packagingType ? { packagingType: params.packagingType } : {}),
+      ...(params.oneRate ? { specialServicesRequested: { specialServiceTypes: ['FEDEX_ONE_RATE'] } } : {}),
       requestedPackageLineItems: [
         {
           weight: { value: params.weight.value, units: params.weight.units },
@@ -200,8 +206,8 @@ export async function getRates(
   const rates: SSRate[] = []
 
   for (const d of details) {
-    // Skip envelope / flat-rate packaging
-    if (d.packagingType && SKIP_PACKAGING.has(d.packagingType)) continue
+    // For standard (non-One-Rate) requests, skip envelope / flat-rate packaging types
+    if (!params.oneRate && d.packagingType && SKIP_PACKAGING.has(d.packagingType)) continue
 
     // Prefer ACCOUNT rate, fall back to LIST
     const ratedDetail = d.ratedShipmentDetails?.find(r => r.rateType === 'ACCOUNT')
@@ -218,8 +224,9 @@ export async function getRates(
       if (!isNaN(num)) transitDays = num
     }
 
+    const baseName = SERVICE_NAMES[d.serviceType] ?? d.serviceName ?? d.serviceType
     rates.push({
-      serviceName: SERVICE_NAMES[d.serviceType] ?? d.serviceName ?? d.serviceType,
+      serviceName: params.oneRate ? `${baseName} (One Rate)` : baseName,
       serviceCode: d.serviceType,
       carrierCode: 'fedex_direct',
       shipmentCost: cost,
@@ -280,8 +287,9 @@ export async function createShipment(
       ],
       ...(params.shipDate ? { shipDatestamp: params.shipDate } : {}),
       serviceType: params.serviceType,
-      packagingType: 'YOUR_PACKAGING',
+      packagingType: params.packagingType ?? 'YOUR_PACKAGING',
       pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
+      ...(params.oneRate ? { specialServicesRequested: { specialServiceTypes: ['FEDEX_ONE_RATE'] } } : {}),
       labelSpecification: {
         labelFormatType: 'COMMON2D',
         imageType: 'PDF',
