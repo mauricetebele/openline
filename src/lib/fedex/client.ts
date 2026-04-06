@@ -303,6 +303,10 @@ export async function createShipment(
       serviceType: params.serviceType,
       packagingType: params.packagingType ?? 'YOUR_PACKAGING',
       pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
+      shippingChargesPayment: {
+        paymentType: 'SENDER',
+        payor: { responsibleParty: { accountNumber: { value: creds.accountNumber } } },
+      },
       ...(params.oneRate ? { shipmentSpecialServices: { specialServiceTypes: ['FEDEX_ONE_RATE'] } } : {}),
       labelSpecification: {
         labelFormatType: 'COMMON2D',
