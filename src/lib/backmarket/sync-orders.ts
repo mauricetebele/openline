@@ -65,7 +65,7 @@ function mapBMState(state?: number): string {
   switch (state) {
     case 0:  return 'Pending'     // pending
     case 1:  return 'Unshipped'   // new / awaiting validation
-    case 3:  return 'Unshipped'   // accepted — ready to ship
+    case 3:  return 'Accepted'   // accepted — ready to ship
     case 8:  return 'Refunded'    // refunded
     case 9:  return 'Cancelled'   // cancelled
     case 10: return 'Pending'     // pending payment
