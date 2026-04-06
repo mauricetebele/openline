@@ -4,20 +4,6 @@ import { loadFedExCredentials, createShipment, type FedExShipmentParams } from '
 
 export const dynamic = 'force-dynamic'
 
-// Minimal blank PDF for test mode (FedEx sandbox works, but we keep this consistent with the rest of the app)
-const MOCK_LABEL_PDF_BASE64 =
-  'JVBERi0xLjAKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqIDIgMCBv' +
-  'YmoKPDwvVHlwZS9QYWdlcy9LaWRzWzMgMCBSXS9Db3VudCAxPj5lbmRvYmogMyAwIG9iago8PC9U' +
-  'eXBlL1BhZ2UvTWVkaWFCb3hbMCAwIDI4OCA0MzJdL1BhcmVudCAyIDAgUi9SZXNvdXJjZXM8PC9G' +
-  'b250PDwvRjE8PC9UeXBlL0ZvbnQvU3VidHlwZS9UeXBlMS9CYXNlRm9udC9IZWx2ZXRpY2E+Pj4+' +
-  'Pj4vQ29udGVudHMgNCAwIFI+PmVuZG9iaiA0IDAgb2JqCjw8L0xlbmd0aCAxMDU+PgpzdHJlYW0K' +
-  'QlQKL0YxIDI0IFRmCjcyIDM4MCBUZAooVEVTVCBMQUJFTCAtIE5PVCBBIFJFQUwgU0hJUE1FTlQp' +
-  'IFRqCi9GMSA5IFRmCjcyIDM2MCBUZAooVGhpcyBsYWJlbCB3YXMgZ2VuZXJhdGVkIGluIHRlc3Qg' +
-  'bW9kZSBhbmQgZGlkIG5vdCBjaGFyZ2Ugb3Igc2hpcC4pIFRqCkVUCmVuZHN0cmVhbQplbmRvYmoK' +
-  'eHJlZgowIDUKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNj' +
-  'EgMDAwMDAgbiAKMDAwMDAwMDExNiAwMDAwMCBuIAowMDAwMDAwMjkzIDAwMDAwIG4gCnRyYWlsZXIK' +
-  'PDwvU2l6ZSA1L1Jvb3QgMSAwIFI+PgpzdGFydHhyZWYKNDUxCiUlRU9G'
-
 interface CreateLabelBody {
   serviceCode: string
   fromName?: string
@@ -52,16 +38,6 @@ export async function POST(req: NextRequest) {
   if (!creds) return NextResponse.json({ error: 'FedEx credentials not configured' }, { status: 404 })
 
   const body: CreateLabelBody = await req.json()
-
-  // Test mode — return mock label without hitting FedEx
-  if (body.testLabel) {
-    return NextResponse.json({
-      trackingNumber: `TEST-FEDEX-${Date.now()}`,
-      labelData: MOCK_LABEL_PDF_BASE64,
-      labelFormat: 'pdf',
-      shipmentCost: 0,
-    })
-  }
 
   const weightUnits = /pound|lb/i.test(body.weight.units) ? 'LB' as const : 'KG' as const
   const dimUnits = /inch|in/i.test(body.dimensions.units) ? 'IN' as const : 'CM' as const
@@ -101,8 +77,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await createShipment(creds, params)
-    return NextResponse.json(result)
+    const result = await createShipment(creds, params, body.testLabel)
+    return NextResponse.json({ ...result, isTest: !!body.testLabel })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[fedex/create-label] error:', msg)
