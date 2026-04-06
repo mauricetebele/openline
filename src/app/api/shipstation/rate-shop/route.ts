@@ -4,7 +4,8 @@ import { getAuthUser } from '@/lib/get-auth-user'
 import { decrypt } from '@/lib/crypto'
 import { ShipStationClient, SSRate, V2RatesRequest } from '@/lib/shipstation/client'
 import { SpApiClient } from '@/lib/amazon/sp-api'
-import { loadFedExCredentials, getRates as getFedExRates, type FedExRateParams } from '@/lib/fedex/client'
+// FedEx Direct temporarily disabled — uncomment when production API is approved
+// import { loadFedExCredentials, getRates as getFedExRates, type FedExRateParams } from '@/lib/fedex/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -76,54 +77,42 @@ export async function POST(req: NextRequest) {
   const v2ApiKey = account.v2ApiKeyEnc ? decrypt(account.v2ApiKeyEnc) : null
   const client = new ShipStationClient(decrypt(account.apiKeyEnc), account.apiSecretEnc ? decrypt(account.apiSecretEnc) : '', v2ApiKey)
 
-  // ── Load V1 carriers (UPS, FedEx, USPS, Amazon, etc.) ─────────────────────
-  let carriers
-  try {
-    carriers = await client.getCarriers()
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to load carriers' },
-      { status: 502 },
-    )
-  }
+  const amazonV2CarrierId = account.amazonCarrierId ?? null
+  const isAmazonOrder = body.orderSource !== 'backmarket'
 
+  // ── Load carriers, warehouses, and V2 carrier map in parallel ───────────
+  const [carriersResult, warehouseResult, v2CarriersResult] = await Promise.all([
+    client.getCarriers().catch((err: unknown) => ({ error: err instanceof Error ? err.message : 'Failed to load carriers' })),
+    client.getWarehouses().catch(() => [] as Awaited<ReturnType<typeof client.getWarehouses>>),
+    (v2ApiKey && !isAmazonOrder)
+      ? client.getV2Carriers().catch((e: unknown) => { console.warn('[rate-shop] V2 carriers lookup failed, will use V1:', e instanceof Error ? e.message : String(e)); return null })
+      : Promise.resolve(null),
+  ])
+
+  if ('error' in carriersResult) {
+    return NextResponse.json({ error: carriersResult.error }, { status: 502 })
+  }
+  const carriers = carriersResult
   if (carriers.length === 0) {
     return NextResponse.json({ error: 'No carriers connected to this ShipStation account.' }, { status: 400 })
   }
-
   console.log('[rate-shop] v1 carriers:', carriers.map(c => c.code))
-
-  const amazonV2CarrierId = account.amazonCarrierId ?? null
   console.log('[rate-shop] amazonV2CarrierId=%s', amazonV2CarrierId)
 
-  // Resolve ShipStation warehouse_id for V2 payloads (required for UPS via Amazon Buy Shipping)
   let ssWarehouseId: string | null = null
-  try {
-    const ssWarehouses = await client.getWarehouses()
-    const wh = ssWarehouses.find(w => body.warehouseId && w.warehouseId === body.warehouseId)
-      ?? ssWarehouses.find(w => w.warehouseName.toUpperCase().includes('MERIDIAN'))
-      ?? ssWarehouses.find(w => w.isDefault)
-      ?? ssWarehouses[0]
-    if (wh) ssWarehouseId = `se-${wh.warehouseId}`
-  } catch (e) {
-    console.warn('[rate-shop] SS warehouse lookup failed:', e instanceof Error ? e.message : String(e))
-  }
+  const wh = warehouseResult.find(w => body.warehouseId && w.warehouseId === body.warehouseId)
+    ?? warehouseResult.find(w => w.warehouseName.toUpperCase().includes('MERIDIAN'))
+    ?? warehouseResult.find(w => w.isDefault)
+    ?? warehouseResult[0]
+  if (wh) ssWarehouseId = `se-${wh.warehouseId}`
   console.log('[rate-shop] ssWarehouseId=%s', ssWarehouseId)
+
+  const v2CarrierMap: Map<string, string> | null = v2CarriersResult
+    ? new Map(v2CarriersResult.carriers.map(c => [c.carrier_code, String(c.carrier_id)]))
+    : null
 
   const rateErrors: string[] = []
   const allRates: (SSRate & { carrierName: string })[] = []
-  const isAmazonOrder = body.orderSource !== 'backmarket'
-
-  // Pre-fetch V2 carrier ID map (for delivery date support on non-Amazon carriers)
-  let v2CarrierMap: Map<string, string> | null = null
-  if (v2ApiKey && !isAmazonOrder) {
-    try {
-      const { carriers: v2Carriers } = await client.getV2Carriers()
-      v2CarrierMap = new Map(v2Carriers.map(c => [c.carrier_code, String(c.carrier_id)]))
-    } catch (e) {
-      console.warn('[rate-shop] V2 carriers lookup failed, will use V1:', e instanceof Error ? e.message : String(e))
-    }
-  }
 
   await Promise.all(carriers.map(async carrier => {
     const carrierName = carrier.name
@@ -315,84 +304,8 @@ export async function POST(req: NextRequest) {
     }
   }))
 
-  // ── FedEx Direct rates (Back Market orders only) ─────────────────────────
-  let fedexDebug: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } | undefined
-  if (!isAmazonOrder) {
-    try {
-      const fedexCreds = await loadFedExCredentials()
-      fedexDebug = { credentialsFound: !!fedexCreds }
-      if (fedexCreds) {
-        const weightUnits = /pound|lb/i.test(body.weight.units) ? 'LB' as const : 'KG' as const
-        const dimUnits = /inch|in/i.test(body.dimensions.units) ? 'IN' as const : 'CM' as const
-        let weightValue = body.weight.value
-        if (/ounce|oz/i.test(body.weight.units)) {
-          weightValue = Math.round((weightValue / 16) * 100) / 100
-        }
-
-        const fedexParams: FedExRateParams = {
-          shipFrom: {
-            streetLines: body.fromAddress1 ? [body.fromAddress1] : [],
-            city: body.fromCity ?? '',
-            stateOrProvinceCode: body.fromState ?? '',
-            postalCode: body.fromPostalCode,
-            countryCode: body.fromCountry ?? 'US',
-          },
-          shipTo: {
-            streetLines: body.toAddress1 ? [body.toAddress1] : [],
-            city: body.toCity,
-            stateOrProvinceCode: body.toState,
-            postalCode: body.toPostalCode,
-            countryCode: body.toCountry ?? 'US',
-            residential: body.residential,
-          },
-          weight: { value: weightValue, units: weightUnits },
-          dimensions: { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, units: dimUnits },
-          shipDate: body.shipDate,
-        }
-
-        fedexDebug.requestParams = { weight: fedexParams.weight, dimensions: fedexParams.dimensions, fromZip: fedexParams.shipFrom.postalCode, toZip: fedexParams.shipTo.postalCode }
-
-        // Standard rates + optional One Rate in parallel
-        const wantOneRate = body.fedexPackaging && body.fedexPackaging !== 'none'
-        if (wantOneRate) fedexDebug.oneRatePackaging = body.fedexPackaging
-
-        const ratePromises: Promise<{ rates: typeof allRates; count: number }>[] = [
-          getFedExRates(fedexCreds, fedexParams).then(rates => ({
-            rates: rates.map(r => ({ ...r, carrierName: 'FedEx Direct' })),
-            count: rates.length,
-          })),
-        ]
-
-        if (wantOneRate) {
-          const oneRateParams: FedExRateParams = {
-            ...fedexParams,
-            packagingType: body.fedexPackaging!,
-            oneRate: true,
-          }
-          ratePromises.push(
-            getFedExRates(fedexCreds, oneRateParams).then(rates => ({
-              rates: rates.map(r => ({ ...r, carrierName: 'FedEx Direct' })),
-              count: rates.length,
-            })),
-          )
-        }
-
-        const results = await Promise.all(ratePromises)
-        for (const r of results[0].rates) allRates.push(r)
-        fedexDebug.rateCount = results[0].count
-
-        if (results[1]) {
-          for (const r of results[1].rates) allRates.push(r)
-          fedexDebug.oneRateCount = results[1].count
-        }
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error('[rate-shop] FedEx Direct error:', msg)
-      rateErrors.push(`FedEx Direct: ${msg}`)
-      if (fedexDebug) fedexDebug.error = msg
-    }
-  }
+  // ── FedEx Direct rates — temporarily disabled until production API is approved ──
+  const fedexDebug: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } | undefined = undefined
 
   allRates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))
 
