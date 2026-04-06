@@ -321,7 +321,7 @@ export async function POST(req: NextRequest) {
   allRates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))
 
   // ── Amazon SP-API MerchantFulfillment (Amazon Buy Shipping rates incl. UPS) ──
-  let amazonServices: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number }[] | undefined
+  let amazonServices: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[] | undefined
   if (isAmazonOrder && body.amazonOrderId) {
     try {
       const order = await prisma.order.findFirst({
@@ -369,6 +369,7 @@ export async function POST(req: NextRequest) {
         const payload = (resp as Record<string, unknown>)?.payload as { ShippingServiceList?: Array<{
           ShippingServiceId: string; ShippingServiceName: string
           CarrierName: string; Rate?: { Amount?: number; CurrencyCode?: string }
+          LatestEstimatedDeliveryDate?: string; EarliestEstimatedDeliveryDate?: string
         }> } | undefined
         const services = payload?.ShippingServiceList ?? []
         if (services.length > 0) {
@@ -378,6 +379,7 @@ export async function POST(req: NextRequest) {
             carrierCode: s.CarrierName,
             carrierName: s.CarrierName,
             shipmentCost: s.Rate?.Amount,
+            latestDeliveryDate: s.LatestEstimatedDeliveryDate ?? s.EarliestEstimatedDeliveryDate,
           }))
           console.log('[rate-shop] SP-API MFN: %d services', amazonServices.length)
         }

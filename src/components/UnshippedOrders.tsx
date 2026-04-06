@@ -3211,7 +3211,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
   useEffect(() => { try { localStorage.setItem(WH_KEY, selectedWhId) } catch { /* */ } }, [selectedWhId])
 
   const [rates, setRates]               = useState<SSRate[] | null>(null)
-  const [amazonServices, setAmazonServices] = useState<{ code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number }[] | null>(null)
+  const [amazonServices, setAmazonServices] = useState<{ code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[] | null>(null)
   const [loadingRates, setLoadingRates] = useState(false)
   const [ratesErr, setRatesErr]         = useState<string | null>(null)
   const [fedexDebug, setFedexDebug]     = useState<{ credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } | null>(null)
@@ -3298,7 +3298,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
     try {
       const { shipTo } = lookup
       const selectedWh = warehouses.find(w => String(w.warehouseId) === selectedWhId)
-      const data = await apiPost<{ rates: SSRate[]; errors?: string[]; jwtExpired?: boolean; amazonServices?: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number }[]; fedexDebug?: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } }>(
+      const data = await apiPost<{ rates: SSRate[]; errors?: string[]; jwtExpired?: boolean; amazonServices?: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[]; fedexDebug?: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } }>(
         '/api/shipstation/rate-shop', {
           warehouseId: selectedWh?.warehouseId, orderId: lookup.ssOrderId,
           fromPostalCode: fromZip, fromCity: selectedWh?.originAddress.city,
@@ -3725,7 +3725,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
                       <CarrierLogo carrierCode={svc.carrierName} size={14} />
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{svc.name}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">{svc.carrierName}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{svc.carrierName}{svc.latestDeliveryDate ? ` · Est. ${new Date(svc.latestDeliveryDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` : ''}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -3746,13 +3746,24 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
             const fedexDirectRates = rates.filter(r => r.carrierCode === 'fedex_direct')
             const renderRate = (rate: SSRate, idx: number) => {
               const total = rate.shipmentCost + rate.otherCost, isBuying = purchasing === `${rate.carrierCode}-${rate.serviceCode}`
+              // Compute estimated delivery date: use deliveryDate if provided, otherwise transit days + ship date
+              let estDelivery: string | null = null
+              if (rate.deliveryDate) {
+                estDelivery = new Date(rate.deliveryDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+              } else if (rate.transitDays != null && rate.transitDays > 0) {
+                const d = new Date(labelShipDate)
+                // Add transit days, skipping weekends for ground services
+                let remaining = rate.transitDays
+                while (remaining > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) remaining-- }
+                estDelivery = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+              }
               return (
                 <div key={`${rate.carrierCode}-${rate.serviceCode}-${idx}`} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 hover:border-[#FF9900] transition-colors">
                   <div className="min-w-0 flex items-center gap-2.5">
                     <CarrierLogo carrierCode={rate.carrierCode} size={14} />
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{rate.serviceName}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{rate.carrierName ?? rate.carrierCode}{rate.transitDays != null ? ` · ${rate.transitDays}d` : ''}{rate.deliveryDate ? ` · Est. ${new Date(rate.deliveryDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{rate.carrierName ?? rate.carrierCode}{estDelivery ? ` · Est. ${estDelivery}` : rate.transitDays != null ? ` · ${rate.transitDays}d` : ''}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
