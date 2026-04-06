@@ -49,9 +49,10 @@ interface TokenCache {
   expiresAt: number // epoch ms
 }
 
-// ── In-memory token cache ───────────────────────────────────────────────────
+// ── In-memory token cache (separate for prod vs sandbox) ────────────────────
 
-let tokenCache: TokenCache | null = null
+let prodTokenCache: TokenCache | null = null
+let testTokenCache: TokenCache | null = null
 
 const SANDBOX_BASE = 'https://apis-sandbox.fedex.com'
 const PROD_BASE = 'https://apis.fedex.com'
@@ -62,9 +63,19 @@ function getBaseUrl(testMode?: boolean): string {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-export async function loadFedExCredentials(): Promise<FedExCredentials | null> {
+export async function loadFedExCredentials(testMode?: boolean): Promise<FedExCredentials | null> {
   const row = await prisma.fedexShippingCredential.findFirst({ where: { isActive: true } })
   if (!row) return null
+
+  // Use test (sandbox) credentials when testMode is true and they exist
+  if (testMode && row.testClientIdEnc && row.testClientSecretEnc && row.testAccountNumberEnc) {
+    return {
+      clientId: decrypt(row.testClientIdEnc),
+      clientSecret: decrypt(row.testClientSecretEnc),
+      accountNumber: decrypt(row.testAccountNumberEnc),
+    }
+  }
+
   return {
     clientId: decrypt(row.clientIdEnc),
     clientSecret: decrypt(row.clientSecretEnc),
@@ -73,8 +84,9 @@ export async function loadFedExCredentials(): Promise<FedExCredentials | null> {
 }
 
 async function getAccessToken(creds: FedExCredentials, testMode?: boolean): Promise<string> {
-  if (tokenCache && Date.now() < tokenCache.expiresAt) {
-    return tokenCache.accessToken
+  const cache = testMode ? testTokenCache : prodTokenCache
+  if (cache && Date.now() < cache.expiresAt) {
+    return cache.accessToken
   }
 
   const base = getBaseUrl(testMode)
@@ -95,11 +107,12 @@ async function getAccessToken(creds: FedExCredentials, testMode?: boolean): Prom
   }
 
   const data = await res.json() as { access_token: string; expires_in: number }
-  tokenCache = {
+  const newToken: TokenCache = {
     accessToken: data.access_token,
     expiresAt: Date.now() + (data.expires_in - 60) * 1000, // refresh 60s early
   }
-  return tokenCache.accessToken
+  if (testMode) testTokenCache = newToken; else prodTokenCache = newToken
+  return newToken.accessToken
 }
 
 async function fedexFetch(

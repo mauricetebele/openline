@@ -34,10 +34,10 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const creds = await loadFedExCredentials()
-  if (!creds) return NextResponse.json({ error: 'FedEx credentials not configured' }, { status: 404 })
-
   const body: CreateLabelBody = await req.json()
+
+  const creds = await loadFedExCredentials(body.testLabel)
+  if (!creds) return NextResponse.json({ error: body.testLabel ? 'FedEx sandbox credentials not configured — add them in Settings' : 'FedEx credentials not configured' }, { status: 404 })
 
   const weightUnits = /pound|lb/i.test(body.weight.units) ? 'LB' as const : 'KG' as const
   const dimUnits = /inch|in/i.test(body.dimensions.units) ? 'IN' as const : 'CM' as const

@@ -710,13 +710,16 @@ model FedexCredential {
 }
 
 model FedexShippingCredential {
-  id               String   @id @default(cuid())
-  clientIdEnc      String
-  clientSecretEnc  String
-  accountNumberEnc String
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  clientIdEnc           String
+  clientSecretEnc       String
+  accountNumberEnc      String
+  testClientIdEnc       String?
+  testClientSecretEnc   String?
+  testAccountNumberEnc  String?
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@map("fedex_shipping_credentials")
 }

@@ -1004,6 +1004,14 @@ function FedexCredentialsSection() {
   const [shipAccountNumber, setShipAccountNumber] = useState('')
   const [shipSaving, setShipSaving] = useState(false)
 
+  // ── Test / Sandbox credentials ──────────────────────────────────
+  const [testConfigured, setTestConfigured] = useState(false)
+  const [testMaskedId, setTestMaskedId] = useState<string | null>(null)
+  const [testClientId, setTestClientId] = useState('')
+  const [testClientSecret, setTestClientSecret] = useState('')
+  const [testAccountNumber, setTestAccountNumber] = useState('')
+  const [testSaving, setTestSaving] = useState(false)
+
   useEffect(() => { fetchTrackingStatus(); fetchShippingStatus() }, [])
 
   async function fetchTrackingStatus() {
@@ -1024,6 +1032,8 @@ function FedexCredentialsSection() {
       setShipMaskedId(data.maskedClientId ?? null)
       setShipMaskedAcct(data.maskedAccountNumber ?? null)
       setShipUpdatedAt(data.updatedAt ?? null)
+      setTestConfigured(data.testConfigured ?? false)
+      setTestMaskedId(data.testMaskedClientId ?? null)
     }
   }
 
@@ -1061,6 +1071,24 @@ function FedexCredentialsSection() {
     } catch (err) {
       toast.error(`Failed: ${(err as Error).message}`)
     } finally { setShipSaving(false) }
+  }
+
+  async function handleTestSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setTestSaving(true)
+    try {
+      const res = await fetch('/api/fedex/shipping-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ testClientId: testClientId.trim(), testClientSecret: testClientSecret.trim(), testAccountNumber: testAccountNumber.trim() }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('FedEx sandbox credentials saved!')
+      setTestClientId(''); setTestClientSecret(''); setTestAccountNumber('')
+      fetchShippingStatus()
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    } finally { setTestSaving(false) }
   }
 
   return (
@@ -1168,6 +1196,62 @@ function FedexCredentialsSection() {
             <button type="submit" className="btn-primary" disabled={shipSaving}>
               <RefreshCw size={14} className={shipSaving ? 'animate-spin' : ''} />
               {shipSaving ? 'Saving…' : shipConfigured ? 'Update Credentials' : 'Save Credentials'}
+            </button>
+          </form>
+        </div>
+      </section>
+
+      {/* ── FedEx — Sandbox / Test ─────────────────────────────────── */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">FedEx — Sandbox / Test</h3>
+
+        {testConfigured && (
+          <div className="card p-5">
+            <div className="flex items-center gap-3">
+              <CheckCircle size={16} className="text-amber-500 shrink-0" />
+              <div>
+                <p className="font-semibold text-sm">Sandbox API Connected</p>
+                <p className="text-xs text-gray-400">
+                  Test Client ID: <span className="font-mono">{testMaskedId}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="card p-6">
+          <div className="flex items-start gap-4 mb-5">
+            <div className="rounded-xl p-3 bg-amber-50">
+              <Package size={20} className="text-amber-600" />
+            </div>
+            <div>
+              <p className="font-semibold">{testConfigured ? 'Update Sandbox Credentials' : 'Connect FedEx Sandbox'}</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Used for test labels submitted to FedEx Label Analysis Group. Create a <strong>test project</strong> at{' '}
+                <a href="https://developer.fedex.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">developer.fedex.com</a>{' '}
+                using the sandbox environment.
+              </p>
+            </div>
+          </div>
+          <form onSubmit={handleTestSubmit} className="space-y-4">
+            <div>
+              <label className="label">Test API Key (Client ID)</label>
+              <input className="input font-mono" placeholder="l7a1b2c3d4e5f6…"
+                value={testClientId} onChange={e => setTestClientId(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">Test Secret Key (Client Secret)</label>
+              <input className="input font-mono" type="password" placeholder="a1b2c3d4e5f6g7…"
+                value={testClientSecret} onChange={e => setTestClientSecret(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">Test Account Number</label>
+              <input className="input font-mono" placeholder="123456789"
+                value={testAccountNumber} onChange={e => setTestAccountNumber(e.target.value)} required />
+            </div>
+            <button type="submit" className="btn-primary" disabled={testSaving}>
+              <RefreshCw size={14} className={testSaving ? 'animate-spin' : ''} />
+              {testSaving ? 'Saving…' : testConfigured ? 'Update Credentials' : 'Save Credentials'}
             </button>
           </form>
         </div>
