@@ -310,8 +310,8 @@ export async function createShipment(
       ...(params.oneRate ? { shipmentSpecialServices: { specialServiceTypes: ['FEDEX_ONE_RATE'] } } : {}),
       labelSpecification: {
         labelFormatType: 'COMMON2D',
-        imageType: 'ZPLII',
-        labelStockType: 'STOCK_4X6',
+        imageType: testMode ? 'PNG' : 'PDF',
+        ...(testMode ? {} : { labelStockType: 'STOCK_4X6' }),
       },
       requestedPackageLineItems: [
         {
@@ -356,6 +356,6 @@ export async function createShipment(
   return {
     trackingNumber,
     labelData: labelDoc.encodedLabel,
-    labelFormat: 'zpl',
+    labelFormat: testMode ? 'png' : 'pdf',
   }
 }
