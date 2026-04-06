@@ -12,7 +12,6 @@ import { AmazonAccountDTO } from '@/types'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
 import PickListModal from '@/components/PickListModal'
 import ShipByItemModal from '@/components/ShipByItemModal'
-import { useQzTray } from '@/lib/use-qz-tray'
 
 // ─── Scanner confirmation tone (Web Audio API) ──────────────────────────────
 let _audioCtx: AudioContext | null = null
@@ -330,8 +329,8 @@ function fmtDate(iso: string) {
 
 function downloadLabelData(labelData: string, labelFormat: string, filename: string) {
   const bytes = Uint8Array.from(atob(labelData), c => c.charCodeAt(0))
-  const mime  = labelFormat === 'pdf' ? 'application/pdf' : 'image/png'
-  const ext   = labelFormat === 'pdf' ? 'pdf' : 'png'
+  const mime  = labelFormat === 'zpl' ? 'application/octet-stream' : labelFormat === 'pdf' ? 'application/pdf' : 'image/png'
+  const ext   = labelFormat === 'zpl' ? 'zpl' : labelFormat === 'pdf' ? 'pdf' : 'png'
   const blob  = new Blob([bytes], { type: mime })
   const url   = URL.createObjectURL(blob)
   const a     = document.createElement('a')
@@ -3139,7 +3138,6 @@ interface SSRate {
 interface LabelPanelProps {
   order: Order; ssAccount: SSAccount | null; onClose: () => void
   onLabelSaved?: () => void  // called after real label is saved to DB
-  qzPrint?: { connected: boolean; defaultPrinter: string | null; printPdf: (b64: string, printer?: string) => Promise<void> }
 }
 
 const FROM_ZIP_KEY  = 'ss_from_zip'
@@ -3176,7 +3174,7 @@ function CarrierLogo({ carrierCode, serviceName, size = 16 }: { carrierCode: str
   return <img src={src} alt="" width={size * 2.5} height={size} className="shrink-0 object-contain" />
 }
 
-function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelPanelProps) {
+function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps) {
   const [lookup, setLookup]         = useState<SSLookupResult>({ status: 'loading' })
   const [warehouses, setWarehouses] = useState<SSWarehouse[]>([])
   const [whLoading, setWhLoading]   = useState(false)
@@ -3431,11 +3429,6 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
             isAmazonBuyShipping: !!rate.rate_id,
           })
 
-          // Auto-print via QZ Tray if connected (non-fatal)
-          if (qzPrint?.connected && qzPrint.defaultPrinter && (label.labelFormat ?? 'pdf') === 'pdf') {
-            try { await qzPrint.printPdf(label.labelData) } catch { /* non-fatal */ }
-          }
-
           // Notify parent so the unshipped list refreshes and order disappears
           onLabelSaved?.()
         } catch (e) {
@@ -3482,14 +3475,10 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved, qzPrint }: LabelP
               <p className="font-mono text-sm font-bold text-gray-900">{purchased.trackingNumber}</p>
             </div>
             <button onClick={async () => {
-                if (qzPrint?.connected && qzPrint.defaultPrinter && purchased.labelFormat === 'pdf') {
-                  try { await qzPrint.printPdf(purchased.labelData); toast.success('Label sent to printer') } catch { downloadLabelData(purchased.labelData, purchased.labelFormat, `label-${order.amazonOrderId}`) }
-                } else {
-                  downloadLabelData(purchased.labelData, purchased.labelFormat, `label-${order.amazonOrderId}`)
-                }
+                downloadLabelData(purchased.labelData, purchased.labelFormat, `label-${order.amazonOrderId}`)
               }}
               className="w-full flex items-center justify-center gap-2 bg-green-600 text-white text-sm font-medium py-2 rounded-lg hover:bg-green-700">
-              {qzPrint?.connected && qzPrint.defaultPrinter ? <><Printer size={14} /> Print Label</> : <><Download size={14} /> Download Label</>}
+              <Download size={14} /> Download Label
             </button>
             <button onClick={() => { setPurchased(null); setRates(null) }} className="w-full text-xs text-gray-500 hover:text-gray-700 text-center">Buy another label</button>
           </div>
@@ -4614,10 +4603,9 @@ interface LabelBatchModalProps {
   onClose: () => void
   onBatchCreated: (batchId: string) => void
   onBatchComplete: () => void
-  qzPrint?: { connected: boolean; defaultPrinter: string | null; printMultiplePdfs: (b64s: string[], printer?: string) => Promise<void> }
 }
 
-function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId, onClose, onBatchCreated, onBatchComplete, qzPrint }: LabelBatchModalProps) {
+function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId, onClose, onBatchCreated, onBatchComplete }: LabelBatchModalProps) {
   // Phase: 'confirm' | 'processing' | 'done'
   const [phase, setPhase] = useState<'confirm' | 'processing' | 'done'>(existingBatchId ? 'processing' : 'confirm')
   const [isTest, setIsTest] = useState(false)
@@ -4625,7 +4613,6 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
   const [batchId, setBatchId] = useState<string | null>(existingBatchId ?? null)
   const [pollData, setPollData] = useState<LabelBatchPollData | null>(null)
   const [showFailed, setShowFailed] = useState(false)
-  const [printingAll, setPrintingAll] = useState(false)
 
   // Build shipping method breakdown from eligible orders
   const methodBreakdown = useMemo(() => {
@@ -4830,30 +4817,7 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
             <BatchGauge completed={completed} total={total} failed={failed} />
             {pollData && <BatchItemGrid items={pollData.items} />}
 
-            <div className="flex items-center justify-between pt-1">
-              {completed > 0 && qzPrint?.connected && qzPrint.defaultPrinter ? (
-                <button
-                  type="button" disabled={printingAll}
-                  onClick={async () => {
-                    if (!batchId) return
-                    setPrintingAll(true)
-                    try {
-                      const res = await fetch(`/api/orders/label-batch/${batchId}/labels`)
-                      if (!res.ok) { toast.error('Failed to fetch batch labels'); return }
-                      const { labels } = await res.json() as { labels: { orderId: string; labelData: string; labelFormat: string }[] }
-                      const pdfLabels = labels.filter(l => l.labelFormat === 'pdf').map(l => l.labelData)
-                      if (pdfLabels.length === 0) { toast.error('No PDF labels in batch'); return }
-                      await qzPrint.printMultiplePdfs(pdfLabels)
-                      toast.success(`${pdfLabels.length} labels sent to printer`)
-                    } catch { toast.error('Batch print failed') }
-                    finally { setPrintingAll(false) }
-                  }}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 transition-colors"
-                >
-                  {printingAll ? <RefreshCcw size={10} className="animate-spin" /> : <Printer size={12} />}
-                  Print All Labels
-                </button>
-              ) : <div />}
+            <div className="flex items-center justify-end pt-1">
               <button onClick={onClose}
                 className="px-3.5 py-2 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
                 Close
@@ -4885,8 +4849,6 @@ const EMPTY_MESSAGES: Record<ActiveTab, { title: string; sub: string }> = {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function UnshippedOrders() {
-  const qz = useQzTray({ autoConnect: true })
-
   const [accounts, setAccounts]                   = useState<AmazonAccountDTO[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState('')
   const [accountsError, setAccountsError]         = useState<string | null>(null)
@@ -5563,22 +5525,18 @@ export default function UnshippedOrders() {
       if (!res.ok) { alert('No label found for this order'); return }
       const data = await res.json() as { labelData: string; labelFormat: string }
 
-      // Silent print via QZ Tray if connected, printer set, and format is PDF
-      if (qz.connected && qz.defaultPrinter && data.labelFormat === 'pdf') {
-        try {
-          await qz.printPdf(data.labelData)
-          toast.success('Label sent to printer')
-          return
-        } catch { /* fall through to browser */ }
+      if (data.labelFormat === 'zpl') {
+        // ZPL: download as file (thermal printer firmware reads raw ZPL)
+        downloadLabelData(data.labelData, data.labelFormat, `label-${orderId}`)
+      } else {
+        // PDF/PNG: open in browser
+        const mime = data.labelFormat === 'pdf' ? 'application/pdf' : 'image/png'
+        const blob = new Blob(
+          [Uint8Array.from(atob(data.labelData), c => c.charCodeAt(0))],
+          { type: mime },
+        )
+        window.open(URL.createObjectURL(blob), '_blank')
       }
-
-      // Fallback: open in browser
-      const mime = data.labelFormat === 'pdf' ? 'application/pdf' : 'image/png'
-      const blob = new Blob(
-        [Uint8Array.from(atob(data.labelData), c => c.charCodeAt(0))],
-        { type: mime },
-      )
-      window.open(URL.createObjectURL(blob), '_blank')
     } catch { alert('Failed to fetch label') }
   }
 
@@ -6170,7 +6128,7 @@ export default function UnshippedOrders() {
         />
       )}
       {labelOrder && <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setLabelOrder(null)} />}
-      {labelOrder && <LabelPanel order={labelOrder} ssAccount={ssAccount} onClose={() => setLabelOrder(null)} onLabelSaved={() => { setLabelOrder(null); setFetchKey(k => k + 1) }} qzPrint={{ connected: qz.connected, defaultPrinter: qz.defaultPrinter, printPdf: qz.printPdf }} />}
+      {labelOrder && <LabelPanel order={labelOrder} ssAccount={ssAccount} onClose={() => setLabelOrder(null)} onLabelSaved={() => { setLabelOrder(null); setFetchKey(k => k + 1) }} />}
 
       {/* Batch history modal */}
       {showBatchHistory && <BatchHistoryModal onClose={() => setShowBatchHistory(false)} />}
@@ -6185,7 +6143,6 @@ export default function UnshippedOrders() {
           onClose={() => { setShowBatchConfirm(false); setActiveBatchId(null) }}
           onBatchCreated={(id) => { setActiveBatchId(id) }}
           onBatchComplete={() => { setFetchKey(k => k + 1); setSelectedOrderIds(new Set()); setActiveBatchId(null) }}
-          qzPrint={{ connected: qz.connected, defaultPrinter: qz.defaultPrinter, printMultiplePdfs: qz.printMultiplePdfs }}
         />
       )}
 
@@ -6438,14 +6395,6 @@ export default function UnshippedOrders() {
         )}
 
         <div className="flex-1" />
-
-        {/* QZ Tray printer status */}
-        {qz.connected && qz.defaultPrinter && (
-          <span className="flex items-center gap-1.5 text-[10px] font-medium text-teal-700 bg-teal-50 border border-teal-200 px-2 py-1 rounded-full">
-            <Printer size={10} />
-            {qz.defaultPrinter}
-          </span>
-        )}
 
         {/* Sync status — tiny indicator in toolbar */}
         {syncing && <span className="text-[10px] text-gray-400 flex items-center gap-1"><RefreshCcw size={10} className="animate-spin" />Syncing…</span>}
