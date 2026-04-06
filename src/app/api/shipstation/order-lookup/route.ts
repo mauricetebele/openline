@@ -21,6 +21,30 @@ export async function GET(req: NextRequest) {
   const amazonOrderId = req.nextUrl.searchParams.get('amazonOrderId')?.trim()
   if (!amazonOrderId) return NextResponse.json({ error: 'Missing amazonOrderId' }, { status: 400 })
 
+  // ── Fast path: return locally-stored data if we already have ssOrderId + address ──
+  const local = await prisma.order.findFirst({
+    where: { amazonOrderId, ssOrderId: { not: null }, shipToCity: { not: null } },
+    select: { ssOrderId: true, shipToName: true, shipToAddress1: true, shipToAddress2: true, shipToCity: true, shipToState: true, shipToPostal: true, shipToCountry: true, shipToPhone: true },
+  })
+  if (local?.ssOrderId && local.shipToCity) {
+    return NextResponse.json({
+      found: true,
+      ssOrderId: local.ssOrderId,
+      orderStatus: 'awaiting_shipment', // locally-enriched orders are always unshipped
+      shipTo: {
+        name: local.shipToName ?? '',
+        street1: local.shipToAddress1 ?? '',
+        street2: local.shipToAddress2 ?? '',
+        city: local.shipToCity ?? '',
+        state: local.shipToState ?? '',
+        postalCode: local.shipToPostal ?? '',
+        country: local.shipToCountry ?? 'US',
+        phone: local.shipToPhone ?? '',
+      },
+    })
+  }
+
+  // ── Slow path: query ShipStation API ──────────────────────────────────────
   const account = await prisma.shipStationAccount.findFirst({
     where: { isActive: true },
     orderBy: { createdAt: 'asc' },
@@ -35,10 +59,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ found: false })
     }
 
-    // Persist ssOrderId on the local Order record so the grid can show a "synced" badge
+    // Persist ssOrderId + address on the local Order record for the fast path next time
     prisma.order.updateMany({
       where: { amazonOrderId, ssOrderId: null },
-      data:  { ssOrderId: ssOrder.orderId },
+      data: {
+        ssOrderId: ssOrder.orderId,
+        ...(ssOrder.shipTo ? {
+          shipToName: ssOrder.shipTo.name ?? null,
+          shipToAddress1: ssOrder.shipTo.street1 ?? null,
+          shipToAddress2: ssOrder.shipTo.street2 ?? null,
+          shipToCity: ssOrder.shipTo.city ?? null,
+          shipToState: ssOrder.shipTo.state ?? null,
+          shipToPostal: ssOrder.shipTo.postalCode ?? null,
+          shipToCountry: ssOrder.shipTo.country ?? null,
+          shipToPhone: ssOrder.shipTo.phone ?? null,
+        } : {}),
+      },
     }).catch(() => {}) // best-effort, don't block the response
 
     return NextResponse.json({

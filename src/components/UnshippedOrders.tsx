@@ -5060,8 +5060,6 @@ export default function UnshippedOrders() {
       .then(({ data, pagination: p }) => {
         if (!cancelled) {
           setOrders(data); setPagination(p)
-          // Fire-and-forget: fill in any missing ship-to addresses from ShipStation
-          fetch('/api/orders/enrich-addresses', { method: 'POST' }).catch(() => {})
         }
       })
       .catch(err => { if (!cancelled) setFetchError(err instanceof Error ? err.message : String(err)) })
