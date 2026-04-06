@@ -1,15 +1,23 @@
 /**
  * POST /api/auth/session  — verify Firebase ID token, issue a JWT session cookie
+ * GET  /api/auth/session  — return current user info (for mobile session validation)
  * DELETE /api/auth/session — clear the session cookie (logout)
  *
  * Uses Firebase REST API to validate the ID token — no service account key needed.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import jwt from 'jsonwebtoken'
+import { getAuthUser } from '@/lib/get-auth-user'
 
 const SESSION_DURATION_S = 60 * 60 * 24 * 5 // 5 days in seconds
 const API_KEY = process.env.NEXT_PUBLIC_FIREBASE_API_KEY!
 const SESSION_SECRET = process.env.SESSION_SECRET!
+
+export async function GET() {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  return NextResponse.json({ user })
+}
 
 export async function POST(req: NextRequest) {
   const { idToken } = await req.json()
@@ -48,7 +56,7 @@ export async function POST(req: NextRequest) {
       { expiresIn: SESSION_DURATION_S },
     )
 
-    const res = NextResponse.json({ ok: true })
+    const res = NextResponse.json({ ok: true, token: idToken })
     res.cookies.set('__session', sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

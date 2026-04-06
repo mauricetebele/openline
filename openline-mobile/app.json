@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "OpenLine Mobile",
+    "slug": "openline-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "openline",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#1a1a2e"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.openline.mobile",
+      "googleServicesFile": "./GoogleService-Info.plist"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "@react-native-firebase/app"
+    ]
+  }
+}

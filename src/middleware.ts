@@ -30,6 +30,11 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
+  // Allow Bearer-authed API requests through (mobile app / API clients)
+  if (!session && pathname.startsWith('/api/') && req.headers.get('authorization')?.startsWith('Bearer ')) {
+    return NextResponse.next()
+  }
+
   // No session → redirect to login
   if (!session) {
     const loginUrl = new URL('/login', req.url)
