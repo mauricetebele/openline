@@ -64,13 +64,14 @@ interface BMOrder {
   orderlines?: BMOrderLine[]
 }
 
-// BackMarket valid states: 0, 1, 3, 8, 9, 10
+// BackMarket valid states: 0, 1, 2, 3, 8, 9, 10
 // Map BM state numbers to readable order statuses
 function mapBMState(state?: number): string {
   switch (state) {
     case 0:  return 'Pending'     // pending
     case 1:  return 'Unshipped'   // new / awaiting validation
-    case 3:  return 'Accepted'   // accepted — ready to ship
+    case 2:  return 'Accepted'    // to be shipped
+    case 3:  return 'Accepted'    // accepted — ready to ship
     case 8:  return 'Refunded'    // refunded
     case 9:  return 'Cancelled'   // cancelled
     case 10: return 'Pending'     // pending payment
@@ -98,16 +99,21 @@ export async function syncBackMarketOrders(
 
     const client = new BackMarketClient(apiKey)
 
-    // Fetch orders with state 1 (new/awaiting validation) and state 3 (accepted/shipped)
+    // Fetch orders with state 1 (new/awaiting validation), state 2 (to be shipped),
+    // and state 3 (accepted/shipped)
     console.log('[SyncBMOrders] Fetching state=1 (new) orders…')
     const state1Orders = await client.fetchAllPages<BMOrder>('/orders', { state: 1 })
     console.log(`[SyncBMOrders] Fetched ${state1Orders.length} state=1 orders`)
+
+    console.log('[SyncBMOrders] Fetching state=2 (to be shipped) orders…')
+    const state2Orders = await client.fetchAllPages<BMOrder>('/orders', { state: 2 })
+    console.log(`[SyncBMOrders] Fetched ${state2Orders.length} state=2 orders`)
 
     console.log('[SyncBMOrders] Fetching state=3 (accepted) orders…')
     const state3Orders = await client.fetchAllPages<BMOrder>('/orders', { state: 3 })
     console.log(`[SyncBMOrders] Fetched ${state3Orders.length} state=3 orders`)
 
-    const allOrders = [...state1Orders, ...state3Orders]
+    const allOrders = [...state1Orders, ...state2Orders, ...state3Orders]
     console.log(`[SyncBMOrders] Total orders fetched: ${allOrders.length}`)
     await prisma.orderSyncJob.update({ where: { id: jobId }, data: { totalFound: allOrders.length } })
 
