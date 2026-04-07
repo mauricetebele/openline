@@ -38,6 +38,7 @@ const CARRIER_NAME_MAP: Record<string, string> = {
   ups:              'UPS',
   ups_walleted:     'UPS',
   fedex:            'FedEx',
+  fedex_direct:     'FedEx',
   dhl_express:      'DHL',
   dhl_ecommerce:    'DHL',
   ontrac:           'OnTrac',

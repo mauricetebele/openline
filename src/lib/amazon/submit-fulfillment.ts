@@ -117,6 +117,7 @@ export async function submitFulfillmentWithTransparency(
     ups: 'UPS',
     ups_walleted: 'UPS',
     fedex: 'FedEx',
+    fedex_direct: 'FedEx',
     dhl_express: 'DHL',
     amazon_shipping: 'Amazon Shipping',
   }

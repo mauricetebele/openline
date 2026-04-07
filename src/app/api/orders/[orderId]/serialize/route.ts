@@ -246,7 +246,7 @@ export async function POST(
 /** Map ShipStation carrier codes to clean names BackMarket recognizes */
 const CARRIER_NAME_MAP: Record<string, string> = {
   stamps_com: 'USPS', usps: 'USPS', ups: 'UPS', ups_walleted: 'UPS',
-  fedex: 'FedEx', dhl_express: 'DHL', dhl_ecommerce: 'DHL', ontrac: 'OnTrac',
+  fedex: 'FedEx', fedex_direct: 'FedEx', dhl_express: 'DHL', dhl_ecommerce: 'DHL', ontrac: 'OnTrac',
 }
 
 async function shipToBackMarket(
