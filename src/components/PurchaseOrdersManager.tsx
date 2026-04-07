@@ -662,12 +662,12 @@ function POPanel({
                   {lines.map((line, i) => (
                     <div key={i} className={clsx("grid gap-2 items-center", isReceived ? "grid-cols-[120px_1fr_100px_120px_60px_140px]" : "grid-cols-[120px_1fr_100px_120px_60px_90px_28px]")}>
                       {/* SKU (read-only) */}
-                      <span className="h-9 flex items-center px-2 rounded-md bg-gray-50 border border-gray-200 text-xs font-mono text-gray-700 truncate">
+                      <span className={clsx("h-9 flex items-center text-xs font-mono text-gray-700 truncate", isReceived ? "px-1" : "px-2 rounded-md bg-gray-50 border border-gray-200")}>
                         {line.sku}
                       </span>
 
                       {/* Description (read-only) */}
-                      <span className="h-9 flex items-center px-2 rounded-md bg-gray-50 border border-gray-200 text-xs text-gray-600 truncate">
+                      <span className={clsx("h-9 flex items-center text-xs text-gray-600 truncate", isReceived ? "px-1" : "px-2 rounded-md bg-gray-50 border border-gray-200")}>
                         {line.description}
                       </span>
 
