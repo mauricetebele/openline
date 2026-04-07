@@ -51,15 +51,12 @@ export async function PUT(
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Block edits to fully received POs
   const existing = await prisma.purchaseOrder.findUnique({
     where: { id: params.id },
     select: { status: true },
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (existing.status === 'RECEIVED') {
-    return NextResponse.json({ error: 'Cannot edit a fully received PO' }, { status: 400 })
-  }
+  const isReceived = existing.status === 'RECEIVED'
 
   const body = await req.json()
   const { vendorId, date, notes, status, lines, vendorInvoiceBase64, vendorInvoiceFilename } = body
@@ -111,6 +108,19 @@ export async function PUT(
         toUpdate.push({ existingId: match.id, data: incoming })
       } else {
         toCreate.push(incoming)
+      }
+    }
+
+    // Received POs: only allow cost + costCode changes, no structural edits
+    if (isReceived) {
+      if (toCreate.length > 0) throw new Error('Cannot add new lines to a received PO')
+      const unmatched = existingLines.filter(e => !usedExistingIds.has(e.id))
+      if (unmatched.length > 0) throw new Error('Cannot remove lines from a received PO')
+      for (const { existingId, data } of toUpdate) {
+        const existing = existingLines.find(e => e.id === existingId)!
+        if (data.productId !== existing.productId) throw new Error('Cannot change product on a received PO')
+        if (Number(data.qty) !== existing.qty) throw new Error('Cannot change qty on a received PO — only cost can be edited')
+        if ((data.gradeId ?? null) !== (existing.gradeId ?? null)) throw new Error('Cannot change grade on a received PO')
       }
     }
 

@@ -149,6 +149,7 @@ function POPanel({
   onClose: () => void
 }) {
   const isEdit = editing !== null
+  const isReceived = editing?.status === 'RECEIVED'
 
   const [vendorId, setVendorId]   = useState(editing?.vendor.id ?? '')
   const [date,     setDate]       = useState(editing ? editing.date.slice(0, 10) : today())
@@ -463,7 +464,7 @@ function POPanel({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
           <h2 className="text-sm font-semibold text-gray-900">
-            {isEdit ? `Edit PO${editing.poNumber}` : 'New Purchase Order'}
+            {isEdit ? (isReceived ? `Edit Costs — PO${editing.poNumber}` : `Edit PO${editing.poNumber}`) : 'New Purchase Order'}
           </h2>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X size={16} />
@@ -483,7 +484,8 @@ function POPanel({
               <select
                 value={vendorId}
                 onChange={e => setVendorId(e.target.value)}
-                className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                disabled={isReceived}
+                className={clsx("w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue", isReceived && "bg-gray-100 text-gray-500 cursor-not-allowed")}
               >
                 <option value="">Select vendor…</option>
                 {vendors.map(v => <option key={v.id} value={v.id}>V-{v.vendorNumber} — {v.name}</option>)}
@@ -497,13 +499,14 @@ function POPanel({
                 type="date"
                 value={date}
                 onChange={e => setDate(e.target.value)}
-                className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                disabled={isReceived}
+                className={clsx("w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue", isReceived && "bg-gray-100 text-gray-500 cursor-not-allowed")}
               />
             </div>
           </div>
 
-          {/* Status (edit only) */}
-          {isEdit && (
+          {/* Status (edit only, hidden for received POs) */}
+          {isEdit && !isReceived && (
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
               <div className="flex gap-2">
@@ -587,18 +590,20 @@ function POPanel({
               <label className="text-xs font-medium text-gray-700">
                 Line Items <span className="text-red-500">*</span>
               </label>
-              <button
-                type="button"
-                onClick={() => setShowSpreadsheet(s => !s)}
-                className={clsx(
-                  'flex items-center gap-1 text-xs font-medium px-2 py-1 rounded border transition-colors',
-                  showSpreadsheet
-                    ? 'text-purple-700 bg-purple-50 border-purple-200'
-                    : 'text-gray-500 hover:text-gray-700 border-gray-200 hover:border-gray-300',
-                )}
-              >
-                <Upload size={12} /> Spreadsheet Import
-              </button>
+              {!isReceived && (
+                <button
+                  type="button"
+                  onClick={() => setShowSpreadsheet(s => !s)}
+                  className={clsx(
+                    'flex items-center gap-1 text-xs font-medium px-2 py-1 rounded border transition-colors',
+                    showSpreadsheet
+                      ? 'text-purple-700 bg-purple-50 border-purple-200'
+                      : 'text-gray-500 hover:text-gray-700 border-gray-200 hover:border-gray-300',
+                  )}
+                >
+                  <Upload size={12} /> Spreadsheet Import
+                </button>
+              )}
             </div>
 
             {/* Spreadsheet paste area */}
@@ -674,7 +679,8 @@ function POPanel({
                           const g = line.grades.find(g => g.id === gid)
                           updateLine(i, { gradeId: gid, gradeName: g?.grade ?? null })
                         }}
-                        className="h-9 rounded-md border border-gray-300 px-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                        disabled={isReceived}
+                        className={clsx("h-9 rounded-md border border-gray-300 px-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue", isReceived && "bg-gray-100 text-gray-500 cursor-not-allowed")}
                       >
                         <option value="">—</option>
                         {line.grades.map(g => (
@@ -701,7 +707,8 @@ function POPanel({
                         value={line.qty}
                         onChange={e => updateLine(i, { qty: Math.max(Math.max(1, line.qtyReceived), parseInt(e.target.value) || 1) })}
                         autoComplete="off"
-                        className="h-9 w-full rounded-md border border-gray-300 px-2 text-xs text-center focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                        disabled={isReceived}
+                        className={clsx("h-9 w-full rounded-md border border-gray-300 px-2 text-xs text-center focus:outline-none focus:ring-2 focus:ring-amazon-blue", isReceived && "bg-gray-100 text-gray-500 cursor-not-allowed")}
                       />
                       {line.qtyReceived > 0 && (
                         <p className="text-[10px] text-gray-400 text-center mt-0.5">{line.qtyReceived} received</p>
@@ -723,57 +730,63 @@ function POPanel({
                       </div>
 
                       {/* Remove */}
-                      <button
-                        type="button"
-                        onClick={() => removeLine(i)}
-                        className="h-9 w-7 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      {isReceived ? (
+                        <div className="h-9 w-7" />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => removeLine(i)}
+                          className="h-9 w-7 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
               </>
             )}
 
-            {/* SKU autocomplete input to add lines */}
-            <div className="mt-3 relative" ref={skuWrapRef}>
-              <div className="relative">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
-                  value={skuSearch}
-                  onChange={e => handleSkuChange(e.target.value)}
-                  onFocus={() => { if (skuResults.length) setSkuDropOpen(true) }}
-                  placeholder="Type SKU or description to add a line…"
-                  autoComplete="off"
-                  className="w-full h-9 rounded-md border border-gray-300 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                />
-                {skuLoading && (
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">…</span>
+            {/* SKU autocomplete input to add lines — hidden for received POs */}
+            {!isReceived && (
+              <div className="mt-3 relative" ref={skuWrapRef}>
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={skuSearch}
+                    onChange={e => handleSkuChange(e.target.value)}
+                    onFocus={() => { if (skuResults.length) setSkuDropOpen(true) }}
+                    placeholder="Type SKU or description to add a line…"
+                    autoComplete="off"
+                    className="w-full h-9 rounded-md border border-gray-300 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                  />
+                  {skuLoading && (
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">…</span>
+                  )}
+                </div>
+                {skuDropOpen && skuResults.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg">
+                    {skuResults.map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => selectProduct(p)}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center gap-2"
+                      >
+                        <span className="font-mono text-xs text-gray-500 shrink-0">{p.sku}</span>
+                        <span className="text-gray-700 truncate">{p.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {skuDropOpen && skuResults.length === 0 && skuSearch.trim() && !skuLoading && (
+                  <div className="absolute z-10 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg px-3 py-2 text-xs text-gray-400">
+                    No products found
+                  </div>
                 )}
               </div>
-              {skuDropOpen && skuResults.length > 0 && (
-                <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg">
-                  {skuResults.map(p => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => selectProduct(p)}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center gap-2"
-                    >
-                      <span className="font-mono text-xs text-gray-500 shrink-0">{p.sku}</span>
-                      <span className="text-gray-700 truncate">{p.description}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {skuDropOpen && skuResults.length === 0 && skuSearch.trim() && !skuLoading && (
-                <div className="absolute z-10 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg px-3 py-2 text-xs text-gray-400">
-                  No products found
-                </div>
-              )}
-            </div>
+            )}
 
             {/* Total */}
             {lines.length > 0 && (
@@ -1043,12 +1056,10 @@ function PORow({
                   </button>
                 </>
               )}
-              {po.status !== 'RECEIVED' && (
-                <button type="button" onClick={() => onEdit(po)}
-                  className="p-1.5 rounded text-gray-400 hover:text-amazon-blue hover:bg-blue-50">
-                  <Pencil size={13} />
-                </button>
-              )}
+              <button type="button" onClick={() => onEdit(po)}
+                className="p-1.5 rounded text-gray-400 hover:text-amazon-blue hover:bg-blue-50">
+                <Pencil size={13} />
+              </button>
               {po.status !== 'RECEIVED' && (
                 <button type="button" onClick={() => setDeleteConfirm(true)}
                   className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
