@@ -3978,7 +3978,7 @@ function PresetManagementModal({ onClose, onChange }: {
                     <option value="">{loadingCarriers ? 'Loading carriers…' : '— Select carrier —'}</option>
                     {carriers.map(c => (
                       <option key={c.code} value={c.code}>
-                        {c.nickname ? `${c.nickname} (${c.code})` : `${c.name} (${c.code})`}
+                        {`${c.name} (${c.code})`}
                       </option>
                     ))}
                   </select>
@@ -4197,17 +4197,30 @@ function PackagePresetManagementModal({ onClose, onChange }: {
                   <select value={form.packageCode ?? ''} onChange={e => setForm(f => ({ ...f, packageCode: e.target.value || null }))}
                     className="w-full h-7 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
                     <option value="">— Select package type —</option>
-                    <option value="package">Package</option>
-                    <option value="small_flat_rate_box">Small Flat Rate Box</option>
-                    <option value="medium_flat_rate_box">Medium Flat Rate Box</option>
-                    <option value="large_flat_rate_box">Large Flat Rate Box</option>
-                    <option value="flat_rate_envelope">Flat Rate Envelope</option>
-                    <option value="legal_flat_rate_envelope">Legal Flat Rate Envelope</option>
-                    <option value="padded_flat_rate_envelope">Padded Flat Rate Envelope</option>
-                    <option value="regional_rate_box_a">Regional Rate Box A</option>
-                    <option value="regional_rate_box_b">Regional Rate Box B</option>
-                    <option value="large_envelope_or_flat">Large Envelope / Flat</option>
-                    <option value="thick_envelope">Thick Envelope</option>
+                    <optgroup label="Standard">
+                      <option value="package">Package</option>
+                    </optgroup>
+                    <optgroup label="USPS">
+                      <option value="small_flat_rate_box">Small Flat Rate Box</option>
+                      <option value="medium_flat_rate_box">Medium Flat Rate Box</option>
+                      <option value="large_flat_rate_box">Large Flat Rate Box</option>
+                      <option value="flat_rate_envelope">Flat Rate Envelope</option>
+                      <option value="legal_flat_rate_envelope">Legal Flat Rate Envelope</option>
+                      <option value="padded_flat_rate_envelope">Padded Flat Rate Envelope</option>
+                      <option value="regional_rate_box_a">Regional Rate Box A</option>
+                      <option value="regional_rate_box_b">Regional Rate Box B</option>
+                      <option value="large_envelope_or_flat">Large Envelope / Flat</option>
+                      <option value="thick_envelope">Thick Envelope</option>
+                    </optgroup>
+                    <optgroup label="FedEx">
+                      <option value="FEDEX_ENVELOPE">FedEx Envelope</option>
+                      <option value="FEDEX_PAK">FedEx Pak</option>
+                      <option value="FEDEX_SMALL_BOX">FedEx Small Box</option>
+                      <option value="FEDEX_MEDIUM_BOX">FedEx Medium Box</option>
+                      <option value="FEDEX_LARGE_BOX">FedEx Large Box</option>
+                      <option value="FEDEX_EXTRA_LARGE_BOX">FedEx Extra Large Box</option>
+                      <option value="FEDEX_TUBE">FedEx Tube</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div>
@@ -4945,6 +4958,7 @@ export default function UnshippedOrders() {
   const [rateShopAppliedResult, setRateShopAppliedResult]     = useState<{ applied: number; total: number; skipped: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
   const [selectedPresetId, setSelectedPresetId] = useState('')
   const [presetShipDate, setPresetShipDate]     = useState(() => new Date().toISOString().slice(0, 10))
+  const [fedexDirectOnly, setFedexDirectOnly]  = useState(false)
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set())
   const [applyingPreset, setApplyingPreset]       = useState(false)
   const [ratingOrderIds, setRatingOrderIds]       = useState<Set<string>>(new Set())
@@ -5884,7 +5898,7 @@ export default function UnshippedOrders() {
       const res = await fetch('/api/orders/rate-shop-applied-presets', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ orderIds: ids, accountId: selectedAccountId, shipDate: presetShipDate }),
+        body:    JSON.stringify({ orderIds: ids, accountId: selectedAccountId, shipDate: presetShipDate, fedexDirectOnly }),
       })
 
       if (!res.ok || res.headers.get('content-type')?.includes('application/json')) {
@@ -6491,6 +6505,11 @@ export default function UnshippedOrders() {
               <option value="assigned">Has Pkg Preset</option>
               <option value="unassigned">No Pkg Preset</option>
             </select>
+            <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={fedexDirectOnly} onChange={e => setFedexDirectOnly(e.target.checked)}
+                className="rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
+              FedEx Direct only
+            </label>
             <button onClick={rateShopAppliedPresets}
               disabled={rateShoppingApplied || selectedOrderIds.size === 0 || !selectedAccountId}
               title="Rate shop using each order's applied package preset"
