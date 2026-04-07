@@ -64,13 +64,12 @@ interface BMOrder {
   orderlines?: BMOrderLine[]
 }
 
-// BackMarket valid states: 0, 1, 2, 3, 8, 9, 10
+// BackMarket valid API states: 0, 1, 3, 8, 9, 10
 // Map BM state numbers to readable order statuses
 function mapBMState(state?: number): string {
   switch (state) {
     case 0:  return 'Pending'     // pending
     case 1:  return 'Unshipped'   // new / awaiting validation
-    case 2:  return 'Accepted'    // to be shipped
     case 3:  return 'Accepted'    // accepted — ready to ship
     case 8:  return 'Refunded'    // refunded
     case 9:  return 'Cancelled'   // cancelled
@@ -99,21 +98,26 @@ export async function syncBackMarketOrders(
 
     const client = new BackMarketClient(apiKey)
 
-    // Fetch orders with state 1 (new/awaiting validation), state 2 (to be shipped),
-    // and state 3 (accepted/shipped)
+    // Fetch orders with state 1 (new/awaiting validation) and state 3 (accepted/to be shipped)
     console.log('[SyncBMOrders] Fetching state=1 (new) orders…')
     const state1Orders = await client.fetchAllPages<BMOrder>('/orders', { state: 1 })
     console.log(`[SyncBMOrders] Fetched ${state1Orders.length} state=1 orders`)
-
-    console.log('[SyncBMOrders] Fetching state=2 (to be shipped) orders…')
-    const state2Orders = await client.fetchAllPages<BMOrder>('/orders', { state: 2 })
-    console.log(`[SyncBMOrders] Fetched ${state2Orders.length} state=2 orders`)
 
     console.log('[SyncBMOrders] Fetching state=3 (accepted) orders…')
     const state3Orders = await client.fetchAllPages<BMOrder>('/orders', { state: 3 })
     console.log(`[SyncBMOrders] Fetched ${state3Orders.length} state=3 orders`)
 
-    const allOrders = [...state1Orders, ...state2Orders, ...state3Orders]
+    // Also fetch state 0 (pending) and state 10 (pending payment) to catch
+    // orders showing as "To Be Shipped" on BackMarket's website
+    console.log('[SyncBMOrders] Fetching state=0 (pending) orders…')
+    const state0Orders = await client.fetchAllPages<BMOrder>('/orders', { state: 0 })
+    console.log(`[SyncBMOrders] Fetched ${state0Orders.length} state=0 orders`)
+
+    console.log('[SyncBMOrders] Fetching state=10 (pending payment) orders…')
+    const state10Orders = await client.fetchAllPages<BMOrder>('/orders', { state: 10 })
+    console.log(`[SyncBMOrders] Fetched ${state10Orders.length} state=10 orders`)
+
+    const allOrders = [...state1Orders, ...state3Orders, ...state0Orders, ...state10Orders]
     console.log(`[SyncBMOrders] Total orders fetched: ${allOrders.length}`)
     await prisma.orderSyncJob.update({ where: { id: jobId }, data: { totalFound: allOrders.length } })
 
