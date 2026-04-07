@@ -459,7 +459,7 @@ function POPanel({
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative w-full max-w-3xl max-h-[90vh] bg-white rounded-xl shadow-2xl flex flex-col mx-4">
+      <div className={clsx("relative w-full max-h-[90vh] bg-white rounded-xl shadow-2xl flex flex-col mx-4", isReceived ? "max-w-5xl" : "max-w-3xl")}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
