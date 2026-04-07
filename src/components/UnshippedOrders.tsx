@@ -3856,19 +3856,46 @@ function PresetManagementModal({ onClose, onChange }: {
       .then(r => r.ok ? r.json() : null)
       .then((d: { v1?: { ok: boolean; carriers?: { code: string; name: string; nickname: string | null }[] } } | null) => {
         if (d?.v1?.ok && Array.isArray(d.v1.carriers)) {
-          setCarriers(d.v1.carriers.map(c => ({ code: c.code, name: c.name, nickname: c.nickname })))
+          setCarriers([...d.v1.carriers.map(c => ({ code: c.code, name: c.name, nickname: c.nickname })), { code: 'fedex_direct', name: 'FedEx Direct', nickname: null }])
         }
       })
       .catch(() => {})
       .finally(() => setLoadingCarriers(false))
   }, [])
 
+  const FEDEX_DIRECT_SERVICES = [
+    { code: 'FEDEX_GROUND',         name: 'FedEx Ground' },
+    { code: 'GROUND_HOME_DELIVERY', name: 'FedEx Home Delivery' },
+    { code: 'FEDEX_EXPRESS_SAVER',  name: 'FedEx Express Saver' },
+    { code: 'FEDEX_2_DAY',          name: 'FedEx 2Day' },
+    { code: 'FEDEX_2_DAY_AM',       name: 'FedEx 2Day AM' },
+    { code: 'STANDARD_OVERNIGHT',   name: 'FedEx Standard Overnight' },
+    { code: 'PRIORITY_OVERNIGHT',   name: 'FedEx Priority Overnight' },
+    { code: 'FIRST_OVERNIGHT',      name: 'FedEx First Overnight' },
+    { code: 'SMART_POST',           name: 'FedEx SmartPost' },
+  ]
+  const FEDEX_DIRECT_PACKAGES = [
+    { code: 'YOUR_PACKAGING',        name: 'Your Packaging' },
+    { code: 'FEDEX_ENVELOPE',        name: 'FedEx Envelope' },
+    { code: 'FEDEX_PAK',             name: 'FedEx Pak' },
+    { code: 'FEDEX_SMALL_BOX',       name: 'FedEx Small Box' },
+    { code: 'FEDEX_MEDIUM_BOX',      name: 'FedEx Medium Box' },
+    { code: 'FEDEX_LARGE_BOX',       name: 'FedEx Large Box' },
+    { code: 'FEDEX_EXTRA_LARGE_BOX', name: 'FedEx Extra Large Box' },
+    { code: 'FEDEX_TUBE',            name: 'FedEx Tube' },
+  ]
+
   // Load services + packages whenever the selected carrier changes
   useEffect(() => {
     if (!form.carrierCode) { setServices([]); setPackages([]); return }
+    setServices([]); setPackages([])
+    if (form.carrierCode === 'fedex_direct') {
+      setServices(FEDEX_DIRECT_SERVICES)
+      setPackages(FEDEX_DIRECT_PACKAGES)
+      return
+    }
     setLoadingServices(true)
     setLoadingPackages(true)
-    setServices([]); setPackages([])
     fetch(`/api/shipstation/carrier-services?carrierCode=${encodeURIComponent(form.carrierCode)}`)
       .then(r => r.ok ? r.json() : [])
       .then((d: { code: string; name: string }[]) => { if (Array.isArray(d)) setServices(d.map(s => ({ code: s.code, name: s.name }))) })
