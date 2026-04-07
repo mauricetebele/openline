@@ -232,7 +232,7 @@ export async function POST(
     }
   })
 
-  // ── BackMarket: push tracking + IMEI to BackMarket API (non-blocking) ──
+  // ── BackMarket: push tracking + serial to BackMarket API (non-blocking) ──
   // Only push when actually shipping (from AWAITING_VERIFICATION)
   if (isBM && label?.trackingNumber && order.workflowStatus === 'AWAITING_VERIFICATION') {
     shipToBackMarket(order.amazonOrderId, order.items, label, serialsByItem).catch(err => {
@@ -269,20 +269,25 @@ async function shipToBackMarket(
     ? (CARRIER_NAME_MAP[label.carrier.toLowerCase()] ?? label.carrier)
     : undefined
 
+  // Per BM support (April 2026):
+  // - Use serial_number (not imei) for non-smartphone products
+  // - Use new_state: 1
+  // - Include serial + tracking in ONE call to /ws/orders/{order_id}
   for (const item of items) {
     if (!item.sellerSku) continue
-    const imei = (serialsByItem.get(item.id) ?? []).join(',')
+    const serialNumber = (serialsByItem.get(item.id) ?? []).join(',')
 
-    console.log('[serialize→bm-ship] order=%s sku=%s tracking=%s shipper=%s imei=%s',
-      bmOrderId, item.sellerSku, label.trackingNumber, shipper, imei)
+    console.log('[serialize→bm-ship] order=%s sku=%s tracking=%s shipper=%s serial_number=%s',
+      bmOrderId, item.sellerSku, label.trackingNumber, shipper, serialNumber)
 
-    await client.post(`/orders/${bmOrderId}`, {
+    const response = await client.post(`/orders/${bmOrderId}`, {
       order_id:        bmOrderId,
-      new_state:       3,
+      new_state:       1,
       sku:             item.sellerSku,
       tracking_number: label.trackingNumber,
       ...(shipper ? { shipper } : {}),
-      imei,
+      ...(serialNumber ? { serial_number: serialNumber } : {}),
     })
+    console.log('[serialize→bm-ship] response:', JSON.stringify(response))
   }
 }
