@@ -282,7 +282,7 @@ async function shipToBackMarket(
 
     const response = await client.post(`/orders/${bmOrderId}`, {
       order_id:        bmOrderId,
-      new_state:       1,
+      new_state:       3,
       sku:             item.sellerSku,
       tracking_number: label.trackingNumber,
       ...(shipper ? { shipper } : {}),
