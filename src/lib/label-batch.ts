@@ -11,6 +11,7 @@
 import { prisma } from '@/lib/prisma'
 import { ShipStationClient, SSLabelPayload } from '@/lib/shipstation/client'
 import { decrypt } from '@/lib/crypto'
+import { loadFedExCredentials, createShipment, type FedExShipmentParams } from '@/lib/fedex/client'
 
 /** Leave 30s of headroom before the Vercel timeout to safely chain */
 const MAX_RUN_MS = 260_000 // 4 min 20s (out of 5 min maxDuration)
@@ -60,6 +61,14 @@ export async function runLabelBatch(batchId: string): Promise<void> {
 
   const from           = warehouse.originAddress
   const fromPostalCode = from.postalCode.split('-')[0].trim()
+
+  // ── 3b. Pre-load FedEx credentials (needed for fedex_direct labels) ──────
+  const fedexCreds = await loadFedExCredentials()
+
+  const FEDEX_PACKAGING_TYPES = new Set([
+    'FEDEX_ENVELOPE', 'FEDEX_PAK', 'FEDEX_SMALL_BOX', 'FEDEX_MEDIUM_BOX',
+    'FEDEX_LARGE_BOX', 'FEDEX_EXTRA_LARGE_BOX', 'FEDEX_TUBE',
+  ])
 
   // ── 4. Load batch with PENDING items only ─────────────────────────────────
   const batch = await prisma.labelBatch.findUnique({
@@ -122,7 +131,75 @@ export async function runLabelBatch(batchId: string): Promise<void> {
       let serviceCode: string | undefined
       let ssShipmentId: string | undefined
 
-      if (order.presetRateId) {
+      const isFedExDirect = order.presetRateCarrier === 'fedex_direct' ||
+        order.appliedPreset?.carrierCode === 'fedex_direct'
+
+      if (isFedExDirect) {
+        // ── FedEx Direct path: create shipment via FedEx API ────────────────
+        if (!fedexCreds) {
+          throw new Error('FedEx credentials not configured — go to Settings → FedEx')
+        }
+        const preset = order.appliedPreset
+        if (!preset) {
+          throw new Error('No applied preset found on order — re-apply preset before batching')
+        }
+        if (!preset.serviceCode) {
+          throw new Error('Preset has no service code — select a FedEx service on the preset')
+        }
+
+        const toPostalCode = (order.shipToPostal ?? '').split('-')[0].trim()
+        if (!toPostalCode || !order.shipToCity) {
+          throw new Error('Order ship-to address is incomplete — sync from ShipStation first')
+        }
+
+        const fedexWeightUnits: 'LB' | 'KG' =
+          preset.weightUnit === 'grams' || preset.weightUnit === 'kilograms' ? 'KG' : 'LB'
+        let fedexWeightValue = preset.weightValue
+        if (preset.weightUnit === 'ounces') fedexWeightValue = preset.weightValue / 16
+        else if (preset.weightUnit === 'grams') fedexWeightValue = preset.weightValue / 1000
+
+        const fedexDimUnits: 'IN' | 'CM' =
+          preset.dimUnit === 'centimeters' ? 'CM' : 'IN'
+
+        const isFedExPackaging = preset.packageCode ? FEDEX_PACKAGING_TYPES.has(preset.packageCode) : false
+
+        const shipParams: FedExShipmentParams = {
+          shipFrom: {
+            streetLines: [from.street1, from.street2].filter(Boolean) as string[],
+            city: from.city,
+            stateOrProvinceCode: from.state,
+            postalCode: fromPostalCode,
+            countryCode: from.country || 'US',
+            personName: from.name,
+            phone: from.phone ?? '555-555-5555',
+          },
+          shipTo: {
+            streetLines: [order.shipToAddress1, order.shipToAddress2].filter(Boolean) as string[],
+            city: order.shipToCity ?? '',
+            stateOrProvinceCode: order.shipToState ?? '',
+            postalCode: toPostalCode,
+            countryCode: order.shipToCountry ?? 'US',
+            personName: order.shipToName ?? '',
+            phone: order.shipToPhone ?? '555-555-5555',
+          },
+          weight: { value: Math.max(fedexWeightValue, 0.1), units: fedexWeightUnits },
+          dimensions: preset.dimLength && preset.dimWidth && preset.dimHeight
+            ? { length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight, units: fedexDimUnits }
+            : { length: 1, width: 1, height: 1, units: 'IN' },
+          serviceType: preset.serviceCode,
+          shipDate: order.presetShipDate ?? new Date().toISOString().slice(0, 10),
+          ...(isFedExPackaging ? { packagingType: preset.packageCode!, oneRate: true } : {}),
+        }
+
+        const label = await createShipment(fedexCreds, shipParams, batch.isTest)
+        trackingNumber = label.trackingNumber
+        labelData      = label.labelData
+        labelFormat    = label.labelFormat
+        shipmentCost   = order.presetRateAmount ? Number(order.presetRateAmount) : undefined
+        carrier        = 'fedex_direct'
+        serviceCode    = preset.serviceCode
+
+      } else if (order.presetRateId) {
         // ── V2 path: buy from captured rate ID ──────────────────────────────
         const label = await ssClient.createLabelV2FromRate(order.presetRateId, {
           testLabel: batch.isTest,
