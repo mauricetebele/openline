@@ -334,7 +334,9 @@ export async function POST(req: NextRequest) {
             residential: body.residential,
           },
           weight: { value: weightValue, units: weightUnits },
-          dimensions: { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, units: dimUnits },
+          ...(body.dimensions.length > 0 && body.dimensions.width > 0 && body.dimensions.height > 0
+            ? { dimensions: { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, units: dimUnits } }
+            : {}),
           shipDate: body.shipDate,
         }
 

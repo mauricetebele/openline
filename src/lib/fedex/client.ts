@@ -27,7 +27,7 @@ export interface FedExRateParams {
   shipFrom: FedExAddress
   shipTo: FedExAddress
   weight: { value: number; units: 'LB' | 'KG' }
-  dimensions: { length: number; width: number; height: number; units: 'IN' | 'CM' }
+  dimensions?: { length: number; width: number; height: number; units: 'IN' | 'CM' }
   shipDate?: string // YYYY-MM-DD
   packagingType?: string  // e.g. 'FEDEX_PAK' — defaults to YOUR_PACKAGING
   oneRate?: boolean       // when true, requests FedEx One Rate (flat-rate) pricing
@@ -183,8 +183,8 @@ export async function getRates(
       requestedPackageLineItems: [
         {
           weight: { value: params.weight.value, units: params.weight.units },
-          // One Rate uses FedEx packaging dimensions — skip custom dims
-          ...(!params.oneRate && params.dimensions.length > 0 && params.dimensions.width > 0 && params.dimensions.height > 0
+          // One Rate uses FedEx packaging dimensions — skip custom dims; also skip if no dims provided
+          ...(!params.oneRate && params.dimensions && params.dimensions.length > 0 && params.dimensions.width > 0 && params.dimensions.height > 0
             ? { dimensions: {
                 length: params.dimensions.length,
                 width: params.dimensions.width,
