@@ -1,8 +1,16 @@
 /**
  * POST /api/orders/[orderId]/bm-ship
  *
- * Ships a BackMarket order by calling the BM API per orderline with:
- *   { order_id, new_state: 3, sku, tracking_number, shipper, imei }
+ * Ships a BackMarket order by calling the BM API:
+ *   POST /ws/orders/{order_id} with:
+ *   { order_id, new_state: 1, sku, serial_number, tracking_number, shipper }
+ *
+ * Per BM support (April 2026):
+ *  - Use `serial_number` field for non-smartphones (all our products)
+ *  - Use `imei` field ONLY for smartphones (max 15 chars)
+ *  - Use `new_state: 1` (not 3)
+ *  - Include serial + tracking in ONE call to /ws/orders/{order_id}
+ *  - Do NOT use /ws/orderlines/{id} for serial — use order-level endpoint
  *
  * Body (optional):
  *   { carrier?: string, tracking?: string }
@@ -98,59 +106,31 @@ export async function POST(
   const bmOrderId = order.amazonOrderId
 
   try {
-    // Call BackMarket API per orderline: POST /orders/{order_id}
-    // with { order_id, new_state: 3, sku, tracking_number, shipper, imei }
-    // If an item has multiple units (qty > 1), join IMEIs with commas.
+    // Ship via POST /ws/orders/{order_id} — one call per orderline SKU
+    // Per BM support: use serial_number (not imei) for non-smartphones,
+    // new_state: 1, and include serial + tracking in the same payload.
     for (const item of order.items) {
       if (!item.sellerSku) {
         console.warn(`[bm-ship] Skipping item ${item.id} — no sellerSku`)
         continue
       }
 
-      const imei = (item.bmSerials ?? []).join(',')
-      const bmOrderlineId = item.orderItemId // BM orderline ID
+      const serialNumber = (item.bmSerials ?? []).join(',')
 
       console.log(
-        '[bm-ship] order=%s orderline=%s sku=%s tracking=%s shipper=%s imei=%s',
-        bmOrderId, bmOrderlineId, item.sellerSku, trackingNumber, shipper, imei,
+        '[bm-ship] order=%s sku=%s tracking=%s shipper=%s serial_number=%s',
+        bmOrderId, item.sellerSku, trackingNumber, shipper, serialNumber,
       )
 
-      // Ship via order-level endpoint — include imei + serial_number (BM may use either)
       const shipResponse = await client.post(`/orders/${bmOrderId}`, {
         order_id:        bmOrderId,
-        new_state:       3,
+        new_state:       1,
         sku:             item.sellerSku,
         tracking_number: trackingNumber,
         ...(shipper ? { shipper } : {}),
-        ...(imei ? { imei, serial_number: imei } : {}),
+        ...(serialNumber ? { serial_number: serialNumber } : {}),
       })
-      console.log('[bm-ship] order-level response:', JSON.stringify(shipResponse))
-
-      // Also update serial on the orderline directly (BM may only accept it here)
-      if (imei && bmOrderlineId) {
-        // Try POST /orderlines/{id} with both field names
-        try {
-          const lineResponse = await client.post(`/orderlines/${bmOrderlineId}`, {
-            imei,
-            serial_number: imei,
-          })
-          console.log('[bm-ship] orderline POST response:', JSON.stringify(lineResponse))
-        } catch (lineErr) {
-          const lineMsg = lineErr instanceof Error ? lineErr.message : String(lineErr)
-          console.error(`[bm-ship] orderline POST failed for ${bmOrderlineId}: ${lineMsg}`)
-          // Try PATCH as fallback — some BM API versions expect PATCH for updates
-          try {
-            const patchResponse = await client.patch(`/orderlines/${bmOrderlineId}`, {
-              imei,
-              serial_number: imei,
-            })
-            console.log('[bm-ship] orderline PATCH response:', JSON.stringify(patchResponse))
-          } catch (patchErr) {
-            const patchMsg = patchErr instanceof Error ? patchErr.message : String(patchErr)
-            console.error(`[bm-ship] orderline PATCH also failed for ${bmOrderlineId}: ${patchMsg}`)
-          }
-        }
-      }
+      console.log('[bm-ship] response:', JSON.stringify(shipResponse))
     }
 
     // Collect all serial numbers from bmSerials across items
