@@ -648,19 +648,19 @@ function POPanel({
             {/* Column headers */}
             {lines.length > 0 && (
               <>
-                <div className="grid grid-cols-[120px_1fr_100px_120px_60px_90px_28px] gap-2 mb-1 px-1">
+                <div className={clsx("grid gap-2 mb-1 px-1", isReceived ? "grid-cols-[120px_1fr_100px_120px_60px_140px]" : "grid-cols-[120px_1fr_100px_120px_60px_90px_28px]")}>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">SKU</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Description</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Grade</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Cost Code</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide text-center">Qty</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide text-right">Cost</span>
-                  <span />
+                  {!isReceived && <span />}
                 </div>
 
                 <div className="space-y-1.5">
                   {lines.map((line, i) => (
-                    <div key={i} className="grid grid-cols-[120px_1fr_100px_120px_60px_90px_28px] gap-2 items-center">
+                    <div key={i} className={clsx("grid gap-2 items-center", isReceived ? "grid-cols-[120px_1fr_100px_120px_60px_140px]" : "grid-cols-[120px_1fr_100px_120px_60px_90px_28px]")}>
                       {/* SKU (read-only) */}
                       <span className="h-9 flex items-center px-2 rounded-md bg-gray-50 border border-gray-200 text-xs font-mono text-gray-700 truncate">
                         {line.sku}
@@ -730,9 +730,7 @@ function POPanel({
                       </div>
 
                       {/* Remove */}
-                      {isReceived ? (
-                        <div className="h-9 w-7" />
-                      ) : (
+                      {!isReceived && (
                         <button
                           type="button"
                           onClick={() => removeLine(i)}
