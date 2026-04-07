@@ -4,8 +4,7 @@ import { getAuthUser } from '@/lib/get-auth-user'
 import { decrypt } from '@/lib/crypto'
 import { ShipStationClient, SSRate, V2RatesRequest } from '@/lib/shipstation/client'
 import { SpApiClient } from '@/lib/amazon/sp-api'
-// FedEx Direct temporarily disabled — uncomment when production API is approved
-// import { loadFedExCredentials, getRates as getFedExRates, type FedExRateParams } from '@/lib/fedex/client'
+import { loadFedExCredentials, getRates as getFedExRates, type FedExRateParams } from '@/lib/fedex/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -304,8 +303,84 @@ export async function POST(req: NextRequest) {
     }
   }))
 
-  // ── FedEx Direct rates — temporarily disabled until production API is approved ──
-  const fedexDebug: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } | undefined = undefined
+  // ── FedEx Direct rates (Back Market orders only) ─────────────────────────
+  let fedexDebug: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } | undefined
+  if (!isAmazonOrder) {
+    try {
+      const fedexCreds = await loadFedExCredentials()
+      fedexDebug = { credentialsFound: !!fedexCreds }
+      if (fedexCreds) {
+        const weightUnits = /pound|lb/i.test(body.weight.units) ? 'LB' as const : 'KG' as const
+        const dimUnits = /inch|in/i.test(body.dimensions.units) ? 'IN' as const : 'CM' as const
+        let weightValue = body.weight.value
+        if (/ounce|oz/i.test(body.weight.units)) {
+          weightValue = Math.round((weightValue / 16) * 100) / 100
+        }
+
+        const fedexParams: FedExRateParams = {
+          shipFrom: {
+            streetLines: body.fromAddress1 ? [body.fromAddress1] : [],
+            city: body.fromCity ?? '',
+            stateOrProvinceCode: body.fromState ?? '',
+            postalCode: body.fromPostalCode,
+            countryCode: body.fromCountry ?? 'US',
+          },
+          shipTo: {
+            streetLines: body.toAddress1 ? [body.toAddress1] : [],
+            city: body.toCity,
+            stateOrProvinceCode: body.toState,
+            postalCode: body.toPostalCode,
+            countryCode: body.toCountry ?? 'US',
+            residential: body.residential,
+          },
+          weight: { value: weightValue, units: weightUnits },
+          dimensions: { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, units: dimUnits },
+          shipDate: body.shipDate,
+        }
+
+        fedexDebug.requestParams = { weight: fedexParams.weight, dimensions: fedexParams.dimensions, fromZip: fedexParams.shipFrom.postalCode, toZip: fedexParams.shipTo.postalCode }
+
+        // Standard rates + optional One Rate in parallel
+        const wantOneRate = body.fedexPackaging && body.fedexPackaging !== 'none'
+        if (wantOneRate) fedexDebug.oneRatePackaging = body.fedexPackaging
+
+        const ratePromises: Promise<{ rates: typeof allRates; count: number }>[] = [
+          getFedExRates(fedexCreds, fedexParams).then(rates => ({
+            rates: rates.map(r => ({ ...r, carrierName: 'FedEx Direct' })),
+            count: rates.length,
+          })),
+        ]
+
+        if (wantOneRate) {
+          const oneRateParams: FedExRateParams = {
+            ...fedexParams,
+            packagingType: body.fedexPackaging!,
+            oneRate: true,
+          }
+          ratePromises.push(
+            getFedExRates(fedexCreds, oneRateParams).then(rates => ({
+              rates: rates.map(r => ({ ...r, carrierName: 'FedEx Direct' })),
+              count: rates.length,
+            })),
+          )
+        }
+
+        const results = await Promise.all(ratePromises)
+        for (const r of results[0].rates) allRates.push(r)
+        fedexDebug.rateCount = results[0].count
+
+        if (results[1]) {
+          for (const r of results[1].rates) allRates.push(r)
+          fedexDebug.oneRateCount = results[1].count
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[rate-shop] FedEx Direct error:', msg)
+      rateErrors.push(`FedEx Direct: ${msg}`)
+      if (fedexDebug) fedexDebug.error = msg
+    }
+  }
 
   allRates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))
 
