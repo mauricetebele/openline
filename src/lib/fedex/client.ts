@@ -184,11 +184,12 @@ export async function getRates(
         {
           weight: { value: params.weight.value, units: params.weight.units },
           // One Rate uses FedEx packaging dimensions — skip custom dims; also skip if no dims provided
+          // FedEx requires integer dimensions — round up decimals
           ...(!params.oneRate && params.dimensions && params.dimensions.length > 0 && params.dimensions.width > 0 && params.dimensions.height > 0
             ? { dimensions: {
-                length: params.dimensions.length,
-                width: params.dimensions.width,
-                height: params.dimensions.height,
+                length: Math.ceil(params.dimensions.length),
+                width: Math.ceil(params.dimensions.width),
+                height: Math.ceil(params.dimensions.height),
                 units: params.dimensions.units,
               } }
             : {}),

@@ -345,11 +345,16 @@ export async function POST(req: NextRequest) {
         const wantOneRate = body.fedexPackaging && body.fedexPackaging !== 'none'
         if (wantOneRate) fedexDebug.oneRatePackaging = body.fedexPackaging
 
-        const ratePromises: Promise<{ rates: typeof allRates; count: number }>[] = [
+        const ratePromises: Promise<{ rates: typeof allRates; count: number; error?: string }>[] = [
           getFedExRates(fedexCreds, fedexParams).then(rates => ({
             rates: rates.map(r => ({ ...r, carrierName: 'FedEx Direct' })),
             count: rates.length,
-          })),
+          })).catch(err => {
+            const msg = err instanceof Error ? err.message : String(err)
+            console.warn('[rate-shop] FedEx standard rates error:', msg)
+            rateErrors.push(`FedEx Direct: ${msg}`)
+            return { rates: [] as typeof allRates, count: 0, error: msg }
+          }),
         ]
 
         if (wantOneRate) {
@@ -362,13 +367,19 @@ export async function POST(req: NextRequest) {
             getFedExRates(fedexCreds, oneRateParams).then(rates => ({
               rates: rates.map(r => ({ ...r, carrierName: 'FedEx Direct' })),
               count: rates.length,
-            })),
+            })).catch(err => {
+              const msg = err instanceof Error ? err.message : String(err)
+              console.warn('[rate-shop] FedEx One Rate error:', msg)
+              rateErrors.push(`FedEx One Rate: ${msg}`)
+              return { rates: [] as typeof allRates, count: 0, error: msg }
+            }),
           )
         }
 
         const results = await Promise.all(ratePromises)
         for (const r of results[0].rates) allRates.push(r)
         fedexDebug.rateCount = results[0].count
+        if (results[0].error) fedexDebug.error = results[0].error
 
         if (results[1]) {
           for (const r of results[1].rates) allRates.push(r)
