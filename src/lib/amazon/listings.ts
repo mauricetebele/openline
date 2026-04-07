@@ -754,26 +754,30 @@ export async function updateListingQuantity(
   accountId: string,
   sku: string,
   quantity: number,
+  productTypeOverride?: string,
 ): Promise<void> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
   const encodedSku = encodeURIComponent(sku)
 
-  // 1. GET listing to determine productType
-  const listingItem = await client.get<ListingItemResponse>(
-    `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
-    { marketplaceIds: account.marketplaceId, includedData: 'summaries' },
-  )
-
-  let productType =
-    listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
-    ?? listingItem.summaries?.[0]?.productType
-
-  // Inactive (out-of-stock) listings may return empty summaries.
-  // Fall back to 'PRODUCT' — Amazon accepts it for quantity-only patches.
+  // 1. Determine productType — skip GET when override is provided (saves ~500ms per call)
+  let productType = productTypeOverride
   if (!productType) {
-    console.warn(`[updateListingQuantity] No productType for SKU=${sku} (likely inactive), using fallback 'PRODUCT'`)
-    productType = 'PRODUCT'
+    const listingItem = await client.get<ListingItemResponse>(
+      `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+      { marketplaceIds: account.marketplaceId, includedData: 'summaries' },
+    )
+
+    productType =
+      listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
+      ?? listingItem.summaries?.[0]?.productType
+
+    // Inactive (out-of-stock) listings may return empty summaries.
+    // Fall back to 'PRODUCT' — Amazon accepts it for quantity-only patches.
+    if (!productType) {
+      console.warn(`[updateListingQuantity] No productType for SKU=${sku} (likely inactive), using fallback 'PRODUCT'`)
+      productType = 'PRODUCT'
+    }
   }
 
   // 2. PATCH with fulfillment_availability attribute
@@ -803,6 +807,11 @@ export async function updateListingQuantity(
   }
 
   if (patchResult.status === 'INVALID') {
+    // If we used an override and Amazon rejected it, retry with GET-based productType
+    if (productTypeOverride) {
+      console.warn(`[updateListingQuantity] Override '${productTypeOverride}' rejected for SKU=${sku}, retrying with GET`)
+      return updateListingQuantity(accountId, sku, quantity)
+    }
     const errors = patchResult.issues
       ?.filter((i) => i.severity === 'ERROR')
       .map((i) => `${i.code}: ${i.message}${i.attributeNames?.length ? ` (${i.attributeNames.join(', ')})` : ''}`)

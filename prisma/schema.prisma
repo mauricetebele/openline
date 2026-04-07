@@ -915,6 +915,8 @@ model ProductGradeMarketplaceSku {
   maxQty      Int?          // null = no cap; when set, pushed qty is min(available, maxQty)
   isSynced    Boolean       @default(false) // true = came from marketplace sync
   fnsku       String?       // Fulfillment Network SKU (for FBA shipments)
+  lastPushedQty Int?        // last quantity successfully pushed to marketplace
+  lastPushedAt  DateTime?   // when last push succeeded
   createdAt   DateTime      @default(now())
 
   marketplaceListing MarketplaceListing?
