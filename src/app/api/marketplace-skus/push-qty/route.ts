@@ -98,7 +98,18 @@ export async function pushOneQuantity(
   const buffered = available <= 3 && available > 0 ? 1 : available
   const finalQty = msku.maxQty != null ? Math.min(buffered, msku.maxQty) : buffered
 
-  // 5. Push to marketplace
+  // 5. Skip marketplace API call if quantity hasn't changed (saves API calls + time)
+  if (msku.marketplace === 'amazon') {
+    const currentListing = await prisma.sellerListing.findFirst({
+      where: { sku: msku.sellerSku, accountId: msku.accountId },
+      select: { quantity: true },
+    })
+    if (currentListing && currentListing.quantity === finalQty) {
+      return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty }
+    }
+  }
+
+  // 6. Push to marketplace
   if (msku.marketplace === 'amazon') {
     const accountId = msku.accountId
     if (!accountId) {
@@ -165,6 +176,14 @@ export async function pushAllQuantities(): Promise<PushResult[]> {
 
   // Filter out FBA SKUs — Amazon manages FBA inventory
   const filteredMskus = mskus.filter(m => m.marketplaceListing?.fulfillmentChannel !== 'FBA')
+
+  // Sort by least-recently-pushed first so stale SKUs get priority
+  const listingTimestamps = await prisma.sellerListing.findMany({
+    where: { sku: { in: filteredMskus.map(m => m.sellerSku) } },
+    select: { sku: true, updatedAt: true },
+  })
+  const tsMap = new Map(listingTimestamps.map(l => [l.sku, l.updatedAt.getTime()]))
+  filteredMskus.sort((a, b) => (tsMap.get(a.sellerSku) ?? 0) - (tsMap.get(b.sellerSku) ?? 0))
 
   const { bmClient, bmListingsCache } = await getBmContext(filteredMskus)
   const results: PushResult[] = []
