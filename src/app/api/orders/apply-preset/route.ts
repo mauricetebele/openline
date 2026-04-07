@@ -21,6 +21,7 @@ import {
   SSRatesPayload,
   V2RatesRequest,
 } from '@/lib/shipstation/client'
+import { loadFedExCredentials, getRates as getFedExRates, type FedExRateParams } from '@/lib/fedex/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -100,10 +101,22 @@ export async function POST(req: NextRequest) {
   const from            = warehouse.originAddress
   const fromPostalCode  = from.postalCode.split('-')[0].trim()
   const ssWarehouseId   = `se-${warehouse.warehouseId}`
-  const isAmazonCarrier = preset.carrierCode.toLowerCase().includes('amazon')
+  const isAmazonCarrier  = preset.carrierCode.toLowerCase().includes('amazon')
+  const isFedExDirect    = preset.carrierCode === 'fedex_direct'
 
-  console.log('[apply-preset] warehouse=%s fromPostal=%s carrier=%s service=%s orders=%d isAmazon=%s',
-    warehouse.warehouseName, fromPostalCode, preset.carrierCode, preset.serviceCode ?? '(cheapest)', orders.length, isAmazonCarrier)
+  // Pre-load FedEx credentials when using FedEx Direct
+  const fedexCreds = isFedExDirect ? await loadFedExCredentials() : null
+  if (isFedExDirect && !fedexCreds) {
+    return NextResponse.json({ error: 'FedEx credentials not configured — go to Settings → FedEx' }, { status: 400 })
+  }
+
+  const FEDEX_PACKAGING_TYPES = new Set([
+    'FEDEX_ENVELOPE', 'FEDEX_PAK', 'FEDEX_SMALL_BOX', 'FEDEX_MEDIUM_BOX',
+    'FEDEX_LARGE_BOX', 'FEDEX_EXTRA_LARGE_BOX', 'FEDEX_TUBE',
+  ])
+
+  console.log('[apply-preset] warehouse=%s fromPostal=%s carrier=%s service=%s orders=%d isAmazon=%s fedexDirect=%s',
+    warehouse.warehouseName, fromPostalCode, preset.carrierCode, preset.serviceCode ?? '(cheapest)', orders.length, isAmazonCarrier, isFedExDirect)
 
   const amazonV2CarrierId = ssAccount.amazonCarrierId ?? null
   console.log('[apply-preset] amazonV2CarrierId=%s', amazonV2CarrierId)
@@ -188,7 +201,61 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            if (useAmazonV2) {
+            if (isFedExDirect && fedexCreds) {
+              // ── FedEx Direct path — bypass ShipStation entirely ──────────────
+              const fedexWeightUnits: 'LB' | 'KG' =
+                preset.weightUnit === 'grams' || preset.weightUnit === 'kilograms' ? 'KG' : 'LB'
+              let fedexWeightValue = preset.weightValue
+              if (preset.weightUnit === 'ounces') fedexWeightValue = preset.weightValue / 16
+              else if (preset.weightUnit === 'grams') fedexWeightValue = preset.weightValue / 1000
+
+              const fedexDimUnits: 'IN' | 'CM' =
+                preset.dimUnit === 'centimeters' ? 'CM' : 'IN'
+
+              const isFedExPackaging = preset.packageCode ? FEDEX_PACKAGING_TYPES.has(preset.packageCode) : false
+
+              const fedexParams: FedExRateParams = {
+                shipFrom: {
+                  streetLines: [from.street1, from.street2].filter(Boolean) as string[],
+                  city: from.city,
+                  stateOrProvinceCode: from.state,
+                  postalCode: fromPostalCode,
+                  countryCode: from.country || 'US',
+                },
+                shipTo: {
+                  streetLines: [toAddress1, toAddress2].filter(Boolean) as string[],
+                  city: toCity,
+                  stateOrProvinceCode: toState,
+                  postalCode: toPostalCode,
+                  countryCode: toCountry,
+                },
+                weight: { value: Math.max(fedexWeightValue, 0.1), units: fedexWeightUnits },
+                ...(preset.dimLength && preset.dimWidth && preset.dimHeight
+                  ? { dimensions: { length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight, units: fedexDimUnits } }
+                  : {}),
+                ...(shipDate ? { shipDate } : {}),
+                ...(isFedExPackaging ? { packagingType: preset.packageCode!, oneRate: true } : {}),
+              }
+
+              const fedexRates = await getFedExRates(fedexCreds, fedexParams)
+              if (fedexRates.length === 0) {
+                throw new Error('No FedEx Direct rates returned')
+              }
+
+              // If a specific service was chosen, find that rate; otherwise pick cheapest
+              const sorted = fedexRates.sort((a, b) =>
+                (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost)
+              )
+              const match = preset.serviceCode
+                ? sorted.find(r => r.serviceCode === preset.serviceCode) ?? sorted[0]
+                : sorted[0]
+
+              rateAmount  = match.shipmentCost + match.otherCost
+              rateCarrier = match.carrierCode || 'fedex_direct'
+              rateService = match.serviceName
+              rateId      = match.rate_id ?? null
+
+            } else if (useAmazonV2) {
               if (!amazonV2CarrierId) {
                 throw new Error('Amazon carrier ID not configured in ShipStation Settings')
               }
