@@ -237,12 +237,14 @@ export async function POST(req: NextRequest) {
 
               console.log('[apply-preset] order=%s v2 rates total=%d valid=%d', order.amazonOrderId, allRates.length, v2Rates.length)
 
-              const match = preset.serviceCode
-                ? v2Rates.find(r => r.service_code === preset.serviceCode)
-                : v2Rates.sort((a, b) =>
-                    (a.shipping_amount.amount + a.other_amount.amount) -
-                    (b.shipping_amount.amount + b.other_amount.amount)
-                  )[0]
+              // Always pick the cheapest Amazon Buy Shipping rate — the preset
+              // defines package dimensions/weight but Amazon offers multiple
+              // services (UPS Ground, USPS, etc.) and we want the cheapest.
+              const sorted = v2Rates.sort((a, b) =>
+                (a.shipping_amount.amount + a.other_amount.amount) -
+                (b.shipping_amount.amount + b.other_amount.amount)
+              )
+              const match = sorted[0]
 
               if (!match) {
                 const statuses = allRates.map(r => `${r.service_code}:${r.validation_status}`).join(', ')
