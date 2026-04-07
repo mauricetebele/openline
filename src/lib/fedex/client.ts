@@ -178,7 +178,7 @@ export async function getRates(
       ...(params.shipDate ? { shipDateStamp: params.shipDate } : {}),
       rateRequestType: ['ACCOUNT', 'LIST'],
       pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
-      ...(params.packagingType ? { packagingType: params.packagingType } : {}),
+      packagingType: params.packagingType ?? 'YOUR_PACKAGING',
       ...(params.oneRate ? { shipmentSpecialServices: { specialServiceTypes: ['FEDEX_ONE_RATE'] } } : {}),
       requestedPackageLineItems: [
         {
@@ -196,6 +196,8 @@ export async function getRates(
       ],
     },
   }
+
+  console.log('[fedex-rates] payload:', JSON.stringify(payload.requestedShipment.requestedPackageLineItems))
 
   const data = await fedexFetch(creds, '/rate/v1/rates/quotes', payload, testMode) as {
     output?: {
