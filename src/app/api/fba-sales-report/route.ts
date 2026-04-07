@@ -271,11 +271,14 @@ export async function GET(req: NextRequest) {
       const sku = item.sellerSku
       if (!sku || !fbaSkuSet.has(sku)) continue
 
+      // Skip items where Amazon hasn't released pricing data yet
+      if (item.itemPrice == null) continue
+
       const mapping = skuMap.get(sku)
       const productName = mapping ? (productNameMap.get(mapping.productId) ?? sku) : sku
       const grade = mapping?.gradeId ? (gradeNameMap.get(mapping.gradeId) ?? '') : ''
 
-      const salePrice = Number(item.itemPrice ?? 0)
+      const salePrice = Number(item.itemPrice)
 
       // COGS via FIFO queue, falling back to latest PO line cost
       let itemCogs = 0
