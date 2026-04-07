@@ -4027,7 +4027,7 @@ function PresetManagementModal({ onClose, onChange }: {
                 <div>
                   <label className="block text-[10px] font-medium text-gray-600 mb-1">Package Type</label>
                   <select value={form.packageCode ?? ''}
-                    onChange={e => setForm(f => ({ ...f, packageCode: e.target.value || null }))}
+                    onChange={e => { const pkg = e.target.value || null; const clearDims = form.carrierCode === 'fedex_direct' && pkg && pkg !== 'YOUR_PACKAGING'; setForm(f => ({ ...f, packageCode: pkg, ...(clearDims ? { dimLength: null, dimWidth: null, dimHeight: null } : {}) })) }}
                     className="w-full h-7 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue disabled:opacity-50"
                     disabled={!form.carrierCode || loadingPackages}>
                     <option value="">
@@ -4056,7 +4056,8 @@ function PresetManagementModal({ onClose, onChange }: {
                     </select>
                   </div>
                 </div>
-                {/* Dimensions */}
+                {/* Dimensions — hidden for FedEx predefined packaging (dimensions provided by FedEx) */}
+                {!(form.carrierCode === 'fedex_direct' && form.packageCode && form.packageCode !== 'YOUR_PACKAGING') && (
                 <div className="col-span-2">
                   <label className="block text-[10px] font-medium text-gray-600 mb-1">Dimensions (L × W × H)</label>
                   <div className="flex gap-1 items-center">
@@ -4077,6 +4078,12 @@ function PresetManagementModal({ onClose, onChange }: {
                     </select>
                   </div>
                 </div>
+                )}
+                {form.carrierCode === 'fedex_direct' && form.packageCode && form.packageCode !== 'YOUR_PACKAGING' && (
+                  <div className="col-span-2">
+                    <p className="text-xs text-purple-600">Dimensions provided by FedEx packaging ({form.packageCode.replace(/FEDEX_/,'').replace(/_/g,' ')})</p>
+                  </div>
+                )}
                 <div className="col-span-2 flex items-center gap-2">
                   <input type="checkbox" id="isDefault" checked={form.isDefault} onChange={e => setForm(f => ({ ...f, isDefault: e.target.checked }))}
                     className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue" />
