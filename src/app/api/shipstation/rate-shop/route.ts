@@ -334,13 +334,12 @@ export async function POST(req: NextRequest) {
             residential: body.residential,
           },
           weight: { value: weightValue, units: weightUnits },
-          ...(body.dimensions.length > 0 && body.dimensions.width > 0 && body.dimensions.height > 0
-            ? { dimensions: { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, units: dimUnits } }
-            : {}),
+          dimensions: { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, units: dimUnits },
           shipDate: body.shipDate,
         }
 
         fedexDebug.requestParams = { weight: fedexParams.weight, dimensions: fedexParams.dimensions, fromZip: fedexParams.shipFrom.postalCode, toZip: fedexParams.shipTo.postalCode }
+        console.log('[rate-shop] FedEx params: weight=%j dims=%j', fedexParams.weight, fedexParams.dimensions)
 
         // Standard rates + optional One Rate in parallel
         const wantOneRate = body.fedexPackaging && body.fedexPackaging !== 'none'
