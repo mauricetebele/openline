@@ -3144,7 +3144,7 @@ interface LabelPanelProps {
 
 const FROM_ZIP_KEY  = 'ss_from_zip'
 const WH_KEY        = 'ss_warehouse_id'
-const TEST_MODE_KEY = 'ss_test_mode'
+// Test mode removed — labels are always real
 
 const CARRIER_LOGOS: Record<string, string> = {
   usps: '/logos/usps.svg',
@@ -3216,11 +3216,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   const [ratesErr, setRatesErr]         = useState<string | null>(null)
   const [fedexDebug, setFedexDebug]     = useState<{ credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } | null>(null)
   const [jwtStatus, setJwtStatus]       = useState<'expired' | 'missing' | null>(null)
-  const [testMode, setTestMode]         = useState<boolean>(false)
-  useEffect(() => {
-    try { if (localStorage.getItem(TEST_MODE_KEY) === 'true') setTestMode(true) } catch { /* */ }
-  }, [])
-  useEffect(() => { try { localStorage.setItem(TEST_MODE_KEY, String(testMode)) } catch { /* */ } }, [testMode])
+  const testMode = false
 
   const [purchasing, setPurchasing]     = useState<string | null>(null)
   const [purchaseErr, setPurchaseErr]   = useState<string | null>(null)
@@ -3452,12 +3448,6 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
           <p className="text-xs text-gray-500 mt-0.5 font-mono">{order.amazonOrderId}</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => setTestMode(m => !m)}
-            className={clsx('flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors',
-              testMode ? 'bg-amber-100 border-amber-400 text-amber-700' : 'bg-gray-100 border-gray-300 text-gray-400 hover:border-gray-400')}
-            title={testMode ? 'Test mode ON — labels will NOT mark packages as shipped' : 'Test mode OFF — labels are real'}>
-            <FlaskConical size={11} /> TEST
-          </button>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-200 rounded"><X size={16} /></button>
         </div>
       </div>
@@ -4657,7 +4647,7 @@ interface LabelBatchModalProps {
 function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId, onClose, onBatchCreated, onBatchComplete }: LabelBatchModalProps) {
   // Phase: 'confirm' | 'processing' | 'done'
   const [phase, setPhase] = useState<'confirm' | 'processing' | 'done'>(existingBatchId ? 'processing' : 'confirm')
-  const [isTest, setIsTest] = useState(false)
+  const isTest = false
   const [createErr, setCreateErr] = useState<string | null>(null)
   const [batchId, setBatchId] = useState<string | null>(existingBatchId ?? null)
   const [pollData, setPollData] = useState<LabelBatchPollData | null>(null)
@@ -4822,11 +4812,7 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
               </div>
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-              <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)}
-                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
-              Create test labels (no charge)
-            </label>
+            {/* Test label option removed */}
 
             {createErr && (
               <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
