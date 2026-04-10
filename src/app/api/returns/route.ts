@@ -128,6 +128,23 @@ export async function GET(req: NextRequest) {
 
     const orderMap = new Map(orders.map((o) => [o.amazonOrderId, o]))
 
+    // Fallback: for returned items where the serial assignment was deleted,
+    // look up serial_history SALE events to find the serial that was shipped.
+    const internalOrderIds = orders.map((o) => o.id)
+    const saleHistoryRows = internalOrderIds.length > 0
+      ? await prisma.serialHistory.findMany({
+          where: { orderId: { in: internalOrderIds }, eventType: 'SALE' },
+          include: { inventorySerial: { select: { serialNumber: true } } },
+        })
+      : []
+    // Map internal orderId → serial number (take the first SALE event)
+    const saleHistoryMap = new Map<string, string>()
+    for (const sh of saleHistoryRows) {
+      if (sh.orderId && sh.inventorySerial.serialNumber && !saleHistoryMap.has(sh.orderId)) {
+        saleHistoryMap.set(sh.orderId, sh.inventorySerial.serialNumber)
+      }
+    }
+
     const enriched = returns.map((ret) => {
       const order = orderMap.get(ret.orderId)
 
@@ -145,6 +162,10 @@ export async function GET(req: NextRequest) {
         if (assignment) {
           expectedSerial = assignment.inventorySerial.serialNumber
         }
+      }
+      // Fallback: check serial_history SALE events (covers returned items where assignment was deleted)
+      if (!expectedSerial && order) {
+        expectedSerial = saleHistoryMap.get(order.id) ?? null
       }
 
       return {

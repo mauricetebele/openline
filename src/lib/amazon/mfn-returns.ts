@@ -226,7 +226,7 @@ export async function autoCheckNewReturns(
       fmiStatus: null,
       importedAt: { gte: twoDaysAgo },
     },
-    select: { id: true, orderId: true, asin: true, sku: true },
+    select: { id: true, orderId: true, asin: true, sku: true, title: true },
   })
 
   if (unchecked.length === 0) return { checked: 0, alertsCreated: 0 }
@@ -262,6 +262,22 @@ export async function autoCheckNewReturns(
   })
   const orderMap = new Map(orders.map((o) => [o.amazonOrderId, o]))
 
+  // Fallback: for returned items where the serial assignment was deleted,
+  // look up serial_history SALE events to find the serial that was shipped.
+  const internalOrderIds = orders.map((o) => o.id)
+  const saleHistoryRows = internalOrderIds.length > 0
+    ? await prisma.serialHistory.findMany({
+        where: { orderId: { in: internalOrderIds }, eventType: 'SALE' },
+        include: { inventorySerial: { select: { serialNumber: true } } },
+      })
+    : []
+  const saleHistoryMap = new Map<string, string>()
+  for (const sh of saleHistoryRows) {
+    if (sh.orderId && sh.inventorySerial.serialNumber && !saleHistoryMap.has(sh.orderId)) {
+      saleHistoryMap.set(sh.orderId, sh.inventorySerial.serialNumber)
+    }
+  }
+
   let checked = 0
   let alertsCreated = 0
 
@@ -283,10 +299,14 @@ export async function autoCheckNewReturns(
     const title = matchingItem.title ?? ret.title ?? ''
     if (!/apple/i.test(title)) continue
 
+    // Try active assignment first, then fallback to serial_history for returned items
+    let serial: string | null = null
     const assignment = matchingItem.serialAssignments[0]
-    if (!assignment) continue
-
-    const serial = assignment.inventorySerial.serialNumber
+    if (assignment) {
+      serial = assignment.inventorySerial.serialNumber
+    } else {
+      serial = saleHistoryMap.get(order.id) ?? null
+    }
     if (!serial || !/^[A-Za-z0-9]{8,15}$/.test(serial)) continue
 
     // Call SICKW API — service 30 = iCloud Lock check
