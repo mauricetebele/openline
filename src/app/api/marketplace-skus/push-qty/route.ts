@@ -332,11 +332,18 @@ export async function pushAllQuantities(): Promise<PushResult[]> {
 
     const finalQty = calculateFinalQty(msku, bulk)
 
-    // Skip if unchanged — check lastPushedQty first (most reliable)
+    // Skip if unchanged — unless stale (>6h since last push) to catch Amazon-side drift
     if (msku.lastPushedQty === finalQty) {
-      skipped++
-      results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
-      continue
+      const hoursSinceLastPush = msku.lastPushedAt
+        ? (Date.now() - msku.lastPushedAt.getTime()) / 3_600_000
+        : Infinity
+      if (hoursSinceLastPush < 6) {
+        skipped++
+        results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
+        continue
+      }
+      // Stale — re-push to correct any Amazon-side drift
+      console.log(`[push-qty] ${msku.sellerSku}: re-pushing ${finalQty} (stale ${Math.round(hoursSinceLastPush)}h)`)
     }
 
     // Fallback skip: check Amazon listing quantity (for SKUs without lastPushedQty yet)
