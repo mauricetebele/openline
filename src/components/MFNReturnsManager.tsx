@@ -581,8 +581,8 @@ export default function MFNReturnsManager() {
                   )}
                 >
                   <div className="flex flex-col lg:flex-row lg:items-center gap-4 p-4">
-                    {/* Left: Order + Product info */}
-                    <div className="flex-1 min-w-0">
+                    {/* Left: Order + Product info — fixed width so right columns align */}
+                    <div className="lg:w-[420px] xl:w-[500px] shrink-0 min-w-0">
                       <div className="flex items-center gap-2 mb-1.5">
                         <a
                           href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`}
@@ -635,9 +635,9 @@ export default function MFNReturnsManager() {
                     </div>
 
                     {/* Middle: Price, Date, Tracking */}
-                    <div className="flex items-center gap-6 shrink-0">
+                    <div className="flex items-center gap-6 flex-1">
                       {/* Price */}
-                      <div className="text-right min-w-[70px]">
+                      <div className="text-right w-[80px] shrink-0">
                         <p className="text-sm font-semibold text-gray-900 dark:text-white">
                           {price != null ? (
                             <span className="flex items-center justify-end gap-1">
@@ -654,7 +654,7 @@ export default function MFNReturnsManager() {
                       </div>
 
                       {/* Return date */}
-                      <div className="text-center min-w-[80px]">
+                      <div className="text-center w-[100px] shrink-0">
                         <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                           <Calendar size={11} />
                           {r.returnDate ? format(new Date(r.returnDate), 'MMM d, yyyy') : '—'}
@@ -665,7 +665,7 @@ export default function MFNReturnsManager() {
                       </div>
 
                       {/* Tracking */}
-                      <div className="min-w-[160px]">
+                      <div className="w-[180px] shrink-0">
                         {r.trackingNumber ? (
                           <div className="flex items-center gap-2">
                             <div>
@@ -709,7 +709,7 @@ export default function MFNReturnsManager() {
                     </div>
 
                     {/* Right: Serial + FMI */}
-                    <div className="flex items-center gap-3 shrink-0 min-w-[220px] justify-end">
+                    <div className="flex items-center gap-3 w-[240px] shrink-0 justify-end">
                       {r.expectedSerial && (
                         <div className="text-right mr-1">
                           <p className="text-[10px] text-gray-400 uppercase tracking-wider">Serial</p>
