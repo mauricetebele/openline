@@ -1945,6 +1945,22 @@ model SickwCheck {
   @@map("sickw_checks")
 }
 
+// ─── Alerts ──────────────────────────────────────────────────────────────────
+
+model Alert {
+  id        String    @id @default(cuid())
+  type      String    // e.g. "RETURN_ICLOUD_ON"
+  title     String
+  message   String    @db.Text
+  metadata  Json?     // { returnId, orderId, serial, etc. }
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([readAt])
+  @@index([createdAt])
+  @@map("alerts")
+}
+
 // ─── Todos ───────────────────────────────────────────────────────────────────
 
 enum TodoPriority {

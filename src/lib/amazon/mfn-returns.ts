@@ -8,6 +8,7 @@ import axios from 'axios'
 import { gunzip } from 'zlib'
 import { promisify } from 'util'
 import { prisma } from '@/lib/prisma'
+import { decrypt } from '@/lib/crypto'
 import { SpApiClient } from './sp-api'
 
 const gunzipAsync = promisify(gunzip)
@@ -207,4 +208,148 @@ export async function syncMfnReturns(
   })
 
   return { totalFound, totalUpserted }
+}
+
+/**
+ * Auto-check newly imported MFN returns via SICKW iCloud Lock service.
+ * Creates an Alert when iCloud Lock is ON.
+ */
+export async function autoCheckNewReturns(
+  accountId: string,
+): Promise<{ checked: number; alertsCreated: number }> {
+  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+
+  // Find returns that haven't been SICKW-checked yet, imported in last 2 days
+  const unchecked = await prisma.mFNReturn.findMany({
+    where: {
+      accountId,
+      fmiStatus: null,
+      importedAt: { gte: twoDaysAgo },
+    },
+    select: { id: true, orderId: true, asin: true, sku: true },
+  })
+
+  if (unchecked.length === 0) return { checked: 0, alertsCreated: 0 }
+
+  // Get SICKW API key
+  const cred = await prisma.sickwCredential.findFirst({ where: { isActive: true } })
+  if (!cred) {
+    console.log('[autoCheckNewReturns] No active SICKW credential — skipping')
+    return { checked: 0, alertsCreated: 0 }
+  }
+
+  let apiKey: string
+  try {
+    apiKey = decrypt(cred.apiKeyEnc)
+  } catch {
+    console.error('[autoCheckNewReturns] Failed to decrypt SICKW API key')
+    return { checked: 0, alertsCreated: 0 }
+  }
+
+  // Collect Amazon order IDs to find serials
+  const orderIds = Array.from(new Set(unchecked.map((r) => r.orderId)))
+  const orders = await prisma.order.findMany({
+    where: { amazonOrderId: { in: orderIds } },
+    include: {
+      items: {
+        include: {
+          serialAssignments: {
+            include: { inventorySerial: { select: { serialNumber: true } } },
+          },
+        },
+      },
+    },
+  })
+  const orderMap = new Map(orders.map((o) => [o.amazonOrderId, o]))
+
+  let checked = 0
+  let alertsCreated = 0
+
+  for (const ret of unchecked) {
+    const order = orderMap.get(ret.orderId)
+    if (!order) continue
+
+    // Find matching item by ASIN or SKU
+    const matchingItem =
+      order.items.find(
+        (item) =>
+          (ret.asin && item.asin === ret.asin) ||
+          (ret.sku && item.sellerSku === ret.sku),
+      ) ?? order.items[0]
+
+    if (!matchingItem || matchingItem.quantityOrdered !== 1) continue
+
+    // Only check Apple-branded products
+    const title = matchingItem.title ?? ret.title ?? ''
+    if (!/apple/i.test(title)) continue
+
+    const assignment = matchingItem.serialAssignments[0]
+    if (!assignment) continue
+
+    const serial = assignment.inventorySerial.serialNumber
+    if (!serial || !/^[A-Za-z0-9]{8,15}$/.test(serial)) continue
+
+    // Call SICKW API — service 30 = iCloud Lock check
+    try {
+      const url = `https://sickw.com/api.php?format=json&key=${encodeURIComponent(apiKey)}&imei=${encodeURIComponent(serial)}&service=30`
+      const res = await fetch(url, { cache: 'no-store' })
+      const data = await res.json()
+
+      const status = data.status === 'success' || data.status === 'Success' ? 'success' : 'error'
+
+      // Save SickwCheck record
+      await prisma.sickwCheck.create({
+        data: {
+          imei: serial,
+          serviceId: 30,
+          serviceName: 'iCloud Lock (FMI) Status',
+          status,
+          result: JSON.stringify(data),
+          cost: data.cost != null ? data.cost : null,
+        },
+      })
+
+      // Parse iCloud Lock status from result
+      const resultText = typeof data.result === 'string' ? data.result : JSON.stringify(data)
+      const match = resultText.match(/iCloud Lock:\s*(?:<[^>]*>)?\s*(ON|OFF)/i)
+      const fmiStatus = match ? match[1].toUpperCase() : (status === 'error' ? 'ERROR' : 'UNKNOWN')
+
+      // Update the MFN return
+      await prisma.mFNReturn.update({
+        where: { id: ret.id },
+        data: { fmiStatus, fmiCheckedAt: new Date() },
+      })
+
+      checked++
+
+      // Create alert if iCloud is ON
+      if (fmiStatus === 'ON') {
+        await prisma.alert.create({
+          data: {
+            type: 'RETURN_ICLOUD_ON',
+            title: 'Return Request Received with iCloud ON',
+            message: `Order ${ret.orderId} — iCloud Lock is ON for serial ${serial}`,
+            metadata: {
+              returnId: ret.id,
+              orderId: ret.orderId,
+              serial,
+              asin: ret.asin,
+            },
+          },
+        })
+        alertsCreated++
+      }
+    } catch (err) {
+      console.error(`[autoCheckNewReturns] SICKW check failed for serial ${serial}:`, err)
+      // Mark as error so we don't retry endlessly
+      await prisma.mFNReturn.update({
+        where: { id: ret.id },
+        data: { fmiStatus: 'ERROR', fmiCheckedAt: new Date() },
+      })
+      checked++
+    }
+  }
+
+  console.log(`[autoCheckNewReturns] account=${accountId} checked=${checked} alerts=${alertsCreated}`)
+  return { checked, alertsCreated }
 }

@@ -1,7 +1,11 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { format } from 'date-fns'
-import { Search, RefreshCcw, ExternalLink, Loader2, Filter, CheckCircle, XCircle } from 'lucide-react'
+import { format, formatDistanceToNowStrict } from 'date-fns'
+import {
+  Search, RefreshCcw, ExternalLink, Loader2, Filter, CheckCircle, XCircle,
+  Package, Truck, Calendar, DollarSign, Smartphone, ChevronLeft, ChevronRight,
+  AlertTriangle, Clock, Hash,
+} from 'lucide-react'
 import { clsx } from 'clsx'
 
 interface MFNReturnRow {
@@ -58,20 +62,22 @@ function trackingUrl(tracking: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(tracking + ' tracking')}`
 }
 
-function StatusBadge({ status }: { status: string | null }) {
-  if (!status) return <span className="text-gray-400 text-xs">-</span>
+function getTrackingStatusInfo(status: string | null): { label: string; color: string; dotColor: string } {
+  if (!status) return { label: 'No Status', color: 'text-gray-400', dotColor: 'bg-gray-300 dark:bg-gray-600' }
   const s = status.toLowerCase()
-  const isTransit = s.includes('transit') || s.includes('on the way') || s.includes('we have your package') || s.includes('dropped off') || s.includes('out for delivery')
-  const cls = s.includes('delivered')
-    ? 'badge-green'
-    : isTransit
-    ? 'badge-blue'
-    : s.includes('ready for ups')
-    ? 'badge-orange'
-    : s.includes('exception') || s.includes('delay')
-    ? 'badge-orange'
-    : 'badge-gray'
-  return <span className={cls}>{status}</span>
+  if (s.includes('delivered')) return { label: 'Delivered', color: 'text-emerald-600 dark:text-emerald-400', dotColor: 'bg-emerald-500' }
+  if (s.includes('transit') || s.includes('on the way') || s.includes('we have your package') || s.includes('dropped off') || s.includes('out for delivery'))
+    return { label: 'In Transit', color: 'text-blue-600 dark:text-blue-400', dotColor: 'bg-blue-500' }
+  if (s.includes('ready for ups')) return { label: 'Ready for Pickup', color: 'text-amber-600 dark:text-amber-400', dotColor: 'bg-amber-500' }
+  if (s.includes('exception') || s.includes('delay')) return { label: 'Exception', color: 'text-orange-600 dark:text-orange-400', dotColor: 'bg-orange-500' }
+  return { label: status, color: 'text-gray-500 dark:text-gray-400', dotColor: 'bg-gray-400' }
+}
+
+function getPrice(r: MFNReturnRow): number | null {
+  if (r.itemPrice != null) return r.itemPrice
+  if (r.returnValue != null) return r.returnValue
+  if (r.orderAmount != null) return r.orderAmount
+  return null
 }
 
 export default function MFNReturnsManager() {
@@ -217,14 +223,12 @@ export default function MFNReturnsManager() {
       const lockMatch = resultStr.match(/iCloud Lock:\s*(?:<[^>]*>)?\s*(ON|OFF)/i)
       const fmiStatus = lockMatch ? lockMatch[1].toUpperCase() : 'UNKNOWN'
 
-      // Persist to DB
       await fetch('/api/returns', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: returnId, fmiStatus }),
       })
 
-      // Update local state
       setReturns(prev => prev.map(r => r.id === returnId ? { ...r, fmiStatus, fmiCheckedAt: new Date().toISOString() } : r))
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : 'Failed'
@@ -295,7 +299,6 @@ export default function MFNReturnsManager() {
       setBulkProgress({ done, total: trackable.length, failed })
     }
 
-    // Process in batches of CONCURRENCY
     for (let i = 0; i < trackable.length; i += CONCURRENCY) {
       if (bulkCancelledRef.current) break
       const batch = trackable.slice(i, i + CONCURRENCY)
@@ -320,300 +323,439 @@ export default function MFNReturnsManager() {
     }, 300)
   }
 
+  // ── FMI badge renderer ────────────────────────────────────────────────────
+  function renderFmiBadge(r: MFNReturnRow) {
+    if (fmiChecking.has(r.id)) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-medium">
+          <Loader2 size={12} className="animate-spin" />
+          Checking...
+        </span>
+      )
+    }
+    if (r.fmiStatus === 'ON') {
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-semibold border border-red-200 dark:border-red-500/20">
+            <XCircle size={12} />
+            iCloud ON
+          </span>
+          {r.expectedSerial && (
+            <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Re-check" className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors">
+              <RefreshCcw size={12} />
+            </button>
+          )}
+        </span>
+      )
+    }
+    if (r.fmiStatus === 'OFF') {
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold border border-emerald-200 dark:border-emerald-500/20">
+            <CheckCircle size={12} />
+            iCloud OFF
+          </span>
+          {r.expectedSerial && (
+            <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Re-check" className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors">
+              <RefreshCcw size={12} />
+            </button>
+          )}
+        </span>
+      )
+    }
+    if (r.fmiStatus?.startsWith('ERROR')) {
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-medium border border-amber-200 dark:border-amber-500/20" title={r.fmiStatus}>
+            <AlertTriangle size={12} />
+            Error
+          </span>
+          {r.expectedSerial && (
+            <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Retry" className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors">
+              <RefreshCcw size={12} />
+            </button>
+          )}
+        </span>
+      )
+    }
+    if (r.expectedSerial) {
+      return (
+        <button
+          onClick={() => checkFindMy(r.id, r.expectedSerial!)}
+          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-medium border border-blue-200 dark:border-blue-500/20 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors"
+        >
+          <Smartphone size={12} />
+          Check iCloud
+        </button>
+      )
+    }
+    return null
+  }
+
   return (
     <div className="flex flex-col h-full">
-      {/* Header bar */}
-      <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
-        {/* Quick sync buttons */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => triggerSync(1)}
-            disabled={syncing}
-            className="btn-secondary text-xs px-2.5 py-1.5"
-          >
-            Last 1 Day
-          </button>
-          <button
-            onClick={() => triggerSync(7)}
-            disabled={syncing}
-            className="btn-secondary text-xs px-2.5 py-1.5"
-          >
-            Last 7 Days
-          </button>
-          <button
-            onClick={() => triggerSync(30)}
-            disabled={syncing}
-            className="btn-secondary text-xs px-2.5 py-1.5"
-          >
-            Last 30 Days
-          </button>
-        </div>
+      {/* ── Toolbar ──────────────────────────────────────────────────────────── */}
+      <div className="border-b bg-white dark:bg-gray-900 dark:border-gray-700">
+        {/* Row 1: Search + Filters */}
+        <div className="flex flex-wrap items-center gap-3 px-6 py-3">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search order ID, RMA, ASIN, SKU, product..."
+              onChange={(e) => handleSearch(e.target.value)}
+              className="input pl-10 w-full text-sm h-9"
+            />
+          </div>
 
-        {/* Custom date range */}
-        <div className="flex items-center gap-1.5">
-          <input
-            type="date"
-            value={syncStart}
-            onChange={(e) => setSyncStart(e.target.value)}
-            className="input text-xs px-2 py-1.5 w-32"
-          />
-          <span className="text-gray-400 text-xs">to</span>
-          <input
-            type="date"
-            value={syncEnd}
-            onChange={(e) => setSyncEnd(e.target.value)}
-            className="input text-xs px-2 py-1.5 w-32"
-          />
-          <button
-            onClick={() => triggerSync()}
-            disabled={syncing || !syncStart || !syncEnd}
-            className="btn-primary flex items-center gap-1.5 text-xs px-3 py-1.5"
-          >
-            <RefreshCcw size={12} className={clsx(syncing && 'animate-spin')} />
-            {syncing ? 'Syncing...' : 'Sync Range'}
-          </button>
-        </div>
-
-        {syncJob && (
-          <span className="text-xs text-gray-500">
-            {syncJob.status === 'RUNNING'
-              ? `Syncing... ${syncJob.totalUpserted} rows`
-              : syncJob.status === 'COMPLETED'
-              ? `Done - ${syncJob.totalUpserted} of ${syncJob.totalFound} synced`
-              : `Failed: ${syncJob.errorMessage ?? 'Unknown error'}`}
-          </span>
-        )}
-
-        <div className="flex-1" />
-
-        {/* Track All button */}
-        <div className="flex items-center gap-2">
-          {bulkTracking ? (
-            <>
-              <span className="text-xs text-gray-500">
-                Tracking {bulkProgress.done}/{bulkProgress.total}
-                {bulkProgress.failed > 0 && <span className="text-red-500 ml-1">({bulkProgress.failed} failed)</span>}
-              </span>
+          <div className="flex items-center gap-1.5">
+            <Filter size={14} className="text-gray-400" />
+            {([
+              ['', 'All'],
+              ['delivered', 'Delivered'],
+              ['in_transit', 'In Transit'],
+              ['not_shipped', 'Not Shipped'],
+            ] as const).map(([value, label]) => (
               <button
-                onClick={cancelBulkTracking}
-                className="btn-secondary text-xs px-2.5 py-1.5 text-red-600"
+                key={value}
+                onClick={() => {
+                  setTrackingStatus(value)
+                  setPagination((prev) => ({ ...prev, page: 1 }))
+                }}
+                className={clsx(
+                  'text-xs px-3 py-1.5 rounded-lg font-medium transition-all',
+                  trackingStatus === value
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800',
+                )}
               >
+                {label}
+              </button>
+            ))}
+            <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+            <button
+              onClick={() => {
+                setInSystemOnly(v => !v)
+                setPagination((prev) => ({ ...prev, page: 1 }))
+              }}
+              className={clsx(
+                'text-xs px-3 py-1.5 rounded-lg font-medium transition-all',
+                inSystemOnly
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800',
+              )}
+            >
+              In System
+            </button>
+          </div>
+
+          <div className="flex-1" />
+
+          {/* Bulk tracking */}
+          {bulkTracking ? (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <Loader2 size={14} className="animate-spin text-blue-500" />
+                {bulkProgress.done}/{bulkProgress.total}
+                {bulkProgress.failed > 0 && <span className="text-red-500">({bulkProgress.failed} failed)</span>}
+              </div>
+              <button onClick={cancelBulkTracking} className="text-xs px-3 py-1.5 rounded-lg font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
                 Cancel
               </button>
-            </>
+            </div>
           ) : (
             <button
               onClick={refreshAllTracking}
               disabled={syncing || returns.filter((r) => r.trackingNumber).length === 0}
-              className="btn-secondary flex items-center gap-1.5 text-xs px-3 py-1.5"
-              title="Refresh tracking status for all visible returns"
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 transition-colors"
+              title="Refresh tracking for all visible returns"
             >
-              <RefreshCcw size={12} />
+              <RefreshCcw size={13} />
               Track All
             </button>
           )}
         </div>
 
-        {/* Status filter */}
-        <div className="flex items-center gap-1">
-          <Filter size={12} className="text-gray-400 mr-1" />
-          {([
-            ['', 'All'],
-            ['delivered', 'Delivered'],
-            ['in_transit', 'In Transit'],
-            ['not_shipped', 'Not Yet Shipped'],
-          ] as const).map(([value, label]) => (
+        {/* Row 2: Sync controls */}
+        <div className="flex flex-wrap items-center gap-2 px-6 py-2 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30">
+          <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mr-1">Sync</span>
+          {[
+            { label: '1 Day', days: 1 },
+            { label: '7 Days', days: 7 },
+            { label: '30 Days', days: 30 },
+          ].map(({ label, days }) => (
             <button
-              key={value}
-              onClick={() => {
-                setTrackingStatus(value)
-                setPagination((prev) => ({ ...prev, page: 1 }))
-              }}
-              className={clsx(
-                'text-xs px-2.5 py-1 rounded-full border transition-colors',
-                trackingStatus === value
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400',
-              )}
+              key={days}
+              onClick={() => triggerSync(days)}
+              disabled={syncing}
+              className="text-xs px-2.5 py-1 rounded-md font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors"
             >
               {label}
             </button>
           ))}
-          <span className="mx-1 text-gray-300">|</span>
+          <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5" />
+          <input type="date" value={syncStart} onChange={(e) => setSyncStart(e.target.value)} className="input text-xs px-2 py-1 w-32 h-7" />
+          <span className="text-gray-400 text-xs">to</span>
+          <input type="date" value={syncEnd} onChange={(e) => setSyncEnd(e.target.value)} className="input text-xs px-2 py-1 w-32 h-7" />
           <button
-            onClick={() => {
-              setInSystemOnly(v => !v)
-              setPagination((prev) => ({ ...prev, page: 1 }))
-            }}
-            className={clsx(
-              'text-xs px-2.5 py-1 rounded-full border transition-colors',
-              inSystemOnly
-                ? 'bg-green-600 text-white border-green-600'
-                : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-green-400',
-            )}
+            onClick={() => triggerSync()}
+            disabled={syncing || !syncStart || !syncEnd}
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-md font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-colors"
           >
-            In System Only
+            <RefreshCcw size={11} className={clsx(syncing && 'animate-spin')} />
+            {syncing ? 'Syncing...' : 'Sync'}
           </button>
-        </div>
-
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search order ID, RMA, ASIN, SKU..."
-            onChange={(e) => handleSearch(e.target.value)}
-            className="input pl-9 w-64 text-sm"
-          />
+          {syncJob && (
+            <span className={clsx(
+              'text-xs font-medium ml-1',
+              syncJob.status === 'RUNNING' ? 'text-blue-600 dark:text-blue-400' :
+              syncJob.status === 'COMPLETED' ? 'text-emerald-600 dark:text-emerald-400' :
+              'text-red-600 dark:text-red-400',
+            )}>
+              {syncJob.status === 'RUNNING'
+                ? `Syncing... ${syncJob.totalUpserted} rows`
+                : syncJob.status === 'COMPLETED'
+                ? `Done — ${syncJob.totalUpserted} of ${syncJob.totalFound} synced`
+                : `Failed: ${syncJob.errorMessage ?? 'Unknown error'}`}
+            </span>
+          )}
         </div>
       </div>
 
       {error && (
-        <div className="mx-6 mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-red-700 dark:text-red-400 text-xs">
-          Fetch error: {error}
+        <div className="mx-6 mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm flex items-center gap-2">
+          <AlertTriangle size={16} />
+          {error}
         </div>
       )}
 
-      {/* Table */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full text-xs table-fixed">
-          <thead className="sticky top-0 bg-gray-100 dark:bg-gray-800 z-10">
-            <tr className="text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-              <th className="px-2 py-1.5 w-[140px]">Order ID</th>
-              <th className="px-2 py-1.5">Product</th>
-              <th className="px-2 py-1.5 w-[70px]">Price</th>
-              <th className="px-2 py-1.5 w-[160px]">Tracking</th>
-              <th className="px-2 py-1.5 w-[120px]">Serial</th>
-              <th className="px-2 py-1.5 w-[50px]">FMI</th>
-              <th className="px-2 py-1.5 w-[60px]">Date</th>
-              <th className="px-2 py-1.5 w-[130px]">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-            {loading && returns.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="text-center py-8 text-gray-400">
-                  <Loader2 className="mx-auto animate-spin mb-1" size={16} />
-                  Loading...
-                </td>
-              </tr>
-            ) : returns.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="text-center py-8 text-gray-400">
-                  No MFN returns found. Click &quot;Sync Returns&quot; to pull from Amazon.
-                </td>
-              </tr>
-            ) : (
-              returns.map((r) => (
-                <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                  <td className="px-2 py-1 font-mono whitespace-nowrap">
-                    <a href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{r.orderId}</a>
-                  </td>
-                  <td className="px-2 py-1 truncate" title={`${r.title ?? ''}\nASIN: ${r.asin ?? ''} · SKU: ${r.sku ?? ''}`}>
-                    <span className="block truncate">{r.title ?? <span className="text-gray-400">-</span>}</span>
-                    <span className="text-[10px] text-gray-400 font-mono">{r.asin ?? ''}{r.sku ? ` · ${r.sku}` : ''}</span>
-                  </td>
-                  <td className="px-2 py-1 whitespace-nowrap">
-                    <div>{r.itemPrice != null ? `$${r.itemPrice.toFixed(2)}` : r.returnValue != null ? `$${r.returnValue.toFixed(2)}` : r.orderAmount != null ? `$${r.orderAmount.toFixed(2)}` : '-'}</div>
-                    {r.refundedAmount != null && <div className="text-red-600 text-[10px]">-${r.refundedAmount.toFixed(2)}</div>}
-                  </td>
-                  <td className="px-2 py-1 whitespace-nowrap">
-                    {r.trackingNumber ? (
-                      <a href={trackingUrl(r.trackingNumber)} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5 font-mono">
-                        {r.trackingNumber}<ExternalLink size={9} />
-                      </a>
-                    ) : <span className="text-gray-400">-</span>}
-                  </td>
-                  <td className="px-2 py-1 font-mono truncate" title={r.expectedSerial ?? ''}>{r.expectedSerial ?? <span className="text-gray-400">-</span>}</td>
-                  <td className="px-2 py-1">
-                    {fmiChecking.has(r.id) ? (
-                      <Loader2 size={11} className="animate-spin text-blue-500" />
-                    ) : r.fmiStatus === 'ON' ? (
-                      <span className="inline-flex items-center gap-0.5 text-red-600 font-semibold"><XCircle size={11} />ON{r.expectedSerial && <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Re-check" className="ml-0.5 text-gray-400 hover:text-blue-600"><RefreshCcw size={10} /></button>}</span>
-                    ) : r.fmiStatus === 'OFF' ? (
-                      <span className="inline-flex items-center gap-0.5 text-green-600 font-semibold"><CheckCircle size={11} />OFF{r.expectedSerial && <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Re-check" className="ml-0.5 text-gray-400 hover:text-blue-600"><RefreshCcw size={10} /></button>}</span>
-                    ) : r.fmiStatus?.startsWith('ERROR') ? (
-                      <span className="inline-flex items-center gap-0.5"><span className="text-amber-600" title={r.fmiStatus}>Err</span>{r.expectedSerial && <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Re-check" className="ml-0.5 text-gray-400 hover:text-blue-600"><RefreshCcw size={10} /></button>}</span>
-                    ) : r.expectedSerial ? (
-                      <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} className="text-blue-600 hover:underline font-medium">Check</button>
-                    ) : <span className="text-gray-400">-</span>}
-                  </td>
-                  <td className="px-2 py-1 whitespace-nowrap text-gray-500">{r.returnDate ? format(new Date(r.returnDate), 'M/d/yy') : '-'}</td>
-                  <td className="px-2 py-1 whitespace-nowrap">
-                    <div className="flex items-center gap-1">
-                      <div className="flex flex-col">
-                        <StatusBadge status={r.carrierStatus} />
-                        {r.deliveredAt && <span className="text-[9px] text-gray-400">{format(new Date(r.deliveredAt), 'M/d/yy')}</span>}
+      {/* ── Returns List ─────────────────────────────────────────────────────── */}
+      <div className="flex-1 overflow-auto px-6 py-4">
+        {loading && returns.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <Loader2 className="animate-spin text-blue-500 mb-3" size={28} />
+            <p className="text-gray-400 text-sm">Loading returns...</p>
+          </div>
+        ) : returns.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <Package size={44} className="text-gray-300 dark:text-gray-600 mb-3" />
+            <p className="text-gray-500 dark:text-gray-400 font-medium">No MFN returns found</p>
+            <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Sync returns from Amazon to see them here</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {returns.map((r) => {
+              const price = getPrice(r)
+              const trackingInfo = getTrackingStatusInfo(r.carrierStatus)
+              const timeAgo = r.returnDate
+                ? formatDistanceToNowStrict(new Date(r.returnDate), { addSuffix: true })
+                : null
+
+              return (
+                <div
+                  key={r.id}
+                  className={clsx(
+                    'group rounded-xl border bg-white dark:bg-gray-900 transition-all hover:shadow-md',
+                    r.fmiStatus === 'ON'
+                      ? 'border-red-200 dark:border-red-500/20 bg-red-50/30 dark:bg-red-500/[0.03]'
+                      : 'border-gray-200 dark:border-gray-700/60 hover:border-gray-300 dark:hover:border-gray-600',
+                  )}
+                >
+                  <div className="flex flex-col lg:flex-row lg:items-center gap-4 p-4">
+                    {/* Left: Order + Product info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <a
+                          href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline font-mono"
+                        >
+                          {r.orderId}
+                        </a>
+                        {r.rmaId && (
+                          <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
+                            RMA {r.rmaId}
+                          </span>
+                        )}
+                        {r.returnReason && (
+                          <span className="hidden lg:inline text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded truncate max-w-[200px]" title={r.returnReason}>
+                            {r.returnReason}
+                          </span>
+                        )}
                       </div>
-                      {r.trackingNumber && (
-                        <button onClick={() => refreshTracking(r.id)} disabled={refreshingId === r.id || bulkTracking} className="text-gray-400 hover:text-gray-600 disabled:opacity-30" title="Refresh">
-                          {refreshingId === r.id ? <Loader2 size={10} className="animate-spin" /> : <RefreshCcw size={10} />}
-                        </button>
-                      )}
+                      <p className="text-sm text-gray-900 dark:text-gray-100 truncate" title={r.title ?? undefined}>
+                        {r.title ?? <span className="text-gray-400 italic">Unknown product</span>}
+                      </p>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                        {r.asin && (
+                          <span className="flex items-center gap-1 font-mono">
+                            <Hash size={10} />
+                            {r.asin}
+                          </span>
+                        )}
+                        {r.sku && <span className="font-mono">{r.sku}</span>}
+                        {r.quantity != null && r.quantity > 1 && (
+                          <span className="text-amber-500 font-semibold">Qty {r.quantity}</span>
+                        )}
+                      </div>
                     </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+
+                    {/* Middle: Price, Date, Tracking */}
+                    <div className="flex items-center gap-6 shrink-0">
+                      {/* Price */}
+                      <div className="text-right min-w-[70px]">
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                          {price != null ? (
+                            <span className="flex items-center justify-end gap-1">
+                              <DollarSign size={12} className="text-gray-400" />
+                              {price.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </p>
+                        {r.refundedAmount != null && (
+                          <p className="text-xs text-red-500 font-medium">-${r.refundedAmount.toFixed(2)}</p>
+                        )}
+                      </div>
+
+                      {/* Return date */}
+                      <div className="text-center min-w-[80px]">
+                        <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                          <Calendar size={11} />
+                          {r.returnDate ? format(new Date(r.returnDate), 'MMM d, yyyy') : '—'}
+                        </div>
+                        {timeAgo && (
+                          <p className="text-[10px] text-gray-400 mt-0.5">{timeAgo}</p>
+                        )}
+                      </div>
+
+                      {/* Tracking */}
+                      <div className="min-w-[160px]">
+                        {r.trackingNumber ? (
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className={clsx('w-2 h-2 rounded-full shrink-0', trackingInfo.dotColor)} />
+                                <span className={clsx('text-xs font-medium', trackingInfo.color)}>{trackingInfo.label}</span>
+                              </div>
+                              <a
+                                href={trackingUrl(r.trackingNumber)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] text-blue-500 hover:underline font-mono inline-flex items-center gap-0.5"
+                              >
+                                {r.trackingNumber.length > 20
+                                  ? r.trackingNumber.slice(0, 10) + '...' + r.trackingNumber.slice(-6)
+                                  : r.trackingNumber}
+                                <ExternalLink size={9} />
+                              </a>
+                              {r.deliveredAt && (
+                                <p className="text-[10px] text-gray-400 mt-0.5">
+                                  {format(new Date(r.deliveredAt), 'MMM d, yyyy')}
+                                </p>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => refreshTracking(r.id)}
+                              disabled={refreshingId === r.id || bulkTracking}
+                              className="p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 disabled:opacity-30 transition-colors"
+                              title="Refresh tracking"
+                            >
+                              {refreshingId === r.id ? <Loader2 size={13} className="animate-spin" /> : <RefreshCcw size={13} />}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="flex items-center gap-1.5 text-xs text-gray-400">
+                            <Truck size={13} />
+                            No tracking
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right: Serial + FMI */}
+                    <div className="flex items-center gap-3 shrink-0 min-w-[220px] justify-end">
+                      {r.expectedSerial && (
+                        <div className="text-right mr-1">
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wider">Serial</p>
+                          <p className="text-xs font-mono text-gray-700 dark:text-gray-300">{r.expectedSerial}</p>
+                        </div>
+                      )}
+                      {renderFmiBadge(r)}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between px-6 py-3 border-t bg-gray-50 dark:bg-gray-800 dark:border-gray-700 text-sm">
+      {/* ── Pagination ────────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-6 py-3 border-t bg-white dark:bg-gray-900 dark:border-gray-700">
         <div className="flex items-center gap-3">
-          <span className="text-gray-500">
+          <span className="text-sm text-gray-500 dark:text-gray-400">
             {pagination.total > 0
-              ? `Showing ${(pagination.page - 1) * pagination.pageSize + 1}–${Math.min(pagination.page * pagination.pageSize, pagination.total)} of ${pagination.total}`
+              ? `${(pagination.page - 1) * pagination.pageSize + 1}–${Math.min(pagination.page * pagination.pageSize, pagination.total)} of ${pagination.total}`
               : 'No results'}
           </span>
-          <div className="flex items-center gap-1.5">
-            <label className="text-gray-500 text-xs">Rows:</label>
-            <select
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value))
-                setPagination((prev) => ({ ...prev, page: 1 }))
-              }}
-              className="input text-xs px-2 py-1 w-20"
-            >
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>{size}</option>
-              ))}
-            </select>
-          </div>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value))
+              setPagination((prev) => ({ ...prev, page: 1 }))
+            }}
+            className="input text-xs px-2 py-1 w-20"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>{size} rows</option>
+            ))}
+          </select>
         </div>
         {pagination.totalPages > 1 && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => goToPage(1)}
-              disabled={pagination.page <= 1}
-              className="btn-secondary text-xs px-2 py-1"
-            >
-              First
-            </button>
+          <div className="flex items-center gap-1">
             <button
               onClick={() => goToPage(pagination.page - 1)}
               disabled={pagination.page <= 1}
-              className="btn-secondary text-xs px-3 py-1"
+              className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 transition-colors"
             >
-              Prev
+              <ChevronLeft size={16} />
             </button>
-            <span className="text-gray-500 text-xs">
-              Page {pagination.page} of {pagination.totalPages}
-            </span>
+            {/* Page numbers */}
+            {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+              let page: number
+              if (pagination.totalPages <= 5) {
+                page = i + 1
+              } else if (pagination.page <= 3) {
+                page = i + 1
+              } else if (pagination.page >= pagination.totalPages - 2) {
+                page = pagination.totalPages - 4 + i
+              } else {
+                page = pagination.page - 2 + i
+              }
+              return (
+                <button
+                  key={page}
+                  onClick={() => goToPage(page)}
+                  className={clsx(
+                    'w-8 h-8 rounded-lg text-sm font-medium transition-colors',
+                    pagination.page === page
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800',
+                  )}
+                >
+                  {page}
+                </button>
+              )
+            })}
             <button
               onClick={() => goToPage(pagination.page + 1)}
               disabled={pagination.page >= pagination.totalPages}
-              className="btn-secondary text-xs px-3 py-1"
+              className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 transition-colors"
             >
-              Next
-            </button>
-            <button
-              onClick={() => goToPage(pagination.totalPages)}
-              disabled={pagination.page >= pagination.totalPages}
-              className="btn-secondary text-xs px-2 py-1"
-            >
-              Last
+              <ChevronRight size={16} />
             </button>
           </div>
         )}

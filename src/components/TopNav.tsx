@@ -9,7 +9,7 @@ import {
   LayoutGrid, RefreshCcw, PackageMinus, Barcode, List, ListTodo,
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
-  Moon, Sun, FolderOpen, Undo2, Upload, BookOpen, TrendingUp,
+  Moon, Sun, FolderOpen, Undo2, Upload, BookOpen, TrendingUp, Bell,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -243,6 +243,7 @@ export default function TopNav() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [storeLogo, setStoreLogo] = useState<string | null>(null)
   const [dueToday, setDueToday] = useState(0)
+  const [unreadAlerts, setUnreadAlerts] = useState(0)
 
   // Fetch store logo — validate it actually loads before using
   useEffect(() => {
@@ -267,7 +268,20 @@ export default function TopNav() {
         .catch(() => {})
     }
     fetchDueToday()
-    const interval = setInterval(fetchDueToday, 60_000) // refresh every minute
+    const interval = setInterval(fetchDueToday, 60_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Fetch unread alerts count for bell badge
+  useEffect(() => {
+    function fetchUnread() {
+      fetch('/api/alerts/unread-count')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.count !== undefined) setUnreadAlerts(d.count) })
+        .catch(() => {})
+    }
+    fetchUnread()
+    const interval = setInterval(fetchUnread, 60_000)
     return () => clearInterval(interval)
   }, [])
 
@@ -353,6 +367,20 @@ export default function TopNav() {
             isActive('/settings') ? 'bg-amazon-blue text-white' : 'text-gray-400 hover:bg-white/10 hover:text-white',
           )}>
           <Settings size={16} />
+        </Link>
+
+        {/* Alerts bell — desktop */}
+        <Link href="/alerts" title="Alerts"
+          className={clsx(
+            'hidden lg:flex items-center justify-center w-8 h-8 rounded-md transition-colors shrink-0 relative',
+            isActive('/alerts') ? 'bg-amazon-blue text-white' : 'text-gray-400 hover:bg-white/10 hover:text-white',
+          )}>
+          <Bell size={16} />
+          {unreadAlerts > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
+              {unreadAlerts > 99 ? '99+' : unreadAlerts}
+            </span>
+          )}
         </Link>
 
         {/* User — desktop */}
