@@ -35,6 +35,9 @@ interface MFNReturnRow {
   expectedSerial: string | null
   fmiStatus: string | null
   fmiCheckedAt: string | null
+  mpRmaId: string | null
+  mpRmaNumber: string | null
+  mpRmaStatus: string | null
 }
 
 interface Pagination {
@@ -90,6 +93,7 @@ export default function MFNReturnsManager() {
   const [search, setSearch] = useState('')
   const [trackingStatus, setTrackingStatus] = useState('')
   const [inSystemOnly, setInSystemOnly] = useState(false)
+  const [hasMpRma, setHasMpRma] = useState(false)
   const [fetchKey, setFetchKey] = useState(0)
 
   // Sync state
@@ -122,6 +126,7 @@ export default function MFNReturnsManager() {
     if (search) params.set('search', search)
     if (trackingStatus) params.set('trackingStatus', trackingStatus)
     if (inSystemOnly) params.set('inSystem', 'true')
+    if (hasMpRma) params.set('hasMpRma', 'true')
 
     fetch(`/api/returns?${params}`, { cache: 'no-store' })
       .then(async (res) => {
@@ -147,7 +152,7 @@ export default function MFNReturnsManager() {
       })
 
     return () => { cancelled = true }
-  }, [pagination.page, pageSize, search, trackingStatus, inSystemOnly, fetchKey])
+  }, [pagination.page, pageSize, search, trackingStatus, inSystemOnly, hasMpRma, fetchKey])
 
   function goToPage(p: number) {
     setPagination((prev) => ({ ...prev, page: p }))
@@ -447,6 +452,20 @@ export default function MFNReturnsManager() {
             >
               In System
             </button>
+            <button
+              onClick={() => {
+                setHasMpRma(v => !v)
+                setPagination((prev) => ({ ...prev, page: 1 }))
+              }}
+              className={clsx(
+                'text-xs px-3 py-1.5 rounded-lg font-medium transition-all',
+                hasMpRma
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800',
+              )}
+            >
+              Has MP-RMA
+            </button>
           </div>
 
           <div className="flex-1" />
@@ -577,6 +596,20 @@ export default function MFNReturnsManager() {
                           <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
                             RMA {r.rmaId}
                           </span>
+                        )}
+                        {r.mpRmaNumber && (
+                          <a
+                            href={`/marketplace-returns?search=${encodeURIComponent(r.mpRmaNumber)}`}
+                            className={clsx(
+                              'text-[10px] font-semibold px-1.5 py-0.5 rounded inline-flex items-center gap-1 hover:opacity-80 transition-opacity',
+                              r.mpRmaStatus === 'RECEIVED'
+                                ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+                                : 'bg-purple-100 dark:bg-purple-500/15 text-purple-700 dark:text-purple-400',
+                            )}
+                          >
+                            {r.mpRmaNumber}
+                            <span className="text-[9px] opacity-70">{r.mpRmaStatus === 'RECEIVED' ? 'Received' : 'Open'}</span>
+                          </a>
                         )}
                         {r.returnReason && (
                           <span className="hidden lg:inline text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded truncate max-w-[200px]" title={r.returnReason}>

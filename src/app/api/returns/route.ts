@@ -97,6 +97,29 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // "Has MP-RMA" filter: only show returns that have a Marketplace RMA created
+    const hasMpRma = searchParams.get('hasMpRma')
+    if (hasMpRma === 'true') {
+      try {
+        const rmaOrders = await prisma.$queryRaw<{ amazonOrderId: string }[]>`
+          SELECT DISTINCT o."amazonOrderId"
+          FROM marketplace_rmas mr
+          JOIN orders o ON o.id = mr."orderId"
+          WHERE o."amazonOrderId" IS NOT NULL
+        `
+        const rmaOrderIds = rmaOrders.map(o => o.amazonOrderId)
+        // Intersect with any existing orderId filter (e.g. inSystem)
+        if (where.orderId && 'in' in (where.orderId as object)) {
+          const existing = new Set((where.orderId as { in: string[] }).in)
+          where.orderId = { in: rmaOrderIds.filter(id => existing.has(id)) }
+        } else {
+          where.orderId = { in: rmaOrderIds }
+        }
+      } catch (e) {
+        console.error('[GET /api/returns] hasMpRma filter failed:', e)
+      }
+    }
+
     const [returns, total] = await Promise.all([
       prisma.mFNReturn.findMany({
         where,
@@ -142,6 +165,21 @@ export async function GET(req: NextRequest) {
     for (const sh of saleHistoryRows) {
       if (sh.orderId && sh.inventorySerial.serialNumber && !saleHistoryMap.has(sh.orderId)) {
         saleHistoryMap.set(sh.orderId, sh.inventorySerial.serialNumber)
+      }
+    }
+
+    // Cross-reference MarketplaceRMAs by internal order ID
+    const marketplaceRmas = internalOrderIds.length > 0
+      ? await prisma.marketplaceRMA.findMany({
+          where: { orderId: { in: internalOrderIds } },
+          select: { id: true, rmaNumber: true, orderId: true, status: true },
+        })
+      : []
+    // Map internal orderId → { rmaId, rmaNumber, status }
+    const rmaMap = new Map<string, { rmaId: string; rmaNumber: string; rmaStatus: string }>()
+    for (const rma of marketplaceRmas) {
+      if (!rmaMap.has(rma.orderId)) {
+        rmaMap.set(rma.orderId, { rmaId: rma.id, rmaNumber: rma.rmaNumber, rmaStatus: rma.status })
       }
     }
 
@@ -199,6 +237,10 @@ export async function GET(req: NextRequest) {
         expectedSerial,
         fmiStatus: ret.fmiStatus,
         fmiCheckedAt: ret.fmiCheckedAt,
+        // Marketplace RMA cross-reference
+        mpRmaId: order ? (rmaMap.get(order.id)?.rmaId ?? null) : null,
+        mpRmaNumber: order ? (rmaMap.get(order.id)?.rmaNumber ?? null) : null,
+        mpRmaStatus: order ? (rmaMap.get(order.id)?.rmaStatus ?? null) : null,
       }
     })
 
