@@ -138,7 +138,7 @@ export async function GET(req: NextRequest) {
       locationId:    r.locationId,
       warehouseId:   r.location?.warehouse?.id ?? null,
       poNumber:      po ? String(po.poNumber) : null,
-      cost:          pol?.unitCost != null ? Number(pol.unitCost) : null,
+      cost:          pol?.unitCost != null ? Number(pol.unitCost) : (r.unitCost != null ? Number(r.unitCost) : null),
       grade:         r.grade?.grade ?? null,
       note:          r.note ?? null,
       binLocation:   r.binLocation ?? null,

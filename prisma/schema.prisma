@@ -1231,6 +1231,7 @@ model InventorySerial {
   status        SerialStatus   @default(IN_STOCK)
   note          String?
   binLocation   String?
+  unitCost      Decimal?       @db.Decimal(12, 2)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
