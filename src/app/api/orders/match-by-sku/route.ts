@@ -3,7 +3,6 @@
  * Finds the oldest single-qty AWAITING_VERIFICATION order that needs the given SKU.
  * Supports both direct sellerSku matches and graded items via marketplace SKU mappings.
  * When gradeId is provided, only matches marketplace SKUs for that specific grade.
- * Excludes BackMarket orders.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
@@ -38,14 +37,12 @@ export async function GET(req: NextRequest) {
   }
 
   // Find the oldest AWAITING_VERIFICATION order where:
-  // 1. orderSource is NOT 'backmarket'
-  // 2. Has an item with matching sellerSku (direct or via marketplace mapping)
-  // 3. Single-qty order (only one item with qty 1)
+  // 1. Has an item with matching sellerSku (direct or via marketplace mapping)
+  // 2. Single-qty order (only one item with qty 1)
   const candidates = await prisma.order.findMany({
     where: {
       accountId,
       workflowStatus: 'AWAITING_VERIFICATION',
-      orderSource: { not: 'backmarket' },
       items: { some: { sellerSku: { in: skusToMatch } } },
     },
     include: {
