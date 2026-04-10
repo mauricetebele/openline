@@ -132,23 +132,30 @@ export default function AlertsPage() {
               const Icon = cfg.icon
               const isUnread = !alert.readAt
 
+              const orderId = alert.metadata?.orderId as string | undefined
+              const serial = alert.metadata?.serial as string | undefined
+
               return (
-                <button
+                <div
                   key={alert.id}
-                  onClick={() => isUnread && markOneRead(alert.id)}
                   className={clsx(
-                    'w-full text-left flex items-start gap-3 p-4 rounded-xl border transition-all',
+                    'w-full text-left flex items-start gap-3 p-4 rounded-xl border transition-all select-text',
                     isUnread
-                      ? 'bg-white dark:bg-white/[0.04] border-gray-200 dark:border-white/10 shadow-sm hover:shadow-md'
+                      ? 'bg-white dark:bg-white/[0.04] border-gray-200 dark:border-white/10 shadow-sm'
                       : 'bg-gray-50 dark:bg-white/[0.02] border-gray-100 dark:border-white/5 opacity-70',
                   )}
                 >
-                  {/* Unread dot */}
+                  {/* Unread dot / mark-read button */}
                   <div className="pt-1.5 shrink-0">
-                    <div className={clsx(
-                      'w-2.5 h-2.5 rounded-full',
-                      isUnread ? 'bg-blue-500' : 'bg-transparent',
-                    )} />
+                    {isUnread ? (
+                      <button
+                        onClick={() => markOneRead(alert.id)}
+                        title="Mark as read"
+                        className="w-2.5 h-2.5 rounded-full bg-blue-500 hover:bg-blue-400 transition-colors cursor-pointer"
+                      />
+                    ) : (
+                      <div className="w-2.5 h-2.5 rounded-full bg-transparent" />
+                    )}
                   </div>
 
                   {/* Icon */}
@@ -176,9 +183,28 @@ export default function AlertsPage() {
                     )}>
                       {alert.title}
                     </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{alert.message}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                      {orderId ? (
+                        <>
+                          Order{' '}
+                          <a
+                            href={`https://sellercentral.amazon.com/orders-v3/order/${orderId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 dark:text-blue-400 hover:underline font-mono font-medium"
+                          >
+                            {orderId}
+                          </a>
+                          {serial && (
+                            <> — iCloud Lock is ON for serial <span className="font-mono font-medium text-gray-700 dark:text-gray-300">{serial}</span></>
+                          )}
+                        </>
+                      ) : (
+                        alert.message
+                      )}
+                    </p>
                   </div>
-                </button>
+                </div>
               )
             })
           )}
