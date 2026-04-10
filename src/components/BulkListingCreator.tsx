@@ -139,6 +139,7 @@ export default function BulkListingCreator() {
   const [fulfillment, setFulfillment] = useState<'MFN' | 'FBA'>('MFN')
   const [allGrades, setAllGrades] = useState<GradeOption[]>([])
   const [asinSuggestions, setAsinSuggestions] = useState<Record<string, string>>({})
+  const [buyBoxData, setBuyBoxData] = useState<Record<string, { price: number | null; seller: string | null; isFba: boolean; loading: boolean }>>({})
 
   // Locked rows (successfully created — not editable on retry)
   const [lockedKeys, setLockedKeys] = useState<Set<string>>(new Set())
@@ -147,6 +148,21 @@ export default function BulkListingCreator() {
   const [progressRows, setProgressRows] = useState<ProgressRow[]>([])
   const [isCreating, setIsCreating] = useState(false)
   const creatingRef = useRef(false)
+
+  // ─── Fetch buy box data when ASIN is populated ──────────────────────────
+
+  const fetchBuyBox = useCallback(async (asin: string) => {
+    if (!ASIN_RE.test(asin) || !accountId || buyBoxData[asin]?.price !== undefined) return
+    setBuyBoxData(prev => ({ ...prev, [asin]: { price: null, seller: null, isFba: false, loading: true } }))
+    try {
+      const res = await fetch(`/api/pricing/buybox?accountId=${accountId}&asin=${asin}`)
+      if (!res.ok) return
+      const data = await res.json()
+      setBuyBoxData(prev => ({ ...prev, [asin]: { price: data.buyBoxPrice, seller: data.sellerName, isFba: data.isFba ?? false, loading: false } }))
+    } catch {
+      setBuyBoxData(prev => ({ ...prev, [asin]: { price: null, seller: null, isFba: false, loading: false } }))
+    }
+  }, [accountId, buyBoxData])
 
   // ─── Load accounts + grades on mount ────────────────────────────────────
 
@@ -281,8 +297,12 @@ export default function BulkListingCreator() {
       shippingTemplate: '',
     }))
     setListingRows(rows)
+    // Fetch buy box data for any auto-populated ASINs
+    for (const r of rows) {
+      if (ASIN_RE.test(r.asin)) fetchBuyBox(r.asin)
+    }
     setStep(2)
-  }, [stagingRows])
+  }, [stagingRows, fetchBuyBox])
 
   // ─── Step 2 validation ──────────────────────────────────────────────────
 
@@ -1307,7 +1327,11 @@ export default function BulkListingCreator() {
                                 type="text"
                                 value={row.asin}
                                 disabled={isLocked}
-                                onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, asin: e.target.value.toUpperCase() } : r))}
+                                onChange={(e) => {
+                                  const val = e.target.value.toUpperCase()
+                                  setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, asin: val } : r))
+                                  if (ASIN_RE.test(val)) fetchBuyBox(val)
+                                }}
                                 placeholder={asinSuggestions[row.productId] ? `Suggested: ${asinSuggestions[row.productId]}` : 'B0XXXXXXXXX'}
                                 maxLength={10}
                                 className={clsx(
@@ -1320,6 +1344,25 @@ export default function BulkListingCreator() {
                                 <span className="absolute -top-1.5 right-1 bg-blue-100 text-blue-700 text-[9px] font-medium px-1 rounded">
                                   suggested
                                 </span>
+                              )}
+                              {ASIN_RE.test(row.asin) && buyBoxData[row.asin] && (
+                                <div className="mt-0.5 text-[10px] leading-tight">
+                                  {buyBoxData[row.asin].loading ? (
+                                    <span className="text-gray-400">Loading buy box…</span>
+                                  ) : buyBoxData[row.asin].price != null ? (
+                                    <span className="text-gray-500">
+                                      Buy Box: <span className="font-semibold text-green-700">${buyBoxData[row.asin].price!.toFixed(2)}</span>
+                                      {buyBoxData[row.asin].seller && (
+                                        <> · <span className="text-gray-400">{buyBoxData[row.asin].seller}</span></>
+                                      )}
+                                      {buyBoxData[row.asin].isFba && (
+                                        <span className="ml-1 bg-blue-100 text-blue-700 px-1 rounded text-[9px] font-medium">FBA</span>
+                                      )}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">No buy box data</span>
+                                  )}
+                                </div>
                               )}
                               </div>
                             </td>
