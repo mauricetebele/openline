@@ -509,6 +509,7 @@ export default function MarketplaceSkuManager() {
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null)
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
   const [fetchingFnskuIds, setFetchingFnskuIds] = useState<Set<string>>(new Set())
+  const [syncQtySort, setSyncQtySort] = useState<'none' | 'enabled' | 'disabled'>('none')
   const [syncPage, setSyncPage] = useState(1)
   const SYNC_PAGE_SIZE = 100
   const [qtyMap, setQtyMap] = useState<Record<string, QtyBreakdown>>({})
@@ -775,6 +776,10 @@ export default function MarketplaceSkuManager() {
       )
     }
     return true
+  }).sort((a, b) => {
+    if (syncQtySort === 'enabled') return (b.syncQty ? 1 : 0) - (a.syncQty ? 1 : 0)
+    if (syncQtySort === 'disabled') return (a.syncQty ? 1 : 0) - (b.syncQty ? 1 : 0)
+    return 0
   })
 
   // Filter synced listings
@@ -1074,7 +1079,15 @@ export default function MarketplaceSkuManager() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Sync Qty</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    <button onClick={() => setSyncQtySort(s => s === 'none' ? 'enabled' : s === 'enabled' ? 'disabled' : 'none')}
+                      className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors">
+                      Sync Qty
+                      {syncQtySort === 'enabled' && <span className="text-green-600">▼</span>}
+                      {syncQtySort === 'disabled' && <span className="text-red-500">▲</span>}
+                      {syncQtySort === 'none' && <span className="text-gray-300">⇅</span>}
+                    </button>
+                  </th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Max Qty</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Pushing</th>
                   <th className="px-4 py-3 w-12" />
