@@ -89,6 +89,7 @@ async function handleMarketplace(
             select: {
               productId: true,
               gradeId: true,
+              unitCost: true,
               receiptLine: {
                 select: {
                   purchaseOrderLine: {
@@ -119,6 +120,8 @@ async function handleMarketplace(
     if (polCost) {
       existing.cogs += Number(polCost.unitCost)
       existing.cc += polCost.costCode ? Number(polCost.costCode.amount) : 0
+    } else if (serial.unitCost != null && Number(serial.unitCost) > 0) {
+      existing.cogs += Number(serial.unitCost)
     } else {
       const key = `${serial.productId}:${serial.gradeId ?? ''}`
       existing.cogs += cogsMap.get(key) ?? cogsProductOnly.get(serial.productId) ?? 0
@@ -189,6 +192,7 @@ async function handleWholesale(
             select: {
               productId: true,
               gradeId: true,
+              unitCost: true,
               receiptLine: {
                 select: {
                   purchaseOrderLine: {
@@ -220,6 +224,8 @@ async function handleWholesale(
     if (polCost) {
       existing.cogs += Number(polCost.unitCost)
       existing.cc += polCost.costCode ? Number(polCost.costCode.amount) : 0
+    } else if (serial.unitCost != null && Number(serial.unitCost) > 0) {
+      existing.cogs += Number(serial.unitCost)
     } else {
       const key = `${serial.productId}:${serial.gradeId ?? ''}`
       existing.cogs += cogsMap.get(key) ?? cogsProductOnly.get(serial.productId) ?? 0

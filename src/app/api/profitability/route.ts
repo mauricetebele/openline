@@ -95,6 +95,7 @@ export async function GET(req: NextRequest) {
     inventorySerial: {
       productId: string
       gradeId: string | null
+      unitCost: unknown
       receiptLine: {
         purchaseOrderLine: {
           unitCost: unknown
@@ -110,6 +111,14 @@ export async function GET(req: NextRequest) {
         orderItemId: sa.orderItemId,
         unitCost: Number(polCost.unitCost),
         costCodeAmount: polCost.costCode ? Number(polCost.costCode.amount) : 0,
+      }
+    }
+    // Fallback: serial-level unitCost (migration imports)
+    if (serial.unitCost != null && Number(serial.unitCost) > 0) {
+      return {
+        orderItemId: sa.orderItemId,
+        unitCost: Number(serial.unitCost),
+        costCodeAmount: 0,
       }
     }
     // Fallback: use latest PO line cost for this product+grade
@@ -128,6 +137,7 @@ export async function GET(req: NextRequest) {
         select: {
           productId: true,
           gradeId: true,
+          unitCost: true,
           receiptLine: {
             select: {
               purchaseOrderLine: {
@@ -186,6 +196,7 @@ export async function GET(req: NextRequest) {
               select: {
                 productId: true,
                 gradeId: true,
+                unitCost: true,
                 receiptLine: {
                   select: {
                     purchaseOrderLine: {
@@ -245,6 +256,7 @@ export async function GET(req: NextRequest) {
         serialNumber: true,
         productId: true,
         gradeId: true,
+        unitCost: true,
         receiptLine: {
           select: {
             purchaseOrderLine: {
@@ -257,9 +269,21 @@ export async function GET(req: NextRequest) {
     for (const s of bmSerials) {
       const pol = s.receiptLine?.purchaseOrderLine
       const key = `${s.productId}:${s.gradeId ?? ''}`
+      let resolvedCost: number
+      let resolvedCC: number
+      if (pol) {
+        resolvedCost = Number(pol.unitCost)
+        resolvedCC = pol.costCode ? Number(pol.costCode.amount) : 0
+      } else if (s.unitCost != null && Number(s.unitCost) > 0) {
+        resolvedCost = Number(s.unitCost)
+        resolvedCC = 0
+      } else {
+        resolvedCost = cogsMap.get(key) ?? cogsProductOnly.get(s.productId) ?? 0
+        resolvedCC = costCodeMap.get(key) ?? costCodeProductOnly.get(s.productId) ?? 0
+      }
       bmSerialCostMap.set(s.serialNumber, {
-        unitCost: pol ? Number(pol.unitCost) : (cogsMap.get(key) ?? cogsProductOnly.get(s.productId) ?? 0),
-        costCodeAmount: pol?.costCode ? Number(pol.costCode.amount) : (costCodeMap.get(key) ?? costCodeProductOnly.get(s.productId) ?? 0),
+        unitCost: resolvedCost,
+        costCodeAmount: resolvedCC,
         productId: s.productId,
         gradeId: s.gradeId,
       })
@@ -354,6 +378,8 @@ export async function GET(req: NextRequest) {
       if (polCost) {
         existing.cogs += Number(polCost.unitCost)
         existing.cc += polCost.costCode ? Number(polCost.costCode.amount) : 0
+      } else if (serial.unitCost != null && Number(serial.unitCost) > 0) {
+        existing.cogs += Number(serial.unitCost)
       } else {
         const key = `${serial.productId}:${serial.gradeId ?? ''}`
         existing.cogs += cogsMap.get(key) ?? cogsProductOnly.get(serial.productId) ?? 0
@@ -495,6 +521,8 @@ export async function GET(req: NextRequest) {
         if (polCost) {
           existing.cogs += Number(polCost.unitCost)
           existing.cc += polCost.costCode ? Number(polCost.costCode.amount) : 0
+        } else if (serial.unitCost != null && Number(serial.unitCost) > 0) {
+          existing.cogs += Number(serial.unitCost)
         } else {
           const key = `${serial.productId}:${serial.gradeId ?? ''}`
           existing.cogs += cogsMap.get(key) ?? cogsProductOnly.get(serial.productId) ?? 0
