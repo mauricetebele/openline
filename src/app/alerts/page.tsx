@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import AppShell from '@/components/AppShell'
-import { Bell, CheckCheck, AlertTriangle, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Bell, CheckCheck, AlertTriangle, Clock, ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react'
 import { clsx } from 'clsx'
 
 interface Alert {
@@ -42,11 +42,58 @@ function timeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString()
 }
 
+function generateICloudLetter(firstName: string, productTitle: string): string {
+  return `Dear ${firstName || 'Customer'},
+
+Thank you for initiating your return request for ${productTitle || 'your item'}.
+
+Our system has detected that the device associated with your order is still linked to an Apple ID (iCloud lock enabled).
+
+For security and privacy reasons, we are unable to process a refund for any device that remains Apple ID locked.
+
+To avoid the processing of your return, please read the following:
+
+Before returning your device, please ensure that "Find My iPhone" is turned off and the Apple ID is removed.
+
+How to remove your Apple ID:
+
+Option 1: Directly from the device
+• Go to Settings
+• Tap your name at the top
+• Scroll down and tap Sign Out
+• Enter your Apple ID password to confirm
+• Then go to Settings > General > Transfer or Reset iPhone > Erase All Content and Settings
+
+Option 2: From another iPhone or iPad
+• Open Settings
+• Tap your name
+• Select the device from your list
+• Tap Remove from Account
+
+Option 3: From a computer (iCloud)
+• Go to www.icloud.com
+• Sign in with your Apple ID
+• Click Find iPhone
+• Select All Devices at the top
+• Choose the device
+• Click Remove from Account
+
+If you have already shipped the device, you can still remove the Apple ID remotely using the iCloud steps above. This will allow us to proceed with your return once received.
+
+If the device is returned while still Apple ID locked, we will be unable to complete a refund until the lock is removed.
+
+If you need assistance, please reply to this message or contact us at 917-841-9444 and our team will be happy to help.
+
+Thank you for your cooperation.
+Prime Mobility Returns`
+}
+
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [pagination, setPagination] = useState<Pagination | null>(null)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const fetchAlerts = useCallback(async (p: number) => {
     setLoading(true)
@@ -79,6 +126,13 @@ export default function AlertsPage() {
       body: JSON.stringify({ ids: [id] }),
     })
     setAlerts(prev => prev.map(a => a.id === id ? { ...a, readAt: new Date().toISOString() } : a))
+  }
+
+  async function copyLetter(alertId: string, firstName: string, productTitle: string) {
+    const letter = generateICloudLetter(firstName, productTitle)
+    await navigator.clipboard.writeText(letter)
+    setCopiedId(alertId)
+    setTimeout(() => setCopiedId(null), 2000)
   }
 
   const unreadCount = alerts.filter(a => !a.readAt).length
@@ -134,6 +188,8 @@ export default function AlertsPage() {
 
               const orderId = alert.metadata?.orderId as string | undefined
               const serial = alert.metadata?.serial as string | undefined
+              const buyerFirstName = alert.metadata?.buyerFirstName as string | undefined
+              const productTitle = alert.metadata?.productTitle as string | undefined
 
               return (
                 <div
@@ -203,6 +259,18 @@ export default function AlertsPage() {
                         alert.message
                       )}
                     </p>
+                    {alert.type === 'RETURN_ICLOUD_ON' && (
+                      <button
+                        onClick={() => copyLetter(alert.id, buyerFirstName ?? '', productTitle ?? '')}
+                        className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
+                      >
+                        {copiedId === alert.id ? (
+                          <><Check size={13} /> Copied to Clipboard</>
+                        ) : (
+                          <><Copy size={13} /> Copy iCloud Letter</>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
               )

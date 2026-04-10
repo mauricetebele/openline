@@ -344,6 +344,7 @@ export async function autoCheckNewReturns(
 
       // Create alert if iCloud is ON
       if (fmiStatus === 'ON') {
+        const buyerFirstName = order.shipToName?.split(/\s+/)[0] ?? ''
         await prisma.alert.create({
           data: {
             type: 'RETURN_ICLOUD_ON',
@@ -354,6 +355,8 @@ export async function autoCheckNewReturns(
               orderId: ret.orderId,
               serial,
               asin: ret.asin,
+              productTitle: title,
+              buyerFirstName,
             },
           },
         })
