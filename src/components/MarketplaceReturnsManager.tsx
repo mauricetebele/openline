@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Plus, X, Search, CheckCircle2, RotateCcw, Package, ChevronDown, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import CreateReturnModal from './CreateMarketplaceReturnModal'
+import SickwCheckButton from './SickwCheckButton'
 import type { MarketplaceRMA, OrderSearchResult, RMASerial, RMAItem, Warehouse, Location, Grade } from './CreateMarketplaceReturnModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -211,6 +212,7 @@ export default function MarketplaceReturnsManager() {
                                 <th className="pb-2 pr-4 font-semibold">SKU</th>
                                 <th className="pb-2 pr-4 font-semibold">Title</th>
                                 <th className="pb-2 pr-4 font-semibold">Serial #</th>
+                                <th className="pb-2 pr-4 font-semibold">FMI</th>
                                 <th className="pb-2 pr-4 font-semibold">Return Reason</th>
                                 <th className="pb-2 pr-4 font-semibold">Received</th>
                                 <th className="pb-2 pr-4 font-semibold">Location</th>
@@ -226,6 +228,7 @@ export default function MarketplaceReturnsManager() {
                                         <td className="py-1.5 pr-4 text-gray-700 font-medium">{item.sellerSku ?? '—'}</td>
                                         <td className="py-1.5 pr-4 text-gray-600 max-w-[200px] truncate">{item.title ?? '—'}</td>
                                         <td className="py-1.5 pr-4 font-mono text-gray-900">{s.serialNumber}</td>
+                                        <td className="py-1.5 pr-4"><SickwCheckButton serial={s.serialNumber} compact /></td>
                                         <td className="py-1.5 pr-4 text-gray-600">{item.returnReason ?? '—'}</td>
                                         <td className="py-1.5 pr-4">
                                           {s.receivedAt ? (
@@ -248,6 +251,7 @@ export default function MarketplaceReturnsManager() {
                                       <tr key={item.id}>
                                         <td className="py-1.5 pr-4 text-gray-700 font-medium">{item.sellerSku ?? '—'}</td>
                                         <td className="py-1.5 pr-4 text-gray-600 max-w-[200px] truncate">{item.title ?? '—'}</td>
+                                        <td className="py-1.5 pr-4 text-gray-400">—</td>
                                         <td className="py-1.5 pr-4 text-gray-400">—</td>
                                         <td className="py-1.5 pr-4 text-gray-600">{item.returnReason ?? '—'}</td>
                                         <td className="py-1.5 pr-4 text-gray-600">Qty: {item.quantityReturned}</td>

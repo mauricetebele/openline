@@ -8,6 +8,7 @@ import {
 import { clsx } from 'clsx'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
 import CreateReturnModal from './CreateMarketplaceReturnModal'
+import SickwCheckButton from './SickwCheckButton'
 import type { OrderSearchResult } from './CreateMarketplaceReturnModal'
 
 // ─── Badge maps ────────────────────────────────────────────────────────────────
@@ -400,6 +401,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                       <th className="px-4 py-2">#</th>
                       <th className="px-4 py-2">Serial Number</th>
                       <th className="px-4 py-2">SKU</th>
+                      <th className="px-4 py-2">FMI Check</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -408,6 +410,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                         <td className="px-4 py-2 text-gray-400">{i + 1}</td>
                         <td className="px-4 py-2 font-mono font-medium text-gray-900 dark:text-white">{sa.inventorySerial.serialNumber}</td>
                         <td className="px-4 py-2 text-gray-600 dark:text-gray-400">{sa.orderItem.sellerSku ?? sa.inventorySerial.product?.sku ?? '—'}</td>
+                        <td className="px-4 py-2"><SickwCheckButton serial={sa.inventorySerial.serialNumber} compact /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -426,6 +429,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                       <th className="px-4 py-2">#</th>
                       <th className="px-4 py-2">Serial / IMEI</th>
                       <th className="px-4 py-2">SKU</th>
+                      <th className="px-4 py-2">FMI Check</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -439,6 +443,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                               <td className="px-4 py-2 text-gray-400">{counter}</td>
                               <td className="px-4 py-2 font-mono font-medium text-gray-900 dark:text-white">{serial}</td>
                               <td className="px-4 py-2 text-gray-600 dark:text-gray-400">{item.sellerSku ?? '—'}</td>
+                              <td className="px-4 py-2"><SickwCheckButton serial={serial} compact /></td>
                             </tr>
                           )
                         })
@@ -479,6 +484,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                             <th className="px-3 py-1.5">SKU</th>
                             <th className="px-3 py-1.5">Title</th>
                             <th className="px-3 py-1.5">Serial #</th>
+                            <th className="px-3 py-1.5">FMI</th>
                             <th className="px-3 py-1.5">Return Reason</th>
                             <th className="px-3 py-1.5">Received</th>
                             <th className="px-3 py-1.5">Location</th>
@@ -494,6 +500,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                                   <td className="px-3 py-1.5 font-medium text-gray-700 dark:text-gray-300">{item.sellerSku ?? '—'}</td>
                                   <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400 max-w-[160px] truncate">{item.title ?? '—'}</td>
                                   <td className="px-3 py-1.5 font-mono text-gray-900 dark:text-white">{s.serialNumber}</td>
+                                  <td className="px-3 py-1.5"><SickwCheckButton serial={s.serialNumber} compact /></td>
                                   <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">{item.returnReason ?? '—'}</td>
                                   <td className="px-3 py-1.5">
                                     {s.receivedAt ? (
@@ -513,6 +520,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                                 <tr key={item.id} className="border-b border-gray-50 dark:border-white/5">
                                   <td className="px-3 py-1.5 font-medium text-gray-700 dark:text-gray-300">{item.sellerSku ?? '—'}</td>
                                   <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400 max-w-[160px] truncate">{item.title ?? '—'}</td>
+                                  <td className="px-3 py-1.5 text-gray-400">—</td>
                                   <td className="px-3 py-1.5 text-gray-400">—</td>
                                   <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">{item.returnReason ?? '—'}</td>
                                   <td className="px-3 py-1.5 text-gray-500">Qty: {item.quantityReturned}</td>
