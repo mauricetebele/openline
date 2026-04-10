@@ -4,7 +4,7 @@ import { format, formatDistanceToNowStrict } from 'date-fns'
 import {
   Search, RefreshCcw, ExternalLink, Loader2, Filter, CheckCircle, XCircle,
   Package, Truck, Calendar, DollarSign, Smartphone, ChevronLeft, ChevronRight,
-  AlertTriangle, Clock, Hash,
+  AlertTriangle, Clock,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -617,17 +617,16 @@ export default function MFNReturnsManager() {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-900 dark:text-gray-100 truncate" title={r.title ?? undefined}>
+                      <p className="text-sm text-gray-900 dark:text-gray-100 line-clamp-2 leading-snug">
                         {r.title ?? <span className="text-gray-400 italic">Unknown product</span>}
                       </p>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                      <div className="flex flex-col gap-0.5 mt-1 text-[11px] text-gray-400">
                         {r.asin && (
-                          <span className="flex items-center gap-1 font-mono">
-                            <Hash size={10} />
-                            {r.asin}
-                          </span>
+                          <span className="font-mono">ASIN: {r.asin}</span>
                         )}
-                        {r.sku && <span className="font-mono">{r.sku}</span>}
+                        {r.sku && (
+                          <span className="font-mono">SKU: {r.sku}</span>
+                        )}
                         {r.quantity != null && r.quantity > 1 && (
                           <span className="text-amber-500 font-semibold">Qty {r.quantity}</span>
                         )}
