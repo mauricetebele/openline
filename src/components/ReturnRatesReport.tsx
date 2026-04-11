@@ -90,7 +90,7 @@ export default function ReturnRatesReport() {
   const [startDate, setStartDate] = useState(today)
   const [endDate, setEndDate] = useState(today)
   const [channel, setChannel] = useState('all')
-  const [groupByGrade, setGroupByGrade] = useState(false)
+  const [gradeFilter, setGradeFilter] = useState('all')
   const [skuInput, setSkuInput] = useState('')
 
   const [allRows, setAllRows] = useState<ReturnRow[]>([])
@@ -110,12 +110,23 @@ export default function ReturnRatesReport() {
     }
   }
 
-  // Client-side SKU filter on fetched data
+  // Unique grades from fetched data (for filter dropdown)
+  const gradeOptions = useMemo(() => {
+    const set = new Set<string>()
+    for (const r of allRows) set.add(r.grade || 'No Grade')
+    return Array.from(set).sort()
+  }, [allRows])
+
+  // Client-side SKU + grade filter on fetched data
   const filteredRows = useMemo(() => {
+    let rows = allRows
     const q = skuInput.trim().toLowerCase()
-    if (!q) return allRows
-    return allRows.filter((r) => r.sku.toLowerCase().includes(q))
-  }, [allRows, skuInput])
+    if (q) rows = rows.filter((r) => r.sku.toLowerCase().includes(q))
+    if (gradeFilter !== 'all') {
+      rows = rows.filter((r) => (r.grade || 'No Grade') === gradeFilter)
+    }
+    return rows
+  }, [allRows, skuInput, gradeFilter])
 
   // Recompute summary from filtered rows
   const displaySummary = useMemo(() => {
@@ -152,7 +163,6 @@ export default function ReturnRatesReport() {
     try {
       const params = new URLSearchParams({ startDate, endDate })
       if (channel !== 'all') params.set('channel', channel)
-      if (groupByGrade) params.set('groupByGrade', 'true')
       const res = await fetch(`/api/return-rates?${params}`)
       if (!res.ok) throw new Error('Failed')
       const data = await res.json()
@@ -163,12 +173,12 @@ export default function ReturnRatesReport() {
     } finally {
       setLoading(false)
     }
-  }, [startDate, endDate, channel, groupByGrade])
+  }, [startDate, endDate, channel])
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Reset page when SKU filter changes
-  useEffect(() => { setPage(1) }, [skuInput])
+  // Reset page when client-side filters change
+  useEffect(() => { setPage(1) }, [skuInput, gradeFilter])
 
   function setQuickRange(daysBack: number) {
     const from = new Date()
@@ -182,7 +192,7 @@ export default function ReturnRatesReport() {
     setStartDate(today)
     setEndDate(today)
     setChannel('all')
-    setGroupByGrade(false)
+    setGradeFilter('all')
     setSkuInput('')
     setPage(1)
   }
@@ -190,7 +200,6 @@ export default function ReturnRatesReport() {
   function handleExport() {
     const params = new URLSearchParams({ startDate, endDate })
     if (channel !== 'all') params.set('channel', channel)
-    if (groupByGrade) params.set('groupByGrade', 'true')
     window.open(`/api/return-rates/export?${params}`, '_blank')
   }
 
@@ -275,16 +284,17 @@ export default function ReturnRatesReport() {
           className="px-2 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 w-40 placeholder:text-gray-400"
         />
 
-        {/* Group by Grade toggle */}
-        <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={groupByGrade}
-            onChange={(e) => { setGroupByGrade(e.target.checked); setPage(1) }}
-            className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue"
-          />
-          Group by Grade
-        </label>
+        {/* Grade filter */}
+        <select
+          value={gradeFilter}
+          onChange={(e) => { setGradeFilter(e.target.value); setPage(1) }}
+          className="px-2 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+        >
+          <option value="all">All Grades</option>
+          {gradeOptions.map((g) => (
+            <option key={g} value={g}>{g}</option>
+          ))}
+        </select>
 
         <button
           onClick={handleReset}

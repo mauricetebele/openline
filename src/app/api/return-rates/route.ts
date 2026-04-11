@@ -4,7 +4,7 @@
  * Per-SKU return-rate statistics for marketplace channels (excludes FBA & wholesale).
  * Aggregates shipped MFN orders and received marketplace RMAs to compute return rates.
  *
- * Query params: startDate, endDate, channel (all|amazon|backmarket), groupByGrade
+ * Query params: startDate, endDate, channel (all|amazon|backmarket)
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -19,7 +19,6 @@ export async function GET(req: NextRequest) {
   const startDate = searchParams.get('startDate')
   const endDate = searchParams.get('endDate')
   const channel = searchParams.get('channel') || 'all'
-  const groupByGrade = searchParams.get('groupByGrade') === 'true'
 
   if (!startDate || !endDate) {
     return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 })
@@ -64,7 +63,7 @@ export async function GET(req: NextRequest) {
   const buckets = new Map<string, Bucket>()
 
   function bucketKey(sku: string, gradeId: string | null): string {
-    return groupByGrade && gradeId ? `${sku}::${gradeId}` : sku
+    return gradeId ? `${sku}::${gradeId}` : sku
   }
 
   function getOrCreate(sku: string, title: string, source: string, gradeId: string | null): Bucket {
