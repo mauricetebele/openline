@@ -12,9 +12,11 @@ import { prisma } from '@/lib/prisma'
 import { syncMfnReturns, autoCheckNewReturns } from '@/lib/amazon/mfn-returns'
 import { getCarrierStatus } from '@/lib/ups-tracking'
 
-export async function POST(req: NextRequest) {
-  const secret = req.headers.get('x-cron-secret')
-  if (!secret || secret !== process.env.CRON_SECRET) {
+export async function GET(req: NextRequest) {
+  // Verify cron secret (Vercel sends Authorization: Bearer <CRON_SECRET>)
+  const authHeader = req.headers.get('authorization')
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
