@@ -101,14 +101,28 @@ export async function GET(req: NextRequest) {
 
     const orders = await prisma.order.findMany({
       where: marketplaceWhere,
-      include: { items: true },
+      include: {
+        items: true,
+        serialAssignments: {
+          select: { orderItemId: true, inventorySerial: { select: { gradeId: true } } },
+        },
+      },
     })
 
     for (const order of orders) {
+      // Build orderItemId → gradeId from serial assignments
+      const serialGradeByItem = new Map<string, string>()
+      for (const sa of order.serialAssignments) {
+        if (sa.inventorySerial.gradeId) {
+          serialGradeByItem.set(sa.orderItemId, sa.inventorySerial.gradeId)
+        }
+      }
+
       for (const item of order.items) {
         const mapping = item.sellerSku ? skuMap.get(item.sellerSku) : null
         const internalSku = mapping ? (productSkus.get(mapping.productId) ?? item.sellerSku ?? 'UNKNOWN') : (item.sellerSku || item.asin || 'UNKNOWN')
-        const gradeId = mapping?.gradeId ?? null
+        // Use grade from SKU mapping first, fall back to serial assignment grade
+        const gradeId = mapping?.gradeId ?? serialGradeByItem.get(item.id) ?? null
         const title = item.title || (mapping ? (productTitles.get(mapping.productId) ?? '') : '')
         const bucket = getOrCreate(internalSku, title, order.orderSource, gradeId)
         bucket.unitsSold += item.quantityOrdered
@@ -139,15 +153,31 @@ export async function GET(req: NextRequest) {
       where: rmaWhere,
       include: {
         items: true,
-        order: { select: { orderSource: true } },
+        order: {
+          select: {
+            orderSource: true,
+            serialAssignments: {
+              select: { orderItemId: true, inventorySerial: { select: { gradeId: true } } },
+            },
+          },
+        },
       },
     })
 
     for (const rma of rmas) {
+      // Build orderItemId → gradeId from parent order's serial assignments
+      const serialGradeByItem = new Map<string, string>()
+      for (const sa of rma.order.serialAssignments) {
+        if (sa.inventorySerial.gradeId) {
+          serialGradeByItem.set(sa.orderItemId, sa.inventorySerial.gradeId)
+        }
+      }
+
       for (const item of rma.items) {
         const mapping = item.sellerSku ? skuMap.get(item.sellerSku) : null
         const internalSku = mapping ? (productSkus.get(mapping.productId) ?? item.sellerSku ?? 'UNKNOWN') : (item.sellerSku || item.asin || 'UNKNOWN')
-        const gradeId = mapping?.gradeId ?? null
+        // Use grade from SKU mapping first, fall back to serial assignment grade
+        const gradeId = mapping?.gradeId ?? serialGradeByItem.get(item.orderItemId) ?? null
         const title = item.title || (mapping ? (productTitles.get(mapping.productId) ?? '') : '')
         const source = rma.order.orderSource
         const bucket = getOrCreate(internalSku, title, source, gradeId)
