@@ -226,6 +226,7 @@ export default function ReturnRatesReport() {
             { label: 'Today', days: 0 },
             { label: 'Last 7 Days', days: 7 },
             { label: 'Last 30 Days', days: 30 },
+            { label: 'Last 1 Year', days: 365 },
           ].map(({ label, days }) => {
             const from = new Date()
             from.setDate(from.getDate() - days)
