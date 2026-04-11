@@ -5996,7 +5996,7 @@ export default function UnshippedOrders() {
   const showReinstateCol    = activeTab === 'cancelled'
   const showShippedPrintCol = activeTab === 'shipped'
   const showActionCol       = showProcessCol || showShipCol || showVerifyCol || showReinstateCol || showShippedPrintCol
-  const colSpan             = 10 + (showActionCol ? 1 : 0)
+  const colSpan             = 11 + (showActionCol ? 1 : 0)
 
   // Amazon ship-by dates use Pacific time (e.g. stored as 2026-02-28T07:59:59Z = Feb 27 11:59pm PST).
   // Always evaluate ship-by dates in Pacific time to match Amazon's intent.
@@ -6042,6 +6042,9 @@ export default function UnshippedOrders() {
           break
         case 'orderTotal':
           cmp = parseFloat(a.orderTotal ?? '0') - parseFloat(b.orderTotal ?? '0')
+          break
+        case 'shipToName':
+          cmp = (a.shipToName ?? a.wholesaleCustomerName ?? '').localeCompare(b.shipToName ?? b.wholesaleCustomerName ?? '')
           break
         case 'shipToState':
           cmp = (a.shipToState ?? '').localeCompare(b.shipToState ?? '')
@@ -6840,6 +6843,12 @@ export default function UnshippedOrders() {
                   <span className={clsx('text-[10px]', sortBy === 'olmNumber' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'olmNumber' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
+              <th onClick={() => handleSort('shipToName')}
+                className="px-1.5 py-2 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
+                <span className="inline-flex items-center gap-1">Customer
+                  <span className={clsx('text-[10px]', sortBy === 'shipToName' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'shipToName' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+                </span>
+              </th>
               <th onClick={() => handleSort('latestShipDate')}
                 className="px-1.5 py-2 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
                 <span className="inline-flex items-center gap-1">Dates
@@ -6938,9 +6947,6 @@ export default function UnshippedOrders() {
                               {order.wholesaleOrderNumber ?? order.amazonOrderId}
                             </span>
                           </div>
-                          {order.wholesaleCustomerName && (
-                            <span className="text-[9px] text-gray-400 leading-tight">{order.wholesaleCustomerName}</span>
-                          )}
                         </>
                       ) : (
                         <>
@@ -7005,12 +7011,15 @@ export default function UnshippedOrders() {
                           >
                             {order.amazonOrderId}
                           </a>
-                          {order.shipToName && (
-                            <span className="text-[9px] text-gray-400 leading-tight truncate max-w-[140px]">{order.shipToName}</span>
-                          )}
                         </>
                       )}
                     </div>
+                  </td>
+                  {/* Customer */}
+                  <td className="px-1.5 py-1 whitespace-nowrap">
+                    <span className="text-[10px] text-gray-600 truncate block max-w-[120px]" title={order.shipToName ?? order.wholesaleCustomerName ?? ''}>
+                      {order.shipToName ?? order.wholesaleCustomerName ?? '—'}
+                    </span>
                   </td>
                   {/* Dates — Purchase / Ship By / Deliver By stacked */}
                   <td className="px-1.5 py-1 whitespace-nowrap">
