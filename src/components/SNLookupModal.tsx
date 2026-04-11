@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { AlertCircle, X, Package, Hash, Clock, ShoppingCart, Search, ArrowRightLeft, Tag, Printer } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
+import GradeBadge from '@/components/GradeBadge'
 import { jsPDF } from 'jspdf'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -271,9 +272,7 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                         <p className="text-xs text-gray-500 truncate">{m.product.sku} · {m.product.description}</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        {m.grade && (
-                          <span className="text-[10px] font-semibold text-gray-600 bg-gray-100 rounded px-1.5 py-0.5">{m.grade.grade}</span>
-                        )}
+                        {m.grade && <GradeBadge grade={m.grade.grade} size="xs" />}
                         <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${STATUS_COLOR[m.status] ?? 'bg-gray-100 text-gray-500'}`}>
                           {STATUS_LABEL[m.status] ?? m.status}
                         </span>
@@ -312,9 +311,7 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                   </span>
                 </div>
                 {result.grade && (
-                  <p className="text-xs text-gray-500 pl-0.5">
-                    Grade: <span className="font-bold text-gray-700">{result.grade.grade}</span>
-                  </p>
+                  <div className="pl-0.5"><GradeBadge grade={result.grade.grade} /></div>
                 )}
                 <div className="flex items-center gap-1.5 text-xs text-gray-500 pt-1 border-t border-gray-200">
                   <Package size={11} className="shrink-0" />

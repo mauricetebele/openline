@@ -4,6 +4,7 @@ import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, C
 import { jsPDF } from 'jspdf'
 import JsBarcode from 'jsbarcode'
 import { clsx } from 'clsx'
+import GradeBadge from '@/components/GradeBadge'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1033,7 +1034,7 @@ export default function SerialSearchManager() {
                       <td className="px-3 py-2.5">
                         <span className="font-mono text-xs text-gray-700">{r.sku}</span>
                       </td>
-                      <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{r.grade ? <span className="font-semibold">{r.grade}</span> : <span className="text-gray-300">—</span>}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">{r.grade ? <GradeBadge grade={r.grade} size="xs" /> : <span className="text-gray-300 text-xs">—</span>}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{r.vendor ?? <span className="text-gray-300">—</span>}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{fmtEventType(r.lastEventType)}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(r.lastEventDate)}</td>

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
+import GradeBadge from '@/components/GradeBadge'
 import { AmazonAccountDTO } from '@/types'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
 import PickListModal from '@/components/PickListModal'
@@ -990,7 +991,7 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                   <div>
                     <span className="font-mono text-xs font-semibold text-gray-700">{item.internalSku ?? item.sellerSku ?? '—'}</span>
                     <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
-                    {item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-700">Grade {item.mappedGradeName}</span>}
+                    {item.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}
                     <p className="text-xs text-gray-500 truncate mt-0.5">{item.title ?? '—'}</p>
                   </div>
                   <span className="text-xs text-gray-400 italic">Not serializable</span>
@@ -1003,9 +1004,7 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                     <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
                     <span className="text-xs text-gray-500 ml-2">×{item.quantityOrdered}</span>
                     {(item.mappedGradeName || item.gradeName) && (
-                      <span className="block text-[9px] font-semibold text-purple-700">
-                        Grade {item.mappedGradeName ?? item.gradeName}
-                      </span>
+                      <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName ?? item.gradeName!} size="xs" /></span>
                     )}
                     <p className="text-xs text-gray-500 truncate">{item.title ?? '—'}</p>
                   </div>
@@ -1425,7 +1424,7 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
                     <div>
                       <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
                       <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
-                      {item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-700">Grade {item.mappedGradeName}</span>}
+                      {item.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}
                       {item.title && <p className="text-xs text-gray-500 truncate mt-0.5">{item.title}</p>}
                     </div>
                     {!item.isSerializable && <span className="text-[9px] text-gray-400 italic shrink-0">Not serializable</span>}
@@ -1729,7 +1728,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
                     <div>
                       <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
                       <span className="text-xs text-gray-400 ml-2">x{item.quantityOrdered}</span>
-                      {item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-700">Grade {item.mappedGradeName}</span>}
+                      {item.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}
                       {item.title && <p className="text-xs text-gray-500 truncate mt-0.5">{item.title}</p>}
                     </div>
                     {!item.isSerializable && <span className="text-[9px] text-gray-400 italic shrink-0">Not serializable</span>}
@@ -2044,7 +2043,7 @@ function ManualShipModal({ order, onClose, onShipped }: {
                       <div className="flex items-start gap-2 min-w-0">
                         <div>
                           <span className="font-mono font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
-                          {item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}
+                          {item.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}
                         </div>
                         <span className="text-gray-400">×{item.quantityOrdered}</span>
                       </div>
@@ -2778,13 +2777,9 @@ function OrderDetailModal({
                                   </button>
                                   {/* Grade badge from pending change or MSKU mapping */}
                                   {pendingSkuChanges.get(item.id)?.gradeId ? (
-                                    <span className="block text-[10px] font-semibold text-purple-700 mt-0.5">
-                                      Grade {grades.find(g => g.id === pendingSkuChanges.get(item.id)?.gradeId)?.grade ?? ''}
-                                    </span>
+                                    <span className="block mt-0.5"><GradeBadge grade={grades.find(g => g.id === pendingSkuChanges.get(item.id)?.gradeId)?.grade ?? ''} size="xs" /></span>
                                   ) : item.mappedGradeName ? (
-                                    <span className="block text-[10px] font-semibold text-purple-700 mt-0.5">
-                                      Grade {item.mappedGradeName}
-                                    </span>
+                                    <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>
                                   ) : null}
                                   {/* Show marketplace SKU underneath when internal SKU differs */}
                                   {item.internalSku && item.sellerSku && item.internalSku !== item.sellerSku && (
@@ -2980,7 +2975,7 @@ function OrderDetailModal({
                             <tr key={sa.id} className="hover:bg-gray-50">
                               <td className="px-4 py-2 text-gray-400 tabular-nums">{idx + 1}</td>
                               <td className="px-4 py-2 font-mono font-semibold text-gray-900">{sa.inventorySerial.serialNumber}</td>
-                              <td className="px-4 py-2 font-mono text-gray-600">{item?.internalSku ?? item?.sellerSku ?? '—'}{item?.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}</td>
+                              <td className="px-4 py-2 font-mono text-gray-600">{item?.internalSku ?? item?.sellerSku ?? '—'}{item?.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}</td>
                             </tr>
                           )
                         })}
@@ -3480,7 +3475,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1.5">
             {order.items.map(item => (
               <div key={item.id} className="flex items-start gap-2 text-xs">
-                <span className="font-mono text-gray-600 shrink-0">{item.internalSku ?? item.sellerSku ?? '—'}{item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}</span>
+                <span className="font-mono text-gray-600 shrink-0">{item.internalSku ?? item.sellerSku ?? '—'}{item.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}</span>
                 <span className="text-gray-500">×{item.quantityOrdered}</span>
                 <span className="text-gray-700 truncate">{item.title ?? '—'}</span>
               </div>
@@ -3632,7 +3627,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
                   <div className="flex items-center gap-2 text-xs">
                     <div>
                       <span className="font-mono font-semibold text-gray-700">{item.internalSku ?? item.sellerSku ?? item.asin ?? '—'}</span>
-                      {item.mappedGradeName && <span className="block text-[9px] font-semibold text-purple-600">Grade {item.mappedGradeName}</span>}
+                      {item.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}
                     </div>
                     <span className="text-gray-400">×{item.quantityOrdered}</span>
                     <span className="text-gray-500 truncate">{item.title ?? ''}</span>
@@ -7053,7 +7048,7 @@ export default function UnshippedOrders() {
                         <div key={i.id} className={clsx('leading-tight', multi && 'py-0.5 first:pt-0 last:pb-0')}>
                           <span className="whitespace-nowrap">
                             <span className="font-mono text-[11px] font-semibold text-gray-900">{i.internalSku ?? i.sellerSku ?? '—'}</span>
-                            {i.mappedGradeName && <span className="text-[9px] font-semibold text-purple-600 ml-1">Grade {i.mappedGradeName}</span>}
+                            {i.mappedGradeName && <span className="ml-1"><GradeBadge grade={i.mappedGradeName} size="xs" /></span>}
                           </span>
                           {i.title && <span className="block text-[9px] text-gray-500 truncate max-w-[180px]" title={i.title}>{i.title}</span>}
                         </div>

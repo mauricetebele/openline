@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Package, Search } from 'lucide-react'
 import { clsx } from 'clsx'
+import GradeBadge from '@/components/GradeBadge'
 import { useRouter } from 'next/navigation'
 
 interface Result {
@@ -118,7 +119,7 @@ export default function InventoryQuickSearch({ mobile }: { mobile?: boolean }) {
               </div>
               <div className="text-[11px] text-gray-500 truncate">{r.description}</div>
               <div className="flex items-center gap-3 mt-0.5">
-                {r.grade && <span className="text-[10px] text-gray-400">{r.grade}</span>}
+                {r.grade && <GradeBadge grade={r.grade} size="xs" />}
                 <span className="text-[10px] font-medium text-green-600">On Hand: {r.onHand}</span>
                 <span className="text-[10px] text-gray-400">Avail: {r.qty}</span>
                 {r.reserved > 0 && <span className="text-[10px] text-yellow-600">Rsrvd: {r.reserved}</span>}

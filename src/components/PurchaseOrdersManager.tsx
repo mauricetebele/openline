@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Plus, Pencil, Trash2, X, AlertCircle, ShoppingCart, ChevronDown, ChevronUp, PackageCheck, Clock, Upload, Search, Download, FileUp, Eye, Receipt } from 'lucide-react'
 import { clsx } from 'clsx'
+import GradeBadge from '@/components/GradeBadge'
 import ReceiveModal from './ReceiveModal'
 import SpreadsheetReceiveModal from './SpreadsheetReceiveModal'
 import GenerateBillModal from './GenerateBillModal'
@@ -906,7 +907,7 @@ function ReceiptLineRow({ rl }: { rl: ReceiptLine }) {
                     <tr key={s.id} className="bg-white">
                       <td className="px-3 py-1 text-gray-400">{i + 1}</td>
                       <td className="px-3 py-1 font-mono text-gray-700">{s.serialNumber}</td>
-                      <td className="px-3 py-1 text-gray-600">{s.grade ? <span className="font-semibold text-indigo-600">{s.grade.grade}</span> : <span className="text-gray-300">—</span>}</td>
+                      <td className="px-3 py-1">{s.grade ? <GradeBadge grade={s.grade.grade} size="xs" /> : <span className="text-gray-300">—</span>}</td>
                       <td className="px-3 py-1 text-gray-500">{s.status.replace('_', ' ')}</td>
                     </tr>
                   ))}

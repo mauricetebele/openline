@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown, Barcode } from 'lucide-react'
 import SNLookupModal from './SNLookupModal'
+import GradeBadge from '@/components/GradeBadge'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1354,7 +1355,7 @@ function RegradeModal({ warehouses, onClose }: {
                                 </td>
                                 <td className="px-3 py-2.5">
                                   {serial.grade
-                                    ? <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">{serial.grade.grade}</span>
+                                    ? <GradeBadge grade={serial.grade.grade} size="xs" />
                                     : <span className="text-gray-400 text-xs">—</span>
                                   }
                                 </td>
@@ -2151,7 +2152,7 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
                               <td className="px-3 py-2 font-mono font-medium text-gray-900">{serial.serialNumber}</td>
                               <td className="px-3 py-2">
                                 {serial.grade
-                                  ? <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">{serial.grade.grade}</span>
+                                  ? <GradeBadge grade={serial.grade.grade} size="xs" />
                                   : <span className="text-gray-400">—</span>}
                               </td>
                             </tr>
@@ -2473,9 +2474,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                   <td className="px-2 py-1 text-gray-600 truncate max-w-[200px]">{item.product.description}</td>
                   <td className="px-2 py-1">
                     {item.grade ? (
-                      <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-1.5 py-0.5 text-[10px] font-semibold">
-                        {item.grade.grade}
-                      </span>
+                      <GradeBadge grade={item.grade.grade} size="xs" />
                     ) : (
                       <span className="text-gray-300">—</span>
                     )}
