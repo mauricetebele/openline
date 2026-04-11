@@ -114,7 +114,13 @@ export async function POST(req: NextRequest) {
       vendorId,
       items: {
         create: Array.from(groups.entries()).map(([productId, productSerials]) => {
-          const unitCost = productSerials[0].receiptLine?.purchaseOrderLine?.unitCost ?? null
+          // Use average live PO cost across all serials in this group
+          const costs = productSerials
+            .map(s => s.receiptLine?.purchaseOrderLine?.unitCost != null
+              ? Number(s.receiptLine!.purchaseOrderLine!.unitCost)
+              : (s.unitCost != null ? Number(s.unitCost) : null))
+            .filter((c): c is number => c != null)
+          const unitCost = costs.length > 0 ? costs.reduce((a, b) => a + b, 0) / costs.length : null
           return {
             productId,
             quantity: productSerials.length,

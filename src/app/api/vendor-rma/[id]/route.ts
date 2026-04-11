@@ -25,7 +25,43 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   })
 
   if (!rma) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(rma)
+
+  // Enrich with live PO costs per serial (instead of stale snapshot)
+  const allSerials = rma.items.flatMap(item => item.serials.map(s => s.serialNumber))
+  const inventorySerials = allSerials.length > 0
+    ? await prisma.inventorySerial.findMany({
+        where: { serialNumber: { in: allSerials } },
+        select: {
+          serialNumber: true,
+          unitCost: true,
+          receiptLine: {
+            select: {
+              purchaseOrderLine: { select: { unitCost: true } },
+            },
+          },
+        },
+      })
+    : []
+
+  const liveCostMap = new Map(
+    inventorySerials.map(s => [s.serialNumber,
+      s.receiptLine?.purchaseOrderLine?.unitCost != null
+        ? Number(s.receiptLine.purchaseOrderLine.unitCost)
+        : (s.unitCost != null ? Number(s.unitCost) : null),
+    ])
+  )
+
+  // Compute live unitCost per item from serial costs
+  const enrichedItems = rma.items.map(item => {
+    if (item.serials.length > 0) {
+      const costs = item.serials.map(s => liveCostMap.get(s.serialNumber)).filter((c): c is number => c != null)
+      const liveUnitCost = costs.length > 0 ? costs.reduce((a, b) => a + b, 0) / costs.length : null
+      return { ...item, unitCost: liveUnitCost != null ? String(liveUnitCost) : item.unitCost }
+    }
+    return item
+  })
+
+  return NextResponse.json({ ...rma, items: enrichedItems })
 }
 
 export async function PUT(req: NextRequest, { params }: Ctx) {

@@ -28,15 +28,50 @@ export async function GET(req: NextRequest) {
       vendor: { select: { id: true, vendorNumber: true, name: true } },
       items: {
         select: {
+          id: true,
           quantity: true,
           unitCost: true,
-          serials: { select: { scannedOutAt: true } },
+          serials: { select: { serialNumber: true, scannedOutAt: true } },
         },
       },
     },
   })
 
-  return NextResponse.json({ data: rmas })
+  // Enrich with live PO costs per serial (instead of stale snapshot)
+  const allSerials = rmas.flatMap(r => r.items.flatMap(i => i.serials.map(s => s.serialNumber)))
+  const liveCostMap = new Map<string, number>()
+  if (allSerials.length > 0) {
+    const inventorySerials = await prisma.inventorySerial.findMany({
+      where: { serialNumber: { in: allSerials } },
+      select: {
+        serialNumber: true,
+        unitCost: true,
+        receiptLine: {
+          select: { purchaseOrderLine: { select: { unitCost: true } } },
+        },
+      },
+    })
+    for (const s of inventorySerials) {
+      const cost = s.receiptLine?.purchaseOrderLine?.unitCost != null
+        ? Number(s.receiptLine.purchaseOrderLine.unitCost)
+        : (s.unitCost != null ? Number(s.unitCost) : null)
+      if (cost != null) liveCostMap.set(s.serialNumber, cost)
+    }
+  }
+
+  const enrichedRmas = rmas.map(rma => ({
+    ...rma,
+    items: rma.items.map(item => {
+      if (item.serials.length > 0) {
+        const costs = item.serials.map(s => liveCostMap.get(s.serialNumber)).filter((c): c is number => c != null)
+        const liveUnitCost = costs.length > 0 ? costs.reduce((a, b) => a + b, 0) / costs.length : null
+        return { ...item, unitCost: liveUnitCost != null ? String(liveUnitCost) : item.unitCost }
+      }
+      return item
+    }),
+  }))
+
+  return NextResponse.json({ data: enrichedRmas })
 }
 
 export async function POST(req: NextRequest) {
