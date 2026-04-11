@@ -50,20 +50,33 @@ export async function POST(req: NextRequest) {
   if (orders.length === 0) return NextResponse.json({ error: 'No matching orders found' }, { status: 404 })
 
   // Build a map: sellerSku → Product (with defaultPackagePreset)
+  // Two lookups: marketplace SKU mappings first, then direct product SKU match as fallback
   const allSkus = Array.from(new Set(orders.flatMap(o => o.items.map(i => i.sellerSku).filter((s): s is string => s != null))))
 
-  const skuMappings = await prisma.productGradeMarketplaceSku.findMany({
-    where: { sellerSku: { in: allSkus } },
-    include: {
-      product: {
-        include: { defaultPackagePreset: { select: { id: true, name: true } } },
+  const [skuMappings, directProducts] = await Promise.all([
+    prisma.productGradeMarketplaceSku.findMany({
+      where: { sellerSku: { in: allSkus } },
+      include: {
+        product: {
+          include: { defaultPackagePreset: { select: { id: true, name: true } } },
+        },
       },
-    },
-  })
+    }),
+    prisma.product.findMany({
+      where: { sku: { in: allSkus } },
+      include: { defaultPackagePreset: { select: { id: true, name: true } } },
+    }),
+  ])
 
   const skuToProduct = new Map<string, { id: string; defaultPackagePreset: { id: string; name: string } | null }>()
   for (const m of skuMappings) {
     skuToProduct.set(m.sellerSku, m.product)
+  }
+  // Fallback: direct product SKU match (e.g. when item SKU was changed to internal SKU)
+  for (const p of directProducts) {
+    if (!skuToProduct.has(p.sku)) {
+      skuToProduct.set(p.sku, p)
+    }
   }
 
   const encoder = new TextEncoder()
