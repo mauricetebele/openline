@@ -63,7 +63,6 @@ export async function POST(
     orderItemId: string
     serialId: string
     serialNumber: string
-    staleAssignmentId: string | null
   }[] = []
 
   for (const a of assignments) {
@@ -86,7 +85,7 @@ export async function POST(
     for (const sn of a.serialNumbers) {
       const serial = await prisma.inventorySerial.findFirst({
         where: { serialNumber: { equals: sn, mode: 'insensitive' } },
-        include: { product: true, orderAssignment: { include: { order: { select: { workflowStatus: true } } } } },
+        include: { product: true, orderAssignments: { include: { order: { select: { workflowStatus: true } } } } },
       })
 
       if (!serial) {
@@ -125,8 +124,9 @@ export async function POST(
         )
       }
       // Only block if assigned to an active (non-terminal) order
-      const hasActiveAssignment = serial.orderAssignment &&
-        !['SHIPPED', 'CANCELLED'].includes(serial.orderAssignment.order.workflowStatus)
+      const hasActiveAssignment = serial.orderAssignments.some(a =>
+        !['SHIPPED', 'CANCELLED'].includes(a.order.workflowStatus)
+      )
       if (hasActiveAssignment) {
         return NextResponse.json({ error: `Serial "${sn}" is already assigned to another order` }, { status: 422 })
       }
@@ -134,11 +134,7 @@ export async function POST(
         return NextResponse.json({ error: `Serial "${sn}" is not in stock (status: ${serial.status})` }, { status: 422 })
       }
 
-      // Stale assignment from a completed order that needs cleanup
-      const staleAssignmentId = serial.orderAssignment &&
-        ['SHIPPED', 'CANCELLED'].includes(serial.orderAssignment.order.workflowStatus)
-        ? serial.orderAssignment.id : null
-      resolvedSerials.push({ orderItemId: a.orderItemId, serialId: serial.id, serialNumber: sn, staleAssignmentId })
+      resolvedSerials.push({ orderItemId: a.orderItemId, serialId: serial.id, serialNumber: sn })
     }
   }
 
@@ -161,11 +157,6 @@ export async function POST(
         where: { id: r.serialId },
         data: { status: 'OUT_OF_STOCK' },
       })
-
-      // Clean up stale assignment from a completed order before creating new one
-      if (r.staleAssignmentId) {
-        await tx.orderSerialAssignment.delete({ where: { id: r.staleAssignmentId } })
-      }
 
       await tx.orderSerialAssignment.create({
         data: {

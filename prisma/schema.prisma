@@ -603,7 +603,7 @@ model OrderSerialAssignment {
   order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   orderItemId       String
   orderItem         OrderItem       @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  inventorySerialId String          @unique // one active assignment per serial
+  inventorySerialId String          // historically a serial can appear on multiple orders
   inventorySerial   InventorySerial @relation(fields: [inventorySerialId], references: [id], onDelete: Restrict)
   assignedAt        DateTime        @default(now())
 
@@ -1236,7 +1236,7 @@ model InventorySerial {
   updatedAt     DateTime       @updatedAt
 
   history                SerialHistory[]
-  orderAssignment        OrderSerialAssignment?
+  orderAssignments       OrderSerialAssignment[]
   salesOrderAssignment   SalesOrderSerialAssignment?
   fbaShipmentAssignment  FbaShipmentSerialAssignment?
   marketplaceRMASerials  MarketplaceRMASerial[]
