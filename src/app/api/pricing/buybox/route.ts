@@ -2,7 +2,7 @@
  * GET /api/pricing/buybox?accountId=X&asin=B0XXXXXXXXX
  *
  * Returns buy box price and seller name for a single ASIN.
- * First checks cached competitive_offers, then falls back to a live SP-API call.
+ * Always fetches live from SP-API for real-time accuracy.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -23,28 +23,7 @@ export async function GET(req: NextRequest) {
   if (!accountId) return NextResponse.json({ error: 'Missing accountId' }, { status: 400 })
   if (!asin || !ASIN_RE.test(asin)) return NextResponse.json({ error: 'Invalid ASIN' }, { status: 400 })
 
-  // 1. Check cache (competitive_offers) — buy box winner first
-  const cached = await prisma.competitiveOffer.findFirst({
-    where: { accountId, asin, isBuyBoxWinner: true },
-  })
-
-  if (cached) {
-    const profile = cached.sellerId
-      ? await prisma.sellerProfile.findUnique({ where: { sellerId: cached.sellerId } })
-      : null
-
-    return NextResponse.json({
-      asin,
-      buyBoxPrice: cached.landedPrice ? Number(cached.landedPrice) : null,
-      listingPrice: cached.listingPrice ? Number(cached.listingPrice) : null,
-      sellerName: profile?.name ?? null,
-      sellerId: cached.sellerId,
-      isFba: cached.fulfillmentType === 'Amazon',
-      source: 'cache',
-    })
-  }
-
-  // 2. Live SP-API fallback
+  // Always fetch live from SP-API
   try {
     const account = await prisma.amazonAccount.findUnique({
       where: { id: accountId },
@@ -72,7 +51,7 @@ export async function GET(req: NextRequest) {
 
     const offers = response?.payload?.Offers ?? []
     const bbWinner = offers.find(o => o.IsBuyBoxWinner)
-    const cheapest = offers.sort((a, b) =>
+    const cheapest = [...offers].sort((a, b) =>
       (a.LandedPrice?.Amount ?? 999) - (b.LandedPrice?.Amount ?? 999)
     )[0]
 
@@ -100,7 +79,6 @@ export async function GET(req: NextRequest) {
     })
   } catch (err) {
     console.error('[buybox] ASIN=%s error=%s', asin, err instanceof Error ? err.message : String(err))
-    // Return empty rather than error — this is supplemental info
     return NextResponse.json({ asin, buyBoxPrice: null, sellerName: null, source: 'error' })
   }
 }
