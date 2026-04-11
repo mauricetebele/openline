@@ -37,17 +37,19 @@ export async function GET(req: NextRequest) {
   })
   for (const m of mskuRows) skuMap.set(m.sellerSku, { productId: m.productId, gradeId: m.gradeId })
 
-  // ── Product description lookup ──────────────────────────────────────────
-  const productTitles = new Map<string, string>()
+  // ── Product lookup (internal SKU + description) ────────────────────────
+  const productSkus = new Map<string, string>()   // productId → internal SKU
+  const productTitles = new Map<string, string>()  // productId → description
   const productsWithDesc = await prisma.product.findMany({ select: { id: true, description: true, sku: true } })
-  for (const p of productsWithDesc) productTitles.set(p.id, p.description || p.sku)
-
-  // ── Grade name lookup ──────────────────────────────────────────────────
-  const gradeNames = new Map<string, string>()
-  if (groupByGrade) {
-    const grades = await prisma.grade.findMany({ select: { id: true, grade: true } })
-    for (const g of grades) gradeNames.set(g.id, g.grade)
+  for (const p of productsWithDesc) {
+    productSkus.set(p.id, p.sku)
+    productTitles.set(p.id, p.description || p.sku)
   }
+
+  // ── Grade name lookup (always loaded) ─────────────────────────────────
+  const gradeNames = new Map<string, string>()
+  const grades = await prisma.grade.findMany({ select: { id: true, grade: true } })
+  for (const g of grades) gradeNames.set(g.id, g.grade)
 
   // ── Aggregation bucket ─────────────────────────────────────────────────
   type Bucket = {
@@ -72,7 +74,7 @@ export async function GET(req: NextRequest) {
       b = {
         sku,
         title,
-        grade: groupByGrade && gradeId ? (gradeNames.get(gradeId) ?? gradeId) : null,
+        grade: gradeId ? (gradeNames.get(gradeId) ?? gradeId) : null,
         sources: new Set(),
         unitsSold: 0,
         unitsReturned: 0,
@@ -105,11 +107,11 @@ export async function GET(req: NextRequest) {
 
     for (const order of orders) {
       for (const item of order.items) {
-        const sku = item.sellerSku || item.asin || 'UNKNOWN'
         const mapping = item.sellerSku ? skuMap.get(item.sellerSku) : null
+        const internalSku = mapping ? (productSkus.get(mapping.productId) ?? item.sellerSku ?? 'UNKNOWN') : (item.sellerSku || item.asin || 'UNKNOWN')
         const gradeId = mapping?.gradeId ?? null
         const title = item.title || (mapping ? (productTitles.get(mapping.productId) ?? '') : '')
-        const bucket = getOrCreate(sku, title, order.orderSource, gradeId)
+        const bucket = getOrCreate(internalSku, title, order.orderSource, gradeId)
         bucket.unitsSold += item.quantityOrdered
       }
     }
@@ -144,12 +146,12 @@ export async function GET(req: NextRequest) {
 
     for (const rma of rmas) {
       for (const item of rma.items) {
-        const sku = item.sellerSku || item.asin || 'UNKNOWN'
         const mapping = item.sellerSku ? skuMap.get(item.sellerSku) : null
+        const internalSku = mapping ? (productSkus.get(mapping.productId) ?? item.sellerSku ?? 'UNKNOWN') : (item.sellerSku || item.asin || 'UNKNOWN')
         const gradeId = mapping?.gradeId ?? null
         const title = item.title || (mapping ? (productTitles.get(mapping.productId) ?? '') : '')
         const source = rma.order.orderSource
-        const bucket = getOrCreate(sku, title, source, gradeId)
+        const bucket = getOrCreate(internalSku, title, source, gradeId)
         bucket.unitsReturned += item.quantityReturned
         if (item.returnReason) bucket.returnReasons.push(item.returnReason)
       }

@@ -197,7 +197,7 @@ export default function ReturnRatesReport() {
   const columns: { key: SortKey; label: string; align: string }[] = [
     { key: 'sku', label: 'SKU', align: 'left' },
     { key: 'title', label: 'Title', align: 'left' },
-    ...(groupByGrade ? [{ key: 'grade' as SortKey, label: 'Grade', align: 'left' as string }] : []),
+    { key: 'grade', label: 'Grade', align: 'left' },
     { key: 'channel', label: 'Channel', align: 'left' },
     { key: 'unitsSold', label: 'Units Sold', align: 'right' },
     { key: 'unitsReturned', label: 'Units Returned', align: 'right' },
@@ -361,7 +361,7 @@ export default function ReturnRatesReport() {
                   >
                     <td className="px-3 py-1.5 font-mono font-medium">{row.sku}</td>
                     <td className="px-3 py-1.5 max-w-[220px] truncate" title={row.title}>{row.title || '\u2014'}</td>
-                    {groupByGrade && <td className="px-3 py-1.5">{row.grade || '\u2014'}</td>}
+                    <td className="px-3 py-1.5">{row.grade || 'No Grade'}</td>
                     <td className="px-3 py-1.5">{sourceBadge(row.channel)}</td>
                     <td className="px-3 py-1.5 text-right font-medium">{row.unitsSold}</td>
                     <td className="px-3 py-1.5 text-right font-medium">{row.unitsReturned}</td>
