@@ -1308,6 +1308,7 @@ enum SerialEventType {
   FBA_SHIPMENT
   VENDOR_RMA_SHIPPED
   WHOLESALE_RMA_RETURN
+  GRADE_CHANGE
 }
 
 // ─── RMA (Return Merchandise Authorization) ───────────────────────────────────

@@ -119,7 +119,7 @@ export default function SerialSearchManager() {
   const [filterGrade, setFilterGrade] = useState<string>('')
   const [filterVrma, setFilterVrma] = useState<string>('')
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([])
-  const [grades, setGrades] = useState<string[]>([])
+  const [grades, setGrades] = useState<{ id: string; grade: string }[]>([])
 
   const [copied, setCopied] = useState(false)
 
@@ -139,7 +139,7 @@ export default function SerialSearchManager() {
   useEffect(() => {
     fetch('/api/grades')
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.data) setGrades(d.data.map((g: { grade: string }) => g.grade)) })
+      .then(d => { if (d?.data) setGrades(d.data.map((g: { id: string; grade: string }) => ({ id: g.id, grade: g.grade }))) })
       .catch(() => {})
   }, [])
 
@@ -164,6 +164,10 @@ export default function SerialSearchManager() {
   const [moveWarehouseId, setMoveWarehouseId] = useState('')
   const [moveLocationId, setMoveLocationId] = useState('')
   const [moveLoading, setMoveLoading] = useState(false)
+
+  // Grade change state
+  const [gradeChangeId, setGradeChangeId] = useState<string>('')
+  const [gradeChangeLoading, setGradeChangeLoading] = useState(false)
 
   // Vendor RMA state
   const [rmaLoading, setRmaLoading] = useState(false)
@@ -367,6 +371,29 @@ export default function SerialSearchManager() {
       setErr(e instanceof Error ? e.message : 'Failed to create Vendor RMA')
     } finally {
       setRmaLoading(false)
+    }
+  }
+
+  async function handleChangeGrade() {
+    if (selectedInStock.length === 0 || gradeChangeId === '') return
+    setGradeChangeLoading(true)
+    setErr(null)
+    try {
+      const gradeId = gradeChangeId === '__none__' ? null : gradeChangeId
+      const res = await fetch('/api/serials/change-grade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serialIds: selectedInStock.map(r => r.id), gradeId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to change grade')
+      setSelectedIds(new Set())
+      setGradeChangeId('')
+      await handleSearch()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to change grade')
+    } finally {
+      setGradeChangeLoading(false)
     }
   }
 
@@ -576,7 +603,7 @@ export default function SerialSearchManager() {
                   <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Star size={11} /> Grade</label>
                   <select className="input w-full text-xs" value={filterGrade} onChange={e => setFilterGrade(e.target.value)}>
                     <option value="">All</option>
-                    {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                    {grades.map(g => <option key={g.id} value={g.grade}>{g.grade}</option>)}
                   </select>
                 </div>
                 <div>
@@ -687,7 +714,7 @@ export default function SerialSearchManager() {
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-5 gap-3">
                 {/* Bulk note */}
                 <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
                   <div className="flex items-center gap-2 mb-2">
@@ -773,6 +800,33 @@ export default function SerialSearchManager() {
                     >
                       <ArrowRightLeft size={12} />
                       {moveLoading ? 'Moving…' : 'Move'}
+                    </button>
+                  </div>
+                </div>
+                {/* Change Grade */}
+                <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Star size={18} className="text-indigo-400 shrink-0" />
+                    <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">Change Grade</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={gradeChangeId}
+                      onChange={e => setGradeChangeId(e.target.value)}
+                      disabled={selectedInStock.length === 0}
+                      className="flex-1 text-xs border border-indigo-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                    >
+                      <option value="">Select grade…</option>
+                      <option value="__none__">No Grade</option>
+                      {grades.map(g => <option key={g.id} value={g.id}>{g.grade}</option>)}
+                    </select>
+                    <button
+                      onClick={handleChangeGrade}
+                      disabled={gradeChangeLoading || selectedInStock.length === 0 || gradeChangeId === ''}
+                      className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      <Star size={12} />
+                      {gradeChangeLoading ? 'Changing…' : 'Change'}
                     </button>
                   </div>
                 </div>
