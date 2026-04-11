@@ -4974,7 +4974,7 @@ export default function UnshippedOrders() {
   const [applyDefaultResult, setApplyDefaultResult]           = useState<{ applied: number; total: number; skipped: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
   const [filterChannel, setFilterChannel]                       = useState<'all' | 'amazon' | 'backmarket' | 'wholesale'>('all')
   const [filterPkgPreset, setFilterPkgPreset]                 = useState<'all' | 'assigned' | 'unassigned'>('all')
-  const [filterPrime, setFilterPrime]                           = useState<'all' | 'prime' | 'nonprime'>('all')
+  const [filterPrime, setFilterPrime]                           = useState(false)
   // Rate shop using applied presets
   const [rateShoppingApplied, setRateShoppingApplied]         = useState(false)
   const [rateShopAppliedIds, setRateShopAppliedIds]           = useState<Set<string>>(new Set())
@@ -6027,8 +6027,7 @@ export default function UnshippedOrders() {
     if (filterPkgPreset === 'assigned') merged = merged.filter(o => o.appliedPackagePresetId)
     else if (filterPkgPreset === 'unassigned') merged = merged.filter(o => !o.appliedPackagePresetId)
     // Prime filter
-    if (filterPrime === 'prime') merged = merged.filter(o => o.isPrime)
-    else if (filterPrime === 'nonprime') merged = merged.filter(o => !o.isPrime)
+    if (filterPrime) merged = merged.filter(o => o.isPrime)
 
     // For wholesale orders, use lastUpdateDate (approval time) so recently approved orders sort to the top
     const effectiveDate = (o: Order) =>
@@ -6531,12 +6530,6 @@ export default function UnshippedOrders() {
               <option value="assigned">Has Pkg Preset</option>
               <option value="unassigned">No Pkg Preset</option>
             </select>
-            <select value={filterPrime} onChange={e => setFilterPrime(e.target.value as 'all' | 'prime' | 'nonprime')}
-              className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-teal-500">
-              <option value="all">All Shipping</option>
-              <option value="prime">Prime Only</option>
-              <option value="nonprime">Non-Prime Only</option>
-            </select>
             <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
               <input type="checkbox" checked={fedexDirectOnly} onChange={e => setFedexDirectOnly(e.target.checked)}
                 className="rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
@@ -6715,6 +6708,15 @@ export default function UnshippedOrders() {
             {ch.label}
           </button>
         ))}
+        <label className={clsx(
+          'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium cursor-pointer transition-colors select-none ml-1',
+          filterPrime
+            ? 'bg-[#00A8E0] text-white'
+            : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-400 hover:text-gray-700',
+        )}>
+          <input type="checkbox" checked={filterPrime} onChange={e => setFilterPrime(e.target.checked)} className="sr-only" />
+          <span className="italic font-black tracking-wider text-[10px]">prime</span>
+        </label>
       </div>
 
       {/* Tab bar */}
