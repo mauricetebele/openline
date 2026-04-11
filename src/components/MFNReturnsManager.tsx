@@ -92,7 +92,7 @@ export default function MFNReturnsManager() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [trackingStatus, setTrackingStatus] = useState('')
-  const [inSystemOnly, setInSystemOnly] = useState(false)
+  const [inSystemOnly, setInSystemOnly] = useState(true)
   const [hasMpRma, setHasMpRma] = useState(false)
   const [fetchKey, setFetchKey] = useState(0)
 
