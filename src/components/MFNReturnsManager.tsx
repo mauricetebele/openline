@@ -383,7 +383,7 @@ export default function MFNReturnsManager() {
         </span>
       )
     }
-    if (r.expectedSerial) {
+    if (r.expectedSerial && /apple/i.test(r.title ?? '')) {
       return (
         <button
           onClick={() => checkFindMy(r.id, r.expectedSerial!)}
