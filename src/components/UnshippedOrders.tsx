@@ -5077,7 +5077,7 @@ export default function UnshippedOrders() {
     if (!selectedAccountId) return
     // When filtering to wholesale only, skip the marketplace orders fetch entirely
     if (filterChannel === 'wholesale') {
-      setOrders([]); setPagination(null); setLoading(false); setFetchError(null)
+      setOrders([]); setPagination({ page: 1, pageSize: 50, total: 0, totalPages: 0 }); setLoading(false); setFetchError(null)
       return
     }
     let cancelled = false
@@ -7005,6 +7005,9 @@ export default function UnshippedOrders() {
                           >
                             {order.amazonOrderId}
                           </a>
+                          {order.shipToName && (
+                            <span className="text-[9px] text-gray-400 leading-tight truncate max-w-[140px]">{order.shipToName}</span>
+                          )}
                         </>
                       )}
                     </div>
