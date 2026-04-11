@@ -87,6 +87,7 @@ const NAV: NavItem[] = [
     children: [
       { href: '/profitability',      label: 'Profitability', icon: TrendingUp },
       { href: '/sales-stats',        label: 'Sales Stats',   icon: BarChart2 },
+      { href: '/return-rates',       label: 'Return Rates',  icon: RotateCcw },
       { href: '/fba-sales-report',   label: 'FBA Sales',     icon: BarChart2 },
       { href: '/shipping-manifest', label: 'Manifest',      icon: ClipboardList },
     ],
