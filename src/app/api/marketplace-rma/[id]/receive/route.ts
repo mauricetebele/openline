@@ -70,10 +70,7 @@ export async function POST(
 
           // Update InventorySerial → IN_STOCK at the new location
           if (su.inventorySerialId) {
-            // Clean up stale serial assignment from the original shipped order
-            await tx.orderSerialAssignment.deleteMany({
-              where: { inventorySerialId: su.inventorySerialId },
-            })
+            // Keep serial assignments for historical record (order view & PDF invoice)
 
             const serial = await tx.inventorySerial.update({
               where: { id: su.inventorySerialId },
