@@ -645,29 +645,84 @@ function POPanel({
               </div>
             )}
 
-            {/* Column headers */}
-            {lines.length > 0 && (
+            {/* Column headers + rows */}
+            {lines.length > 0 && isReceived ? (
+              /* ── Edit Costs layout (received PO) ─────────────────────────── */
+              <div className="space-y-2">
+                {lines.map((line, i) => (
+                  <div key={i} className="rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+                    {/* Top: SKU + Description + Grade + Qty badges */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-xs font-mono font-semibold text-gray-800">{line.sku}</span>
+                      <span className="text-xs text-gray-400">·</span>
+                      <span className="text-xs text-gray-600 truncate flex-1">{line.description}</span>
+                      {line.gradeName && (
+                        <span className="shrink-0 px-2 py-0.5 rounded-full bg-blue-50 text-[10px] font-medium text-blue-700 border border-blue-100">
+                          {line.gradeName}
+                        </span>
+                      )}
+                      <span className="shrink-0 px-2 py-0.5 rounded-full bg-gray-100 text-[10px] font-medium text-gray-600 border border-gray-200">
+                        Qty: {line.qty}
+                      </span>
+                    </div>
+                    {/* Bottom: editable Cost + Cost Code side by side */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-1">Unit Cost</label>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">$</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={line.unitCost}
+                            onChange={e => updateLine(i, { unitCost: e.target.value })}
+                            autoComplete="off"
+                            placeholder="0.00"
+                            className="h-9 w-full rounded-md border border-gray-300 bg-white pl-6 pr-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amazon-blue focus:border-amazon-blue"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-1">Cost Code</label>
+                        <select
+                          value={line.costCodeId ?? ''}
+                          onChange={e => updateLine(i, { costCodeId: e.target.value || null })}
+                          className="h-9 w-full rounded-md border border-gray-300 bg-white px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue focus:border-amazon-blue"
+                        >
+                          <option value="">None</option>
+                          {costCodes.map(cc => (
+                            <option key={cc.id} value={cc.id}>{cc.name} (${Number(cc.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : lines.length > 0 && (
+              /* ── Standard grid layout (open PO) ──────────────────────────── */
               <>
-                <div className={clsx("grid gap-2 mb-1 px-1", isReceived ? "grid-cols-[120px_1fr_100px_120px_60px_140px]" : "grid-cols-[120px_1fr_100px_120px_60px_90px_28px]")}>
+                <div className="grid gap-2 mb-1 px-1 grid-cols-[120px_1fr_100px_120px_60px_90px_28px]">
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">SKU</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Description</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Grade</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Cost Code</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide text-center">Qty</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide text-right">Cost</span>
-                  {!isReceived && <span />}
+                  <span />
                 </div>
 
                 <div className="space-y-1.5">
                   {lines.map((line, i) => (
-                    <div key={i} className={clsx("grid gap-2 items-center", isReceived ? "grid-cols-[120px_1fr_100px_120px_60px_140px]" : "grid-cols-[120px_1fr_100px_120px_60px_90px_28px]")}>
+                    <div key={i} className="grid gap-2 items-center grid-cols-[120px_1fr_100px_120px_60px_90px_28px]">
                       {/* SKU (read-only) */}
-                      <span className={clsx("h-9 flex items-center text-xs font-mono text-gray-700 truncate", isReceived ? "px-1" : "px-2 rounded-md bg-gray-50 border border-gray-200")}>
+                      <span className="h-9 flex items-center text-xs font-mono text-gray-700 truncate px-2 rounded-md bg-gray-50 border border-gray-200">
                         {line.sku}
                       </span>
 
                       {/* Description (read-only) */}
-                      <span className={clsx("h-9 flex items-center text-xs text-gray-600 truncate", isReceived ? "px-1" : "px-2 rounded-md bg-gray-50 border border-gray-200")}>
+                      <span className="h-9 flex items-center text-xs text-gray-600 truncate px-2 rounded-md bg-gray-50 border border-gray-200">
                         {line.description}
                       </span>
 
@@ -679,8 +734,7 @@ function POPanel({
                           const g = line.grades.find(g => g.id === gid)
                           updateLine(i, { gradeId: gid, gradeName: g?.grade ?? null })
                         }}
-                        disabled={isReceived}
-                        className={clsx("h-9 rounded-md border border-gray-300 px-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue", isReceived && "bg-gray-100 text-gray-500 cursor-not-allowed")}
+                        className="h-9 rounded-md border border-gray-300 px-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
                       >
                         <option value="">—</option>
                         {line.grades.map(g => (
@@ -707,8 +761,7 @@ function POPanel({
                         value={line.qty}
                         onChange={e => updateLine(i, { qty: Math.max(Math.max(1, line.qtyReceived), parseInt(e.target.value) || 1) })}
                         autoComplete="off"
-                        disabled={isReceived}
-                        className={clsx("h-9 w-full rounded-md border border-gray-300 px-2 text-xs text-center focus:outline-none focus:ring-2 focus:ring-amazon-blue", isReceived && "bg-gray-100 text-gray-500 cursor-not-allowed")}
+                        className="h-9 w-full rounded-md border border-gray-300 px-2 text-xs text-center focus:outline-none focus:ring-2 focus:ring-amazon-blue"
                       />
                       {line.qtyReceived > 0 && (
                         <p className="text-[10px] text-gray-400 text-center mt-0.5">{line.qtyReceived} received</p>
@@ -730,15 +783,13 @@ function POPanel({
                       </div>
 
                       {/* Remove */}
-                      {!isReceived && (
-                        <button
-                          type="button"
-                          onClick={() => removeLine(i)}
-                          className="h-9 w-7 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeLine(i)}
+                        className="h-9 w-7 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50"
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </div>
                   ))}
                 </div>
