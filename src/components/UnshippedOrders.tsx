@@ -4974,6 +4974,7 @@ export default function UnshippedOrders() {
   const [applyDefaultResult, setApplyDefaultResult]           = useState<{ applied: number; total: number; skipped: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
   const [filterChannel, setFilterChannel]                       = useState<'all' | 'amazon' | 'backmarket' | 'wholesale'>('all')
   const [filterPkgPreset, setFilterPkgPreset]                 = useState<'all' | 'assigned' | 'unassigned'>('all')
+  const [filterPrime, setFilterPrime]                           = useState<'all' | 'prime' | 'nonprime'>('all')
   // Rate shop using applied presets
   const [rateShoppingApplied, setRateShoppingApplied]         = useState(false)
   const [rateShopAppliedIds, setRateShopAppliedIds]           = useState<Set<string>>(new Set())
@@ -6025,6 +6026,9 @@ export default function UnshippedOrders() {
     // Pkg preset filter
     if (filterPkgPreset === 'assigned') merged = merged.filter(o => o.appliedPackagePresetId)
     else if (filterPkgPreset === 'unassigned') merged = merged.filter(o => !o.appliedPackagePresetId)
+    // Prime filter
+    if (filterPrime === 'prime') merged = merged.filter(o => o.isPrime)
+    else if (filterPrime === 'nonprime') merged = merged.filter(o => !o.isPrime)
 
     // For wholesale orders, use lastUpdateDate (approval time) so recently approved orders sort to the top
     const effectiveDate = (o: Order) =>
@@ -6072,7 +6076,7 @@ export default function UnshippedOrders() {
       }
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [orders, wholesaleOrders, sortBy, sortDir, filterPkgPreset])
+  }, [orders, wholesaleOrders, sortBy, sortDir, filterPkgPreset, filterPrime])
 
   // Status badge helper
   function statusBadge(status: string) {
@@ -6526,6 +6530,12 @@ export default function UnshippedOrders() {
               <option value="all">All Orders</option>
               <option value="assigned">Has Pkg Preset</option>
               <option value="unassigned">No Pkg Preset</option>
+            </select>
+            <select value={filterPrime} onChange={e => setFilterPrime(e.target.value as 'all' | 'prime' | 'nonprime')}
+              className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-teal-500">
+              <option value="all">All Shipping</option>
+              <option value="prime">Prime Only</option>
+              <option value="nonprime">Non-Prime Only</option>
             </select>
             <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
               <input type="checkbox" checked={fedexDirectOnly} onChange={e => setFedexDirectOnly(e.target.checked)}
