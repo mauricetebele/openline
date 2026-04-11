@@ -714,7 +714,7 @@ export default function SerialSearchManager() {
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-5 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 {/* Bulk note */}
                 <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
                   <div className="flex items-center gap-2 mb-2">
