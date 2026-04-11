@@ -211,7 +211,6 @@ export default function ReturnRatesReport() {
     { key: 'unitsSold', label: 'Units Sold', align: 'right' },
     { key: 'unitsReturned', label: 'Units Returned', align: 'right' },
     { key: 'returnRate', label: 'Return Rate %', align: 'right' },
-    { key: 'topReturnReason', label: 'Top Return Reason', align: 'left' },
   ]
 
   const s = displaySummary
@@ -378,9 +377,6 @@ export default function ReturnRatesReport() {
                     <td className="px-3 py-1.5 text-right font-medium">{row.unitsReturned}</td>
                     <td className={clsx('px-3 py-1.5 text-right font-semibold', rateColor(row.returnRate))}>
                       {row.returnRate.toFixed(1)}%
-                    </td>
-                    <td className="px-3 py-1.5 max-w-[180px] truncate" title={row.topReturnReason}>
-                      {row.topReturnReason || '\u2014'}
                     </td>
                   </tr>
                 )
