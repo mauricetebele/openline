@@ -1,10 +1,10 @@
 /**
  * GET /api/return-rates
  *
- * Per-SKU return-rate statistics across all channels.
- * Aggregates shipped orders and marketplace RMAs to compute return rates.
+ * Per-SKU return-rate statistics for marketplace channels (excludes FBA & wholesale).
+ * Aggregates shipped MFN orders and received marketplace RMAs to compute return rates.
  *
- * Query params: startDate, endDate, channel, groupByGrade
+ * Query params: startDate, endDate, channel (all|amazon|backmarket), groupByGrade
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -85,11 +85,11 @@ export async function GET(req: NextRequest) {
     return b
   }
 
-  // ── Fetch shipped marketplace orders ───────────────────────────────────
-  const wantMarketplace = channel === 'all' || channel === 'amazon' || channel === 'backmarket'
-  if (wantMarketplace) {
+  // ── Fetch shipped marketplace orders (MFN only, no FBA) ────────────────
+  {
     const marketplaceWhere: Prisma.OrderWhereInput = {
       workflowStatus: 'SHIPPED',
+      fulfillmentChannel: { not: 'AFN' },
       OR: [
         { shippedAt: { gte: dateFrom, lte: dateTo } },
         { shippedAt: null, purchaseDate: { gte: dateFrom, lte: dateTo } },
@@ -115,42 +115,24 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── Fetch shipped wholesale orders ─────────────────────────────────────
-  const wantWholesale = channel === 'all' || channel === 'wholesale'
-  if (wantWholesale) {
-    const wholesaleWhere: Prisma.SalesOrderWhereInput = {
-      fulfillmentStatus: 'SHIPPED',
+  // ── Fetch marketplace RMAs (RECEIVED only, MFN only) ──────────────────
+  {
+    // Date filter on the PARENT ORDER's ship date, not the RMA creation date
+    const rmaOrderFilter: Prisma.OrderWhereInput = {
+      workflowStatus: 'SHIPPED',
+      fulfillmentChannel: { not: 'AFN' },
       OR: [
         { shippedAt: { gte: dateFrom, lte: dateTo } },
-        { shippedAt: null, orderDate: { gte: dateFrom, lte: dateTo } },
+        { shippedAt: null, purchaseDate: { gte: dateFrom, lte: dateTo } },
       ],
     }
+    if (channel === 'amazon') rmaOrderFilter.orderSource = 'amazon'
+    if (channel === 'backmarket') rmaOrderFilter.orderSource = 'backmarket'
 
-    const wsOrders = await prisma.salesOrder.findMany({
-      where: wholesaleWhere,
-      include: { items: true },
-    })
-
-    for (const order of wsOrders) {
-      for (const item of order.items) {
-        const sku = item.sku || 'UNKNOWN'
-        const gradeId: string | null = null // wholesale items don't track grade
-        const title = item.title || (item.productId ? (productTitles.get(item.productId) ?? '') : '')
-        const bucket = getOrCreate(sku, title, 'wholesale', gradeId)
-        bucket.unitsSold += Number(item.quantity)
-      }
-    }
-  }
-
-  // ── Fetch marketplace RMAs (RECEIVED only) ──────────────────────────────
-  if (wantMarketplace) {
     const rmaWhere: Prisma.MarketplaceRMAWhereInput = {
       status: 'RECEIVED',
-      createdAt: { gte: dateFrom, lte: dateTo },
+      order: rmaOrderFilter,
     }
-    // Filter by channel via the parent order's orderSource
-    if (channel === 'amazon') rmaWhere.order = { orderSource: 'amazon' }
-    if (channel === 'backmarket') rmaWhere.order = { orderSource: 'backmarket' }
 
     const rmas = await prisma.marketplaceRMA.findMany({
       where: rmaWhere,

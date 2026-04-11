@@ -38,8 +38,6 @@ function sourceBadge(source: string) {
       return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">Amazon</span>
     case 'backmarket':
       return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">BackMarket</span>
-    case 'wholesale':
-      return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">Wholesale</span>
     case 'mixed':
       return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">Mixed</span>
     default:
@@ -263,10 +261,9 @@ export default function ReturnRatesReport() {
           onChange={(e) => { setChannel(e.target.value); setPage(1) }}
           className="px-2 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
         >
-          <option value="all">All Channels</option>
+          <option value="all">All Marketplace Channels</option>
           <option value="amazon">Amazon</option>
           <option value="backmarket">BackMarket</option>
-          <option value="wholesale">Wholesale</option>
         </select>
 
         {/* SKU search — real-time client-side filter */}
