@@ -806,7 +806,7 @@ export default function SerialSearchManager() {
                 {/* Change Grade */}
                 <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
                   <div className="flex items-center gap-2 mb-2">
-                    <Star size={18} className="text-indigo-400 shrink-0" />
+                    <span className="text-[11px] font-black italic text-indigo-400 leading-none tracking-tight shrink-0">ABC</span>
                     <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">Change Grade</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -825,7 +825,6 @@ export default function SerialSearchManager() {
                       disabled={gradeChangeLoading || selectedInStock.length === 0 || gradeChangeId === ''}
                       className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
                     >
-                      <Star size={12} />
                       {gradeChangeLoading ? 'Changing…' : 'Change'}
                     </button>
                   </div>
