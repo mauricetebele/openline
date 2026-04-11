@@ -219,12 +219,12 @@ export async function autoCheckNewReturns(
 ): Promise<{ checked: number; alertsCreated: number }> {
   const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
 
-  // Find returns that haven't been SICKW-checked yet, imported in last 2 days
+  // Find returns that haven't been SICKW-checked yet, requested in last 2 days
   const unchecked = await prisma.mFNReturn.findMany({
     where: {
       accountId,
       fmiStatus: null,
-      importedAt: { gte: twoDaysAgo },
+      returnDate: { gte: twoDaysAgo },
     },
     select: { id: true, orderId: true, asin: true, sku: true, title: true },
   })
