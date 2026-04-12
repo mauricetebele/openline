@@ -1,13 +1,21 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { clsx } from 'clsx'
 import {
-  ChevronDown, ChevronUp, Package, Hash, Download,
+  ChevronDown, ChevronUp, ChevronRight, Hash, Download,
   RotateCcw, Percent, ShoppingCart,
 } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+interface OrderDetail {
+  orderId: string
+  amazonOrderId: string
+  qty: number
+  source: string
+  date: string | null
+}
 
 interface ReturnRow {
   sku: string
@@ -18,6 +26,8 @@ interface ReturnRow {
   unitsReturned: number
   returnRate: number
   topReturnReason: string
+  soldOrders: OrderDetail[]
+  returnedOrders: OrderDetail[]
 }
 
 interface Summary {
@@ -99,6 +109,7 @@ export default function ReturnRatesReport() {
   const [sortKey, setSortKey] = useState<SortKey>('returnRate')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [page, setPage] = useState(1)
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const pageSize = 50
 
   function toggleSort(key: SortKey) {
@@ -357,28 +368,109 @@ export default function ReturnRatesReport() {
               </tr>
             ) : (
               pagedRows.map((row, i) => {
+                const rowKey = `${row.sku}-${row.grade ?? ''}-${row.channel}`
+                const isExpanded = expandedKey === rowKey
                 const stripeBg = i % 2 === 0
                   ? 'bg-white dark:bg-gray-900'
                   : 'bg-gray-50 dark:bg-gray-800/50'
                 return (
-                  <tr
-                    key={`${row.sku}-${row.grade ?? ''}-${row.channel}`}
-                    className={clsx(
-                      'border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors',
-                      stripeBg,
-                      'hover:bg-blue-50/50 dark:hover:bg-blue-900/10',
+                  <React.Fragment key={rowKey}>
+                    <tr
+                      onClick={() => setExpandedKey(isExpanded ? null : rowKey)}
+                      className={clsx(
+                        'border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors cursor-pointer',
+                        isExpanded ? 'bg-blue-50 dark:bg-blue-900/20' : stripeBg,
+                        'hover:bg-blue-50/50 dark:hover:bg-blue-900/10',
+                      )}
+                    >
+                      <td className="px-3 py-1.5 font-mono font-medium">
+                        <span className="inline-flex items-center gap-1.5">
+                          <ChevronRight size={12} className={clsx('text-gray-400 transition-transform', isExpanded && 'rotate-90')} />
+                          {row.sku}
+                        </span>
+                      </td>
+                      <td className="px-3 py-1.5 max-w-[220px] truncate" title={row.title}>{row.title || '\u2014'}</td>
+                      <td className="px-3 py-1.5">{row.grade || 'No Grade'}</td>
+                      <td className="px-3 py-1.5">{sourceBadge(row.channel)}</td>
+                      <td className="px-3 py-1.5 text-right font-medium">{row.unitsSold}</td>
+                      <td className="px-3 py-1.5 text-right font-medium">{row.unitsReturned}</td>
+                      <td className={clsx('px-3 py-1.5 text-right font-semibold', rateColor(row.returnRate))}>
+                        {row.returnRate.toFixed(1)}%
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="bg-gray-50 dark:bg-gray-800/70">
+                        <td colSpan={columns.length} className="px-4 py-3">
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            {/* Sold Orders */}
+                            <div>
+                              <h4 className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                                Sold Orders ({row.soldOrders.length})
+                              </h4>
+                              {row.soldOrders.length === 0 ? (
+                                <p className="text-[11px] text-gray-400">No orders</p>
+                              ) : (
+                                <div className="max-h-48 overflow-auto rounded border border-gray-200 dark:border-gray-700">
+                                  <table className="w-full text-[11px]">
+                                    <thead className="bg-gray-100 dark:bg-gray-700 sticky top-0">
+                                      <tr>
+                                        <th className="px-2 py-1 text-left font-medium text-gray-600 dark:text-gray-300">Order ID</th>
+                                        <th className="px-2 py-1 text-left font-medium text-gray-600 dark:text-gray-300">Source</th>
+                                        <th className="px-2 py-1 text-left font-medium text-gray-600 dark:text-gray-300">Date</th>
+                                        <th className="px-2 py-1 text-right font-medium text-gray-600 dark:text-gray-300">Qty</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {row.soldOrders.map((o, j) => (
+                                        <tr key={`${o.orderId}-${j}`} className="border-t border-gray-100 dark:border-gray-700">
+                                          <td className="px-2 py-1 font-mono text-gray-800 dark:text-gray-200">{o.amazonOrderId}</td>
+                                          <td className="px-2 py-1">{sourceBadge(o.source)}</td>
+                                          <td className="px-2 py-1 text-gray-500 dark:text-gray-400">{o.date ?? '\u2014'}</td>
+                                          <td className="px-2 py-1 text-right font-medium text-gray-800 dark:text-gray-200">{o.qty}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                            {/* Returned Orders */}
+                            <div>
+                              <h4 className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                                Returned Orders ({row.returnedOrders.length})
+                              </h4>
+                              {row.returnedOrders.length === 0 ? (
+                                <p className="text-[11px] text-gray-400">No returns</p>
+                              ) : (
+                                <div className="max-h-48 overflow-auto rounded border border-gray-200 dark:border-gray-700">
+                                  <table className="w-full text-[11px]">
+                                    <thead className="bg-gray-100 dark:bg-gray-700 sticky top-0">
+                                      <tr>
+                                        <th className="px-2 py-1 text-left font-medium text-gray-600 dark:text-gray-300">Order ID</th>
+                                        <th className="px-2 py-1 text-left font-medium text-gray-600 dark:text-gray-300">Source</th>
+                                        <th className="px-2 py-1 text-left font-medium text-gray-600 dark:text-gray-300">RMA Date</th>
+                                        <th className="px-2 py-1 text-right font-medium text-gray-600 dark:text-gray-300">Qty</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {row.returnedOrders.map((o, j) => (
+                                        <tr key={`${o.orderId}-${j}`} className="border-t border-gray-100 dark:border-gray-700">
+                                          <td className="px-2 py-1 font-mono text-gray-800 dark:text-gray-200">{o.amazonOrderId}</td>
+                                          <td className="px-2 py-1">{sourceBadge(o.source)}</td>
+                                          <td className="px-2 py-1 text-gray-500 dark:text-gray-400">{o.date ?? '\u2014'}</td>
+                                          <td className="px-2 py-1 text-right font-medium text-gray-800 dark:text-gray-200">{o.qty}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  >
-                    <td className="px-3 py-1.5 font-mono font-medium">{row.sku}</td>
-                    <td className="px-3 py-1.5 max-w-[220px] truncate" title={row.title}>{row.title || '\u2014'}</td>
-                    <td className="px-3 py-1.5">{row.grade || 'No Grade'}</td>
-                    <td className="px-3 py-1.5">{sourceBadge(row.channel)}</td>
-                    <td className="px-3 py-1.5 text-right font-medium">{row.unitsSold}</td>
-                    <td className="px-3 py-1.5 text-right font-medium">{row.unitsReturned}</td>
-                    <td className={clsx('px-3 py-1.5 text-right font-semibold', rateColor(row.returnRate))}>
-                      {row.returnRate.toFixed(1)}%
-                    </td>
-                  </tr>
+                  </React.Fragment>
                 )
               })
             )}

@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncUnshippedOrders } from '@/lib/amazon/sync-orders'
 import { syncBackMarketOrders } from '@/lib/backmarket/sync-orders'
+import { enrichOrdersFromShipStation } from '@/lib/shipstation/enrich-orders'
 
 export const maxDuration = 300
 
@@ -82,5 +83,16 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ synced: results.length, results, backmarket: bmResult ?? null })
+  // ── ShipStation enrichment (auto-pull addresses + ssOrderId) ─────────────
+  let ssEnrichResult: { enriched: number; addresses: number; total: number } | null = null
+  for (const account of accounts) {
+    try {
+      const r = await enrichOrdersFromShipStation(account.id, msg => console.log(msg))
+      if (r.total > 0) ssEnrichResult = r
+    } catch (err) {
+      console.error('[cron/sync-orders] SS enrich error:', err instanceof Error ? err.message : err)
+    }
+  }
+
+  return NextResponse.json({ synced: results.length, results, backmarket: bmResult ?? null, ssEnrich: ssEnrichResult })
 }

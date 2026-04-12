@@ -51,6 +51,13 @@ export async function GET(req: NextRequest) {
   for (const g of grades) gradeNames.set(g.id, g.grade)
 
   // ── Aggregation bucket ─────────────────────────────────────────────────
+  type OrderDetail = {
+    orderId: string
+    amazonOrderId: string
+    qty: number
+    source: string
+    date: string | null
+  }
   type Bucket = {
     sku: string
     title: string
@@ -59,6 +66,8 @@ export async function GET(req: NextRequest) {
     unitsSold: number
     unitsReturned: number
     returnReasons: string[]
+    soldOrders: OrderDetail[]
+    returnedOrders: OrderDetail[]
   }
   const buckets = new Map<string, Bucket>()
 
@@ -78,6 +87,8 @@ export async function GET(req: NextRequest) {
         unitsSold: 0,
         unitsReturned: 0,
         returnReasons: [],
+        soldOrders: [],
+        returnedOrders: [],
       }
       buckets.set(key, b)
     }
@@ -126,6 +137,13 @@ export async function GET(req: NextRequest) {
         const title = item.title || (mapping ? (productTitles.get(mapping.productId) ?? '') : '')
         const bucket = getOrCreate(internalSku, title, order.orderSource, gradeId)
         bucket.unitsSold += item.quantityOrdered
+        bucket.soldOrders.push({
+          orderId: order.id,
+          amazonOrderId: order.amazonOrderId,
+          qty: item.quantityOrdered,
+          source: order.orderSource,
+          date: (order.shippedAt ?? order.purchaseDate)?.toISOString().slice(0, 10) ?? null,
+        })
       }
     }
   }
@@ -155,7 +173,11 @@ export async function GET(req: NextRequest) {
         items: true,
         order: {
           select: {
+            id: true,
+            amazonOrderId: true,
             orderSource: true,
+            shippedAt: true,
+            purchaseDate: true,
             serialAssignments: {
               select: { orderItemId: true, inventorySerial: { select: { gradeId: true } } },
             },
@@ -182,6 +204,13 @@ export async function GET(req: NextRequest) {
         const source = rma.order.orderSource
         const bucket = getOrCreate(internalSku, title, source, gradeId)
         bucket.unitsReturned += item.quantityReturned
+        bucket.returnedOrders.push({
+          orderId: rma.orderId,
+          amazonOrderId: rma.order.amazonOrderId,
+          qty: item.quantityReturned,
+          source,
+          date: rma.createdAt?.toISOString().slice(0, 10) ?? null,
+        })
         if (item.returnReason) bucket.returnReasons.push(item.returnReason)
       }
     }
@@ -212,6 +241,8 @@ export async function GET(req: NextRequest) {
       unitsReturned: b.unitsReturned,
       returnRate: Math.round(returnRate * 10) / 10,
       topReturnReason: topReason,
+      soldOrders: b.soldOrders,
+      returnedOrders: b.returnedOrders,
     }
   })
 
