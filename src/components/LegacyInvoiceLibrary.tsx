@@ -37,6 +37,7 @@ export default function LegacyInvoiceLibrary() {
   const [selectedOrder, setSelectedOrder] = useState<InvoiceRecord | null>(null)
   const [rawExpanded, setRawExpanded] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const cancelRef = useRef(false)
 
   function handleSort(key: SortKey) {
     if (sortBy === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -48,49 +49,69 @@ export default function LegacyInvoiceLibrary() {
     return sortDir === 'asc' ? '↑' : '↓'
   }
 
+  async function parseOneFile(file: File): Promise<{ records: InvoiceRecord[]; fileName: string } | null> {
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/legacy-invoices/parse', { method: 'POST', body: form })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      const data = await res.json()
+      const records: InvoiceRecord[] = (data.records ?? []).map((r: Record<string, unknown>) => ({
+        orderId: (r.orderId as string) ?? '',
+        orderDate: (r.orderDate as string) ?? '',
+        customerName: (r.customerName as string) ?? '',
+        address: (r.address as string) ?? '',
+        items: (r.items as InvoiceItem[]) ?? [],
+        tracking: (r.tracking as string[]) ?? [],
+        rawText: (r.rawText as string) ?? '',
+        _file: file.name,
+      }))
+      return { records, fileName: file.name }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      setError(prev => prev ? `${prev}\n${file.name}: ${msg}` : `Failed: ${file.name}: ${msg}`)
+      console.error(`Failed to parse ${file.name}:`, err)
+      return null
+    }
+  }
+
   async function handleFiles(fileList: FileList | null) {
     if (!fileList?.length) return
     setImporting(true)
     setError('')
-    const newRecords: InvoiceRecord[] = []
-    const newFiles: string[] = []
-    const pdfFiles = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.pdf'))
+    cancelRef.current = false
+    const pdfFiles = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.pdf') && !files.includes(f.name))
+    const total = pdfFiles.length
+    if (total === 0) { setImporting(false); return }
 
-    for (let i = 0; i < pdfFiles.length; i++) {
-      const file = pdfFiles[i]
-      if (files.includes(file.name)) continue
-      setImportProgress(`Processing ${i + 1} of ${pdfFiles.length}: ${file.name}`)
-      try {
-        const form = new FormData()
-        form.append('file', file)
-        const res = await fetch('/api/legacy-invoices/parse', { method: 'POST', body: form })
-        if (!res.ok) throw new Error(`Server error ${res.status}`)
-        const data = await res.json()
-        for (const r of data.records ?? []) {
-          newRecords.push({
-            orderId: r.orderId,
-            orderDate: r.orderDate ?? '',
-            customerName: r.customerName ?? '',
-            address: r.address ?? '',
-            items: r.items ?? [],
-            tracking: r.tracking ?? [],
-            rawText: r.rawText ?? '',
-            _file: file.name,
-          })
+    const BATCH_SIZE = 5
+    let completed = 0
+
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      if (cancelRef.current) break
+      const batch = pdfFiles.slice(i, i + BATCH_SIZE)
+      setImportProgress(`Processing ${Math.min(i + BATCH_SIZE, total)} of ${total} files…`)
+
+      const results = await Promise.all(batch.map(f => parseOneFile(f)))
+
+      const batchRecords: InvoiceRecord[] = []
+      const batchFiles: string[] = []
+      for (const result of results) {
+        if (result) {
+          batchRecords.push(...result.records)
+          batchFiles.push(result.fileName)
         }
-        newFiles.push(file.name)
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unknown error'
-        setError(`Failed to parse ${file.name}: ${msg}`)
-        console.error(`Failed to parse ${file.name}:`, err)
       }
+
+      if (batchRecords.length > 0) {
+        setRecords(prev => [...prev, ...batchRecords])
+        setFiles(prev => [...prev, ...batchFiles])
+      }
+
+      completed += batch.length
+      setImportProgress(`Processed ${completed} of ${total} files`)
     }
 
-    if (newRecords.length > 0) {
-      setRecords(prev => [...prev, ...newRecords])
-      setFiles(prev => [...prev, ...newFiles])
-      setPage(0)
-    }
     setImporting(false)
     setImportProgress('')
     if (fileRef.current) fileRef.current.value = ''
@@ -164,8 +185,16 @@ export default function LegacyInvoiceLibrary() {
           {importing ? 'Processing…' : 'Upload PDFs'}
         </button>
 
-        {importing && importProgress && (
-          <span className="text-xs text-gray-500 animate-pulse">{importProgress}</span>
+        {importing && (
+          <>
+            {importProgress && <span className="text-xs text-gray-500 animate-pulse">{importProgress}</span>}
+            <button
+              onClick={() => { cancelRef.current = true }}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors"
+            >
+              <X size={12} /> Cancel
+            </button>
+          </>
         )}
         {error && (
           <span className="text-xs text-red-500">{error}</span>
