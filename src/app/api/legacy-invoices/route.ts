@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import { getAuthUser } from '@/lib/get-auth-user'
 
 export async function GET() {
@@ -22,32 +23,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'records[] is required' }, { status: 400 })
   }
 
-  let upserted = 0
-  for (const r of records) {
-    await prisma.legacyInvoice.upsert({
+  const ops = records.map((r: Record<string, unknown>) =>
+    prisma.legacyInvoice.upsert({
       where: {
-        orderId_fileName: { orderId: r.orderId, fileName: r._file ?? r.fileName ?? '' },
+        orderId_fileName: { orderId: r.orderId as string, fileName: ((r._file ?? r.fileName ?? '') as string) },
       },
       create: {
-        orderId: r.orderId,
-        orderDate: r.orderDate ?? '',
-        customerName: r.customerName ?? '',
-        address: r.address ?? '',
-        items: r.items ?? [],
-        tracking: r.tracking ?? [],
-        rawText: r.rawText ?? '',
-        fileName: r._file ?? r.fileName ?? '',
+        orderId: r.orderId as string,
+        orderDate: (r.orderDate ?? '') as string,
+        customerName: (r.customerName ?? '') as string,
+        address: (r.address ?? '') as string,
+        items: (r.items ?? []) as unknown as Prisma.InputJsonValue,
+        tracking: (r.tracking ?? []) as string[],
+        rawText: (r.rawText ?? '') as string,
+        fileName: ((r._file ?? r.fileName ?? '') as string),
       },
       update: {
-        orderDate: r.orderDate ?? '',
-        customerName: r.customerName ?? '',
-        address: r.address ?? '',
-        items: r.items ?? [],
-        tracking: r.tracking ?? [],
-        rawText: r.rawText ?? '',
+        orderDate: (r.orderDate ?? '') as string,
+        customerName: (r.customerName ?? '') as string,
+        address: (r.address ?? '') as string,
+        items: (r.items ?? []) as unknown as Prisma.InputJsonValue,
+        tracking: (r.tracking ?? []) as string[],
+        rawText: (r.rawText ?? '') as string,
       },
     })
-    upserted++
+  )
+
+  let upserted = 0
+  for (let i = 0; i < ops.length; i += 200) {
+    const batch = ops.slice(i, i + 200)
+    await prisma.$transaction(batch)
+    upserted += batch.length
   }
 
   return NextResponse.json({ upserted })

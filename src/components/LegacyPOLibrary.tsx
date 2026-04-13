@@ -147,12 +147,19 @@ export default function LegacyPOLibrary() {
       setRecords(prev => [...prev, ...newRecords])
       setFiles(prev => [...prev, ...newFiles])
       setPage(0)
-      // persist to DB (fire-and-forget)
-      fetch('/api/legacy-po', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ records: newRecords }),
-      }).catch(() => {})
+      // persist to DB in chunks
+      const CHUNK = 500
+      for (let i = 0; i < newRecords.length; i += CHUNK) {
+        try {
+          await fetch('/api/legacy-po', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ records: newRecords.slice(i, i + CHUNK) }),
+          })
+        } catch {
+          // continue with remaining chunks
+        }
+      }
     }
     setImporting(false)
     if (fileRef.current) fileRef.current.value = ''

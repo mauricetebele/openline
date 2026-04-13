@@ -22,30 +22,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'records[] is required' }, { status: 400 })
   }
 
-  let upserted = 0
-  for (const r of records) {
-    await prisma.legacyPOSerial.upsert({
+  const ops = records.map((r: Record<string, unknown>) =>
+    prisma.legacyPOSerial.upsert({
       where: {
-        serial_fileName: { serial: r.serial, fileName: r._file ?? r.fileName ?? '' },
+        serial_fileName: { serial: r.serial as string, fileName: (r._file ?? r.fileName ?? '') as string },
       },
       create: {
-        productSku: r.productSku ?? '',
-        serial: r.serial,
-        vendor: r.vendor ?? '',
-        receivedDate: r.receivedDate ?? '',
-        cost: r.cost ?? null,
-        poCode: r.poCode ?? '',
-        fileName: r._file ?? r.fileName ?? '',
+        productSku: (r.productSku ?? '') as string,
+        serial: r.serial as string,
+        vendor: (r.vendor ?? '') as string,
+        receivedDate: (r.receivedDate ?? '') as string,
+        cost: (r.cost as number | null) ?? null,
+        poCode: (r.poCode ?? '') as string,
+        fileName: ((r._file ?? r.fileName ?? '') as string),
       },
       update: {
-        productSku: r.productSku ?? '',
-        vendor: r.vendor ?? '',
-        receivedDate: r.receivedDate ?? '',
-        cost: r.cost ?? null,
-        poCode: r.poCode ?? '',
+        productSku: (r.productSku ?? '') as string,
+        vendor: (r.vendor ?? '') as string,
+        receivedDate: (r.receivedDate ?? '') as string,
+        cost: (r.cost as number | null) ?? null,
+        poCode: (r.poCode ?? '') as string,
       },
     })
-    upserted++
+  )
+
+  // Batch in chunks of 200 to avoid exceeding query limits
+  let upserted = 0
+  for (let i = 0; i < ops.length; i += 200) {
+    const batch = ops.slice(i, i + 200)
+    await prisma.$transaction(batch)
+    upserted += batch.length
   }
 
   return NextResponse.json({ upserted })
