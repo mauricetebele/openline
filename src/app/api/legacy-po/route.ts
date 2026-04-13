@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import crypto from 'crypto'
 
+export const maxDuration = 120
+
 export async function GET() {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -35,7 +37,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Bulk upsert using raw SQL — much faster than individual Prisma upserts
-  const CHUNK = 1000
+  const CHUNK = 500
   let upserted = 0
 
   for (let i = 0; i < records.length; i += CHUNK) {
