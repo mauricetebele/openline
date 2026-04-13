@@ -136,17 +136,20 @@ export default function LegacyInvoiceLibrary() {
       if (batchRecords.length > 0) {
         setRecords(prev => [...prev, ...batchRecords])
         setFiles(prev => [...prev, ...batchFiles])
-        // persist to DB in chunks
-        const CHUNK = 1000
-        for (let i = 0; i < batchRecords.length; i += CHUNK) {
+        // persist to DB — one request per file
+        for (const fileName of batchFiles) {
+          const fileRecords = batchRecords.filter(r => r._file === fileName)
           try {
-            await fetch('/api/legacy-invoices', {
+            const res = await fetch('/api/legacy-invoices', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ records: batchRecords.slice(i, i + CHUNK) }),
+              body: JSON.stringify({ records: fileRecords }),
             })
-          } catch {
-            // continue with remaining chunks
+            if (!res.ok) {
+              console.error(`legacy-invoices save ${fileName} failed: ${res.status}`, await res.text())
+            }
+          } catch (err) {
+            console.error(`legacy-invoices save ${fileName} error:`, err)
           }
         }
       }

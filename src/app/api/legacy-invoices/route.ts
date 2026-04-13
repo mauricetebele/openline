@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
-import crypto from 'crypto'
 
 export const maxDuration = 120
 
@@ -38,37 +37,35 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const CHUNK = 250
+    const byFile = new Map<string, InvoiceRecord[]>()
+    for (const r of records as InvoiceRecord[]) {
+      const fn = r._file ?? r.fileName ?? ''
+      if (!byFile.has(fn)) byFile.set(fn, [])
+      byFile.get(fn)!.push(r)
+    }
+
     let upserted = 0
 
-    for (let i = 0; i < records.length; i += CHUNK) {
-      const chunk = records.slice(i, i + CHUNK) as InvoiceRecord[]
+    for (const [fileName, recs] of Array.from(byFile.entries())) {
+      await prisma.legacyInvoice.deleteMany({ where: { fileName } })
 
-      const values = chunk.map((r) => {
-        const id = crypto.randomUUID()
-        const orderId = r.orderId
-        const orderDate = r.orderDate ?? ''
-        const customerName = r.customerName ?? ''
-        const address = r.address ?? ''
-        const items = JSON.stringify(r.items ?? [])
-        const tracking = JSON.stringify(r.tracking ?? [])
-        const rawText = r.rawText ?? ''
-        const fileName = r._file ?? r.fileName ?? ''
-        return `('${id}', '${esc(orderId)}', '${esc(orderDate)}', '${esc(customerName)}', '${esc(address)}', '${esc(items)}'::jsonb, '${esc(tracking)}'::jsonb, '${esc(rawText)}', '${esc(fileName)}', NOW())`
-      })
-
-      await prisma.$executeRawUnsafe(`
-        INSERT INTO legacy_invoices ("id", "orderId", "orderDate", "customerName", "address", "items", "tracking", "rawText", "fileName", "createdAt")
-        VALUES ${values.join(',\n')}
-        ON CONFLICT ("orderId", "fileName") DO UPDATE SET
-          "orderDate" = EXCLUDED."orderDate",
-          "customerName" = EXCLUDED."customerName",
-          "address" = EXCLUDED."address",
-          "items" = EXCLUDED."items",
-          "tracking" = EXCLUDED."tracking",
-          "rawText" = EXCLUDED."rawText"
-      `)
-      upserted += chunk.length
+      for (let i = 0; i < recs.length; i += 500) {
+        const chunk = recs.slice(i, i + 500)
+        await prisma.legacyInvoice.createMany({
+          data: chunk.map(r => ({
+            orderId: r.orderId,
+            orderDate: r.orderDate ?? '',
+            customerName: r.customerName ?? '',
+            address: r.address ?? '',
+            items: (r.items ?? []) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+            tracking: (r.tracking ?? []) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+            rawText: r.rawText ?? '',
+            fileName,
+          })),
+          skipDuplicates: true,
+        })
+        upserted += chunk.length
+      }
     }
 
     return NextResponse.json({ upserted })
@@ -76,10 +73,6 @@ export async function POST(req: NextRequest) {
     console.error('legacy-invoices POST error:', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
-}
-
-function esc(s: string): string {
-  return s.replace(/'/g, "''")
 }
 
 export async function DELETE(req: NextRequest) {

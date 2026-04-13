@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
-import crypto from 'crypto'
 
 export const maxDuration = 120
 
@@ -37,35 +36,37 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const CHUNK = 250
+    // Group by fileName so we can delete-then-insert per file
+    const byFile = new Map<string, PORecord[]>()
+    for (const r of records as PORecord[]) {
+      const fn = r._file ?? r.fileName ?? ''
+      if (!byFile.has(fn)) byFile.set(fn, [])
+      byFile.get(fn)!.push(r)
+    }
+
     let upserted = 0
 
-    for (let i = 0; i < records.length; i += CHUNK) {
-      const chunk = records.slice(i, i + CHUNK) as PORecord[]
+    for (const [fileName, recs] of Array.from(byFile.entries())) {
+      // Delete existing records for this file, then bulk insert
+      await prisma.legacyPOSerial.deleteMany({ where: { fileName } })
 
-      const values = chunk.map((r) => {
-        const id = crypto.randomUUID()
-        const productSku = r.productSku ?? ''
-        const serial = r.serial
-        const vendor = r.vendor ?? ''
-        const receivedDate = r.receivedDate ?? ''
-        const cost = r.cost ?? null
-        const poCode = r.poCode ?? ''
-        const fileName = r._file ?? r.fileName ?? ''
-        return `('${id}', '${esc(productSku)}', '${esc(serial)}', '${esc(vendor)}', '${esc(receivedDate)}', ${cost === null ? 'NULL' : cost}, '${esc(poCode)}', '${esc(fileName)}', NOW())`
-      })
-
-      await prisma.$executeRawUnsafe(`
-        INSERT INTO legacy_po_serials ("id", "productSku", "serial", "vendor", "receivedDate", "cost", "poCode", "fileName", "createdAt")
-        VALUES ${values.join(',\n')}
-        ON CONFLICT ("serial", "fileName") DO UPDATE SET
-          "productSku" = EXCLUDED."productSku",
-          "vendor" = EXCLUDED."vendor",
-          "receivedDate" = EXCLUDED."receivedDate",
-          "cost" = EXCLUDED."cost",
-          "poCode" = EXCLUDED."poCode"
-      `)
-      upserted += chunk.length
+      // createMany in chunks of 1000
+      for (let i = 0; i < recs.length; i += 1000) {
+        const chunk = recs.slice(i, i + 1000)
+        await prisma.legacyPOSerial.createMany({
+          data: chunk.map(r => ({
+            productSku: r.productSku ?? '',
+            serial: r.serial,
+            vendor: r.vendor ?? '',
+            receivedDate: r.receivedDate ?? '',
+            cost: r.cost ?? null,
+            poCode: r.poCode ?? '',
+            fileName,
+          })),
+          skipDuplicates: true,
+        })
+        upserted += chunk.length
+      }
     }
 
     return NextResponse.json({ upserted })
@@ -73,10 +74,6 @@ export async function POST(req: NextRequest) {
     console.error('legacy-po POST error:', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
-}
-
-function esc(s: string): string {
-  return s.replace(/'/g, "''")
 }
 
 export async function DELETE(req: NextRequest) {
