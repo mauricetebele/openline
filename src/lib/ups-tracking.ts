@@ -214,27 +214,37 @@ export async function getCarrierStatus(tracking: string): Promise<TrackingResult
     throw new Error(`Carrier could not be detected for tracking number "${tracking}". Use the Track link to look it up manually.`)
   }
 
-  // UPS
+  // UPS — retry on 429 with exponential backoff
   const token = await getUPSToken()
 
   let data: unknown
-  try {
-    const res = await axios.get(
-      `${UPS_TRACK_URL}/${encodeURIComponent(tracking)}`,
-      {
-        params: { locale: 'en_US', returnSignature: 'false' },
-        headers: {
-          Authorization: `Bearer ${token}`,
-          transId: `refund-auditor-${Date.now()}`,
-          transactionSrc: 'RefundAuditor',
+  const MAX_RETRIES = 4
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await axios.get(
+        `${UPS_TRACK_URL}/${encodeURIComponent(tracking)}`,
+        {
+          params: { locale: 'en_US', returnSignature: 'false' },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            transId: `refund-auditor-${Date.now()}`,
+            transactionSrc: 'RefundAuditor',
+          },
         },
-      },
-    )
-    data = res.data
-  } catch (e: unknown) {
-    const msg = (e as { response?: { data?: { response?: { errors?: { message?: string }[] } } } })
-      ?.response?.data?.response?.errors?.[0]?.message
-    throw new Error(msg ?? 'UPS API request failed. Check your credentials and try again.')
+      )
+      data = res.data
+      break
+    } catch (e: unknown) {
+      const axiosErr = e as { response?: { status?: number; data?: { response?: { errors?: { message?: string }[] } } } }
+      if (axiosErr?.response?.status === 429 && attempt < MAX_RETRIES) {
+        const wait = Math.pow(2, attempt) * 1000 + Math.random() * 500
+        console.log('[UPS Track] 429 rate limited — retrying in %dms (attempt %d/%d)', Math.round(wait), attempt + 1, MAX_RETRIES)
+        await new Promise(r => setTimeout(r, wait))
+        continue
+      }
+      const msg = axiosErr?.response?.data?.response?.errors?.[0]?.message
+      throw new Error(msg ?? 'UPS API request failed. Check your credentials and try again.')
+    }
   }
 
   interface UpsDeliveryDate { type?: string; date?: string }

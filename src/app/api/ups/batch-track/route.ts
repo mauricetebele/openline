@@ -17,38 +17,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Maximum 20 tracking numbers per request' }, { status: 400 })
   }
 
-  // Process with concurrency limit to avoid UPS rate-limiting
-  const CONCURRENCY = 3
+  // Process sequentially with a small delay to stay under UPS rate limits
   const results: Record<string, { status: string; deliveredAt: Date | null; estimatedDelivery: Date | null } | { error: string }> = {}
 
-  let running = 0
-  const waitQueue: (() => void)[] = []
-
-  async function acquireSlot() {
-    if (running >= CONCURRENCY) {
-      await new Promise<void>(r => waitQueue.push(r))
+  for (const tn of trackingNumbers) {
+    try {
+      const result = await getCarrierStatus(tn)
+      results[tn] = result
+    } catch (err) {
+      results[tn] = { error: err instanceof Error ? err.message : 'Unknown error' }
     }
-    running++
+    // 600ms between calls — UPS free tier allows ~1 req/sec
+    await new Promise(r => setTimeout(r, 600))
   }
-  function releaseSlot() {
-    running--
-    const next = waitQueue.shift()
-    if (next) next()
-  }
-
-  await Promise.allSettled(
-    trackingNumbers.map(async (tn) => {
-      await acquireSlot()
-      try {
-        const result = await getCarrierStatus(tn)
-        results[tn] = result
-      } catch (err) {
-        results[tn] = { error: err instanceof Error ? err.message : 'Unknown error' }
-      } finally {
-        releaseSlot()
-      }
-    }),
-  )
 
   return NextResponse.json({ results })
 }
