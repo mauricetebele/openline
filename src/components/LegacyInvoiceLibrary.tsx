@@ -33,60 +33,48 @@ function parseInvoiceText(text: string, fileName: string): InvoiceRecord[] {
   // Extract Invoice # (Amazon order ID pattern: xxx-xxxxxxx-xxxxxxx)
   const orderMatch = text.match(/(\d{3}-\d{7}-\d{7})/)
   const orderId = orderMatch?.[1] ?? ''
+  if (!orderId) return []
 
-  // Extract SKU(s) and serial(s) from the SERIAL # DETAILS section
-  // Format: SKU on one line, then serial number(s) below it
-  // Also grab SKU from the line items table as fallback
   const records: InvoiceRecord[] = []
 
-  // Look for SERIAL # DETAILS BY SKU section
-  const serialSectionMatch = text.match(/SERIAL\s*#?\s*DETAILS\s*BY\s*SKU[:\s]*([\s\S]*?)(?:POWERED BY|$)/i)
+  // Extract from SERIAL # DETAILS BY SKU section
+  // Text is space-separated (no newlines from PDF extraction)
+  // Pattern: "SERIAL # DETAILS BY SKU:" then SKU tokens and serial numbers until "POWERED BY"
+  const serialSectionMatch = text.match(/SERIAL\s*#?\s*DETAILS\s*BY\s*SKU[:\s]+(.*?)(?:POWERED\s*BY|$)/i)
   if (serialSectionMatch) {
-    const section = serialSectionMatch[1]
-    // SKU lines look like: IPAD-AIR611-256-GRAY-CELL-B
-    // Serial lines are numeric: 353974990345273
-    // There can be multiple serials per SKU
-    const parts = section.split(/\n/).map(l => l.trim()).filter(Boolean)
+    const section = serialSectionMatch[1].trim()
+    // Split into tokens by whitespace
+    const tokens = section.split(/\s+/).filter(Boolean)
+    // Walk tokens: SKU tokens have letters+dashes, serials are long digit strings
     let currentSku = ''
-    for (const part of parts) {
-      // SKU pattern: contains letters, dashes, possibly numbers — but is NOT purely numeric
-      if (/^[A-Z0-9].*-/.test(part) && !/^\d+$/.test(part)) {
-        currentSku = part
-      } else if (/^\d{10,}$/.test(part.replace(/\s/g, ''))) {
-        // Serial number — long numeric string
-        records.push({
-          orderId,
-          sku: currentSku,
-          serial: part.replace(/\s/g, ''),
-          _file: fileName,
-        })
+    for (const token of tokens) {
+      if (/^\d{10,}$/.test(token)) {
+        // Serial number
+        records.push({ orderId, sku: currentSku, serial: token, _file: fileName })
+      } else if (/[A-Z]/.test(token) && token.includes('-') && token.length > 5) {
+        // SKU token
+        currentSku = token
       }
     }
   }
 
-  // If no serial section found but we have an order, try to find SKU from the table
-  if (records.length === 0 && orderId) {
-    // Try to find SKU from text — look for SKU-like patterns (letters-numbers-letters with dashes)
+  // Fallback: if no serials found from the section, try regex on full text
+  if (records.length === 0) {
+    // Find SKU-like patterns (letters, numbers, dashes, 6+ chars)
     const skuMatches = text.match(/\b([A-Z][A-Z0-9]+-[A-Z0-9-]+[A-Z0-9])\b/g)
     const skus = skuMatches ? Array.from(new Set(skuMatches)).filter(s => s.length > 5) : []
-    // Try to find any serial-like numbers (10+ digit numbers)
-    const serialMatches = text.match(/\b(\d{10,})\b/g)
-    // Filter out things that look like order IDs, UPCs, tracking numbers
-    const serials = serialMatches?.filter(s => {
-      if (s === orderId.replace(/-/g, '')) return false
-      if (s.startsWith('1Z')) return false // tracking
-      return true
-    }) ?? []
+    // Find serial-like numbers (12+ digits to avoid matching short numbers)
+    const serialMatches = text.match(/\b(\d{12,})\b/g)
+    const orderDigits = orderId.replace(/-/g, '')
+    const serials = serialMatches?.filter(s => s !== orderDigits) ?? []
 
-    if (skus.length > 0) {
-      if (serials.length > 0) {
-        for (const serial of serials) {
-          records.push({ orderId, sku: skus[0], serial, _file: fileName })
-        }
-      } else {
-        records.push({ orderId, sku: skus[0], serial: '', _file: fileName })
+    if (skus.length > 0 && serials.length > 0) {
+      for (const serial of serials) {
+        records.push({ orderId, sku: skus[0], serial, _file: fileName })
       }
-    } else if (orderId) {
+    } else if (skus.length > 0) {
+      records.push({ orderId, sku: skus[0], serial: '', _file: fileName })
+    } else {
       records.push({ orderId, sku: '', serial: '', _file: fileName })
     }
   }
