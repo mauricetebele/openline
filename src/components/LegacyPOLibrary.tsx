@@ -47,6 +47,12 @@ function parseCSV(text: string, fileName: string): LegacySerial[] {
   return rows
 }
 
+function parseDate(s: string): number {
+  if (!s) return 0
+  const t = new Date(s).getTime()
+  return isNaN(t) ? 0 : t
+}
+
 function fmtCost(v: number | null) {
   if (v == null) return '—'
   return `$${v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
@@ -194,6 +200,7 @@ export default function LegacyPOLibrary() {
       else if (ak == null) cmp = -1
       else if (bk == null) cmp = 1
       else if (typeof ak === 'number' && typeof bk === 'number') cmp = ak - bk
+      else if (sortBy === 'receivedDate') cmp = parseDate(String(ak)) - parseDate(String(bk))
       else cmp = String(ak).localeCompare(String(bk))
       return sortDir === 'asc' ? cmp : -cmp
     })
@@ -233,8 +240,8 @@ export default function LegacyPOLibrary() {
         lines,
       })
     })
-    // Sort PO groups by receivedDate desc by default
-    groups.sort((a, b) => b.receivedDate.localeCompare(a.receivedDate))
+    // Sort PO groups by receivedDate desc (newest first)
+    groups.sort((a, b) => parseDate(b.receivedDate) - parseDate(a.receivedDate))
     return groups
   }, [filtered])
 
