@@ -332,7 +332,11 @@ export default function LegacyInvoiceLibrary() {
                 <div className="text-sm text-gray-800 dark:text-gray-200">
                   <p className="font-medium">{selectedOrder.customerName || '—'}</p>
                   {selectedOrder.address && (
-                    <p className="text-gray-600 dark:text-gray-400 mt-0.5">{selectedOrder.address}</p>
+                    <div className="text-gray-600 dark:text-gray-400 mt-0.5">
+                      {selectedOrder.address.split(',').map((part, i) => (
+                        <p key={i}>{part.trim()}</p>
+                      ))}
+                    </div>
                   )}
                 </div>
               </section>
