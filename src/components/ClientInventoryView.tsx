@@ -139,7 +139,7 @@ export default function ClientInventoryView() {
                     <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900 whitespace-nowrap">
                       {row.sku}
                     </td>
-                    <td className="px-4 py-3 text-gray-700 max-w-xs truncate">
+                    <td className="px-4 py-3 text-gray-700 max-w-xs whitespace-normal break-words">
                       {row.description}
                     </td>
                     <td className="px-4 py-3">
