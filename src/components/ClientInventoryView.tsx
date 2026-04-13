@@ -23,15 +23,17 @@ export default function ClientInventoryView() {
   const [rows, setRows] = useState<InventoryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [gradeFilter, setGradeFilter] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('sku')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const debounceRef = useRef<ReturnType<typeof setTimeout>>()
 
-  const fetchInventory = useCallback(async (q?: string) => {
+  const fetchInventory = useCallback(async (q?: string, grade?: string) => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
       if (q) params.set('search', q)
+      if (grade) params.set('gradeId', grade)
       const res = await fetch(`/api/client/inventory?${params}`)
       if (res.ok) {
         const json = await res.json()
@@ -47,7 +49,12 @@ export default function ClientInventoryView() {
   function handleSearchChange(value: string) {
     setSearch(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => fetchInventory(value), 400)
+    debounceRef.current = setTimeout(() => fetchInventory(value, gradeFilter), 400)
+  }
+
+  function handleGradeChange(value: string) {
+    setGradeFilter(value)
+    fetchInventory(search, value)
   }
 
   function handleSort(key: SortKey) {
@@ -58,6 +65,10 @@ export default function ClientInventoryView() {
       setSortDir('asc')
     }
   }
+
+  // Derive unique grades for the filter dropdown
+  const grades = Array.from(new Map(rows.filter(r => r.grade && r.gradeId).map(r => [r.gradeId!, { id: r.gradeId!, grade: r.grade! }])).values())
+    .sort((a, b) => a.grade.localeCompare(b.grade))
 
   const sorted = [...rows].sort((a, b) => {
     const mul = sortDir === 'asc' ? 1 : -1
@@ -95,15 +106,28 @@ export default function ClientInventoryView() {
           </p>
         </div>
 
-        <div className="relative w-full sm:w-80">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search by SKU or description..."
-            value={search}
-            onChange={e => handleSearchChange(e.target.value)}
-            className="input pl-9 w-full"
-          />
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-72">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by SKU or description..."
+              value={search}
+              onChange={e => handleSearchChange(e.target.value)}
+              className="input pl-9 w-full"
+            />
+          </div>
+          <select
+            value={gradeFilter}
+            onChange={e => handleGradeChange(e.target.value)}
+            className="input w-auto min-w-[120px]"
+          >
+            <option value="">All Grades</option>
+            <option value="none">No Grade</option>
+            {grades.map(g => (
+              <option key={g.id} value={g.id}>{g.grade}</option>
+            ))}
+          </select>
         </div>
       </div>
 
