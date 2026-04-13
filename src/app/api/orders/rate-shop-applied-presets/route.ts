@@ -28,7 +28,7 @@ const bodySchema = z.object({
   fedexDirectOnly: z.boolean().optional(),
 })
 
-function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+const CONCURRENCY = 4
 
 const UNIT_SINGULAR: Record<string, string> = {
   ounces: 'ounce', pounds: 'pound', grams: 'gram', kilograms: 'kilogram',
@@ -123,9 +123,26 @@ export async function POST(req: NextRequest) {
       let skipped = 0
       const errors: { orderId: string; amazonOrderId: string; error: string }[] = []
 
+      // Pre-cache V1 carriers once (shared across all non-Amazon orders)
+      let v1CarriersCache: Awaited<ReturnType<typeof client.getCarriers>> | null = null
+
+      // Simple concurrency limiter — runs up to CONCURRENCY tasks at once
+      let running = 0
+      let nextResolve: (() => void) | null = null
+      async function acquireSlot() {
+        while (running >= CONCURRENCY) {
+          await new Promise<void>(r => { nextResolve = r })
+        }
+        running++
+      }
+      function releaseSlot() {
+        running--
+        if (nextResolve) { const r = nextResolve; nextResolve = null; r() }
+      }
+
       try {
-        for (let i = 0; i < orders.length; i++) {
-          const order = orders[i]
+        // Process a single order — called concurrently
+        const processOrder = async (order: typeof orders[number]) => {
           const preset = order.appliedPackagePreset
 
           try {
@@ -137,7 +154,7 @@ export async function POST(req: NextRequest) {
                 rateService: null, rateId: null, presetName: null,
                 error: 'Skipped: no package preset applied',
               })
-              continue
+              return
             }
 
             if (order.orderStatus === 'Shipped') {
@@ -307,11 +324,12 @@ export async function POST(req: NextRequest) {
 
             } else {
               // ── Non-Amazon orders → V1 rates across all carriers ─────────────
-              let v1Carriers
-              try { v1Carriers = await client.getCarriers() } catch {
-                throw new Error('Failed to load ShipStation carriers')
+              if (!v1CarriersCache) {
+                try { v1CarriersCache = await client.getCarriers() } catch {
+                  throw new Error('Failed to load ShipStation carriers')
+                }
               }
-              const nonAmazonCarriers = v1Carriers.filter(c => !c.code.toLowerCase().includes('amazon'))
+              const nonAmazonCarriers = v1CarriersCache.filter(c => !c.code.toLowerCase().includes('amazon'))
               if (nonAmazonCarriers.length === 0) {
                 throw new Error('No non-Amazon carriers connected to ShipStation (add UPS/FedEx/USPS)')
               }
@@ -393,9 +411,17 @@ export async function POST(req: NextRequest) {
             } catch { /* best-effort */ }
             send({ type: 'rate', orderId: order.id, amazonOrderId: order.amazonOrderId, olmNumber: order.olmNumber, rateAmount: null, rateCarrier: null, rateService: null, rateId: null, presetName: null, error: msg })
           }
-
-          if (i < orders.length - 1) await sleep(400)
         }
+
+        // Launch all orders with concurrency limit
+        await Promise.all(orders.map(async (order) => {
+          await acquireSlot()
+          try {
+            await processOrder(order)
+          } finally {
+            releaseSlot()
+          }
+        }))
 
         send({ type: 'done', applied, total: orders.length, skipped, errors })
       } catch (fatalErr) {
