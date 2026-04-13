@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { Upload, Search, X, FileSpreadsheet, Trash2 } from 'lucide-react'
+import { useState, useMemo, useRef, useEffect, useCallback, Fragment } from 'react'
+import { Upload, Search, X, FileSpreadsheet, Trash2, ChevronRight } from 'lucide-react'
 
 interface LegacySerial {
   productSku: string
@@ -52,6 +52,22 @@ function fmtCost(v: number | null) {
   return `$${v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 }
 
+interface POLine {
+  sku: string
+  qty: number
+  totalCost: number
+  serials: LegacySerial[]
+}
+
+interface POGroup {
+  poCode: string
+  vendor: string
+  receivedDate: string
+  totalQty: number
+  totalAmount: number
+  lines: POLine[]
+}
+
 type SortKey = 'productSku' | 'serial' | 'vendor' | 'receivedDate' | 'cost' | 'poCode'
 
 export default function LegacyPOLibrary() {
@@ -64,6 +80,9 @@ export default function LegacyPOLibrary() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
+  const [viewMode, setViewMode] = useState<'serial' | 'po'>('serial')
+  const [expandedPOs, setExpandedPOs] = useState<Set<string>>(new Set())
+  const [expandedSkus, setExpandedSkus] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
 
   const loadFromDb = useCallback(async () => {
@@ -181,8 +200,48 @@ export default function LegacyPOLibrary() {
     return result
   }, [records, search, sortBy, sortDir])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  // PO-level aggregation for PO Line View
+  const poGroups = useMemo(() => {
+    const map = new Map<string, { records: LegacySerial[] }>()
+    for (const r of filtered) {
+      const key = r.poCode || '(no PO)'
+      if (!map.has(key)) map.set(key, { records: [] })
+      map.get(key)!.records.push(r)
+    }
+    const groups: POGroup[] = []
+    map.forEach(({ records: recs }, poCode) => {
+      const first = recs[0]
+      // Group by SKU within PO
+      const skuMap = new Map<string, LegacySerial[]>()
+      for (const r of recs) {
+        const sk = r.productSku || '(no SKU)'
+        if (!skuMap.has(sk)) skuMap.set(sk, [])
+        skuMap.get(sk)!.push(r)
+      }
+      const lines: POLine[] = Array.from(skuMap.entries()).map(([sku, serials]) => ({
+        sku,
+        qty: serials.length,
+        totalCost: serials.reduce((sum: number, r: LegacySerial) => sum + (r.cost ?? 0), 0),
+        serials,
+      }))
+      groups.push({
+        poCode,
+        vendor: first.vendor,
+        receivedDate: first.receivedDate,
+        totalQty: recs.length,
+        totalAmount: recs.reduce((sum: number, r: LegacySerial) => sum + (r.cost ?? 0), 0),
+        lines,
+      })
+    })
+    // Sort PO groups by receivedDate desc by default
+    groups.sort((a, b) => b.receivedDate.localeCompare(a.receivedDate))
+    return groups
+  }, [filtered])
+
+  const totalItems = viewMode === 'serial' ? filtered.length : poGroups.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
   const paged = filtered.slice(page * pageSize, (page + 1) * pageSize)
+  const pagedPOs = poGroups.slice(page * pageSize, (page + 1) * pageSize)
 
   const thClass = 'px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors'
 
@@ -216,6 +275,30 @@ export default function LegacyPOLibrary() {
           {importing ? 'Importing…' : 'Upload CSV'}
         </button>
 
+        {/* View Toggle */}
+        <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
+          <button
+            onClick={() => { setViewMode('serial'); setPage(0) }}
+            className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              viewMode === 'serial'
+                ? 'bg-amazon-blue text-white'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}
+          >
+            Serial View
+          </button>
+          <button
+            onClick={() => { setViewMode('po'); setPage(0); setExpandedPOs(new Set()); setExpandedSkus(new Set()) }}
+            className={`px-2.5 py-1 text-[11px] font-medium border-l border-gray-200 dark:border-gray-600 transition-colors ${
+              viewMode === 'po'
+                ? 'bg-amazon-blue text-white'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}
+          >
+            PO Line View
+          </button>
+        </div>
+
         {/* Search */}
         <div className="relative">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -234,7 +317,9 @@ export default function LegacyPOLibrary() {
 
         {/* Stats */}
         <span className="text-xs text-gray-400">
-          {filtered.length.toLocaleString()} record{filtered.length !== 1 ? 's' : ''}
+          {viewMode === 'po'
+            ? `${poGroups.length.toLocaleString()} PO${poGroups.length !== 1 ? 's' : ''} (${filtered.length.toLocaleString()} records)`
+            : `${filtered.length.toLocaleString()} record${filtered.length !== 1 ? 's' : ''}`}
           {search && ` matching "${search}"`}
           {records.length !== filtered.length && ` of ${records.length.toLocaleString()} total`}
         </span>
@@ -276,7 +361,7 @@ export default function LegacyPOLibrary() {
           <div className="flex items-center justify-center py-20 text-sm text-gray-400">
             No records match your search.
           </div>
-        ) : (
+        ) : viewMode === 'serial' ? (
           <table className="w-full text-xs dark:text-gray-200">
             <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
               <tr>
@@ -329,6 +414,94 @@ export default function LegacyPOLibrary() {
                   <td className="px-3 py-2 text-right font-medium tabular-nums text-gray-800 dark:text-gray-200">{fmtCost(r.cost)}</td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        ) : (
+          /* PO Line View — accordion table */
+          <table className="w-full text-xs dark:text-gray-200">
+            <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
+              <tr>
+                <th className={`${thClass} w-8`} />
+                <th className={thClass}>PO #</th>
+                <th className={thClass}>Vendor</th>
+                <th className={`${thClass} text-right`}>Total Qty</th>
+                <th className={`${thClass} text-right`}>Total $</th>
+                <th className={thClass}>Received</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedPOs.map((po, pi) => {
+                const poExpanded = expandedPOs.has(po.poCode)
+                return (
+                  <Fragment key={po.poCode}>
+                    {/* Level 1 — PO row */}
+                    <tr
+                      onClick={() => setExpandedPOs(prev => {
+                        const next = new Set(prev)
+                        if (next.has(po.poCode)) next.delete(po.poCode)
+                        else next.add(po.poCode)
+                        return next
+                      })}
+                      className={`border-b border-gray-200 dark:border-gray-700 cursor-pointer transition-colors align-middle ${
+                        pi % 2 === 0
+                          ? 'bg-white hover:bg-blue-50/50 dark:bg-gray-900 dark:hover:bg-gray-800/70'
+                          : 'bg-gray-50 hover:bg-blue-50/50 dark:bg-gray-800/50 dark:hover:bg-gray-800/70'
+                      }`}
+                    >
+                      <td className="px-3 py-2 text-gray-400">
+                        <ChevronRight size={14} className={`transition-transform ${poExpanded ? 'rotate-90' : ''}`} />
+                      </td>
+                      <td className="px-3 py-2 font-mono font-medium text-gray-900 dark:text-gray-100">{po.poCode}</td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{po.vendor || '—'}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-gray-700 dark:text-gray-300">{po.totalQty}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums text-gray-800 dark:text-gray-200">{fmtCost(po.totalAmount)}</td>
+                      <td className="px-3 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap">{po.receivedDate || '—'}</td>
+                    </tr>
+
+                    {/* Level 2 — SKU line items */}
+                    {poExpanded && po.lines.map(line => {
+                      const skuKey = `${po.poCode}::${line.sku}`
+                      const skuExpanded = expandedSkus.has(skuKey)
+                      return (
+                        <Fragment key={skuKey}>
+                          <tr
+                            onClick={() => setExpandedSkus(prev => {
+                              const next = new Set(prev)
+                              if (next.has(skuKey)) next.delete(skuKey)
+                              else next.add(skuKey)
+                              return next
+                            })}
+                            className="border-b border-gray-100 dark:border-gray-700/50 cursor-pointer bg-gray-50/50 dark:bg-gray-800/30 hover:bg-blue-50/30 dark:hover:bg-gray-700/40 transition-colors"
+                          >
+                            <td className="px-3 py-1.5 pl-8 text-gray-400">
+                              <ChevronRight size={12} className={`transition-transform ${skuExpanded ? 'rotate-90' : ''}`} />
+                            </td>
+                            <td className="px-3 py-1.5 font-mono text-gray-700 dark:text-gray-300" colSpan={2}>{line.sku}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-gray-600 dark:text-gray-400">{line.qty}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-gray-600 dark:text-gray-400">{fmtCost(line.totalCost)}</td>
+                            <td />
+                          </tr>
+
+                          {/* Level 3 — Serial rows */}
+                          {skuExpanded && line.serials.map((sr, si) => (
+                            <tr
+                              key={`${skuKey}-${si}`}
+                              className="border-b border-gray-100/50 dark:border-gray-700/30 bg-gray-50/30 dark:bg-gray-800/20"
+                            >
+                              <td />
+                              <td className="px-3 py-1 pl-14 font-mono text-[11px] text-gray-500 dark:text-gray-400" colSpan={3}>
+                                {sr.serial || '—'}
+                              </td>
+                              <td className="px-3 py-1 text-right tabular-nums text-[11px] text-gray-500 dark:text-gray-400">{fmtCost(sr.cost)}</td>
+                              <td />
+                            </tr>
+                          ))}
+                        </Fragment>
+                      )
+                    })}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         )}
