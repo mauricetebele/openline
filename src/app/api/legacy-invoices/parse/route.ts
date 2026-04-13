@@ -1,5 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+/** Match SKU from serial section to SKU in name section (handles line-break splits) */
+function findTitle(skuTitleMap: Map<string, string>, sku: string): string {
+  // Direct match
+  if (skuTitleMap.has(sku)) return skuTitleMap.get(sku)!
+  // The name section may have the SKU split across lines (concatenated without separator)
+  const normalized = sku.replace(/\s/g, '')
+  const entries = Array.from(skuTitleMap.entries())
+  for (const [key, title] of entries) {
+    if (key.replace(/\s/g, '') === normalized) return title
+  }
+  // Partial match — name-section SKU may be a substring
+  for (const [key, title] of entries) {
+    if (normalized.includes(key.replace(/\s/g, '')) || key.replace(/\s/g, '').includes(normalized)) return title
+  }
+  return ''
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData() as unknown as globalThis.FormData
@@ -27,7 +44,7 @@ export async function POST(req: NextRequest) {
       orderDate: string
       customerName: string
       address: string
-      items: { sku: string; serial: string }[]
+      items: { sku: string; serial: string; title: string }[]
       tracking: string[]
       rawText: string
     }>()
@@ -77,8 +94,53 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Extract product titles from the SKU/NAME table section
+      const skuTitleMap = new Map<string, string>()
+      const nameSection = chunk.match(/SKUUPC\/EAN\s*NAME\s*QTY\s*PRICE\s*AMOUNT\s*\n([\s\S]*?)(?:Sub\s*Total|SERIAL\s*#)/i)
+      if (nameSection) {
+        const block = nameSection[1].trim()
+        const blockLines = block.split(/\n/).map((l: string) => l.trim()).filter(Boolean)
+        // Walk lines: SKU lines contain dashes and letters, title lines are descriptive text,
+        // price lines contain $ amounts. Collect title fragments between SKU and price.
+        let currentSku = ''
+        let titleParts: string[] = []
+        for (const line of blockLines) {
+          // Price/amount line ends this item
+          if (/\$[\d,.]+/.test(line)) {
+            // strip leading qty and trailing price from the line if title is embedded
+            const titleInLine = line.replace(/^\d+\s*/, '').replace(/\$[\d,.]+\s*/g, '').trim()
+            if (titleInLine) titleParts.push(titleInLine)
+            if (currentSku && titleParts.length > 0) {
+              skuTitleMap.set(currentSku, titleParts.join(' ').trim())
+            }
+            currentSku = ''
+            titleParts = []
+          } else if (/[A-Z]/.test(line) && line.includes('-') && line.length > 5 && !/^\d{10,}$/.test(line.replace(/\s/g, ''))) {
+            // New SKU line (may be split across lines, merge with previous if no title yet)
+            if (currentSku && titleParts.length === 0) {
+              currentSku += line
+            } else {
+              // Save previous if exists
+              if (currentSku && titleParts.length > 0) {
+                skuTitleMap.set(currentSku, titleParts.join(' ').trim())
+              }
+              currentSku = line
+              titleParts = []
+            }
+          } else if (/^\d{10,}$/.test(line.replace(/\s/g, ''))) {
+            // UPC/EAN line — skip
+          } else if (line.length > 3) {
+            // Title fragment
+            titleParts.push(line)
+          }
+        }
+        if (currentSku && titleParts.length > 0) {
+          skuTitleMap.set(currentSku, titleParts.join(' ').trim())
+        }
+      }
+
       // Find SERIAL # DETAILS BY SKU section (extract items before tracking so we can filter serials)
-      const items: { sku: string; serial: string }[] = []
+      const items: { sku: string; serial: string; title: string }[] = []
       const serialSection = chunk.match(/SERIAL\s*#?\s*DETAILS\s*BY\s*SKU[:\s]*([\s\S]*?)(?:POWERED\s*BY|$)/i)
       if (serialSection) {
         const section = serialSection[1].trim()
@@ -88,11 +150,14 @@ export async function POST(req: NextRequest) {
           if (/[A-Z]/.test(line) && line.includes('-') && line.length > 5 && !/^\d+$/.test(line)) {
             currentSku = line
           } else if (/^[A-Z0-9]{6,}$/.test(line.replace(/\s/g, '')) && currentSku) {
-            items.push({ sku: currentSku, serial: line.replace(/\s/g, '') })
+            // Look up title by finding a SKU key that matches (SKU in name section may have line breaks)
+            const title = findTitle(skuTitleMap, currentSku)
+            items.push({ sku: currentSku, serial: line.replace(/\s/g, ''), title })
           }
         }
         if (currentSku && items.length === 0) {
-          items.push({ sku: currentSku, serial: '' })
+          const title = findTitle(skuTitleMap, currentSku)
+          items.push({ sku: currentSku, serial: '', title })
         }
       }
 

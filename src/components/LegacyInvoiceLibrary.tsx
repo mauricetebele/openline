@@ -6,6 +6,7 @@ import { Upload, Search, X, FileText, Trash2, ChevronDown, ChevronRight } from '
 interface InvoiceItem {
   sku: string
   serial: string
+  title: string
 }
 
 interface InvoiceRecord {
@@ -423,22 +424,19 @@ export default function LegacyInvoiceLibrary() {
               {selectedOrder.items.length > 0 && (
                 <section>
                   <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Items ({selectedOrder.items.length})</h3>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b dark:border-gray-700">
-                        <th className="text-left py-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400">SKU</th>
-                        <th className="text-left py-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400">Serial #</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedOrder.items.map((it, i) => (
-                        <tr key={i} className="border-b dark:border-gray-700/50 last:border-0">
-                          <td className="py-1.5 font-mono text-gray-800 dark:text-gray-200">{it.sku || '—'}</td>
-                          <td className="py-1.5 font-mono text-gray-600 dark:text-gray-400">{it.serial || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className="space-y-3">
+                    {selectedOrder.items.map((it, i) => (
+                      <div key={i} className="border dark:border-gray-700 rounded-lg p-3">
+                        {it.title && (
+                          <p className="text-sm text-gray-800 dark:text-gray-200 mb-1.5">{it.title}</p>
+                        )}
+                        <div className="flex gap-4 text-xs">
+                          <span className="text-gray-500 dark:text-gray-400">SKU: <span className="font-mono text-gray-700 dark:text-gray-300">{it.sku || '—'}</span></span>
+                          <span className="text-gray-500 dark:text-gray-400">Serial: <span className="font-mono text-gray-700 dark:text-gray-300">{it.serial || '—'}</span></span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </section>
               )}
 
