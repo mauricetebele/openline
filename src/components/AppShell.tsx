@@ -2,7 +2,6 @@
 import { AuthProvider } from '@/context/AuthContext'
 import { ThemeProvider } from '@/context/ThemeContext'
 import TopNav from './TopNav'
-import ChatWidget from './ChatWidget'
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -13,7 +12,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <main className="flex-1 overflow-auto">
             {children}
           </main>
-          <ChatWidget />
         </div>
       </AuthProvider>
     </ThemeProvider>
