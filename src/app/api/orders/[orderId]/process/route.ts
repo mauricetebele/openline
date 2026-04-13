@@ -37,7 +37,7 @@ export async function POST(
 
     const order = await prisma.order.findUnique({
       where: { id: params.orderId },
-      include: { items: { select: { id: true, gradeId: true } } },
+      include: { items: { select: { id: true, sellerSku: true, gradeId: true } } },
     })
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     if (order.fulfillmentChannel === 'AFN') {
@@ -108,12 +108,21 @@ export async function POST(
         })
 
         // Stamp the grade onto the order item so serialization enforces it
-        if (gradeId) {
-          await tx.orderItem.update({
-            where: { id: r.orderItemId },
-            data:  { gradeId },
-          })
-        }
+        // Also sync sellerSku if the reserved product differs (e.g. grade swap)
+        const product = await tx.product.findUnique({
+          where: { id: r.productId },
+          select: { sku: true },
+        })
+        const orderItem = order.items.find(i => i.id === r.orderItemId)
+        const skuChanged = product && orderItem && orderItem.sellerSku !== product.sku
+
+        await tx.orderItem.update({
+          where: { id: r.orderItemId },
+          data: {
+            ...(gradeId ? { gradeId } : {}),
+            ...(skuChanged ? { sellerSku: product.sku } : {}),
+          },
+        })
       }
 
       // Advance workflow status
