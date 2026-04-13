@@ -77,22 +77,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Extract tracking numbers (common carrier patterns)
-      const tracking: string[] = []
-      const trackingMatches = chunk.match(/\b(1Z[A-Z0-9]{16}|(?:92|94|93|95)\d{18,22}|\d{12,22})\b/g)
-      if (trackingMatches) {
-        for (const t of trackingMatches) {
-          // Skip matches that look like serial numbers (exactly 10 digits often are serials)
-          // and skip order IDs
-          if (/^\d{3}-\d{7}-\d{7}$/.test(t)) continue
-          if (!tracking.includes(t)) tracking.push(t)
-        }
-      }
-
-      // Merge into existing order or create new entry
-      const existing = orderMap.get(orderId)
-
-      // Find SERIAL # DETAILS BY SKU section
+      // Find SERIAL # DETAILS BY SKU section (extract items before tracking so we can filter serials)
       const items: { sku: string; serial: string }[] = []
       const serialSection = chunk.match(/SERIAL\s*#?\s*DETAILS\s*BY\s*SKU[:\s]*([\s\S]*?)(?:POWERED\s*BY|$)/i)
       if (serialSection) {
@@ -111,6 +96,18 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Extract tracking numbers — only known carrier patterns (UPS 1Z, USPS 92/93/94/95)
+      const tracking: string[] = []
+      const serialSet = new Set(items.map(it => it.serial).filter(Boolean))
+      const trackingMatches = chunk.match(/\b(1Z[A-Z0-9]{16}|(?:92|94|93|95)\d{18,22})\b/g)
+      if (trackingMatches) {
+        for (const t of trackingMatches) {
+          if (!serialSet.has(t) && !tracking.includes(t)) tracking.push(t)
+        }
+      }
+
+      // Merge into existing order or create new entry
+      const existing = orderMap.get(orderId)
       if (existing) {
         existing.items.push(...items)
         for (const t of tracking) {
