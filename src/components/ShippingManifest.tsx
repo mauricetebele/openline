@@ -46,7 +46,10 @@ function statusBadge(info: TrackingResult | undefined, loading: boolean) {
 
   if ('error' in info) {
     return (
-      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
+      <span
+        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200 cursor-help"
+        title={info.error}
+      >
         Error
       </span>
     )
@@ -147,23 +150,26 @@ export default function ShippingManifest() {
 
     setTrackingLoading(new Set(unique))
 
-    batches.forEach(async (batch) => {
-      try {
-        const res = await fetch('/api/ups/batch-track', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trackingNumbers: batch }),
+    // Process batches sequentially to avoid overwhelming UPS API
+    ;(async () => {
+      for (const batch of batches) {
+        try {
+          const res = await fetch('/api/ups/batch-track', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ trackingNumbers: batch }),
+          })
+          if (!res.ok) continue
+          const data: { results: Record<string, TrackingResult> } = await res.json()
+          setTrackingMap((prev) => ({ ...prev, ...data.results }))
+        } catch { /* ignore */ }
+        setTrackingLoading((prev) => {
+          const next = new Set(prev)
+          batch.forEach((tn) => next.delete(tn))
+          return next
         })
-        if (!res.ok) return
-        const data: { results: Record<string, TrackingResult> } = await res.json()
-        setTrackingMap((prev) => ({ ...prev, ...data.results }))
-      } catch { /* ignore */ }
-      setTrackingLoading((prev) => {
-        const next = new Set(prev)
-        batch.forEach((tn) => next.delete(tn))
-        return next
-      })
-    })
+      }
+    })()
   }, [rows])
 
   function setQuickRange(daysBack: number) {

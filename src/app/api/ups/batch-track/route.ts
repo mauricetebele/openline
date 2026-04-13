@@ -17,23 +17,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Maximum 20 tracking numbers per request' }, { status: 400 })
   }
 
-  const settled = await Promise.allSettled(
-    trackingNumbers.map(async (tn) => {
-      const result = await getCarrierStatus(tn)
-      return { tn, result }
-    }),
-  )
-
+  // Process with concurrency limit to avoid UPS rate-limiting
+  const CONCURRENCY = 3
   const results: Record<string, { status: string; deliveredAt: Date | null; estimatedDelivery: Date | null } | { error: string }> = {}
 
-  for (const entry of settled) {
-    if (entry.status === 'fulfilled') {
-      results[entry.value.tn] = entry.value.result
-    } else {
-      const tn = trackingNumbers[settled.indexOf(entry)]
-      results[tn] = { error: entry.reason?.message ?? 'Unknown error' }
+  let running = 0
+  const waitQueue: (() => void)[] = []
+
+  async function acquireSlot() {
+    if (running >= CONCURRENCY) {
+      await new Promise<void>(r => waitQueue.push(r))
     }
+    running++
   }
+  function releaseSlot() {
+    running--
+    const next = waitQueue.shift()
+    if (next) next()
+  }
+
+  await Promise.allSettled(
+    trackingNumbers.map(async (tn) => {
+      await acquireSlot()
+      try {
+        const result = await getCarrierStatus(tn)
+        results[tn] = result
+      } catch (err) {
+        results[tn] = { error: err instanceof Error ? err.message : 'Unknown error' }
+      } finally {
+        releaseSlot()
+      }
+    }),
+  )
 
   return NextResponse.json({ results })
 }
