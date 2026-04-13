@@ -137,7 +137,7 @@ export default function LegacyInvoiceLibrary() {
         setRecords(prev => [...prev, ...batchRecords])
         setFiles(prev => [...prev, ...batchFiles])
         // persist to DB in chunks
-        const CHUNK = 200
+        const CHUNK = 2000
         for (let i = 0; i < batchRecords.length; i += CHUNK) {
           try {
             await fetch('/api/legacy-invoices', {

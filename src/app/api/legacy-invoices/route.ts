@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { Prisma } from '@prisma/client'
 import { getAuthUser } from '@/lib/get-auth-user'
+import crypto from 'crypto'
 
 export async function GET() {
   const user = await getAuthUser()
@@ -14,6 +14,18 @@ export async function GET() {
   return NextResponse.json({ data: invoices })
 }
 
+interface InvoiceRecord {
+  orderId: string
+  orderDate?: string
+  customerName?: string
+  address?: string
+  items?: unknown[]
+  tracking?: string[]
+  rawText?: string
+  _file?: string
+  fileName?: string
+}
+
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -23,40 +35,44 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'records[] is required' }, { status: 400 })
   }
 
-  const ops = records.map((r: Record<string, unknown>) =>
-    prisma.legacyInvoice.upsert({
-      where: {
-        orderId_fileName: { orderId: r.orderId as string, fileName: ((r._file ?? r.fileName ?? '') as string) },
-      },
-      create: {
-        orderId: r.orderId as string,
-        orderDate: (r.orderDate ?? '') as string,
-        customerName: (r.customerName ?? '') as string,
-        address: (r.address ?? '') as string,
-        items: (r.items ?? []) as unknown as Prisma.InputJsonValue,
-        tracking: (r.tracking ?? []) as string[],
-        rawText: (r.rawText ?? '') as string,
-        fileName: ((r._file ?? r.fileName ?? '') as string),
-      },
-      update: {
-        orderDate: (r.orderDate ?? '') as string,
-        customerName: (r.customerName ?? '') as string,
-        address: (r.address ?? '') as string,
-        items: (r.items ?? []) as unknown as Prisma.InputJsonValue,
-        tracking: (r.tracking ?? []) as string[],
-        rawText: (r.rawText ?? '') as string,
-      },
-    })
-  )
-
+  const CHUNK = 500
   let upserted = 0
-  for (let i = 0; i < ops.length; i += 200) {
-    const batch = ops.slice(i, i + 200)
-    await prisma.$transaction(batch)
-    upserted += batch.length
+
+  for (let i = 0; i < records.length; i += CHUNK) {
+    const chunk = records.slice(i, i + CHUNK) as InvoiceRecord[]
+
+    const values = chunk.map((r) => {
+      const id = crypto.randomUUID()
+      const orderId = r.orderId
+      const orderDate = r.orderDate ?? ''
+      const customerName = r.customerName ?? ''
+      const address = r.address ?? ''
+      const items = JSON.stringify(r.items ?? [])
+      const tracking = JSON.stringify(r.tracking ?? [])
+      const rawText = r.rawText ?? ''
+      const fileName = r._file ?? r.fileName ?? ''
+      return `('${id}', '${esc(orderId)}', '${esc(orderDate)}', '${esc(customerName)}', '${esc(address)}', '${esc(items)}'::jsonb, '${esc(tracking)}'::jsonb, '${esc(rawText)}', '${esc(fileName)}', NOW())`
+    })
+
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO legacy_invoices ("id", "orderId", "orderDate", "customerName", "address", "items", "tracking", "rawText", "fileName", "createdAt")
+      VALUES ${values.join(',\n')}
+      ON CONFLICT ("orderId", "fileName") DO UPDATE SET
+        "orderDate" = EXCLUDED."orderDate",
+        "customerName" = EXCLUDED."customerName",
+        "address" = EXCLUDED."address",
+        "items" = EXCLUDED."items",
+        "tracking" = EXCLUDED."tracking",
+        "rawText" = EXCLUDED."rawText"
+    `)
+    upserted += chunk.length
   }
 
   return NextResponse.json({ upserted })
+}
+
+function esc(s: string): string {
+  return s.replace(/'/g, "''")
 }
 
 export async function DELETE(req: NextRequest) {

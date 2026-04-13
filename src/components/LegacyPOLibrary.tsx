@@ -148,7 +148,7 @@ export default function LegacyPOLibrary() {
       setFiles(prev => [...prev, ...newFiles])
       setPage(0)
       // persist to DB in chunks
-      const CHUNK = 500
+      const CHUNK = 5000
       for (let i = 0; i < newRecords.length; i += CHUNK) {
         try {
           await fetch('/api/legacy-po', {

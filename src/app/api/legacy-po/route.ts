@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import crypto from 'crypto'
 
 export async function GET() {
   const user = await getAuthUser()
@@ -13,6 +14,17 @@ export async function GET() {
   return NextResponse.json({ data: serials })
 }
 
+interface PORecord {
+  productSku?: string
+  serial: string
+  vendor?: string
+  receivedDate?: string
+  cost?: number | null
+  poCode?: string
+  _file?: string
+  fileName?: string
+}
+
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -22,39 +34,43 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'records[] is required' }, { status: 400 })
   }
 
-  const ops = records.map((r: Record<string, unknown>) =>
-    prisma.legacyPOSerial.upsert({
-      where: {
-        serial_fileName: { serial: r.serial as string, fileName: (r._file ?? r.fileName ?? '') as string },
-      },
-      create: {
-        productSku: (r.productSku ?? '') as string,
-        serial: r.serial as string,
-        vendor: (r.vendor ?? '') as string,
-        receivedDate: (r.receivedDate ?? '') as string,
-        cost: (r.cost as number | null) ?? null,
-        poCode: (r.poCode ?? '') as string,
-        fileName: ((r._file ?? r.fileName ?? '') as string),
-      },
-      update: {
-        productSku: (r.productSku ?? '') as string,
-        vendor: (r.vendor ?? '') as string,
-        receivedDate: (r.receivedDate ?? '') as string,
-        cost: (r.cost as number | null) ?? null,
-        poCode: (r.poCode ?? '') as string,
-      },
-    })
-  )
-
-  // Batch in chunks of 200 to avoid exceeding query limits
+  // Bulk upsert using raw SQL — much faster than individual Prisma upserts
+  const CHUNK = 1000
   let upserted = 0
-  for (let i = 0; i < ops.length; i += 200) {
-    const batch = ops.slice(i, i + 200)
-    await prisma.$transaction(batch)
-    upserted += batch.length
+
+  for (let i = 0; i < records.length; i += CHUNK) {
+    const chunk = records.slice(i, i + CHUNK) as PORecord[]
+
+    const values = chunk.map((r) => {
+      const id = crypto.randomUUID()
+      const productSku = r.productSku ?? ''
+      const serial = r.serial
+      const vendor = r.vendor ?? ''
+      const receivedDate = r.receivedDate ?? ''
+      const cost = r.cost ?? null
+      const poCode = r.poCode ?? ''
+      const fileName = r._file ?? r.fileName ?? ''
+      return `('${id}', '${esc(productSku)}', '${esc(serial)}', '${esc(vendor)}', '${esc(receivedDate)}', ${cost === null ? 'NULL' : cost}, '${esc(poCode)}', '${esc(fileName)}', NOW())`
+    })
+
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO legacy_po_serials ("id", "productSku", "serial", "vendor", "receivedDate", "cost", "poCode", "fileName", "createdAt")
+      VALUES ${values.join(',\n')}
+      ON CONFLICT ("serial", "fileName") DO UPDATE SET
+        "productSku" = EXCLUDED."productSku",
+        "vendor" = EXCLUDED."vendor",
+        "receivedDate" = EXCLUDED."receivedDate",
+        "cost" = EXCLUDED."cost",
+        "poCode" = EXCLUDED."poCode"
+    `)
+    upserted += chunk.length
   }
 
   return NextResponse.json({ upserted })
+}
+
+function esc(s: string): string {
+  return s.replace(/'/g, "''")
 }
 
 export async function DELETE(req: NextRequest) {
