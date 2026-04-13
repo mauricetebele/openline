@@ -28,7 +28,8 @@ export default function LoginPage() {
       body: JSON.stringify({ idToken }),
     })
     if (!res.ok) throw new Error('Failed to create session')
-    router.push('/refunds')
+    const data = await res.json()
+    router.push(data.role === 'CLIENT' ? '/client/inventory' : '/refunds')
     router.refresh()
   }
 

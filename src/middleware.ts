@@ -14,6 +14,7 @@ const PUBLIC_PATHS = ['/login', '/api/auth/session', '/api/accounts/callback', '
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
   const session = req.cookies.get('__session')?.value
+  const role = req.cookies.get('__role')?.value
 
   // Allow public paths and static files through
   if (
@@ -40,6 +41,21 @@ export function middleware(req: NextRequest) {
     const loginUrl = new URL('/login', req.url)
     loginUrl.searchParams.set('from', pathname)
     return NextResponse.redirect(loginUrl)
+  }
+
+  // CLIENT role routing
+  if (role === 'CLIENT') {
+    // Allow client API and client pages
+    if (pathname.startsWith('/client') || pathname.startsWith('/api/client/') || pathname.startsWith('/api/auth/')) {
+      return NextResponse.next()
+    }
+    // Redirect CLIENT hitting /login or any internal page to client portal
+    return NextResponse.redirect(new URL('/client/inventory', req.url))
+  }
+
+  // Internal users cannot access /client/* pages
+  if (pathname.startsWith('/client')) {
+    return NextResponse.redirect(new URL('/inventory', req.url))
   }
 
   // Already logged in and hitting /login → redirect to refunds

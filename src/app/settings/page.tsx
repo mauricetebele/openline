@@ -1882,6 +1882,8 @@ interface ManagedUser {
   email: string
   role: string
   createdAt: string
+  companyName: string | null
+  _count?: { clientLocationAccess: number }
 }
 
 function UsersSection() {
@@ -1898,7 +1900,15 @@ function UsersSection() {
   const [formEmail, setFormEmail] = useState('')
   const [formName, setFormName] = useState('')
   const [formPassword, setFormPassword] = useState('')
-  const [formRole, setFormRole] = useState<'REVIEWER' | 'ADMIN'>('REVIEWER')
+  const [formRole, setFormRole] = useState<'REVIEWER' | 'ADMIN' | 'CLIENT'>('REVIEWER')
+  const [formCompanyName, setFormCompanyName] = useState('')
+
+  // Location access modal state
+  const [locationModalUserId, setLocationModalUserId] = useState<string | null>(null)
+  const [allLocations, setAllLocations] = useState<{ id: string; name: string; warehouseId: string; warehouseName: string }[]>([])
+  const [selectedLocationIds, setSelectedLocationIds] = useState<Set<string>>(new Set())
+  const [locationSaving, setLocationSaving] = useState(false)
+  const [locationLoading, setLocationLoading] = useState(false)
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -1921,7 +1931,10 @@ function UsersSection() {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: formEmail, name: formName, password: formPassword, role: formRole }),
+        body: JSON.stringify({
+          email: formEmail, name: formName, password: formPassword, role: formRole,
+          ...(formRole === 'CLIENT' && formCompanyName ? { companyName: formCompanyName } : {}),
+        }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error)
@@ -1930,6 +1943,7 @@ function UsersSection() {
       setFormName('')
       setFormPassword('')
       setFormRole('REVIEWER')
+      setFormCompanyName('')
       setShowForm(false)
       fetchUsers()
     } catch (err) {
@@ -1939,8 +1953,8 @@ function UsersSection() {
     }
   }
 
-  async function handleToggleRole(u: ManagedUser) {
-    const newRole = u.role === 'ADMIN' ? 'REVIEWER' : 'ADMIN'
+  async function handleChangeRole(u: ManagedUser, newRole: string) {
+    if (newRole === u.role) return
     setTogglingId(u.id)
     try {
       const res = await fetch('/api/admin/users', {
@@ -1955,6 +1969,53 @@ function UsersSection() {
       toast.error((err as Error).message)
     } finally {
       setTogglingId(null)
+    }
+  }
+
+  async function openLocationModal(userId: string) {
+    setLocationModalUserId(userId)
+    setLocationLoading(true)
+    try {
+      const [locRes, accessRes] = await Promise.all([
+        fetch('/api/warehouses'),
+        fetch(`/api/admin/users/location-access?userId=${userId}`),
+      ])
+      if (locRes.ok) {
+        const locJson = await locRes.json()
+        const locs: { id: string; name: string; warehouseId: string; warehouseName: string }[] = []
+        for (const wh of (locJson.data ?? locJson)) {
+          for (const loc of wh.locations ?? []) {
+            locs.push({ id: loc.id, name: loc.name, warehouseId: wh.id, warehouseName: wh.name })
+          }
+        }
+        setAllLocations(locs)
+      }
+      if (accessRes.ok) {
+        const accessJson = await accessRes.json()
+        setSelectedLocationIds(new Set((accessJson.data ?? []).map((a: { locationId: string }) => a.locationId)))
+      }
+    } finally {
+      setLocationLoading(false)
+    }
+  }
+
+  async function saveLocationAccess() {
+    if (!locationModalUserId) return
+    setLocationSaving(true)
+    try {
+      const res = await fetch('/api/admin/users/location-access', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: locationModalUserId, locationIds: Array.from(selectedLocationIds) }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Location access updated')
+      setLocationModalUserId(null)
+      fetchUsers()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setLocationSaving(false)
     }
   }
 
@@ -2046,12 +2107,22 @@ function UsersSection() {
               />
               <select
                 value={formRole}
-                onChange={e => setFormRole(e.target.value as 'REVIEWER' | 'ADMIN')}
+                onChange={e => setFormRole(e.target.value as 'REVIEWER' | 'ADMIN' | 'CLIENT')}
                 className="input"
               >
                 <option value="REVIEWER">Reviewer</option>
                 <option value="ADMIN">Admin</option>
+                <option value="CLIENT">Client</option>
               </select>
+              {formRole === 'CLIENT' && (
+                <input
+                  type="text"
+                  placeholder="Company name"
+                  value={formCompanyName}
+                  onChange={e => setFormCompanyName(e.target.value)}
+                  className="input col-span-2"
+                />
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button type="submit" disabled={saving} className="btn btn-primary text-xs">
@@ -2096,22 +2167,37 @@ function UsersSection() {
                   </div>
                 )}
                 <p className="text-xs text-gray-500 truncate">{u.email}</p>
+                {u.role === 'CLIENT' && u.companyName && (
+                  <p className="text-xs text-purple-500 truncate">{u.companyName}</p>
+                )}
               </div>
               <p className="text-xs text-gray-400 whitespace-nowrap hidden sm:block">
                 {new Date(u.createdAt).toLocaleDateString()}
               </p>
-              <button
-                onClick={() => handleToggleRole(u)}
+              {u.role === 'CLIENT' && (
+                <button
+                  onClick={() => openLocationModal(u.id)}
+                  className="px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors"
+                >
+                  Locations ({u._count?.clientLocationAccess ?? 0})
+                </button>
+              )}
+              <select
+                value={u.role}
+                onChange={e => handleChangeRole(u, e.target.value)}
                 disabled={togglingId === u.id}
-                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer border-0 ${
                   u.role === 'ADMIN'
-                    ? 'bg-amazon-blue/10 text-amazon-blue hover:bg-amazon-blue/20'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    ? 'bg-amazon-blue/10 text-amazon-blue'
+                    : u.role === 'CLIENT'
+                      ? 'bg-purple-100 text-purple-700'
+                      : 'bg-gray-100 text-gray-600'
                 }`}
-                title={`Click to switch to ${u.role === 'ADMIN' ? 'Reviewer' : 'Admin'}`}
               >
-                {togglingId === u.id ? '…' : u.role === 'ADMIN' ? 'Admin' : 'Reviewer'}
-              </button>
+                <option value="REVIEWER">Reviewer</option>
+                <option value="ADMIN">Admin</option>
+                <option value="CLIENT">Client</option>
+              </select>
               <button
                 onClick={() => handleDelete(u)}
                 disabled={deletingId === u.id}
@@ -2127,6 +2213,70 @@ function UsersSection() {
           )}
         </div>
       </div>
+
+      {/* Location Access Modal */}
+      {locationModalUserId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setLocationModalUserId(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b flex items-center justify-between">
+              <p className="font-semibold text-sm">Manage Location Access</p>
+              <button onClick={() => setLocationModalUserId(null)} className="text-gray-400 hover:text-gray-600">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {locationLoading ? (
+                <p className="text-sm text-gray-500">Loading locations...</p>
+              ) : allLocations.length === 0 ? (
+                <p className="text-sm text-gray-400">No locations found. Create warehouses and locations first.</p>
+              ) : (
+                (() => {
+                  const grouped = new Map<string, typeof allLocations>()
+                  for (const loc of allLocations) {
+                    const arr = grouped.get(loc.warehouseName) ?? []
+                    arr.push(loc)
+                    grouped.set(loc.warehouseName, arr)
+                  }
+                  return Array.from(grouped.entries()).map(([whName, locs]) => (
+                    <div key={whName} className="mb-4">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{whName}</p>
+                      <div className="space-y-1">
+                        {locs.map(loc => (
+                          <label key={loc.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedLocationIds.has(loc.id)}
+                              onChange={() => {
+                                setSelectedLocationIds(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(loc.id)) next.delete(loc.id)
+                                  else next.add(loc.id)
+                                  return next
+                                })
+                              }}
+                              className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue"
+                            />
+                            <span className="text-sm text-gray-700">{loc.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                })()
+              )}
+            </div>
+            <div className="px-5 py-3 border-t flex items-center justify-between">
+              <p className="text-xs text-gray-400">{selectedLocationIds.size} selected</p>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setLocationModalUserId(null)} className="btn btn-secondary text-xs">Cancel</button>
+                <button onClick={saveLocationAccess} disabled={locationSaving} className="btn btn-primary text-xs">
+                  {locationSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

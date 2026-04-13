@@ -56,9 +56,25 @@ export async function POST(req: NextRequest) {
       { expiresIn: SESSION_DURATION_S },
     )
 
-    const res = NextResponse.json({ ok: true, token: idToken })
+    // Look up DB user to get role for routing
+    const { prisma } = await import('@/lib/prisma')
+    const dbUser = await prisma.user.findUnique({
+      where: { firebaseUid: fbUser.localId },
+      select: { role: true },
+    })
+    const role = dbUser?.role ?? 'REVIEWER'
+
+    const res = NextResponse.json({ ok: true, token: idToken, role })
     res.cookies.set('__session', sessionToken, {
       httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: SESSION_DURATION_S,
+      path: '/',
+    })
+    // Non-httpOnly role cookie for middleware routing
+    res.cookies.set('__role', role, {
+      httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: SESSION_DURATION_S,
@@ -74,5 +90,6 @@ export async function POST(req: NextRequest) {
 export async function DELETE() {
   const res = NextResponse.json({ ok: true })
   res.cookies.set('__session', '', { maxAge: 0, path: '/' })
+  res.cookies.set('__role', '', { maxAge: 0, path: '/' })
   return res
 }

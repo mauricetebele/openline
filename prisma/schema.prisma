@@ -35,8 +35,22 @@ model User {
   chatConversations2 ChatConversation[] @relation("ChatUser2")
   chatMessagesSent   ChatMessage[]
   serialHistoryEvents SerialHistory[]
+  clientLocationAccess ClientLocationAccess[]
+  companyName          String?
 
   @@map("users")
+}
+
+model ClientLocationAccess {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, locationId])
+  @@map("client_location_access")
 }
 
 // ─── Amazon Accounts ──────────────────────────────────────────────────────────
@@ -289,6 +303,7 @@ model AuditEvent {
 enum UserRole {
   ADMIN
   REVIEWER
+  CLIENT
 }
 
 enum FulfillmentType {
@@ -1156,6 +1171,7 @@ model Location {
   marketplaceRMASerials  MarketplaceRMASerial[]
   customerRMASerials     CustomerRMASerial[]
   fbaReservations        FbaInventoryReservation[]
+  clientLocationAccess   ClientLocationAccess[]
 
   @@unique([warehouseId, name])
   @@index([warehouseId])
