@@ -147,146 +147,151 @@ export default function MarketplaceReturnsManager() {
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="w-8 px-2 py-3"></th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">MP-RMA #</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">OLM #</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace Order</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Customer</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Source</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Items</th>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
+              <tr>
+                <th className="w-6 px-2 py-2"></th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">RMA #</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">OLM #</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Order ID</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Customer</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">SKU</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Source</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Status</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Date</th>
+                <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Qty</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {rmas.map((rma) => {
+            <tbody>
+              {rmas.map((rma, i) => {
                 const isExpanded = expandedId === rma.id
                 return (
                   <React.Fragment key={rma.id}>
                     <tr
                       onClick={() => setExpandedId(isExpanded ? null : rma.id)}
-                      className="group hover:bg-gray-50 cursor-pointer"
+                      className={clsx(
+                        'cursor-pointer border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors align-middle',
+                        i % 2 === 0
+                          ? 'bg-white hover:bg-blue-50/50 dark:bg-gray-900 dark:hover:bg-gray-800/70'
+                          : 'bg-gray-50 hover:bg-blue-50/50 dark:bg-gray-800/50 dark:hover:bg-gray-800/70',
+                      )}
                     >
-                      <td className="px-2 py-3 text-gray-400">
-                        <ChevronDown size={14} className={clsx('transition-transform', isExpanded && 'rotate-180')} />
+                      <td className="px-2 py-1.5 text-gray-400">
+                        <ChevronDown size={12} className={clsx('transition-transform', isExpanded && 'rotate-180')} />
                       </td>
-                      <td className="px-4 py-3 font-semibold whitespace-nowrap">
+                      <td className="px-3 py-1.5 font-semibold whitespace-nowrap">
                         <button
                           onClick={(e) => { e.stopPropagation(); handleRowClick(rma) }}
-                          className="text-amazon-blue hover:underline"
+                          className="text-blue-600 hover:underline dark:text-blue-400"
                         >
                           {rma.rmaNumber}
                         </button>
                       </td>
-                      <td className="px-4 py-3 text-gray-700">{rma.order.olmNumber ? `#${rma.order.olmNumber}` : '—'}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-500">{rma.order.amazonOrderId}</td>
-                      <td className="px-4 py-3 text-gray-700">{rma.order.shipToName ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-700 text-sm">
+                      <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400">{rma.order.olmNumber ? `#${rma.order.olmNumber}` : '—'}</td>
+                      <td className="px-3 py-1.5 font-mono text-gray-500 dark:text-gray-400">{rma.order.amazonOrderId}</td>
+                      <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">{rma.order.shipToName ?? '—'}</td>
+                      <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
                         {rma.items.length === 1 ? (rma.items[0].product?.sku ?? rma.items[0].sellerSku ?? '—') : rma.items.length > 1 ? 'Multiple Items' : '—'}
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={clsx('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize', SOURCE_COLOR[rma.order.orderSource] ?? 'bg-gray-100 text-gray-600')}>
+                      <td className="px-3 py-1.5">
+                        <span className={clsx('inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium capitalize', SOURCE_COLOR[rma.order.orderSource] ?? 'bg-gray-100 text-gray-600')}>
                           {rma.order.orderSource}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={clsx('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_COLOR[rma.status])}>
+                      <td className="px-3 py-1.5">
+                        <span className={clsx('inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium', STATUS_COLOR[rma.status])}>
                           {STATUS_LABEL[rma.status]}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-sm">
+                      <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                         {new Date(rma.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
-                      <td className="px-4 py-3 text-gray-600 text-sm">{rma.items.reduce((sum, i) => sum + i.quantityReturned, 0)}</td>
+                      <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-300">{rma.items.reduce((sum, it) => sum + it.quantityReturned, 0)}</td>
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={10} className="bg-gray-50/70 px-6 py-4">
+                        <td colSpan={10} className="bg-gray-50 dark:bg-gray-800/60 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
                           {rma.notes && (
-                            <p className="text-xs text-gray-500 mb-3"><span className="font-semibold text-gray-600">Notes:</span> {rma.notes}</p>
+                            <p className="text-[11px] text-gray-500 mb-2"><span className="font-semibold text-gray-600 dark:text-gray-400">Notes:</span> {rma.notes}</p>
                           )}
-                          <table className="w-full text-xs">
+                          <table className="w-full text-[11px]">
                             <thead>
-                              <tr className="text-left text-gray-400 uppercase tracking-wider">
-                                <th className="pb-2 pr-4 font-semibold">SKU</th>
-                                <th className="pb-2 pr-4 font-semibold">Title</th>
-                                <th className="pb-2 pr-4 font-semibold">Serial #</th>
-                                <th className="pb-2 pr-4 font-semibold">FMI</th>
-                                <th className="pb-2 pr-4 font-semibold">Return Reason</th>
-                                <th className="pb-2 pr-4 font-semibold">Received</th>
-                                <th className="pb-2 pr-4 font-semibold">Location</th>
-                                <th className="pb-2 pr-4 font-semibold">Grade</th>
-                                <th className="pb-2 font-semibold">Note</th>
+                              <tr className="text-left text-gray-400 dark:text-gray-500 uppercase tracking-wider text-[10px]">
+                                <th className="pb-1.5 pr-3 font-semibold">SKU</th>
+                                <th className="pb-1.5 pr-3 font-semibold">Title</th>
+                                <th className="pb-1.5 pr-3 font-semibold">Serial #</th>
+                                <th className="pb-1.5 pr-3 font-semibold">FMI</th>
+                                <th className="pb-1.5 pr-3 font-semibold">Reason</th>
+                                <th className="pb-1.5 pr-3 font-semibold">Received</th>
+                                <th className="pb-1.5 pr-3 font-semibold">Location</th>
+                                <th className="pb-1.5 pr-3 font-semibold">Grade</th>
+                                <th className="pb-1.5 font-semibold">Note</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-200">
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                               {rma.items.map((item) =>
                                 item.serials.length > 0
                                   ? item.serials.map((s) => (
                                       <tr key={s.id}>
-                                        <td className="py-1.5 pr-4 text-gray-700 font-medium">{item.sellerSku ?? '—'}</td>
-                                        <td className="py-1.5 pr-4 text-gray-600 max-w-[200px] truncate">{item.title ?? '—'}</td>
-                                        <td className="py-1.5 pr-4 font-mono text-gray-900">{s.serialNumber}</td>
-                                        <td className="py-1.5 pr-4"><SickwCheckButton serial={s.serialNumber} compact /></td>
-                                        <td className="py-1.5 pr-4 text-gray-600">{item.returnReason ?? '—'}</td>
-                                        <td className="py-1.5 pr-4">
+                                        <td className="py-1 pr-3 text-gray-700 dark:text-gray-300 font-medium">{item.product?.sku ?? item.sellerSku ?? '—'}</td>
+                                        <td className="py-1 pr-3 text-gray-500 dark:text-gray-400 max-w-[180px] truncate">{item.title ?? '—'}</td>
+                                        <td className="py-1 pr-3 font-mono text-gray-900 dark:text-gray-200">{s.serialNumber}</td>
+                                        <td className="py-1 pr-3"><SickwCheckButton serial={s.serialNumber} compact /></td>
+                                        <td className="py-1 pr-3 text-gray-500 dark:text-gray-400">{item.returnReason ?? '—'}</td>
+                                        <td className="py-1 pr-3">
                                           {s.receivedAt ? (
                                             <span className="inline-flex items-center gap-1 text-green-600">
-                                              <CheckCircle2 size={12} />
+                                              <CheckCircle2 size={10} />
                                               {new Date(s.receivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                             </span>
                                           ) : (
                                             <span className="text-yellow-600">Pending</span>
                                           )}
                                         </td>
-                                        <td className="py-1.5 pr-4 text-gray-600">
+                                        <td className="py-1 pr-3 text-gray-500 dark:text-gray-400">
                                           {s.location ? `${s.location.warehouse.name} / ${s.location.name}` : '—'}
                                         </td>
-                                        <td className="py-1.5 pr-4 text-gray-600">{s.grade?.grade ?? '—'}</td>
-                                        <td className="py-1.5 text-gray-500">{s.note ?? '—'}</td>
+                                        <td className="py-1 pr-3 text-gray-500 dark:text-gray-400">{s.grade?.grade ?? '—'}</td>
+                                        <td className="py-1 text-gray-400">{s.note ?? '—'}</td>
                                       </tr>
                                     ))
                                   : (
                                       <tr key={item.id}>
-                                        <td className="py-1.5 pr-4 text-gray-700 font-medium">{item.sellerSku ?? '—'}</td>
-                                        <td className="py-1.5 pr-4 text-gray-600 max-w-[200px] truncate">{item.title ?? '—'}</td>
-                                        <td className="py-1.5 pr-4 text-gray-400">—</td>
-                                        <td className="py-1.5 pr-4 text-gray-400">—</td>
-                                        <td className="py-1.5 pr-4 text-gray-600">{item.returnReason ?? '—'}</td>
-                                        <td className="py-1.5 pr-4 text-gray-600">Qty: {item.quantityReturned}</td>
-                                        <td className="py-1.5 pr-4 text-gray-400">—</td>
-                                        <td className="py-1.5 pr-4 text-gray-400">—</td>
-                                        <td className="py-1.5 text-gray-400">—</td>
+                                        <td className="py-1 pr-3 text-gray-700 dark:text-gray-300 font-medium">{item.product?.sku ?? item.sellerSku ?? '—'}</td>
+                                        <td className="py-1 pr-3 text-gray-500 dark:text-gray-400 max-w-[180px] truncate">{item.title ?? '—'}</td>
+                                        <td className="py-1 pr-3 text-gray-400">—</td>
+                                        <td className="py-1 pr-3 text-gray-400">—</td>
+                                        <td className="py-1 pr-3 text-gray-500 dark:text-gray-400">{item.returnReason ?? '—'}</td>
+                                        <td className="py-1 pr-3 text-gray-500 dark:text-gray-400">Qty: {item.quantityReturned}</td>
+                                        <td className="py-1 pr-3 text-gray-400">—</td>
+                                        <td className="py-1 pr-3 text-gray-400">—</td>
+                                        <td className="py-1 text-gray-400">—</td>
                                       </tr>
                                     ),
                               )}
                             </tbody>
                           </table>
                           {rma.status === 'OPEN' && (
-                            <div className="mt-3 flex items-center gap-3">
+                            <div className="mt-2 flex items-center gap-3">
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleRowClick(rma) }}
-                                className="text-xs font-medium text-amazon-blue hover:underline"
+                                className="text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
                               >
                                 Receive Returns
                               </button>
                               {deletingRmaId === rma.id ? (
-                                <span className="inline-flex items-center gap-1.5 text-xs">
+                                <span className="inline-flex items-center gap-1.5 text-[11px]">
                                   <span className="text-red-600 font-medium">Delete this return?</span>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleDeleteRma(rma.id) }}
-                                    className="text-xs font-semibold text-red-600 hover:text-red-800"
+                                    className="text-[11px] font-semibold text-red-600 hover:text-red-800"
                                   >
                                     Yes
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); setDeletingRmaId(null) }}
-                                    className="text-xs font-semibold text-gray-500 hover:text-gray-700"
+                                    className="text-[11px] font-semibold text-gray-500 hover:text-gray-700"
                                   >
                                     No
                                   </button>
@@ -294,10 +299,10 @@ export default function MarketplaceReturnsManager() {
                               ) : (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setDeletingRmaId(rma.id) }}
-                                  className="text-xs font-medium text-red-500 hover:text-red-700 inline-flex items-center gap-0.5"
+                                  className="text-[11px] font-medium text-red-500 hover:text-red-700 inline-flex items-center gap-0.5"
                                   title="Delete this return"
                                 >
-                                  <Trash2 size={11} /> Delete
+                                  <Trash2 size={10} /> Delete
                                 </button>
                               )}
                             </div>
