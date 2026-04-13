@@ -128,16 +128,17 @@ export async function POST(req: NextRequest) {
 
       // Simple concurrency limiter — runs up to CONCURRENCY tasks at once
       let running = 0
-      let nextResolve: (() => void) | null = null
+      const waitQueue: (() => void)[] = []
       async function acquireSlot() {
-        while (running >= CONCURRENCY) {
-          await new Promise<void>(r => { nextResolve = r })
+        if (running >= CONCURRENCY) {
+          await new Promise<void>(r => waitQueue.push(r))
         }
         running++
       }
       function releaseSlot() {
         running--
-        if (nextResolve) { const r = nextResolve; nextResolve = null; r() }
+        const next = waitQueue.shift()
+        if (next) next()
       }
 
       try {
