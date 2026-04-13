@@ -14,19 +14,19 @@ const PAGE_SIZES = [25, 50, 100, 200] as const
 
 type SortKey = 'orderId' | 'sku' | 'serial'
 
-async function extractTextFromPDF(data: ArrayBuffer): Promise<string> {
+async function extractPagesFromPDF(data: ArrayBuffer): Promise<string[]> {
   const pdfjsLib = await import('pdfjs-dist')
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
 
   const pdf = await pdfjsLib.getDocument({ data }).promise
-  const lines: string[] = []
+  const pages: string[] = []
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
     const content = await page.getTextContent()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    lines.push(content.items.map((item: any) => (item as { str?: string }).str ?? '').join(' '))
+    pages.push(content.items.map((item: any) => (item as { str?: string }).str ?? '').join(' '))
   }
-  return lines.join('\n')
+  return pages
 }
 
 function parseInvoiceText(text: string, fileName: string): InvoiceRecord[] {
@@ -132,9 +132,11 @@ export default function LegacyInvoiceLibrary() {
       setImportProgress(`Processing ${i + 1} of ${pdfFiles.length}: ${file.name}`)
       try {
         const buffer = await file.arrayBuffer()
-        const text = await extractTextFromPDF(buffer)
-        const parsed = parseInvoiceText(text, file.name)
-        newRecords.push(...parsed)
+        const pages = await extractPagesFromPDF(buffer)
+        for (const pageText of pages) {
+          const parsed = parseInvoiceText(pageText, file.name)
+          newRecords.push(...parsed)
+        }
         newFiles.push(file.name)
       } catch (err) {
         console.error(`Failed to parse ${file.name}:`, err)
