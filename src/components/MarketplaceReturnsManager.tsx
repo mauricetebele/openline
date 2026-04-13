@@ -156,6 +156,7 @@ export default function MarketplaceReturnsManager() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">OLM #</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace Order</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Customer</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Source</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
@@ -185,6 +186,9 @@ export default function MarketplaceReturnsManager() {
                       <td className="px-4 py-3 text-gray-700">{rma.order.olmNumber ? `#${rma.order.olmNumber}` : '—'}</td>
                       <td className="px-4 py-3 font-mono text-xs text-gray-500">{rma.order.amazonOrderId}</td>
                       <td className="px-4 py-3 text-gray-700">{rma.order.shipToName ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-700 text-sm">
+                        {rma.items.length === 1 ? (rma.items[0].product?.sku ?? rma.items[0].sellerSku ?? '—') : rma.items.length > 1 ? 'Multiple Items' : '—'}
+                      </td>
                       <td className="px-4 py-3">
                         <span className={clsx('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize', SOURCE_COLOR[rma.order.orderSource] ?? 'bg-gray-100 text-gray-600')}>
                           {rma.order.orderSource}
@@ -202,7 +206,7 @@ export default function MarketplaceReturnsManager() {
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={9} className="bg-gray-50/70 px-6 py-4">
+                        <td colSpan={10} className="bg-gray-50/70 px-6 py-4">
                           {rma.notes && (
                             <p className="text-xs text-gray-500 mb-3"><span className="font-semibold text-gray-600">Notes:</span> {rma.notes}</p>
                           )}

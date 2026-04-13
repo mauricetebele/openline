@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
           title: true,
           quantityReturned: true,
           returnReason: true,
+          product: { select: { sku: true } },
           serials: {
             select: {
               id: true,
