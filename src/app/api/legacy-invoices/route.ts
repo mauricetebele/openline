@@ -31,44 +31,31 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { records } = await req.json()
+  const { records, clearFile } = await req.json()
   if (!Array.isArray(records) || records.length === 0) {
     return NextResponse.json({ error: 'records[] is required' }, { status: 400 })
   }
 
   try {
-    const byFile = new Map<string, InvoiceRecord[]>()
-    for (const r of records as InvoiceRecord[]) {
-      const fn = r._file ?? r.fileName ?? ''
-      if (!byFile.has(fn)) byFile.set(fn, [])
-      byFile.get(fn)!.push(r)
+    if (clearFile) {
+      await prisma.legacyInvoice.deleteMany({ where: { fileName: clearFile } })
     }
 
-    let upserted = 0
+    await prisma.legacyInvoice.createMany({
+      data: (records as InvoiceRecord[]).map(r => ({
+        orderId: r.orderId,
+        orderDate: r.orderDate ?? '',
+        customerName: r.customerName ?? '',
+        address: r.address ?? '',
+        items: (r.items ?? []) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+        tracking: (r.tracking ?? []) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+        rawText: r.rawText ?? '',
+        fileName: r._file ?? r.fileName ?? '',
+      })),
+      skipDuplicates: true,
+    })
 
-    for (const [fileName, recs] of Array.from(byFile.entries())) {
-      await prisma.legacyInvoice.deleteMany({ where: { fileName } })
-
-      for (let i = 0; i < recs.length; i += 500) {
-        const chunk = recs.slice(i, i + 500)
-        await prisma.legacyInvoice.createMany({
-          data: chunk.map(r => ({
-            orderId: r.orderId,
-            orderDate: r.orderDate ?? '',
-            customerName: r.customerName ?? '',
-            address: r.address ?? '',
-            items: (r.items ?? []) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-            tracking: (r.tracking ?? []) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-            rawText: r.rawText ?? '',
-            fileName,
-          })),
-          skipDuplicates: true,
-        })
-        upserted += chunk.length
-      }
-    }
-
-    return NextResponse.json({ upserted })
+    return NextResponse.json({ upserted: records.length })
   } catch (err) {
     console.error('legacy-invoices POST error:', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
