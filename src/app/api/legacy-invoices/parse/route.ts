@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
         for (const line of lines) {
           if (/[A-Z]/.test(line) && line.includes('-') && line.length > 5 && !/^\d+$/.test(line)) {
             currentSku = line
-          } else if (/^\d{10,}$/.test(line.replace(/\s/g, ''))) {
+          } else if (/^[A-Z0-9]{6,}$/.test(line.replace(/\s/g, '')) && currentSku) {
             items.push({ sku: currentSku, serial: line.replace(/\s/g, '') })
           }
         }
