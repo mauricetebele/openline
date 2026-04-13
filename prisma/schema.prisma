@@ -2228,3 +2228,20 @@ model LegacyInvoice {
   @@unique([orderId, fileName])
   @@map("legacy_invoices")
 }
+
+// ─── Legacy PO Serials ─────────────────────────────────────────────────────
+
+model LegacyPOSerial {
+  id           String   @id @default(cuid())
+  productSku   String   @default("")
+  serial       String
+  vendor       String   @default("")
+  receivedDate String   @default("")
+  cost         Float?
+  poCode       String   @default("")
+  fileName     String   @default("")
+  createdAt    DateTime @default(now())
+
+  @@unique([serial, fileName])
+  @@map("legacy_po_serials")
+}

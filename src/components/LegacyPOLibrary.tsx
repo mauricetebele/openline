@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { Upload, Search, X, FileSpreadsheet, Trash2 } from 'lucide-react'
 
 interface LegacySerial {
@@ -62,8 +62,36 @@ export default function LegacyPOLibrary() {
   const [pageSize, setPageSize] = useState<number>(50)
   const [sortBy, setSortBy] = useState<SortKey>('receivedDate')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const loadFromDb = useCallback(async () => {
+    try {
+      const res = await fetch('/api/legacy-po')
+      if (!res.ok) return
+      const { data } = await res.json()
+      if (!Array.isArray(data) || data.length === 0) return
+      const loaded: LegacySerial[] = data.map((r: Record<string, unknown>) => ({
+        productSku: (r.productSku as string) ?? '',
+        serial: (r.serial as string) ?? '',
+        vendor: (r.vendor as string) ?? '',
+        receivedDate: (r.receivedDate as string) ?? '',
+        cost: (r.cost as number | null) ?? null,
+        poCode: (r.poCode as string) ?? '',
+        _file: (r.fileName as string) ?? '',
+      }))
+      setRecords(loaded)
+      const uniqueFiles = Array.from(new Set(loaded.map(r => r._file).filter(Boolean)))
+      setFiles(uniqueFiles)
+    } catch {
+      // silent — user can still upload manually
+    }
+  }, [])
+
+  useEffect(() => {
+    loadFromDb().finally(() => setLoading(false))
+  }, [loadFromDb])
 
   function handleSort(key: SortKey) {
     if (sortBy === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -93,6 +121,12 @@ export default function LegacyPOLibrary() {
       setRecords(prev => [...prev, ...newRecords])
       setFiles(prev => [...prev, ...newFiles])
       setPage(0)
+      // persist to DB (fire-and-forget)
+      fetch('/api/legacy-po', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records: newRecords }),
+      }).catch(() => {})
     }
     setImporting(false)
     if (fileRef.current) fileRef.current.value = ''
@@ -102,6 +136,11 @@ export default function LegacyPOLibrary() {
     setRecords(prev => prev.filter(r => r._file !== fileName))
     setFiles(prev => prev.filter(f => f !== fileName))
     setPage(0)
+    fetch('/api/legacy-po', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName }),
+    }).catch(() => {})
   }
 
   function clearAll() {
@@ -109,6 +148,11 @@ export default function LegacyPOLibrary() {
     setFiles([])
     setSearch('')
     setPage(0)
+    fetch('/api/legacy-po', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ all: true }),
+    }).catch(() => {})
   }
 
   // Filter + sort
@@ -218,7 +262,11 @@ export default function LegacyPOLibrary() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        {records.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-24 text-sm text-gray-400 animate-pulse">
+            Loading saved PO data…
+          </div>
+        ) : records.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-gray-400">
             <Upload size={36} className="mb-3 text-gray-200" />
             <p className="text-sm font-medium">No data loaded</p>
