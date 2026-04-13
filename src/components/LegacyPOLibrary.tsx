@@ -147,19 +147,27 @@ export default function LegacyPOLibrary() {
       setRecords(prev => [...prev, ...newRecords])
       setFiles(prev => [...prev, ...newFiles])
       setPage(0)
-      // persist to DB in chunks
-      const CHUNK = 2000
+      // persist to DB in chunks — sequential to avoid connection limits
+      const CHUNK = 500
+      let saved = 0
       for (let i = 0; i < newRecords.length; i += CHUNK) {
         try {
-          await fetch('/api/legacy-po', {
+          const res = await fetch('/api/legacy-po', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ records: newRecords.slice(i, i + CHUNK) }),
           })
-        } catch {
-          // continue with remaining chunks
+          if (res.ok) {
+            const json = await res.json()
+            saved += json.upserted ?? 0
+          } else {
+            console.error(`legacy-po chunk ${i} failed: ${res.status}`, await res.text())
+          }
+        } catch (err) {
+          console.error(`legacy-po chunk ${i} network error:`, err)
         }
       }
+      console.log(`legacy-po: saved ${saved} of ${newRecords.length} records`)
     }
     setImporting(false)
     if (fileRef.current) fileRef.current.value = ''

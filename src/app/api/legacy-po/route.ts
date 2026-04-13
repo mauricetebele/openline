@@ -36,39 +36,43 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'records[] is required' }, { status: 400 })
   }
 
-  // Bulk upsert using raw SQL — much faster than individual Prisma upserts
-  const CHUNK = 500
-  let upserted = 0
+  try {
+    const CHUNK = 250
+    let upserted = 0
 
-  for (let i = 0; i < records.length; i += CHUNK) {
-    const chunk = records.slice(i, i + CHUNK) as PORecord[]
+    for (let i = 0; i < records.length; i += CHUNK) {
+      const chunk = records.slice(i, i + CHUNK) as PORecord[]
 
-    const values = chunk.map((r) => {
-      const id = crypto.randomUUID()
-      const productSku = r.productSku ?? ''
-      const serial = r.serial
-      const vendor = r.vendor ?? ''
-      const receivedDate = r.receivedDate ?? ''
-      const cost = r.cost ?? null
-      const poCode = r.poCode ?? ''
-      const fileName = r._file ?? r.fileName ?? ''
-      return `('${id}', '${esc(productSku)}', '${esc(serial)}', '${esc(vendor)}', '${esc(receivedDate)}', ${cost === null ? 'NULL' : cost}, '${esc(poCode)}', '${esc(fileName)}', NOW())`
-    })
+      const values = chunk.map((r) => {
+        const id = crypto.randomUUID()
+        const productSku = r.productSku ?? ''
+        const serial = r.serial
+        const vendor = r.vendor ?? ''
+        const receivedDate = r.receivedDate ?? ''
+        const cost = r.cost ?? null
+        const poCode = r.poCode ?? ''
+        const fileName = r._file ?? r.fileName ?? ''
+        return `('${id}', '${esc(productSku)}', '${esc(serial)}', '${esc(vendor)}', '${esc(receivedDate)}', ${cost === null ? 'NULL' : cost}, '${esc(poCode)}', '${esc(fileName)}', NOW())`
+      })
 
-    await prisma.$executeRawUnsafe(`
-      INSERT INTO legacy_po_serials ("id", "productSku", "serial", "vendor", "receivedDate", "cost", "poCode", "fileName", "createdAt")
-      VALUES ${values.join(',\n')}
-      ON CONFLICT ("serial", "fileName") DO UPDATE SET
-        "productSku" = EXCLUDED."productSku",
-        "vendor" = EXCLUDED."vendor",
-        "receivedDate" = EXCLUDED."receivedDate",
-        "cost" = EXCLUDED."cost",
-        "poCode" = EXCLUDED."poCode"
-    `)
-    upserted += chunk.length
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO legacy_po_serials ("id", "productSku", "serial", "vendor", "receivedDate", "cost", "poCode", "fileName", "createdAt")
+        VALUES ${values.join(',\n')}
+        ON CONFLICT ("serial", "fileName") DO UPDATE SET
+          "productSku" = EXCLUDED."productSku",
+          "vendor" = EXCLUDED."vendor",
+          "receivedDate" = EXCLUDED."receivedDate",
+          "cost" = EXCLUDED."cost",
+          "poCode" = EXCLUDED."poCode"
+      `)
+      upserted += chunk.length
+    }
+
+    return NextResponse.json({ upserted })
+  } catch (err) {
+    console.error('legacy-po POST error:', err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
-
-  return NextResponse.json({ upserted })
 }
 
 function esc(s: string): string {

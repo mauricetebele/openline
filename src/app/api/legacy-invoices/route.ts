@@ -37,40 +37,45 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'records[] is required' }, { status: 400 })
   }
 
-  const CHUNK = 500
-  let upserted = 0
+  try {
+    const CHUNK = 250
+    let upserted = 0
 
-  for (let i = 0; i < records.length; i += CHUNK) {
-    const chunk = records.slice(i, i + CHUNK) as InvoiceRecord[]
+    for (let i = 0; i < records.length; i += CHUNK) {
+      const chunk = records.slice(i, i + CHUNK) as InvoiceRecord[]
 
-    const values = chunk.map((r) => {
-      const id = crypto.randomUUID()
-      const orderId = r.orderId
-      const orderDate = r.orderDate ?? ''
-      const customerName = r.customerName ?? ''
-      const address = r.address ?? ''
-      const items = JSON.stringify(r.items ?? [])
-      const tracking = JSON.stringify(r.tracking ?? [])
-      const rawText = r.rawText ?? ''
-      const fileName = r._file ?? r.fileName ?? ''
-      return `('${id}', '${esc(orderId)}', '${esc(orderDate)}', '${esc(customerName)}', '${esc(address)}', '${esc(items)}'::jsonb, '${esc(tracking)}'::jsonb, '${esc(rawText)}', '${esc(fileName)}', NOW())`
-    })
+      const values = chunk.map((r) => {
+        const id = crypto.randomUUID()
+        const orderId = r.orderId
+        const orderDate = r.orderDate ?? ''
+        const customerName = r.customerName ?? ''
+        const address = r.address ?? ''
+        const items = JSON.stringify(r.items ?? [])
+        const tracking = JSON.stringify(r.tracking ?? [])
+        const rawText = r.rawText ?? ''
+        const fileName = r._file ?? r.fileName ?? ''
+        return `('${id}', '${esc(orderId)}', '${esc(orderDate)}', '${esc(customerName)}', '${esc(address)}', '${esc(items)}'::jsonb, '${esc(tracking)}'::jsonb, '${esc(rawText)}', '${esc(fileName)}', NOW())`
+      })
 
-    await prisma.$executeRawUnsafe(`
-      INSERT INTO legacy_invoices ("id", "orderId", "orderDate", "customerName", "address", "items", "tracking", "rawText", "fileName", "createdAt")
-      VALUES ${values.join(',\n')}
-      ON CONFLICT ("orderId", "fileName") DO UPDATE SET
-        "orderDate" = EXCLUDED."orderDate",
-        "customerName" = EXCLUDED."customerName",
-        "address" = EXCLUDED."address",
-        "items" = EXCLUDED."items",
-        "tracking" = EXCLUDED."tracking",
-        "rawText" = EXCLUDED."rawText"
-    `)
-    upserted += chunk.length
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO legacy_invoices ("id", "orderId", "orderDate", "customerName", "address", "items", "tracking", "rawText", "fileName", "createdAt")
+        VALUES ${values.join(',\n')}
+        ON CONFLICT ("orderId", "fileName") DO UPDATE SET
+          "orderDate" = EXCLUDED."orderDate",
+          "customerName" = EXCLUDED."customerName",
+          "address" = EXCLUDED."address",
+          "items" = EXCLUDED."items",
+          "tracking" = EXCLUDED."tracking",
+          "rawText" = EXCLUDED."rawText"
+      `)
+      upserted += chunk.length
+    }
+
+    return NextResponse.json({ upserted })
+  } catch (err) {
+    console.error('legacy-invoices POST error:', err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
-
-  return NextResponse.json({ upserted })
 }
 
 function esc(s: string): string {
