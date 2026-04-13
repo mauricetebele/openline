@@ -27,6 +27,7 @@ export default function LegacyInvoiceLibrary() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState('')
+  const [error, setError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   function handleSort(key: SortKey) {
@@ -42,6 +43,7 @@ export default function LegacyInvoiceLibrary() {
   async function handleFiles(fileList: FileList | null) {
     if (!fileList?.length) return
     setImporting(true)
+    setError('')
     const newRecords: InvoiceRecord[] = []
     const newFiles: string[] = []
     const pdfFiles = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.pdf'))
@@ -61,6 +63,8 @@ export default function LegacyInvoiceLibrary() {
         }
         newFiles.push(file.name)
       } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error'
+        setError(`Failed to parse ${file.name}: ${msg}`)
         console.error(`Failed to parse ${file.name}:`, err)
       }
     }
@@ -145,6 +149,9 @@ export default function LegacyInvoiceLibrary() {
 
         {importing && importProgress && (
           <span className="text-xs text-gray-500 animate-pulse">{importProgress}</span>
+        )}
+        {error && (
+          <span className="text-xs text-red-500">{error}</span>
         )}
 
         {/* Search */}

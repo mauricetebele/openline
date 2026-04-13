@@ -8,8 +8,9 @@ export async function POST(req: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer())
 
+    // Import directly from lib to avoid index.js test-file loading issue on Vercel
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require('pdf-parse')
+    const pdfParse = require('pdf-parse/lib/pdf-parse')
     const parsed = await pdfParse(buffer)
 
     const fullText: string = parsed.text ?? ''
