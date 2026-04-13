@@ -16,7 +16,7 @@ type SortKey = 'orderId' | 'sku' | 'serial'
 
 async function extractPagesFromPDF(data: ArrayBuffer): Promise<string[]> {
   const pdfjsLib = await import('pdfjs-dist')
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs`
 
   const pdf = await pdfjsLib.getDocument({ data }).promise
   const pages: string[] = []
