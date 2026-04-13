@@ -71,6 +71,8 @@ export async function GET(req: NextRequest) {
       where.OR = [
         { amazonOrderId: { contains: search, mode: 'insensitive' } },
         { items: { some: { sellerSku: { contains: search, mode: 'insensitive' } } } },
+        { shipTracking: { contains: search, mode: 'insensitive' } },
+        { label: { trackingNumber: { contains: search, mode: 'insensitive' } } },
       ]
     }
 

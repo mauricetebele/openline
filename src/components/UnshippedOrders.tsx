@@ -6408,7 +6408,7 @@ export default function UnshippedOrders() {
         {/* Search */}
         <div className="relative">
           <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-          <input type="text" placeholder="Order ID or SKU…" value={search} onChange={e => setSearch(e.target.value)}
+          <input type="text" placeholder="Order ID, SKU, or tracking…" value={search} onChange={e => setSearch(e.target.value)}
             className="h-8 pl-7 pr-2 rounded border border-gray-300 text-xs focus:outline-none focus:ring-1 focus:ring-amazon-blue w-48" />
         </div>
 
