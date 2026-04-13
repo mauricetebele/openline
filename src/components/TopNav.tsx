@@ -47,6 +47,7 @@ const NAV: NavItem[] = [
       { href: '/inventory/events',    label: 'Transaction History', icon: History },
       { href: '/inventory/migrate',   label: 'Migration Tool',      icon: Upload },
       { href: '/legacy-po',           label: 'Legacy PO Data',      icon: Archive },
+      { href: '/legacy-invoices',     label: 'Legacy Invoices',     icon: FileText },
     ],
   },
   {
