@@ -1,21 +1,27 @@
 'use client'
 
 import { useState, useMemo, useRef } from 'react'
-import { Upload, Search, X, FileText, Trash2 } from 'lucide-react'
+import { Upload, Search, X, FileText, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
+
+interface InvoiceItem {
+  sku: string
+  serial: string
+}
 
 interface InvoiceRecord {
   orderId: string
   orderDate: string
-  sku: string
-  serial: string
   customerName: string
   address: string
+  items: InvoiceItem[]
+  tracking: string[]
+  rawText: string
   _file: string
 }
 
 const PAGE_SIZES = [25, 50, 100, 200] as const
 
-type SortKey = 'orderId' | 'orderDate' | 'sku' | 'serial' | 'customerName'
+type SortKey = 'orderId' | 'orderDate' | 'customerName'
 
 export default function LegacyInvoiceLibrary() {
   const [records, setRecords] = useState<InvoiceRecord[]>([])
@@ -28,6 +34,8 @@ export default function LegacyInvoiceLibrary() {
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState('')
   const [error, setError] = useState('')
+  const [selectedOrder, setSelectedOrder] = useState<InvoiceRecord | null>(null)
+  const [rawExpanded, setRawExpanded] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   function handleSort(key: SortKey) {
@@ -59,7 +67,16 @@ export default function LegacyInvoiceLibrary() {
         if (!res.ok) throw new Error(`Server error ${res.status}`)
         const data = await res.json()
         for (const r of data.records ?? []) {
-          newRecords.push({ orderId: r.orderId, orderDate: r.orderDate ?? '', sku: r.sku, serial: r.serial, customerName: r.customerName ?? '', address: r.address ?? '', _file: file.name })
+          newRecords.push({
+            orderId: r.orderId,
+            orderDate: r.orderDate ?? '',
+            customerName: r.customerName ?? '',
+            address: r.address ?? '',
+            items: r.items ?? [],
+            tracking: r.tracking ?? [],
+            rawText: r.rawText ?? '',
+            _file: file.name,
+          })
         }
         newFiles.push(file.name)
       } catch (err) {
@@ -98,10 +115,10 @@ export default function LegacyInvoiceLibrary() {
     if (q) {
       result = records.filter(r =>
         r.orderId.toLowerCase().includes(q) ||
-        r.sku.toLowerCase().includes(q) ||
-        r.serial.toLowerCase().includes(q) ||
+        r.orderDate.toLowerCase().includes(q) ||
         r.customerName.toLowerCase().includes(q) ||
-        r.address.toLowerCase().includes(q)
+        r.address.toLowerCase().includes(q) ||
+        r.items.some(it => it.sku.toLowerCase().includes(q) || it.serial.toLowerCase().includes(q))
       )
     }
     result = [...result].sort((a, b) => {
@@ -160,7 +177,7 @@ export default function LegacyInvoiceLibrary() {
           <input
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(0) }}
-            placeholder="Search order #, SKU, serial…"
+            placeholder="Search order #, customer, SKU…"
             className="h-8 pl-8 pr-8 w-72 rounded-lg border border-gray-200 dark:border-gray-600 dark:bg-gray-800 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
           />
           {search && (
@@ -171,7 +188,7 @@ export default function LegacyInvoiceLibrary() {
         </div>
 
         <span className="text-xs text-gray-400">
-          {filtered.length.toLocaleString()} record{filtered.length !== 1 ? 's' : ''}
+          {filtered.length.toLocaleString()} order{filtered.length !== 1 ? 's' : ''}
           {search && ` matching "${search}"`}
           {records.length !== filtered.length && ` of ${records.length.toLocaleString()} total`}
         </span>
@@ -223,28 +240,18 @@ export default function LegacyInvoiceLibrary() {
                     <span className={sortBy === 'orderDate' ? 'text-amazon-orange text-[10px]' : 'text-gray-500 text-[10px]'}>{sortIcon('orderDate')}</span>
                   </span>
                 </th>
-                <th onClick={() => handleSort('sku')} className={thClass}>
-                  <span className="inline-flex items-center gap-1">SKU
-                    <span className={sortBy === 'sku' ? 'text-amazon-orange text-[10px]' : 'text-gray-500 text-[10px]'}>{sortIcon('sku')}</span>
-                  </span>
-                </th>
-                <th onClick={() => handleSort('serial')} className={thClass}>
-                  <span className="inline-flex items-center gap-1">Serial #
-                    <span className={sortBy === 'serial' ? 'text-amazon-orange text-[10px]' : 'text-gray-500 text-[10px]'}>{sortIcon('serial')}</span>
-                  </span>
-                </th>
                 <th onClick={() => handleSort('customerName')} className={thClass}>
                   <span className="inline-flex items-center gap-1">Customer
                     <span className={sortBy === 'customerName' ? 'text-amazon-orange text-[10px]' : 'text-gray-500 text-[10px]'}>{sortIcon('customerName')}</span>
                   </span>
                 </th>
-                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Address</th>
               </tr>
             </thead>
             <tbody>
               {paged.map((r, i) => (
-                <tr key={`${r.orderId}-${r.serial}-${i}`}
-                  className={`border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors align-middle ${
+                <tr key={`${r.orderId}-${i}`}
+                  onClick={() => { setSelectedOrder(r); setRawExpanded(false) }}
+                  className={`border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors align-middle cursor-pointer ${
                     i % 2 === 0
                       ? 'bg-white hover:bg-blue-50/50 dark:bg-gray-900 dark:hover:bg-gray-800/70'
                       : 'bg-gray-50 hover:bg-blue-50/50 dark:bg-gray-800/50 dark:hover:bg-gray-800/70'
@@ -252,10 +259,7 @@ export default function LegacyInvoiceLibrary() {
                 >
                   <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-300">{r.orderId || '—'}</td>
                   <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{r.orderDate || '—'}</td>
-                  <td className="px-3 py-2 font-mono font-medium text-gray-900 dark:text-gray-100">{r.sku || '—'}</td>
-                  <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-300">{r.serial || '—'}</td>
                   <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{r.customerName || '—'}</td>
-                  <td className="px-3 py-2 text-gray-700 dark:text-gray-300 max-w-[250px] truncate">{r.address || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -292,6 +296,100 @@ export default function LegacyInvoiceLibrary() {
             >
               Next
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Detail Modal */}
+      {selectedOrder && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => setSelectedOrder(null)}
+        >
+          <div
+            className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 font-mono">{selectedOrder.orderId}</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{selectedOrder.orderDate || 'No date'}</p>
+              </div>
+              <button
+                onClick={() => setSelectedOrder(null)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-auto px-6 py-4 space-y-5">
+              {/* Customer & Shipping */}
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Customer & Shipping</h3>
+                <div className="text-sm text-gray-800 dark:text-gray-200">
+                  <p className="font-medium">{selectedOrder.customerName || '—'}</p>
+                  {selectedOrder.address && (
+                    <p className="text-gray-600 dark:text-gray-400 mt-0.5">{selectedOrder.address}</p>
+                  )}
+                </div>
+              </section>
+
+              {/* Items */}
+              {selectedOrder.items.length > 0 && (
+                <section>
+                  <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Items ({selectedOrder.items.length})</h3>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b dark:border-gray-700">
+                        <th className="text-left py-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400">SKU</th>
+                        <th className="text-left py-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400">Serial #</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedOrder.items.map((it, i) => (
+                        <tr key={i} className="border-b dark:border-gray-700/50 last:border-0">
+                          <td className="py-1.5 font-mono text-gray-800 dark:text-gray-200">{it.sku || '—'}</td>
+                          <td className="py-1.5 font-mono text-gray-600 dark:text-gray-400">{it.serial || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </section>
+              )}
+
+              {/* Tracking */}
+              {selectedOrder.tracking.length > 0 && (
+                <section>
+                  <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Tracking Numbers</h3>
+                  <div className="space-y-1">
+                    {selectedOrder.tracking.map((t, i) => (
+                      <p key={i} className="text-sm font-mono text-gray-700 dark:text-gray-300">{t}</p>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Raw Invoice Text */}
+              {selectedOrder.rawText && (
+                <section>
+                  <button
+                    onClick={() => setRawExpanded(!rawExpanded)}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                  >
+                    {rawExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    Raw Invoice Text
+                  </button>
+                  {rawExpanded && (
+                    <pre className="mt-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 text-[11px] text-gray-600 dark:text-gray-400 overflow-auto max-h-64 whitespace-pre-wrap font-mono border dark:border-gray-700">
+                      {selectedOrder.rawText}
+                    </pre>
+                  )}
+                </section>
+              )}
+            </div>
           </div>
         </div>
       )}

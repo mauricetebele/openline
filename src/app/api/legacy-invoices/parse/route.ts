@@ -22,7 +22,15 @@ export async function POST(req: NextRequest) {
 
     const chunks = invoiceChunks.length > 0 ? invoiceChunks : [fullText]
 
-    const records: { orderId: string; orderDate: string; sku: string; serial: string; customerName: string; address: string }[] = []
+    const orderMap = new Map<string, {
+      orderId: string
+      orderDate: string
+      customerName: string
+      address: string
+      items: { sku: string; serial: string }[]
+      tracking: string[]
+      rawText: string
+    }>()
 
     for (const chunk of chunks) {
       // Extract order ID (Amazon pattern: xxx-xxxxxxx-xxxxxxx)
@@ -48,7 +56,6 @@ export async function POST(req: NextRequest) {
       const shipMatch = chunk.match(/SHIPPING\s*ADDRESS[:\s]*\n([\s\S]*?)(?:\n\d{10,}|\nTERMS|\nSKU)/i)
       if (shipMatch) {
         const lines = shipMatch[1].split('\n').map((l: string) => l.trim()).filter(Boolean)
-        // Filter out "US" country-only lines from the name
         const meaningful = lines.filter(l => l.length > 2)
         if (meaningful.length > 0) customerName = meaningful[0]
         if (meaningful.length > 1) address = meaningful.slice(1).filter(l => l !== 'US').join(', ')
@@ -70,7 +77,23 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Extract tracking numbers (common carrier patterns)
+      const tracking: string[] = []
+      const trackingMatches = chunk.match(/\b(1Z[A-Z0-9]{16}|(?:92|94|93|95)\d{18,22}|\d{12,22})\b/g)
+      if (trackingMatches) {
+        for (const t of trackingMatches) {
+          // Skip matches that look like serial numbers (exactly 10 digits often are serials)
+          // and skip order IDs
+          if (/^\d{3}-\d{7}-\d{7}$/.test(t)) continue
+          if (!tracking.includes(t)) tracking.push(t)
+        }
+      }
+
+      // Merge into existing order or create new entry
+      const existing = orderMap.get(orderId)
+
       // Find SERIAL # DETAILS BY SKU section
+      const items: { sku: string; serial: string }[] = []
       const serialSection = chunk.match(/SERIAL\s*#?\s*DETAILS\s*BY\s*SKU[:\s]*([\s\S]*?)(?:POWERED\s*BY|$)/i)
       if (serialSection) {
         const section = serialSection[1].trim()
@@ -80,16 +103,34 @@ export async function POST(req: NextRequest) {
           if (/[A-Z]/.test(line) && line.includes('-') && line.length > 5 && !/^\d+$/.test(line)) {
             currentSku = line
           } else if (/^\d{10,}$/.test(line.replace(/\s/g, ''))) {
-            records.push({ orderId, orderDate, sku: currentSku, serial: line.replace(/\s/g, ''), customerName, address })
+            items.push({ sku: currentSku, serial: line.replace(/\s/g, '') })
           }
         }
-        if (currentSku && !records.some(r => r.orderId === orderId)) {
-          records.push({ orderId, orderDate, sku: currentSku, serial: '', customerName, address })
+        if (currentSku && items.length === 0) {
+          items.push({ sku: currentSku, serial: '' })
         }
+      }
+
+      if (existing) {
+        existing.items.push(...items)
+        for (const t of tracking) {
+          if (!existing.tracking.includes(t)) existing.tracking.push(t)
+        }
+        existing.rawText += '\n---\n' + chunk
       } else {
-        records.push({ orderId, orderDate, sku: '', serial: '', customerName, address })
+        orderMap.set(orderId, {
+          orderId,
+          orderDate,
+          customerName,
+          address,
+          items,
+          tracking,
+          rawText: chunk,
+        })
       }
     }
+
+    const records = Array.from(orderMap.values())
 
     return NextResponse.json({ records })
   } catch (err) {
