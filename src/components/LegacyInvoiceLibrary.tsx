@@ -1,86 +1,20 @@
 'use client'
 
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { Upload, Search, X, FileText, Trash2 } from 'lucide-react'
 
 interface InvoiceRecord {
   orderId: string
   sku: string
   serial: string
+  customerName: string
+  address: string
   _file: string
 }
 
 const PAGE_SIZES = [25, 50, 100, 200] as const
 
-type SortKey = 'orderId' | 'sku' | 'serial'
-
-async function extractPagesFromPDF(data: ArrayBuffer): Promise<string[]> {
-  const pdfjsLib = await import('pdfjs-dist')
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs`
-
-  const pdf = await pdfjsLib.getDocument({ data }).promise
-  const pages: string[] = []
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i)
-    const content = await page.getTextContent()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    pages.push(content.items.map((item: any) => (item as { str?: string }).str ?? '').join(' '))
-  }
-  return pages
-}
-
-function parseInvoiceText(text: string, fileName: string): InvoiceRecord[] {
-  // Extract Invoice # (Amazon order ID pattern: xxx-xxxxxxx-xxxxxxx)
-  const orderMatch = text.match(/(\d{3}-\d{7}-\d{7})/)
-  const orderId = orderMatch?.[1] ?? ''
-  if (!orderId) return []
-
-  const records: InvoiceRecord[] = []
-
-  // Extract from SERIAL # DETAILS BY SKU section
-  // Text is space-separated (no newlines from PDF extraction)
-  // Pattern: "SERIAL # DETAILS BY SKU:" then SKU tokens and serial numbers until "POWERED BY"
-  const serialSectionMatch = text.match(/SERIAL\s*#?\s*DETAILS\s*BY\s*SKU[:\s]+(.*?)(?:POWERED\s*BY|$)/i)
-  if (serialSectionMatch) {
-    const section = serialSectionMatch[1].trim()
-    // Split into tokens by whitespace
-    const tokens = section.split(/\s+/).filter(Boolean)
-    // Walk tokens: SKU tokens have letters+dashes, serials are long digit strings
-    let currentSku = ''
-    for (const token of tokens) {
-      if (/^\d{10,}$/.test(token)) {
-        // Serial number
-        records.push({ orderId, sku: currentSku, serial: token, _file: fileName })
-      } else if (/[A-Z]/.test(token) && token.includes('-') && token.length > 5) {
-        // SKU token
-        currentSku = token
-      }
-    }
-  }
-
-  // Fallback: if no serials found from the section, try regex on full text
-  if (records.length === 0) {
-    // Find SKU-like patterns (letters, numbers, dashes, 6+ chars)
-    const skuMatches = text.match(/\b([A-Z][A-Z0-9]+-[A-Z0-9-]+[A-Z0-9])\b/g)
-    const skus = skuMatches ? Array.from(new Set(skuMatches)).filter(s => s.length > 5) : []
-    // Find serial-like numbers (12+ digits to avoid matching short numbers)
-    const serialMatches = text.match(/\b(\d{12,})\b/g)
-    const orderDigits = orderId.replace(/-/g, '')
-    const serials = serialMatches?.filter(s => s !== orderDigits) ?? []
-
-    if (skus.length > 0 && serials.length > 0) {
-      for (const serial of serials) {
-        records.push({ orderId, sku: skus[0], serial, _file: fileName })
-      }
-    } else if (skus.length > 0) {
-      records.push({ orderId, sku: skus[0], serial: '', _file: fileName })
-    } else {
-      records.push({ orderId, sku: '', serial: '', _file: fileName })
-    }
-  }
-
-  return records
-}
+type SortKey = 'orderId' | 'sku' | 'serial' | 'customerName'
 
 export default function LegacyInvoiceLibrary() {
   const [records, setRecords] = useState<InvoiceRecord[]>([])
@@ -93,9 +27,6 @@ export default function LegacyInvoiceLibrary() {
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => { setMounted(true) }, [])
 
   function handleSort(key: SortKey) {
     if (sortBy === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -119,11 +50,13 @@ export default function LegacyInvoiceLibrary() {
       if (files.includes(file.name)) continue
       setImportProgress(`Processing ${i + 1} of ${pdfFiles.length}: ${file.name}`)
       try {
-        const buffer = await file.arrayBuffer()
-        const pages = await extractPagesFromPDF(buffer)
-        for (const pageText of pages) {
-          const parsed = parseInvoiceText(pageText, file.name)
-          newRecords.push(...parsed)
+        const form = new FormData()
+        form.append('file', file)
+        const res = await fetch('/api/legacy-invoices/parse', { method: 'POST', body: form })
+        if (!res.ok) throw new Error(`Server error ${res.status}`)
+        const data = await res.json()
+        for (const r of data.records ?? []) {
+          newRecords.push({ orderId: r.orderId, sku: r.sku, serial: r.serial, customerName: r.customerName ?? '', address: r.address ?? '', _file: file.name })
         }
         newFiles.push(file.name)
       } catch (err) {
@@ -161,7 +94,9 @@ export default function LegacyInvoiceLibrary() {
       result = records.filter(r =>
         r.orderId.toLowerCase().includes(q) ||
         r.sku.toLowerCase().includes(q) ||
-        r.serial.toLowerCase().includes(q)
+        r.serial.toLowerCase().includes(q) ||
+        r.customerName.toLowerCase().includes(q) ||
+        r.address.toLowerCase().includes(q)
       )
     }
     result = [...result].sort((a, b) => {
@@ -177,8 +112,6 @@ export default function LegacyInvoiceLibrary() {
   const paged = filtered.slice(page * pageSize, (page + 1) * pageSize)
 
   const thClass = 'px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors'
-
-  if (!mounted) return null
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -287,6 +220,12 @@ export default function LegacyInvoiceLibrary() {
                     <span className={sortBy === 'serial' ? 'text-amazon-orange text-[10px]' : 'text-gray-500 text-[10px]'}>{sortIcon('serial')}</span>
                   </span>
                 </th>
+                <th onClick={() => handleSort('customerName')} className={thClass}>
+                  <span className="inline-flex items-center gap-1">Customer
+                    <span className={sortBy === 'customerName' ? 'text-amazon-orange text-[10px]' : 'text-gray-500 text-[10px]'}>{sortIcon('customerName')}</span>
+                  </span>
+                </th>
+                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Address</th>
               </tr>
             </thead>
             <tbody>
@@ -301,6 +240,8 @@ export default function LegacyInvoiceLibrary() {
                   <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-300">{r.orderId || '—'}</td>
                   <td className="px-3 py-2 font-mono font-medium text-gray-900 dark:text-gray-100">{r.sku || '—'}</td>
                   <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-300">{r.serial || '—'}</td>
+                  <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{r.customerName || '—'}</td>
+                  <td className="px-3 py-2 text-gray-700 dark:text-gray-300 max-w-[250px] truncate">{r.address || '—'}</td>
                 </tr>
               ))}
             </tbody>
