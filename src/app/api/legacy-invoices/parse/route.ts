@@ -21,13 +21,24 @@ export async function POST(req: NextRequest) {
 
     const chunks = invoiceChunks.length > 0 ? invoiceChunks : [fullText]
 
-    const records: { orderId: string; sku: string; serial: string; customerName: string; address: string }[] = []
+    const records: { orderId: string; orderDate: string; sku: string; serial: string; customerName: string; address: string }[] = []
 
     for (const chunk of chunks) {
       // Extract order ID (Amazon pattern: xxx-xxxxxxx-xxxxxxx)
       const orderMatch = chunk.match(/(\d{3}-\d{7}-\d{7})/)
       const orderId = orderMatch?.[1] ?? ''
       if (!orderId) continue
+
+      // Extract order date — appears as MM-DD-YY right before the order ID
+      let orderDate = ''
+      const dateMatch = chunk.match(/(\d{2}-\d{2}-\d{2,4})\s*\d{3}-\d{7}-\d{7}/)
+      if (dateMatch) {
+        const parts = dateMatch[1].split('-')
+        if (parts.length === 3) {
+          const yy = parts[2].length === 2 ? '20' + parts[2] : parts[2]
+          orderDate = `${yy}-${parts[0]}-${parts[1]}`
+        }
+      }
 
       // Extract customer name and address from SHIPPING ADDRESS section
       let customerName = ''
@@ -68,14 +79,14 @@ export async function POST(req: NextRequest) {
           if (/[A-Z]/.test(line) && line.includes('-') && line.length > 5 && !/^\d+$/.test(line)) {
             currentSku = line
           } else if (/^\d{10,}$/.test(line.replace(/\s/g, ''))) {
-            records.push({ orderId, sku: currentSku, serial: line.replace(/\s/g, ''), customerName, address })
+            records.push({ orderId, orderDate, sku: currentSku, serial: line.replace(/\s/g, ''), customerName, address })
           }
         }
         if (currentSku && !records.some(r => r.orderId === orderId)) {
-          records.push({ orderId, sku: currentSku, serial: '', customerName, address })
+          records.push({ orderId, orderDate, sku: currentSku, serial: '', customerName, address })
         }
       } else {
-        records.push({ orderId, sku: '', serial: '', customerName, address })
+        records.push({ orderId, orderDate, sku: '', serial: '', customerName, address })
       }
     }
 

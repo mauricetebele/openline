@@ -5,6 +5,7 @@ import { Upload, Search, X, FileText, Trash2 } from 'lucide-react'
 
 interface InvoiceRecord {
   orderId: string
+  orderDate: string
   sku: string
   serial: string
   customerName: string
@@ -14,7 +15,7 @@ interface InvoiceRecord {
 
 const PAGE_SIZES = [25, 50, 100, 200] as const
 
-type SortKey = 'orderId' | 'sku' | 'serial' | 'customerName'
+type SortKey = 'orderId' | 'orderDate' | 'sku' | 'serial' | 'customerName'
 
 export default function LegacyInvoiceLibrary() {
   const [records, setRecords] = useState<InvoiceRecord[]>([])
@@ -56,7 +57,7 @@ export default function LegacyInvoiceLibrary() {
         if (!res.ok) throw new Error(`Server error ${res.status}`)
         const data = await res.json()
         for (const r of data.records ?? []) {
-          newRecords.push({ orderId: r.orderId, sku: r.sku, serial: r.serial, customerName: r.customerName ?? '', address: r.address ?? '', _file: file.name })
+          newRecords.push({ orderId: r.orderId, orderDate: r.orderDate ?? '', sku: r.sku, serial: r.serial, customerName: r.customerName ?? '', address: r.address ?? '', _file: file.name })
         }
         newFiles.push(file.name)
       } catch (err) {
@@ -210,6 +211,11 @@ export default function LegacyInvoiceLibrary() {
                     <span className={sortBy === 'orderId' ? 'text-amazon-orange text-[10px]' : 'text-gray-500 text-[10px]'}>{sortIcon('orderId')}</span>
                   </span>
                 </th>
+                <th onClick={() => handleSort('orderDate')} className={thClass}>
+                  <span className="inline-flex items-center gap-1">Date
+                    <span className={sortBy === 'orderDate' ? 'text-amazon-orange text-[10px]' : 'text-gray-500 text-[10px]'}>{sortIcon('orderDate')}</span>
+                  </span>
+                </th>
                 <th onClick={() => handleSort('sku')} className={thClass}>
                   <span className="inline-flex items-center gap-1">SKU
                     <span className={sortBy === 'sku' ? 'text-amazon-orange text-[10px]' : 'text-gray-500 text-[10px]'}>{sortIcon('sku')}</span>
@@ -238,6 +244,7 @@ export default function LegacyInvoiceLibrary() {
                   }`}
                 >
                   <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-300">{r.orderId || '—'}</td>
+                  <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{r.orderDate || '—'}</td>
                   <td className="px-3 py-2 font-mono font-medium text-gray-900 dark:text-gray-100">{r.sku || '—'}</td>
                   <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-300">{r.serial || '—'}</td>
                   <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{r.customerName || '—'}</td>
