@@ -2210,3 +2210,21 @@ model FreeReplacement {
   @@index([originalOrderId])
   @@map("free_replacements")
 }
+
+// ─── Legacy Invoices ───────────────────────────────────────────────────────
+
+model LegacyInvoice {
+  id           String   @id @default(cuid())
+  orderId      String
+  orderDate    String
+  customerName String   @default("")
+  address      String   @default("")
+  items        Json     @default("[]")
+  tracking     Json     @default("[]")
+  rawText      String   @default("")
+  fileName     String   @default("")
+  createdAt    DateTime @default(now())
+
+  @@unique([orderId, fileName])
+  @@map("legacy_invoices")
+}

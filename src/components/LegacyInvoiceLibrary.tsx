@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { Upload, Search, X, FileText, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface InvoiceItem {
@@ -31,6 +31,7 @@ export default function LegacyInvoiceLibrary() {
   const [pageSize, setPageSize] = useState<number>(50)
   const [sortBy, setSortBy] = useState<SortKey>('orderId')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState('')
   const [error, setError] = useState('')
@@ -38,6 +39,34 @@ export default function LegacyInvoiceLibrary() {
   const [rawExpanded, setRawExpanded] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const cancelRef = useRef(false)
+
+  const loadFromDb = useCallback(async () => {
+    try {
+      const res = await fetch('/api/legacy-invoices')
+      if (!res.ok) return
+      const { data } = await res.json()
+      if (!Array.isArray(data) || data.length === 0) return
+      const loaded: InvoiceRecord[] = data.map((r: Record<string, unknown>) => ({
+        orderId: (r.orderId as string) ?? '',
+        orderDate: (r.orderDate as string) ?? '',
+        customerName: (r.customerName as string) ?? '',
+        address: (r.address as string) ?? '',
+        items: (r.items as InvoiceItem[]) ?? [],
+        tracking: (r.tracking as string[]) ?? [],
+        rawText: (r.rawText as string) ?? '',
+        _file: (r.fileName as string) ?? '',
+      }))
+      setRecords(loaded)
+      const uniqueFiles = Array.from(new Set(loaded.map(r => r._file).filter(Boolean)))
+      setFiles(uniqueFiles)
+    } catch {
+      // silent — user can still upload manually
+    }
+  }, [])
+
+  useEffect(() => {
+    loadFromDb().finally(() => setLoading(false))
+  }, [loadFromDb])
 
   function handleSort(key: SortKey) {
     if (sortBy === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -106,6 +135,12 @@ export default function LegacyInvoiceLibrary() {
       if (batchRecords.length > 0) {
         setRecords(prev => [...prev, ...batchRecords])
         setFiles(prev => [...prev, ...batchFiles])
+        // persist to DB (fire-and-forget)
+        fetch('/api/legacy-invoices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ records: batchRecords }),
+        }).catch(() => {})
       }
 
       completed += batch.length
@@ -121,6 +156,11 @@ export default function LegacyInvoiceLibrary() {
     setRecords(prev => prev.filter(r => r._file !== fileName))
     setFiles(prev => prev.filter(f => f !== fileName))
     setPage(0)
+    fetch('/api/legacy-invoices', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName }),
+    }).catch(() => {})
   }
 
   function clearAll() {
@@ -128,6 +168,11 @@ export default function LegacyInvoiceLibrary() {
     setFiles([])
     setSearch('')
     setPage(0)
+    fetch('/api/legacy-invoices', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ all: true }),
+    }).catch(() => {})
   }
 
   const filtered = useMemo(() => {
@@ -245,7 +290,11 @@ export default function LegacyInvoiceLibrary() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        {records.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-24 text-sm text-gray-400 animate-pulse">
+            Loading saved invoices…
+          </div>
+        ) : records.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-gray-400">
             <FileText size={36} className="mb-3 text-gray-200" />
             <p className="text-sm font-medium">No invoices loaded</p>
