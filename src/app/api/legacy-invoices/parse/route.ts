@@ -8,19 +8,17 @@ export async function POST(req: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer())
 
-    // pdf-parse needs this workaround for Next.js bundling
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pdfParse = require('pdf-parse')
     const parsed = await pdfParse(buffer)
 
     const fullText: string = parsed.text ?? ''
 
-    // Split into per-invoice chunks by looking for the INVOICE header pattern
-    const invoiceChunks = fullText.split(/(?=DATE\s+INVOICE\s*#)/)
+    // Split into per-invoice chunks — handle both "DATE INVOICE #" and "DATEINVOICE #"
+    const invoiceChunks = fullText.split(/(?=DATE\s*INVOICE\s*#)/)
       .map((c: string) => c.trim())
       .filter((c: string) => c.length > 20)
 
-    // If splitting didn't work, treat the whole text as one invoice
     const chunks = invoiceChunks.length > 0 ? invoiceChunks : [fullText]
 
     const records: { orderId: string; sku: string; serial: string; customerName: string; address: string }[] = []
@@ -31,43 +29,32 @@ export async function POST(req: NextRequest) {
       const orderId = orderMatch?.[1] ?? ''
       if (!orderId) continue
 
-      // Extract customer name and address
-      // Invoice text typically has "SHIP TO" or "BILL TO" followed by name and address lines
-      // Or the customer name/address appears before the DATE/INVOICE header
+      // Extract customer name and address from SHIPPING ADDRESS section
       let customerName = ''
       let address = ''
 
-      // Try SHIP TO pattern
-      const shipToMatch = chunk.match(/SHIP\s*TO[:\s]*\n([\s\S]*?)(?:\n\s*\n|DATE\s+INVOICE|BILL\s*TO|ITEM)/i)
-      if (shipToMatch) {
-        const addressLines = shipToMatch[1].split('\n').map((l: string) => l.trim()).filter(Boolean)
-        if (addressLines.length > 0) customerName = addressLines[0]
-        if (addressLines.length > 1) address = addressLines.slice(1).join(', ')
+      const shipMatch = chunk.match(/SHIPPING\s*ADDRESS[:\s]*\n([\s\S]*?)(?:\n\d{10,}|\nTERMS|\nSKU)/i)
+      if (shipMatch) {
+        const lines = shipMatch[1].split('\n').map((l: string) => l.trim()).filter(Boolean)
+        // Filter out "US" country-only lines from the name
+        const meaningful = lines.filter(l => l.length > 2)
+        if (meaningful.length > 0) customerName = meaningful[0]
+        if (meaningful.length > 1) address = meaningful.slice(1).filter(l => l !== 'US').join(', ')
       }
 
-      // Try BILL TO pattern as fallback
+      // Fallback: try CONTACT BUYER section for name
       if (!customerName) {
-        const billToMatch = chunk.match(/BILL\s*TO[:\s]*\n([\s\S]*?)(?:\n\s*\n|DATE\s+INVOICE|SHIP\s*TO|ITEM)/i)
-        if (billToMatch) {
-          const addressLines = billToMatch[1].split('\n').map((l: string) => l.trim()).filter(Boolean)
-          if (addressLines.length > 0) customerName = addressLines[0]
-          if (addressLines.length > 1) address = addressLines.slice(1).join(', ')
-        }
+        const contactMatch = chunk.match(/CONTACT\s*BUYER\s*\n([^\n@]+)/i)
+        if (contactMatch) customerName = contactMatch[1].trim()
       }
 
-      // Fallback: look for address-like block before DATE line (name on first non-empty line)
+      // Fallback: try SHIP TO pattern
       if (!customerName) {
-        const lines = chunk.split('\n').map((l: string) => l.trim()).filter(Boolean)
-        // First line that looks like a name (has letters, no digits-only, not a header keyword)
-        for (const line of lines) {
-          if (/^(DATE|INVOICE|ITEM|QTY|SERIAL|SKU|TOTAL|SUBTOTAL|TAX|POWERED)/i.test(line)) break
-          if (/[a-zA-Z]/.test(line) && !/^\d+$/.test(line) && line.length > 2 && line.length < 80) {
-            if (!customerName) {
-              customerName = line
-            } else if (!address) {
-              address = line
-            }
-          }
+        const shipToMatch = chunk.match(/SHIP\s*TO[:\s]*\n([\s\S]*?)(?:\n\s*\n|DATE|ITEM)/i)
+        if (shipToMatch) {
+          const lines = shipToMatch[1].split('\n').map((l: string) => l.trim()).filter(Boolean)
+          if (lines.length > 0) customerName = lines[0]
+          if (lines.length > 1) address = lines.slice(1).filter(l => l !== 'US').join(', ')
         }
       }
 
