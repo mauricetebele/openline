@@ -11,6 +11,7 @@ import {
 import AppShell from '@/components/AppShell'
 import WarehouseManager from '@/components/WarehouseManager'
 import CostCodeManager from '@/components/CostCodeManager'
+import ClientNoteEditor from '@/components/ClientNoteEditor'
 import { auth } from '@/lib/firebase-client'
 import {
   signInWithEmailAndPassword,
@@ -1910,6 +1911,9 @@ function UsersSection() {
   const [locationSaving, setLocationSaving] = useState(false)
   const [locationLoading, setLocationLoading] = useState(false)
 
+  // Notes modal state
+  const [notesModalUserId, setNotesModalUserId] = useState<string | null>(null)
+
   const fetchUsers = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/users')
@@ -2175,12 +2179,20 @@ function UsersSection() {
                 {new Date(u.createdAt).toLocaleDateString()}
               </p>
               {u.role === 'CLIENT' && (
-                <button
-                  onClick={() => openLocationModal(u.id)}
-                  className="px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors"
-                >
-                  Locations ({u._count?.clientLocationAccess ?? 0})
-                </button>
+                <>
+                  <button
+                    onClick={() => openLocationModal(u.id)}
+                    className="px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors"
+                  >
+                    Locations ({u._count?.clientLocationAccess ?? 0})
+                  </button>
+                  <button
+                    onClick={() => setNotesModalUserId(u.id)}
+                    className="px-2 py-1 rounded text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+                  >
+                    Notes
+                  </button>
+                </>
               )}
               <select
                 value={u.role}
@@ -2273,6 +2285,23 @@ function UsersSection() {
                   {locationSaving ? 'Saving...' : 'Save'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notes Modal */}
+      {notesModalUserId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setNotesModalUserId(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b flex items-center justify-between">
+              <p className="font-semibold text-sm">Client Notes</p>
+              <button onClick={() => setNotesModalUserId(null)} className="text-gray-400 hover:text-gray-600">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <ClientNoteEditor readOnly userId={notesModalUserId} />
             </div>
           </div>
         </div>

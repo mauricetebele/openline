@@ -37,6 +37,7 @@ model User {
   serialHistoryEvents SerialHistory[]
   clientLocationAccess ClientLocationAccess[]
   companyName          String?
+  clientNotes          ClientNote[]
 
   @@map("users")
 }
@@ -51,6 +52,16 @@ model ClientLocationAccess {
 
   @@unique([userId, locationId])
   @@map("client_location_access")
+}
+
+model ClientNote {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@map("client_notes")
 }
 
 // ─── Amazon Accounts ──────────────────────────────────────────────────────────
