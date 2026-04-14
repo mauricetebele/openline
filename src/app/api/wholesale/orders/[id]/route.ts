@@ -111,7 +111,7 @@ export async function PUT(
         }))
       : []
 
-    const { subtotal, discountAmt, taxAmt, total } = calcTotals(
+    const { subtotal, discountAmt, taxAmt, total, lineItems: computed } = calcTotals(
       lineItems,
       Number(discountPct ?? existing.discountPct),
       Number(taxRate ?? existing.taxRate),
@@ -154,7 +154,7 @@ export async function PUT(
               quantity:    Number(src.quantity),
               unitPrice:   Number(src.unitPrice),
               discount:    Number(src.discount ?? 0),
-              total:       lineItems[idx].lineTotal,
+              total:       computed[idx].lineTotal,
               taxable:     src.taxable ?? true,
             })),
           },
