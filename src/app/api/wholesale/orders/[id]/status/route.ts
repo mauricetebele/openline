@@ -11,7 +11,7 @@ const TERMS_DAYS: Record<string, number> = {
 const VALID_TRANSITIONS: Record<string, string[]> = {
   PENDING_APPROVAL: ['CONFIRMED'],
   DRAFT:            ['CONFIRMED'],
-  CONFIRMED:        ['INVOICED', 'DRAFT'],
+  CONFIRMED:        ['INVOICED', 'DRAFT', 'PENDING_APPROVAL'],
   INVOICED:         [],
   PARTIALLY_PAID:   [],
   PAID:             [],
@@ -138,6 +138,44 @@ export async function POST(
       }
       // If not allCovered → fulfillmentStatus stays PENDING for manual process
     }
+  }
+
+  if (newStatus === 'PENDING_APPROVAL') {
+    // Revert: release all reservations, reset serial assignments, reset fulfillment
+    const reservations = await prisma.salesOrderInventoryReservation.findMany({
+      where: { salesOrderId: params.id },
+      select: { productId: true },
+    })
+    const productIds = Array.from(new Set(reservations.map(r => r.productId)))
+
+    await prisma.$transaction(async tx => {
+      // Release inventory reservations
+      await tx.salesOrderInventoryReservation.deleteMany({ where: { salesOrderId: params.id } })
+
+      // Revert serial assignments — set any OUT_OF_STOCK serials back to IN_STOCK
+      const assignments = await tx.salesOrderSerialAssignment.findMany({
+        where: { salesOrderId: params.id },
+        include: { inventorySerial: { select: { id: true, status: true } } },
+      })
+      for (const sa of assignments) {
+        if (sa.inventorySerial.status !== 'IN_STOCK') {
+          await tx.inventorySerial.update({
+            where: { id: sa.inventorySerial.id },
+            data: { status: 'IN_STOCK' },
+          })
+        }
+      }
+      await tx.salesOrderSerialAssignment.deleteMany({ where: { salesOrderId: params.id } })
+
+      // Reset fulfillment
+      await tx.salesOrder.update({
+        where: { id: params.id },
+        data: { fulfillmentStatus: 'PENDING', processedAt: null },
+      })
+    })
+
+    // Push updated qty to marketplaces since reservations were released
+    if (productIds.length > 0) pushQtyForProducts(productIds)
   }
 
   if (newStatus === 'INVOICED') {

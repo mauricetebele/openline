@@ -216,6 +216,11 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
           )}
           {order.status === 'CONFIRMED' && (
             <>
+              <button onClick={() => { if (confirm('Revert to unapproved? This will release all reservations.')) transition('PENDING_APPROVAL') }}
+                disabled={transitioning}
+                className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded text-xs font-medium hover:bg-amber-200 disabled:opacity-50">
+                {transitioning ? 'Reverting…' : 'Revert to Unapproved'}
+              </button>
               {order.fulfillmentStatus === 'PENDING' && (
                 <button onClick={() => setShowProcessModal(true)}
                   className="px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-medium hover:bg-emerald-700 flex items-center gap-1">
