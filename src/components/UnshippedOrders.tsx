@@ -1440,13 +1440,13 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
     if (!allSerialsValid) return
     setSubmitting(true); setSubmitErr(null)
     try {
-      const serials: { serialId: string; salesOrderItemId: string }[] = []
+      const serials: { serialNumber: string; salesOrderItemId: string }[] = []
       for (const item of serializableItems) {
         for (let i = 0; i < item.quantityOrdered; i++) {
           const key = `${item.orderItemId}-${i}`
           const state = serialInputs[key]
-          if (state?.valid && state.serialId) {
-            serials.push({ serialId: state.serialId, salesOrderItemId: item.orderItemId })
+          if (state?.valid && state.value.trim()) {
+            serials.push({ serialNumber: state.value.trim(), salesOrderItemId: item.orderItemId })
           }
         }
       }

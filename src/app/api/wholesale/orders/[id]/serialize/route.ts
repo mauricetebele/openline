@@ -1,6 +1,7 @@
 /**
  * POST /api/wholesale/orders/[id]/serialize
- * Body: { serials: [{ serialId: string; salesOrderItemId: string }] }
+ * Body: { serials: [{ serialNumber: string; salesOrderItemId: string }] }
+ *   OR  { serials: [{ serialId: string; salesOrderItemId: string }] }  (legacy)
  *
  * Creates SalesOrderSerialAssignment records for the order.
  * Serials stay IN_STOCK — inventory is only decremented on ship.
@@ -19,7 +20,7 @@ export async function POST(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as {
-    serials: { serialId: string; salesOrderItemId: string }[]
+    serials: { serialId?: string; serialNumber?: string; salesOrderItemId: string }[]
   }
 
   const { serials } = body
@@ -39,39 +40,80 @@ export async function POST(
     )
   }
 
-  // Validate serial IDs exist and are IN_STOCK
-  const serialIds = serials.map(s => s.serialId)
-  const found = await prisma.inventorySerial.findMany({
-    where: { id: { in: serialIds } },
-    select: { id: true, status: true, serialNumber: true },
-  })
-  if (found.length !== serialIds.length) {
-    return NextResponse.json({ error: 'One or more serial IDs not found' }, { status: 400 })
-  }
-  const notInStock = found.filter(s => s.status !== 'IN_STOCK')
-  if (notInStock.length > 0) {
-    return NextResponse.json({
-      error: `Serial${notInStock.length > 1 ? 's' : ''} not IN_STOCK: ${notInStock.map(s => s.serialNumber).join(', ')}`,
-    }, { status: 409 })
-  }
+  try {
+    // Resolve serial IDs — accept either serialNumber or serialId
+    const usesNumbers = serials.some(s => s.serialNumber)
 
-  // Remove any existing assignments for this order first (re-serialize scenario)
-  await prisma.salesOrderSerialAssignment.deleteMany({
-    where: { salesOrderId: params.id },
-  })
+    let resolvedSerials: { serialId: string; salesOrderItemId: string }[]
 
-  // Create new assignment records (serials stay IN_STOCK)
-  await prisma.$transaction(async (tx) => {
-    for (const s of serials) {
-      await tx.salesOrderSerialAssignment.create({
-        data: {
-          salesOrderId:     params.id,
-          salesOrderItemId: s.salesOrderItemId,
-          serialId:         s.serialId,
-        },
+    if (usesNumbers) {
+      // Resolve IDs from serial numbers server-side (avoids CUID pattern issues)
+      const snList = serials.map(s => (s.serialNumber ?? '').trim()).filter(Boolean)
+      const found = await prisma.inventorySerial.findMany({
+        where: { serialNumber: { in: snList } },
+        select: { id: true, serialNumber: true, status: true },
       })
-    }
-  })
+      const snToSerial = new Map(found.map(s => [s.serialNumber, s]))
 
-  return NextResponse.json({ ok: true, assigned: serials.length })
+      // Check all were found
+      const notFound = snList.filter(sn => !snToSerial.has(sn))
+      if (notFound.length > 0) {
+        return NextResponse.json({
+          error: `Serial(s) not found: ${notFound.slice(0, 5).join(', ')}${notFound.length > 5 ? ` (+${notFound.length - 5} more)` : ''}`,
+        }, { status: 400 })
+      }
+
+      // Check all IN_STOCK
+      const notInStock = found.filter(s => s.status !== 'IN_STOCK')
+      if (notInStock.length > 0) {
+        return NextResponse.json({
+          error: `Serial${notInStock.length > 1 ? 's' : ''} not IN_STOCK: ${notInStock.slice(0, 5).map(s => s.serialNumber).join(', ')}`,
+        }, { status: 409 })
+      }
+
+      // Build resolved list
+      resolvedSerials = serials.map(s => {
+        const sn = (s.serialNumber ?? '').trim()
+        const inv = snToSerial.get(sn)!
+        return { serialId: inv.id, salesOrderItemId: s.salesOrderItemId }
+      })
+    } else {
+      // Legacy path: serialId already provided
+      const serialIds = serials.map(s => s.serialId!).filter(Boolean)
+      const found = await prisma.inventorySerial.findMany({
+        where: { id: { in: serialIds } },
+        select: { id: true, status: true, serialNumber: true },
+      })
+      if (found.length !== serialIds.length) {
+        return NextResponse.json({ error: 'One or more serial IDs not found' }, { status: 400 })
+      }
+      const notInStock = found.filter(s => s.status !== 'IN_STOCK')
+      if (notInStock.length > 0) {
+        return NextResponse.json({
+          error: `Serial${notInStock.length > 1 ? 's' : ''} not IN_STOCK: ${notInStock.map(s => s.serialNumber).join(', ')}`,
+        }, { status: 409 })
+      }
+      resolvedSerials = serials.map(s => ({ serialId: s.serialId!, salesOrderItemId: s.salesOrderItemId }))
+    }
+
+    // Remove any existing assignments for this order first (re-serialize scenario)
+    await prisma.salesOrderSerialAssignment.deleteMany({
+      where: { salesOrderId: params.id },
+    })
+
+    // Create all assignment records in one batch (serials stay IN_STOCK)
+    await prisma.salesOrderSerialAssignment.createMany({
+      data: resolvedSerials.map(s => ({
+        salesOrderId:     params.id,
+        salesOrderItemId: s.salesOrderItemId,
+        serialId:         s.serialId,
+      })),
+    })
+
+    return NextResponse.json({ ok: true, assigned: resolvedSerials.length })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error'
+    console.error('[serialize] Error:', msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }
