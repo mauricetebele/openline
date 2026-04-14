@@ -69,17 +69,19 @@ export async function POST(
     // Auto-process: check if FG inventory covers all items
     const itemsWithProduct = order.items.filter(i => i.productId)
     if (itemsWithProduct.length > 0) {
-      // For each item, find FG inventory
-      const reservationPlan: { orderItemId: string; productId: string; locationId: string; qtyReserved: number }[] = []
+      // For each item, find FG inventory matching the exact grade ordered
+      const reservationPlan: { orderItemId: string; productId: string; locationId: string; qtyReserved: number; gradeId: string | null }[] = []
       let allCovered = true
 
       for (const item of itemsWithProduct) {
         const qtyNeeded = Math.round(Number(item.quantity))
+        const gradeId = item.gradeId ?? null
         const fgInventory = await prisma.inventoryItem.findMany({
           where: {
             productId: item.productId!,
             location: { isFinishedGoods: true },
-            ...(item.gradeId ? { gradeId: item.gradeId } : {}),
+            gradeId,
+            qty: { gt: 0 },
           },
           include: { location: true },
           orderBy: { qty: 'desc' },
@@ -94,6 +96,7 @@ export async function POST(
               orderItemId: item.id,
               productId: item.productId!,
               locationId: inv.locationId,
+              gradeId,
               qtyReserved: take,
             })
             remaining -= take
@@ -116,6 +119,7 @@ export async function POST(
                 salesOrderItemId: r.orderItemId,
                 productId:        r.productId,
                 locationId:       r.locationId,
+                gradeId:          r.gradeId,
                 qtyReserved:      r.qtyReserved,
               },
             })

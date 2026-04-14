@@ -34,7 +34,10 @@ export async function POST(
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const so = await prisma.salesOrder.findUnique({ where: { id: params.id } })
+  const so = await prisma.salesOrder.findUnique({
+    where: { id: params.id },
+    include: { items: { select: { id: true, gradeId: true } } },
+  })
   if (!so) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (so.fulfillmentStatus !== 'PENDING') {
     return NextResponse.json(
@@ -48,11 +51,24 @@ export async function POST(
     return NextResponse.json({ error: 'No reservations provided' }, { status: 400 })
   }
 
+  // Build a lookup of ordered grades by item id
+  const orderedGradeByItem = new Map(so.items.map(i => [i.id, i.gradeId]))
+
   // Validate all inputs before touching inventory
   for (const r of reservations) {
     if (!r.orderItemId || !r.productId || !r.locationId || r.qtyReserved < 1) {
       return NextResponse.json({ error: 'Invalid reservation data' }, { status: 400 })
     }
+
+    // Enforce grade match when order item specifies a grade
+    const orderedGrade = orderedGradeByItem.get(r.orderItemId)
+    if (orderedGrade && r.gradeId !== orderedGrade) {
+      return NextResponse.json(
+        { error: `Grade mismatch: order item requires the ordered grade but a different grade was selected` },
+        { status: 400 },
+      )
+    }
+
     const gradeId = r.gradeId ?? null
     // Prisma's composite-unique rejects null, so handle null gradeId separately
     const inv = gradeId
