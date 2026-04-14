@@ -188,6 +188,10 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
         <div className="ml-auto flex flex-wrap gap-2">
           {order.status === 'PENDING_APPROVAL' && (
             <>
+              <button onClick={() => router.push(`/wholesale/orders/${order.id}/edit`)}
+                className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs font-medium hover:bg-gray-200">
+                Edit
+              </button>
               <button onClick={() => transition('CONFIRMED')} disabled={transitioning}
                 className="px-3 py-1.5 bg-green-500 text-white rounded text-xs font-medium hover:bg-green-600 disabled:opacity-50">
                 {transitioning ? 'Approving…' : 'Approve Order'}

@@ -70,9 +70,11 @@ const blankLine = (): LineItem => ({
   sku: '', title: '', description: '', quantity: 1, unitPrice: 0, discount: 0, taxable: true,
 })
 
-export default function WholesaleOrderCreateManager() {
+export default function WholesaleOrderCreateManager({ editOrderId }: { editOrderId?: string } = {}) {
   const router = useRouter()
-  const [step, setStep] = useState(1)
+  const isEdit = !!editOrderId
+  const [step, setStep] = useState(isEdit ? 2 : 1)
+  const [editLoading, setEditLoading] = useState(isEdit)
 
   // Step 1
   const [customerSearch, setCustomerSearch] = useState('')
@@ -106,6 +108,90 @@ export default function WholesaleOrderCreateManager() {
   useEffect(() => {
     fetch('/api/grades').then(r => r.json()).then(d => setGrades(d.data ?? d)).catch(() => {})
   }, [])
+
+  // Load existing order for edit mode
+  useEffect(() => {
+    if (!editOrderId) return
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/wholesale/orders/${editOrderId}`)
+        if (!res.ok) { toast.error('Failed to load order'); router.back(); return }
+        const data = await res.json()
+
+        // Build customer object from included data
+        const cust: CustomerResult = {
+          id: data.customer.id,
+          companyName: data.customer.companyName,
+          contactName: data.customer.contactName,
+          paymentTerms: data.customer.paymentTerms,
+          defaultDiscount: Number(data.discountPct),
+          taxRate: Number(data.taxRate),
+          creditLimit: data.customer.creditLimit,
+          addresses: data.customer.addresses ?? [],
+          openBalance: data.customer.openBalance ?? 0,
+        }
+        setSelectedCustomer(cust)
+
+        // Set order-level fields
+        setOrderDate(data.orderDate ? data.orderDate.slice(0, 10) : format(new Date(), 'yyyy-MM-dd'))
+        setPaymentTerms(data.paymentTerms ?? data.customer.paymentTerms ?? 'NET_30')
+        setCustomerPoNumber(data.customerPoNumber ?? '')
+        setNotes(data.notes ?? '')
+        setInternalNotes(data.internalNotes ?? '')
+        setDiscountPct(Number(data.discountPct ?? 0))
+        setTaxRate(Number(data.taxRate ?? 0))
+        setShippingCost(Number(data.shippingCost ?? 0))
+
+        // Match stored address snapshots to customer address IDs
+        if (data.shippingAddress && cust.addresses.length) {
+          const match = cust.addresses.find(a =>
+            a.type === 'SHIPPING' && a.addressLine1 === data.shippingAddress.addressLine1
+          )
+          if (match) setShippingAddressId(match.id)
+        }
+        if (data.billingAddress && cust.addresses.length) {
+          const match = cust.addresses.find(a =>
+            a.type === 'BILLING' && a.addressLine1 === data.billingAddress.addressLine1
+          )
+          if (match) setBillingAddressId(match.id)
+        }
+
+        // Populate line items
+        if (data.items?.length) {
+          const invMap: Record<string, ProductResult['inventoryItems']> = {}
+          const loadedItems: LineItem[] = data.items.map((it: {
+            productId?: string; gradeId?: string; sku?: string; title: string;
+            description?: string; quantity: number; unitPrice: number; discount: number; taxable: boolean
+            product?: { id: string; sku: string; description: string; inventoryItems?: ProductResult['inventoryItems'] }
+            grade?: { grade: string }
+          }) => {
+            if (it.productId && it.product?.inventoryItems) {
+              invMap[it.productId] = it.product.inventoryItems
+            }
+            return {
+              _key: `line-${++lineKeyCounter}`,
+              productId: it.productId ?? undefined,
+              gradeId: it.gradeId ?? undefined,
+              sku: it.sku ?? '',
+              title: it.title,
+              description: it.description ?? '',
+              quantity: Number(it.quantity),
+              unitPrice: Number(it.unitPrice),
+              discount: Number(it.discount),
+              taxable: it.taxable,
+            }
+          })
+          setItems(loadedItems)
+          setProductInventoryMap(invMap)
+        }
+      } catch {
+        toast.error('Failed to load order')
+        router.back()
+      } finally {
+        setEditLoading(false)
+      }
+    })()
+  }, [editOrderId, router])
 
   // Customer search
   const searchCustomers = useCallback(async (q: string) => {
@@ -224,8 +310,9 @@ export default function WholesaleOrderCreateManager() {
         })),
       }
 
-      const res = await fetch('/api/wholesale/orders', {
-        method: 'POST',
+      const url = isEdit ? `/api/wholesale/orders/${editOrderId}` : '/api/wholesale/orders'
+      const res = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
@@ -233,7 +320,7 @@ export default function WholesaleOrderCreateManager() {
       if (!res.ok) { const e = await res.json(); toast.error(e.error ?? 'Failed'); return }
 
       const order = await res.json()
-      toast.success('Order created — pending approval')
+      toast.success(isEdit ? 'Order updated' : 'Order created — pending approval')
       router.push(`/wholesale/orders/${order.id}`)
     } finally {
       setSaving(false)
@@ -248,8 +335,11 @@ export default function WholesaleOrderCreateManager() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
+      {editLoading ? (
+        <div className="flex items-center justify-center py-20 text-gray-400">Loading order…</div>
+      ) : <>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">New Wholesale Order</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{isEdit ? 'Edit Wholesale Order' : 'New Wholesale Order'}</h1>
         <button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
       </div>
 
@@ -279,12 +369,14 @@ export default function WholesaleOrderCreateManager() {
                   <p className="font-medium text-gray-900">{selectedCustomer.companyName}</p>
                   {selectedCustomer.contactName && <p className="text-xs text-gray-500">{selectedCustomer.contactName}</p>}
                 </div>
-                <button
-                  onClick={() => setSelectedCustomer(null)}
-                  className="text-xs text-red-500 hover:text-red-600"
-                >
-                  Change
-                </button>
+                {!isEdit && (
+                  <button
+                    onClick={() => setSelectedCustomer(null)}
+                    className="text-xs text-red-500 hover:text-red-600"
+                  >
+                    Change
+                  </button>
+                )}
               </div>
             ) : (
               <div className="relative">
@@ -671,11 +763,12 @@ export default function WholesaleOrderCreateManager() {
               disabled={saving}
               className="px-6 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
             >
-              {saving ? 'Saving…' : 'Create Order'}
+              {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Order'}
             </button>
           </div>
         </div>
       )}
+      </>}
     </div>
   )
 }

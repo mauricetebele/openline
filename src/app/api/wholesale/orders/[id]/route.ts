@@ -56,18 +56,42 @@ export async function PUT(
 
   const existing = await prisma.salesOrder.findUnique({ where: { id: params.id } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (existing.status !== 'DRAFT') {
-    return NextResponse.json({ error: 'Only DRAFT orders can be edited' }, { status: 400 })
+  if (!['DRAFT', 'PENDING_APPROVAL'].includes(existing.status)) {
+    return NextResponse.json({ error: 'Only unapproved orders can be edited' }, { status: 400 })
   }
 
   const body = await req.json()
   const {
     customerPoNumber, notes, internalNotes, discountPct, taxRate, shippingCost, items,
+    shippingAddressId, billingAddressId, orderDate, paymentTerms,
   } = body
 
   const order = await prisma.$transaction(async (tx) => {
     if (items !== undefined) {
       await tx.salesOrderItem.deleteMany({ where: { orderId: params.id } })
+    }
+
+    // Resolve address snapshots if address IDs provided
+    let addressData: Record<string, unknown> = {}
+    if (shippingAddressId !== undefined || billingAddressId !== undefined) {
+      const customer = await tx.wholesaleCustomer.findUnique({
+        where: { id: existing.customerId },
+        include: { addresses: true },
+      })
+      if (customer) {
+        if (shippingAddressId !== undefined) {
+          const addr = shippingAddressId
+            ? customer.addresses.find((a) => a.id === shippingAddressId) ?? null
+            : null
+          addressData.shippingAddress = addr ? JSON.parse(JSON.stringify(addr)) : null
+        }
+        if (billingAddressId !== undefined) {
+          const addr = billingAddressId
+            ? customer.addresses.find((a) => a.id === billingAddressId) ?? null
+            : null
+          addressData.billingAddress = addr ? JSON.parse(JSON.stringify(addr)) : null
+        }
+      }
     }
 
     const lineItems = items
@@ -95,6 +119,9 @@ export async function PUT(
         ...(discountPct   !== undefined && { discountPct: Number(discountPct) }),
         ...(taxRate       !== undefined && { taxRate:     Number(taxRate) }),
         ...(shippingCost  !== undefined && { shippingCost: Number(shippingCost) }),
+        ...(orderDate     !== undefined && { orderDate: new Date(orderDate) }),
+        ...(paymentTerms  !== undefined && { paymentTerms }),
+        ...addressData,
         ...(items !== undefined && {
           subtotal,
           discountAmt,
