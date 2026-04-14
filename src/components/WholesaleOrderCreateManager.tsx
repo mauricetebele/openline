@@ -318,11 +318,17 @@ export default function WholesaleOrderCreateManager({ editOrderId }: { editOrder
         body: JSON.stringify(payload),
       })
 
-      if (!res.ok) { const e = await res.json(); toast.error(e.error ?? 'Failed'); return }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        toast.error(e.error ?? 'Failed to save order')
+        return
+      }
 
       const order = await res.json()
       toast.success(isEdit ? 'Order updated' : 'Order created — pending approval')
       router.push(`/wholesale/orders/${order.id}`)
+    } catch {
+      toast.error('Failed to save order')
     } finally {
       setSaving(false)
     }

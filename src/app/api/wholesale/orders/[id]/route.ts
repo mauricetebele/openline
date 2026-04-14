@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { pushQtyForProducts } from '@/lib/push-qty-for-product'
+import { addDays } from 'date-fns'
+
+const TERMS_DAYS: Record<string, number> = {
+  NET_15: 15, NET_30: 30, NET_60: 60, NET_90: 90, DUE_ON_RECEIPT: 0,
+}
 
 function calcTotals(items: Array<{
   quantity: number; unitPrice: number; discount: number; taxable: boolean
@@ -54,7 +59,10 @@ export async function PUT(
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const existing = await prisma.salesOrder.findUnique({ where: { id: params.id } })
+  const existing = await prisma.salesOrder.findUnique({
+    where: { id: params.id },
+    include: { customer: { select: { paymentTerms: true } } },
+  })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!['DRAFT', 'PENDING_APPROVAL'].includes(existing.status)) {
     return NextResponse.json({ error: 'Only unapproved orders can be edited' }, { status: 400 })
@@ -119,8 +127,13 @@ export async function PUT(
         ...(discountPct   !== undefined && { discountPct: Number(discountPct) }),
         ...(taxRate       !== undefined && { taxRate:     Number(taxRate) }),
         ...(shippingCost  !== undefined && { shippingCost: Number(shippingCost) }),
-        ...(orderDate     !== undefined && { orderDate: new Date(orderDate) }),
-        ...(paymentTerms  !== undefined && { paymentTerms }),
+        ...(orderDate !== undefined && { orderDate: new Date(orderDate) }),
+        ...((orderDate !== undefined || paymentTerms !== undefined) && {
+          dueDate: addDays(
+            new Date(orderDate ?? existing.orderDate),
+            TERMS_DAYS[paymentTerms ?? existing.customer.paymentTerms] ?? 30,
+          ),
+        }),
         ...addressData,
         ...(items !== undefined && {
           subtotal,
