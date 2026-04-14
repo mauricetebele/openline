@@ -1296,12 +1296,12 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
     }
     setSerialInputs(initial)
 
-    // Re-validate existing serials
+    // Re-validate existing serials using batch endpoint
     for (const item of serializableItems) {
       const existing = existingByItem.get(item.orderItemId) ?? []
-      for (let i = 0; i < existing.length && i < item.quantityOrdered; i++) {
-        const key = `${item.orderItemId}-${i}`
-        validateSerial(key, existing[i].serialNumber, item.sellerSku ?? '', true, item.gradeId)
+      const snList = existing.slice(0, item.quantityOrdered).map(e => e.serialNumber)
+      if (snList.length > 0) {
+        validateBatch(snList, item.orderItemId, item.sellerSku ?? '', item.gradeId)
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1352,6 +1352,77 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
       }
     }
     if (immediate) { doValidate() } else { debounceRefs.current[key] = setTimeout(doValidate, 350) }
+  }, [])
+
+  // Batch validate: single API call for many serials (used by bulk paste)
+  const validateBatch = useCallback(async (
+    snList: string[],
+    itemOrderItemId: string,
+    sku: string,
+    gradeId?: string | null,
+  ) => {
+    if (snList.length === 0) return
+
+    // Mark all as checking
+    setSerialInputs(prev => {
+      const next = { ...prev }
+      snList.forEach((sn, i) => {
+        const key = `${itemOrderItemId}-${i}`
+        next[key] = { value: sn, checking: true, valid: null, message: '', serialId: undefined }
+      })
+      return next
+    })
+
+    try {
+      const res = await fetch('/api/serials/validate-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serials: snList,
+          sku,
+          gradeId: gradeId || null,
+          excludeSalesOrderId: orderIdRef.current,
+        }),
+      })
+      const data: { results: Record<string, { valid: boolean; serialId?: string; location?: string; reason?: string; detail?: string }> } = await res.json()
+
+      setSerialInputs(prev => {
+        const next = { ...prev }
+        snList.forEach((sn, i) => {
+          const key = `${itemOrderItemId}-${i}`
+          const result = data.results[sn]
+          if (result) {
+            next[key] = {
+              value: sn,
+              valid: result.valid,
+              message: result.valid ? (result.location ?? '✓ Valid') : (result.detail ?? 'Invalid'),
+              checking: false,
+              serialId: result.valid ? result.serialId : undefined,
+            }
+          } else {
+            next[key] = { value: sn, valid: false, message: 'No response for this serial', checking: false, serialId: undefined }
+          }
+        })
+        return next
+      })
+
+      // Count results for tone
+      const validCount = snList.filter(sn => data.results[sn]?.valid).length
+      const invalidCount = snList.length - validCount
+      if (invalidCount > 0) playTone(false)
+      else playTone(true)
+    } catch {
+      // Mark all as failed but keep values (don't clear — let user retry)
+      setSerialInputs(prev => {
+        const next = { ...prev }
+        snList.forEach((sn, i) => {
+          const key = `${itemOrderItemId}-${i}`
+          next[key] = { value: sn, valid: false, message: 'Validation error — try again', checking: false, serialId: undefined }
+        })
+        return next
+      })
+      playTone(false)
+    }
   }, [])
 
   const allSerialsValid = (() => {
@@ -1441,11 +1512,10 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
                             e.preventDefault()
                             const text = e.clipboardData.getData('text')
                             const lines = text.split(/[\n\r\t]+/).map(s => s.trim()).filter(Boolean)
-                            const sku = item.sellerSku ?? ''
-                            lines.slice(0, item.quantityOrdered).forEach((sn, i) => {
-                              const key = `${item.orderItemId}-${i}`
-                              validateSerial(key, sn, sku, true, item.gradeId)
-                            })
+                            const snList = lines.slice(0, item.quantityOrdered)
+                            if (snList.length > 0) {
+                              validateBatch(snList, item.orderItemId, item.sellerSku ?? '', item.gradeId)
+                            }
                             ;(e.target as HTMLTextAreaElement).value = ''
                           }}
                           onChange={e => {
@@ -1453,11 +1523,10 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
                             if (!text.includes('\n') && !text.includes('\t')) return
                             const lines = text.split(/[\n\r\t]+/).map(s => s.trim()).filter(Boolean)
                             if (lines.length > 1) {
-                              const sku = item.sellerSku ?? ''
-                              lines.slice(0, item.quantityOrdered).forEach((sn, i) => {
-                                const key = `${item.orderItemId}-${i}`
-                                validateSerial(key, sn, sku, true, item.gradeId)
-                              })
+                              const snList = lines.slice(0, item.quantityOrdered)
+                              if (snList.length > 0) {
+                                validateBatch(snList, item.orderItemId, item.sellerSku ?? '', item.gradeId)
+                              }
                               e.target.value = ''
                             }
                           }}
