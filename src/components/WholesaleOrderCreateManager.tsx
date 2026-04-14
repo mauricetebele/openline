@@ -73,7 +73,7 @@ const blankLine = (): LineItem => ({
 export default function WholesaleOrderCreateManager({ editOrderId }: { editOrderId?: string } = {}) {
   const router = useRouter()
   const isEdit = !!editOrderId
-  const [step, setStep] = useState(isEdit ? 2 : 1)
+  const [step, setStep] = useState(1)
   const [editLoading, setEditLoading] = useState(isEdit)
 
   // Step 1
