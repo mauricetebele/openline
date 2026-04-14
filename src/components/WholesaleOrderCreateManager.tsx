@@ -168,13 +168,14 @@ export default function WholesaleOrderCreateManager({ editOrderId }: { editOrder
             if (it.productId && it.product?.inventoryItems) {
               invMap[it.productId] = it.product.inventoryItems
             }
+            const avail = it.product?.inventoryItems?.reduce((s, i) => s + i.qty, 0) ?? 0
             return {
               _key: `line-${++lineKeyCounter}`,
               productId: it.productId ?? undefined,
               gradeId: it.gradeId ?? undefined,
-              sku: it.sku ?? '',
-              title: it.title,
-              description: it.description ?? '',
+              sku: it.sku || it.product?.sku || '',
+              title: it.title || it.product?.description || '',
+              description: it.productId ? `Available: ${avail}` : (it.description ?? ''),
               quantity: Number(it.quantity),
               unitPrice: Number(it.unitPrice),
               discount: Number(it.discount),
@@ -566,20 +567,28 @@ export default function WholesaleOrderCreateManager({ editOrderId }: { editOrder
                   {items.map((item, i) => (
                     <tr key={item._key}>
                       <td className="py-2 pr-2">
-                        <input
-                          value={item.sku}
-                          onChange={(e) => updateLine(i, 'sku', e.target.value)}
-                          className="w-full border border-gray-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-400"
-                          placeholder="SKU"
-                        />
+                        {item.productId ? (
+                          <span className="text-xs font-mono text-orange-600 px-2 py-1">{item.sku}</span>
+                        ) : (
+                          <input
+                            value={item.sku}
+                            onChange={(e) => updateLine(i, 'sku', e.target.value)}
+                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-400"
+                            placeholder="SKU"
+                          />
+                        )}
                       </td>
                       <td className="py-2 pr-2">
-                        <input
-                          value={item.title}
-                          onChange={(e) => updateLine(i, 'title', e.target.value)}
-                          className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
-                          placeholder="Title"
-                        />
+                        {item.productId ? (
+                          <span className="text-xs text-gray-700 px-2 py-1">{item.title}</span>
+                        ) : (
+                          <input
+                            value={item.title}
+                            onChange={(e) => updateLine(i, 'title', e.target.value)}
+                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+                            placeholder="Title"
+                          />
+                        )}
                       </td>
                       <td className="py-2 pr-2">
                         {item.productId ? (

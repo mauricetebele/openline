@@ -30,7 +30,7 @@ export async function GET(
   const order = await prisma.salesOrder.findUnique({
     where: { id: params.id },
     include: {
-      items: { include: { product: true, grade: { select: { grade: true } } } },
+      items: { include: { product: { include: { inventoryItems: { select: { qty: true, gradeId: true, grade: { select: { grade: true } } } } } }, grade: { select: { grade: true } } } },
       customer: { include: { addresses: true } },
       allocations: { include: { payment: true } },
       serialAssignments: {
