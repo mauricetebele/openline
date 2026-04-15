@@ -3462,6 +3462,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
               weight: { value: weight.value, units: weight.unit },
               dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
               shipDate: labelShipDate, testLabel: testMode,
+              confirmation: confirmation !== 'none' ? confirmation : undefined,
               ...(isOneRate ? { packagingType: fedexPkg, oneRate: true } : {}),
             },
           )

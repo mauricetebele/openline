@@ -317,6 +317,14 @@ export async function POST(req: NextRequest) {
           weightValue = Math.round((weightValue / 16) * 100) / 100
         }
 
+        // Map ShipStation confirmation values to FedEx signature types
+        const confirmationToSignature: Record<string, import('@/lib/fedex/client').FedExSignatureType> = {
+          signature: 'DIRECT',
+          adult_signature: 'ADULT',
+          delivery: 'INDIRECT',
+        }
+        const fedexSignatureType = body.confirmation ? confirmationToSignature[body.confirmation] : undefined
+
         const fedexParams: FedExRateParams = {
           shipFrom: {
             streetLines: body.fromAddress1 ? [body.fromAddress1] : [],
@@ -336,6 +344,7 @@ export async function POST(req: NextRequest) {
           weight: { value: weightValue, units: weightUnits },
           dimensions: { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, units: dimUnits },
           shipDate: body.shipDate,
+          signatureType: fedexSignatureType,
         }
 
         fedexDebug.requestParams = { weight: fedexParams.weight, dimensions: fedexParams.dimensions, fromZip: fedexParams.shipFrom.postalCode, toZip: fedexParams.shipTo.postalCode }

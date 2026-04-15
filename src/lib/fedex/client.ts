@@ -23,6 +23,8 @@ export interface FedExAddress {
   residential?: boolean
 }
 
+export type FedExSignatureType = 'DIRECT' | 'INDIRECT' | 'ADULT' | 'NO_SIGNATURE_REQUIRED'
+
 export interface FedExRateParams {
   shipFrom: FedExAddress
   shipTo: FedExAddress
@@ -31,6 +33,7 @@ export interface FedExRateParams {
   shipDate?: string // YYYY-MM-DD
   packagingType?: string  // e.g. 'FEDEX_PAK' — defaults to YOUR_PACKAGING
   oneRate?: boolean       // when true, requests FedEx One Rate (flat-rate) pricing
+  signatureType?: FedExSignatureType // signature required option
 }
 
 export interface FedExShipmentParams {
@@ -42,6 +45,7 @@ export interface FedExShipmentParams {
   shipDate?: string
   packagingType?: string  // e.g. 'FEDEX_PAK' — for One Rate labels
   oneRate?: boolean       // when true, adds FEDEX_ONE_RATE special service
+  signatureType?: FedExSignatureType // signature required option
 }
 
 interface TokenCache {
@@ -193,6 +197,9 @@ export async function getRates(
                 units: params.dimensions.units,
               } }
             : {}),
+          ...(params.signatureType && params.signatureType !== 'NO_SIGNATURE_REQUIRED'
+            ? { packageSpecialServices: { signatureOptionType: params.signatureType } }
+            : {}),
         },
       ],
     },
@@ -331,6 +338,9 @@ export async function createShipment(
             height: params.dimensions.height,
             units: params.dimensions.units,
           } } : {}),
+          ...(params.signatureType && params.signatureType !== 'NO_SIGNATURE_REQUIRED'
+            ? { packageSpecialServices: { signatureOptionType: params.signatureType } }
+            : {}),
         },
       ],
     },

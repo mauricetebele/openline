@@ -28,6 +28,7 @@ interface CreateLabelBody {
   testLabel?: boolean
   packagingType?: string  // e.g. 'FEDEX_PAK' — for One Rate labels
   oneRate?: boolean       // when true, adds FEDEX_ONE_RATE special service
+  confirmation?: string   // 'none' | 'delivery' | 'signature' | 'adult_signature'
 }
 
 export async function POST(req: NextRequest) {
@@ -47,6 +48,14 @@ export async function POST(req: NextRequest) {
   if (/ounce|oz/i.test(body.weight.units)) {
     weightValue = Math.round((weightValue / 16) * 100) / 100
   }
+
+  // Map confirmation to FedEx signature type
+  const confirmationToSignature: Record<string, import('@/lib/fedex/client').FedExSignatureType> = {
+    signature: 'DIRECT',
+    adult_signature: 'ADULT',
+    delivery: 'INDIRECT',
+  }
+  const fedexSignatureType = body.confirmation ? confirmationToSignature[body.confirmation] : undefined
 
   const params: FedExShipmentParams = {
     shipFrom: {
@@ -74,6 +83,7 @@ export async function POST(req: NextRequest) {
     shipDate: body.shipDate,
     ...(body.packagingType ? { packagingType: body.packagingType } : {}),
     ...(body.oneRate ? { oneRate: true } : {}),
+    ...(fedexSignatureType ? { signatureType: fedexSignatureType } : {}),
   }
 
   try {
