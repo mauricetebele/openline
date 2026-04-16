@@ -514,6 +514,7 @@ export default function ReceiveModal({
   const serialModalLine = serialModalIdx !== null ? lineStates[serialModalIdx] : null
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-xl shadow-2xl w-[700px] max-h-[90vh] flex flex-col">
 
@@ -763,22 +764,24 @@ export default function ReceiveModal({
         />
       )}
 
-      {/* Serial warning / hard-block modal */}
-      {serialWarning && (
-        <SerialWarningModal
-          warning={serialWarning}
-          onProceed={() => {
-            const lines = pendingLinesRef.current
-            setSerialWarning(null)
-            pendingLinesRef.current = null
-            if (lines) submitReceive(lines, true)
-          }}
-          onClose={() => {
-            setSerialWarning(null)
-            pendingLinesRef.current = null
-          }}
-        />
-      )}
     </div>
+
+    {/* Serial warning / hard-block modal — outside z-50 parent to avoid stacking context */}
+    {serialWarning && (
+      <SerialWarningModal
+        warning={serialWarning}
+        onProceed={() => {
+          const lines = pendingLinesRef.current
+          setSerialWarning(null)
+          pendingLinesRef.current = null
+          if (lines) submitReceive(lines, true)
+        }}
+        onClose={() => {
+          setSerialWarning(null)
+          pendingLinesRef.current = null
+        }}
+      />
+    )}
+    </>
   )
 }

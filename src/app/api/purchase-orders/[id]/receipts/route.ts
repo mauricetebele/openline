@@ -130,33 +130,41 @@ export async function POST(
     submittedSet.add(key)
   }
 
-  // Duplicate check against existing DB serials (case-insensitive, strip invisible chars)
+  // Duplicate check against existing DB serials
   const allWarnings: string[] = []
-  const reusableSerials: Map<string, { id: string; serialNumber: string }> = new Map() // SN → existing record to update
+  const reusableSerials: Map<string, { id: string; serialNumber: string }> = new Map()
   for (const line of lines) {
     if (!line.serials?.length) continue
     // eslint-disable-next-line no-control-regex
     const cleaned = line.serials.map((s: string) => s.replace(/[^\x20-\x7E]/g, '').trim()).filter(Boolean)
     if (!cleaned.length) continue
-    const existing = await prisma.inventorySerial.findMany({
-      where: { serialNumber: { in: cleaned, mode: 'insensitive' } },
-      select: { id: true, serialNumber: true, status: true, productId: true, product: { select: { sku: true } } },
-    })
-    console.log('[PO Receipt] Serial DB check:', { submittedSerials: cleaned, existingFound: existing.length, existing })
-    // Hard block: serials currently IN_STOCK
-    const inStock = existing.filter(e => e.status === 'IN_STOCK')
-    if (inStock.length > 0) {
-      return NextResponse.json({
-        error: 'serials_in_stock',
-        message: 'The following Serials are already in stock, Unable to Receive',
-        serials: inStock.map(e => e.serialNumber),
-      }, { status: 409 })
-    }
-    // Soft warning: serials exist but not in stock (shipped out, etc.)
-    const notInStock = existing.filter(e => e.status !== 'IN_STOCK')
-    for (const e of notInStock) {
-      allWarnings.push(e.serialNumber)
-      reusableSerials.set(e.serialNumber.toUpperCase(), { id: e.id, serialNumber: e.serialNumber })
+    // Query with both original + uppercased to handle case mismatches without mode:'insensitive'
+    const upperCleaned = cleaned.map(s => s.toUpperCase())
+    const lowerCleaned = cleaned.map(s => s.toLowerCase())
+    const allVariants  = Array.from(new Set([...cleaned, ...upperCleaned, ...lowerCleaned]))
+    try {
+      const existing = await prisma.inventorySerial.findMany({
+        where: { serialNumber: { in: allVariants } },
+        select: { id: true, serialNumber: true, status: true, productId: true, product: { select: { sku: true } } },
+      })
+      console.log('[PO Receipt] Serial DB check:', { submitted: cleaned, found: existing.map(e => `${e.serialNumber}(${e.status})`) })
+      // Hard block: serials currently IN_STOCK
+      const inStock = existing.filter(e => e.status === 'IN_STOCK')
+      if (inStock.length > 0) {
+        return NextResponse.json({
+          error: 'serials_in_stock',
+          message: 'The following Serials are already in stock, Unable to Receive',
+          serials: inStock.map(e => e.serialNumber),
+        }, { status: 409 })
+      }
+      // Soft warning: serials exist but not in stock (shipped out, etc.)
+      const notInStock = existing.filter(e => e.status !== 'IN_STOCK')
+      for (const e of notInStock) {
+        allWarnings.push(e.serialNumber)
+        reusableSerials.set(e.serialNumber.toUpperCase(), { id: e.id, serialNumber: e.serialNumber })
+      }
+    } catch (queryErr) {
+      console.error('[PO Receipt] Serial check query failed:', queryErr)
     }
   }
   if (allWarnings.length > 0 && !confirmExisting) {

@@ -432,6 +432,7 @@ export default function SpreadsheetReceiveModal({
     const selectedGrade     = allGrades.find(g => g.id === gradeId)
 
     return (
+    <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
         <div className="bg-white rounded-xl shadow-2xl w-[780px] max-h-[90vh] flex flex-col">
 
@@ -533,19 +534,20 @@ export default function SpreadsheetReceiveModal({
             </button>
           </div>
         </div>
-
-        {/* Serial warning / hard-block modal */}
-        {serialWarning && (
-          <SerialWarningModal
-            warning={serialWarning}
-            onProceed={() => {
-              setSerialWarning(null)
-              handleConfirmSubmit(true)
-            }}
-            onClose={() => setSerialWarning(null)}
-          />
-        )}
       </div>
+
+      {/* Serial warning / hard-block modal — rendered outside z-50 parent to avoid stacking context issues */}
+      {serialWarning && (
+        <SerialWarningModal
+          warning={serialWarning}
+          onProceed={() => {
+            setSerialWarning(null)
+            handleConfirmSubmit(true)
+          }}
+          onClose={() => setSerialWarning(null)}
+        />
+      )}
+    </>
     )
   }
 
