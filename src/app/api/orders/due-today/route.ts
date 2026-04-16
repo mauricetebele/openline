@@ -16,10 +16,13 @@ export async function GET() {
   const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
   if (!account) return NextResponse.json({ count: 0 })
 
-  // Count ALL unfulfilled orders (PENDING + PROCESSING + AWAITING_VERIFICATION)
+  // Count unfulfilled orders (PENDING + PROCESSING + AWAITING_VERIFICATION)
+  // Exclude FBA (AFN) orders and Amazon pending-payment orders
   const count = await prisma.order.count({
     where: {
       accountId: account.id,
+      orderStatus: { not: 'Pending' },
+      fulfillmentChannel: { not: 'AFN' },
       workflowStatus: { in: ['PENDING', 'PROCESSING', 'AWAITING_VERIFICATION'] },
     },
   })
