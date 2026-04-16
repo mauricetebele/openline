@@ -109,14 +109,15 @@ export async function POST(
           { status: 400 },
         )
       }
-      const cleaned = line.serials.map((s: string) => s.trim()).filter(Boolean)
+      // eslint-disable-next-line no-control-regex
+      const cleaned = line.serials.map((s: string) => s.replace(/[^\x20-\x7E]/g, '').trim()).filter(Boolean)
       if (cleaned.length !== line.qtyReceived) {
         return NextResponse.json(
           { error: `Line ${i + 1} (${entry.poLine.product.description}): ${cleaned.length} serial(s) provided but qty is ${line.qtyReceived}` },
           { status: 400 },
         )
       }
-      allSubmittedSerials.push(...cleaned.map((s: string) => `${line.productId}::${s}`))
+      allSubmittedSerials.push(...cleaned.map((s: string) => `${line.productId}::${s.toUpperCase()}`))
     }
   }
 
@@ -129,25 +130,22 @@ export async function POST(
     submittedSet.add(key)
   }
 
-  // Duplicate check against existing DB serials
+  // Duplicate check against existing DB serials (case-insensitive, strip invisible chars)
   const allWarnings: string[] = []
-  const allSerialsByLine: string[][] = []
+  const reusableSerials: Map<string, { id: string; serialNumber: string }> = new Map() // SN → existing record to update
   for (const line of lines) {
-    if (!line.serials?.length) {
-      allSerialsByLine.push([])
-      continue
-    }
-    const cleaned = line.serials.map((s: string) => s.trim()).filter(Boolean)
-    allSerialsByLine.push(cleaned)
+    if (!line.serials?.length) continue
+    // eslint-disable-next-line no-control-regex
+    const cleaned = line.serials.map((s: string) => s.replace(/[^\x20-\x7E]/g, '').trim()).filter(Boolean)
+    if (!cleaned.length) continue
     const existing = await prisma.inventorySerial.findMany({
-      where: { serialNumber: { in: cleaned } },
-      select: { serialNumber: true, status: true, product: { select: { sku: true } } },
+      where: { serialNumber: { in: cleaned, mode: 'insensitive' } },
+      select: { id: true, serialNumber: true, status: true, productId: true, product: { select: { sku: true } } },
     })
     console.log('[PO Receipt] Serial DB check:', { submittedSerials: cleaned, existingFound: existing.length, existing })
     // Hard block: serials currently IN_STOCK
     const inStock = existing.filter(e => e.status === 'IN_STOCK')
     if (inStock.length > 0) {
-      console.log('[PO Receipt] Hard block — IN_STOCK serials:', inStock.map(e => e.serialNumber))
       return NextResponse.json({
         error: 'serials_in_stock',
         message: 'The following Serials are already in stock, Unable to Receive',
@@ -158,9 +156,9 @@ export async function POST(
     const notInStock = existing.filter(e => e.status !== 'IN_STOCK')
     for (const e of notInStock) {
       allWarnings.push(e.serialNumber)
+      reusableSerials.set(e.serialNumber.toUpperCase(), { id: e.id, serialNumber: e.serialNumber })
     }
   }
-  console.log('[PO Receipt] Serial check summary:', { allWarnings, confirmExisting, lineCount: lines.length, serialsByLine: allSerialsByLine })
   if (allWarnings.length > 0 && !confirmExisting) {
     return NextResponse.json({
       error: 'existing_serials_warning',
@@ -196,35 +194,64 @@ export async function POST(
         },
       })
 
-      // 2. For each line that has serials, batch-create InventorySerial then SerialHistory
+      // 2. For each line that has serials, create or re-activate InventorySerial then SerialHistory
       for (const line of lines) {
         if (!line.serials?.length) continue
 
-        const cleaned     = line.serials.map((s: string) => s.trim()).filter(Boolean)
+        // eslint-disable-next-line no-control-regex
+        const cleaned     = line.serials.map((s: string) => s.replace(/[^\x20-\x7E]/g, '').trim()).filter(Boolean)
         const receiptLine = newReceipt.lines.find(rl => rl.purchaseOrderLineId === line.purchaseOrderLineId)
         if (!receiptLine) continue
 
-        // Batch create all serials for this line
-        await tx.inventorySerial.createMany({
-          data: cleaned.map(sn => ({
-            serialNumber:  sn,
-            productId:     line.productId,
-            locationId:    line.locationId,
-            gradeId:       line.gradeId || null,
-            receiptLineId: receiptLine.id,
-            status:        'IN_STOCK' as const,
-          })),
-        })
+        // Split into new serials vs existing (re-receiving shipped-out units)
+        const newSerials: string[]      = []
+        const reactivateIds: string[]   = []
+        for (const sn of cleaned) {
+          const existing = reusableSerials.get(sn.toUpperCase())
+          if (existing) {
+            reactivateIds.push(existing.id)
+          } else {
+            newSerials.push(sn)
+          }
+        }
 
-        // Fetch the created serials to get their IDs for history
-        const createdSerials = await tx.inventorySerial.findMany({
+        // Re-activate existing serials (update status, location, grade, receiptLine)
+        if (reactivateIds.length > 0) {
+          await tx.inventorySerial.updateMany({
+            where: { id: { in: reactivateIds } },
+            data: {
+              status:        'IN_STOCK',
+              locationId:    line.locationId,
+              gradeId:       line.gradeId || null,
+              receiptLineId: receiptLine.id,
+              productId:     line.productId,
+            },
+          })
+        }
+
+        // Batch create genuinely new serials
+        if (newSerials.length > 0) {
+          await tx.inventorySerial.createMany({
+            data: newSerials.map(sn => ({
+              serialNumber:  sn,
+              productId:     line.productId,
+              locationId:    line.locationId,
+              gradeId:       line.gradeId || null,
+              receiptLineId: receiptLine.id,
+              status:        'IN_STOCK' as const,
+            })),
+          })
+        }
+
+        // Fetch all serials for this receipt line to get their IDs for history
+        const allSerials = await tx.inventorySerial.findMany({
           where: { receiptLineId: receiptLine.id },
           select: { id: true, locationId: true },
         })
 
         // Batch create history entries
         await tx.serialHistory.createMany({
-          data: createdSerials.map(s => ({
+          data: allSerials.map(s => ({
             inventorySerialId: s.id,
             eventType:         'PO_RECEIPT',
             receiptId:         newReceipt.id,
