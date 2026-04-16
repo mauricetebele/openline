@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { X, AlertCircle, PackageCheck, CheckCircle2, XCircle, FileSpreadsheet, Download, Upload, ArrowLeft, ClipboardCheck } from 'lucide-react'
+import { X, AlertCircle, PackageCheck, CheckCircle2, XCircle, FileSpreadsheet, Download, Upload, ArrowLeft, ClipboardCheck, ShieldAlert, AlertTriangle } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -64,6 +64,87 @@ function ErrorBanner({ msg, onClose }: { msg: string; onClose: () => void }) {
   )
 }
 
+// ─── Serial Warning Modal ────────────────────────────────────────────────────
+
+interface SerialWarning {
+  type: 'serials_in_stock' | 'existing_serials_warning'
+  message: string
+  serials: string[]
+}
+
+function SerialWarningModal({
+  warning,
+  onProceed,
+  onClose,
+}: {
+  warning: SerialWarning
+  onProceed: () => void
+  onClose: () => void
+}) {
+  const isHardBlock = warning.type === 'serials_in_stock'
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-xl shadow-2xl w-[480px] max-h-[80vh] flex flex-col">
+        <div className={`flex items-start justify-between px-5 py-4 border-b shrink-0 ${
+          isHardBlock ? 'bg-red-50' : 'bg-amber-50'
+        }`}>
+          <div className="flex items-center gap-2.5">
+            {isHardBlock
+              ? <ShieldAlert size={18} className="text-red-600 shrink-0" />
+              : <AlertTriangle size={18} className="text-amber-600 shrink-0" />
+            }
+            <div>
+              <h3 className={`text-sm font-semibold ${isHardBlock ? 'text-red-900' : 'text-amber-900'}`}>
+                {isHardBlock ? 'Unable to Receive' : 'Shipped Out — Receive Anyway?'}
+              </h3>
+              <p className={`text-xs mt-0.5 ${isHardBlock ? 'text-red-700' : 'text-amber-700'}`}>
+                {warning.message}
+              </p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 mt-0.5">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <p className={`text-xs font-medium mb-2 ${isHardBlock ? 'text-red-700' : 'text-amber-700'}`}>
+            {warning.serials.length} serial{warning.serials.length !== 1 ? 's' : ''} affected:
+          </p>
+          <div className={`rounded-md border p-3 max-h-[240px] overflow-y-auto font-mono text-sm leading-relaxed ${
+            isHardBlock
+              ? 'bg-red-50 border-red-200 text-red-800'
+              : 'bg-amber-50 border-amber-200 text-amber-800'
+          }`}>
+            {warning.serials.map((sn, i) => (
+              <div key={i}>{sn}</div>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t shrink-0">
+          {isHardBlock ? (
+            <button type="button" onClick={onClose}
+              className="h-9 px-5 rounded-md bg-red-600 text-white text-sm font-medium hover:bg-red-700">
+              Close
+            </button>
+          ) : (
+            <>
+              <button type="button" onClick={onClose}
+                className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button type="button" onClick={onProceed}
+                className="h-9 px-5 rounded-md bg-amber-600 text-white text-sm font-medium hover:bg-amber-700">
+                Receive Anyway
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── SpreadsheetReceiveModal ──────────────────────────────────────────────────
 
 export default function SpreadsheetReceiveModal({
@@ -95,6 +176,8 @@ export default function SpreadsheetReceiveModal({
   const [receivedMap, setReceivedMap] = useState<Map<string, number>>(new Map())
   const [allGrades, setAllGrades] = useState<GradeOption[]>([])
   const anySerializable = po.lines.some(l => l.product.isSerializable)
+  // Serial warning modal
+  const [serialWarning, setSerialWarning] = useState<SerialWarning | null>(null)
 
   // Load warehouses + existing receipts
   const init = useCallback(async () => {
@@ -292,12 +375,13 @@ export default function SpreadsheetReceiveModal({
   }
 
   // Step 2: Actually submit after confirmation
-  async function handleConfirmSubmit() {
+  async function handleConfirmSubmit(confirmExisting = false) {
     setErr('')
     const grouped = buildGrouped()
 
     const payload = {
       notes: 'Received via spreadsheet',
+      confirmExisting: confirmExisting || undefined,
       lines: grouped.map(g => ({
         purchaseOrderLineId: g.line.id,
         productId:           g.line.productId,
@@ -316,7 +400,21 @@ export default function SpreadsheetReceiveModal({
         body: JSON.stringify(payload),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Receive failed')
+      if (!res.ok) {
+        // Hard block: serials currently IN_STOCK
+        if (data.error === 'serials_in_stock' && data.serials?.length) {
+          setSerialWarning({ type: 'serials_in_stock', message: data.message, serials: data.serials })
+          setSaving(false)
+          return
+        }
+        // Soft warning: serials shipped out — show confirmation modal
+        if (data.error === 'existing_serials_warning' && data.serials?.length) {
+          setSerialWarning({ type: 'existing_serials_warning', message: data.message, serials: data.serials })
+          setSaving(false)
+          return
+        }
+        throw new Error(data.error ?? 'Receive failed')
+      }
       onReceived()
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Receive failed')
@@ -426,7 +524,7 @@ export default function SpreadsheetReceiveModal({
             </button>
             <button
               type="button"
-              onClick={handleConfirmSubmit}
+              onClick={() => handleConfirmSubmit()}
               disabled={saving}
               className="h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-60"
             >
@@ -434,6 +532,18 @@ export default function SpreadsheetReceiveModal({
             </button>
           </div>
         </div>
+
+        {/* Serial warning / hard-block modal */}
+        {serialWarning && (
+          <SerialWarningModal
+            warning={serialWarning}
+            onProceed={() => {
+              setSerialWarning(null)
+              handleConfirmSubmit(true)
+            }}
+            onClose={() => setSerialWarning(null)}
+          />
+        )}
       </div>
     )
   }
