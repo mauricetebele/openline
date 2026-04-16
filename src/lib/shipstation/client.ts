@@ -463,6 +463,10 @@ export class ShipStationClient {
       }
     }
 
+    if (!labelData) {
+      throw new Error('Label was purchased but PDF data could not be retrieved. Tracking: ' + (json.tracking_number ?? 'unknown'))
+    }
+
     return {
       shipmentId:     json.label_id ?? json.shipment_id ?? 0,
       trackingNumber: json.tracking_number ?? '',
@@ -471,6 +475,35 @@ export class ShipStationClient {
       labelFormat:    'pdf',
       shipmentCost:   json.shipment_cost?.amount,
     }
+  }
+
+  /**
+   * GET https://api.shipstation.com/v2/labels/{label_id}
+   * Re-fetches a V2 label's PDF data by its label ID (e.g. "se-137432208").
+   */
+  async getLabelV2(labelId: string): Promise<string> {
+    const res = await fetch(`https://api.shipstation.com/v2/labels/${encodeURIComponent(labelId)}`, {
+      headers: { 'API-Key': this.v2ApiKey, Accept: 'application/json' },
+    })
+    const json = await res.json()
+    if (!res.ok) {
+      throw new Error(json.errors?.[0]?.message ?? json.message ?? `HTTP ${res.status}`)
+    }
+
+    // Try inline data first, then download URL
+    if (json.label_data) return json.label_data
+    const pdfUrl: string = json.label_download?.href ?? json.label_download?.pdf ?? ''
+    if (!pdfUrl) throw new Error('No label download URL returned')
+
+    const pdfRes = await fetch(pdfUrl)
+    if (!pdfRes.ok) throw new Error(`Failed to fetch label PDF: HTTP ${pdfRes.status}`)
+
+    const contentType = pdfRes.headers.get('content-type') ?? ''
+    if (contentType.includes('xml') || contentType.includes('html')) {
+      throw new Error('Label URL returned non-PDF content (' + contentType + ')')
+    }
+    const buf = await pdfRes.arrayBuffer()
+    return Buffer.from(buf).toString('base64')
   }
 
   /**
