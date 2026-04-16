@@ -401,6 +401,7 @@ export default function SpreadsheetReceiveModal({
       })
       const data = await res.json()
       if (!res.ok) {
+        console.log('[SpreadsheetReceive] API error response:', { status: res.status, data })
         // Hard block: serials currently IN_STOCK
         if (data.error === 'serials_in_stock' && data.serials?.length) {
           setSerialWarning({ type: 'serials_in_stock', message: data.message, serials: data.serials })

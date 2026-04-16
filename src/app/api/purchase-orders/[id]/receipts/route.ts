@@ -131,16 +131,23 @@ export async function POST(
 
   // Duplicate check against existing DB serials
   const allWarnings: string[] = []
+  const allSerialsByLine: string[][] = []
   for (const line of lines) {
-    if (!line.serials?.length) continue
+    if (!line.serials?.length) {
+      allSerialsByLine.push([])
+      continue
+    }
     const cleaned = line.serials.map((s: string) => s.trim()).filter(Boolean)
+    allSerialsByLine.push(cleaned)
     const existing = await prisma.inventorySerial.findMany({
       where: { serialNumber: { in: cleaned } },
       select: { serialNumber: true, status: true, product: { select: { sku: true } } },
     })
+    console.log('[PO Receipt] Serial DB check:', { submittedSerials: cleaned, existingFound: existing.length, existing })
     // Hard block: serials currently IN_STOCK
     const inStock = existing.filter(e => e.status === 'IN_STOCK')
     if (inStock.length > 0) {
+      console.log('[PO Receipt] Hard block — IN_STOCK serials:', inStock.map(e => e.serialNumber))
       return NextResponse.json({
         error: 'serials_in_stock',
         message: 'The following Serials are already in stock, Unable to Receive',
@@ -153,6 +160,7 @@ export async function POST(
       allWarnings.push(e.serialNumber)
     }
   }
+  console.log('[PO Receipt] Serial check summary:', { allWarnings, confirmExisting, lineCount: lines.length, serialsByLine: allSerialsByLine })
   if (allWarnings.length > 0 && !confirmExisting) {
     return NextResponse.json({
       error: 'existing_serials_warning',
