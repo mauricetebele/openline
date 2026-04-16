@@ -76,40 +76,79 @@ export async function POST(req: NextRequest) {
     if (unique.size !== serials.length) {
       return NextResponse.json({ error: 'Duplicate serial numbers in submission' }, { status: 400 })
     }
-    // Check for duplicates against existing IN_STOCK serials (any SKU)
+    // Check for duplicates against existing serials
+    const trimmed = serials.map(s => s.trim())
+    const upperTrimmed = trimmed.map(s => s.toUpperCase())
+    const lowerTrimmed = trimmed.map(s => s.toLowerCase())
+    const allVariants = Array.from(new Set([...trimmed, ...upperTrimmed, ...lowerTrimmed]))
+
     const existing = await prisma.inventorySerial.findMany({
-      where: {
-        serialNumber: { in: serials.map(s => s.trim()), mode: 'insensitive' },
-        status: 'IN_STOCK',
-      },
-      select: { serialNumber: true, product: { select: { sku: true } } },
+      where: { serialNumber: { in: allVariants } },
+      select: { id: true, serialNumber: true, status: true, productId: true, product: { select: { sku: true } } },
     })
-    if (existing.length > 0) {
-      const dupes = existing.map(s => `${s.serialNumber} (${s.product.sku})`).join(', ')
+
+    // Hard block: serials currently IN_STOCK
+    const inStock = existing.filter(e => e.status === 'IN_STOCK')
+    if (inStock.length > 0) {
+      const dupes = inStock.map(s => `${s.serialNumber} (${s.product.sku})`).join(', ')
       return NextResponse.json(
         { error: `Serial(s) already in stock: ${dupes}` },
         { status: 409 },
       )
     }
+
   }
 
   // ── Apply in a transaction ─────────────────────────────────────────────────
+  // Re-build reusable map inside transaction scope (variable scoping)
+  const reusableMap = new Map<string, string>()
+  if (product.isSerializable && serials) {
+    const trimmed = serials.map(s => s.trim())
+    const upperTrimmed = trimmed.map(s => s.toUpperCase())
+    const lowerTrimmed = trimmed.map(s => s.toLowerCase())
+    const allVariants = Array.from(new Set([...trimmed, ...upperTrimmed, ...lowerTrimmed]))
+    const existing = await prisma.inventorySerial.findMany({
+      where: { serialNumber: { in: allVariants }, status: { not: 'IN_STOCK' } },
+      select: { id: true, serialNumber: true },
+    })
+    for (const e of existing) reusableMap.set(e.serialNumber.toUpperCase(), e.id)
+  }
+
   try {
     await prisma.$transaction(async tx => {
       if (product.isSerializable && serials) {
         for (const sn of serials) {
-          const serial = await tx.inventorySerial.create({
-            data: {
-              serialNumber: sn.trim(),
-              productId:    product.id,
-              locationId:   location.id,
-              gradeId:      gradeId ?? null,
-              status:       'IN_STOCK',
-            },
-          })
+          const existingId = reusableMap.get(sn.trim().toUpperCase())
+          let serialId: string
+
+          if (existingId) {
+            // Re-activate existing serial (was shipped out / removed previously)
+            await tx.inventorySerial.update({
+              where: { id: existingId },
+              data: {
+                status:     'IN_STOCK',
+                locationId: location.id,
+                gradeId:    gradeId ?? null,
+                productId:  product.id,
+              },
+            })
+            serialId = existingId
+          } else {
+            const serial = await tx.inventorySerial.create({
+              data: {
+                serialNumber: sn.trim(),
+                productId:    product.id,
+                locationId:   location.id,
+                gradeId:      gradeId ?? null,
+                status:       'IN_STOCK',
+              },
+            })
+            serialId = serial.id
+          }
+
           await tx.serialHistory.create({
             data: {
-              inventorySerialId: serial.id,
+              inventorySerialId: serialId,
               eventType:         'MANUAL_ADD',
               locationId:        location.id,
               userId:            user.dbId,
