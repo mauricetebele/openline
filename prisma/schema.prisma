@@ -1982,10 +1982,12 @@ model Alert {
   title     String
   message   String    @db.Text
   metadata  Json?     // { returnId, orderId, serial, etc. }
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
+  readAt     DateTime?
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   @@index([readAt])
+  @@index([archivedAt])
   @@index([createdAt])
   @@map("alerts")
 }

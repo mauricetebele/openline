@@ -1,5 +1,7 @@
 /**
  * GET /api/alerts — Paginated list of alerts, newest first
+ * ?archived=true  → show archived alerts
+ * ?archived=false → show unarchived alerts (default)
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -14,13 +16,19 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(100, Math.max(1, Number(searchParams.get('limit') ?? '25')))
   const skip = (page - 1) * limit
 
+  const showArchived = searchParams.get('archived') === 'true'
+  const where = showArchived
+    ? { archivedAt: { not: null } }
+    : { archivedAt: null }
+
   const [alerts, total] = await Promise.all([
     prisma.alert.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       skip,
       take: limit,
     }),
-    prisma.alert.count(),
+    prisma.alert.count({ where }),
   ])
 
   return NextResponse.json({

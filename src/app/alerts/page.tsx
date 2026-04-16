@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import AppShell from '@/components/AppShell'
-import { Bell, CheckCheck, AlertTriangle, Clock, ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react'
+import { Bell, CheckCheck, AlertTriangle, Clock, ChevronLeft, ChevronRight, Copy, Check, Archive, ArchiveRestore } from 'lucide-react'
 import { clsx } from 'clsx'
 
 interface Alert {
@@ -12,6 +12,7 @@ interface Alert {
   message: string
   metadata: Record<string, string> | null
   readAt: string | null
+  archivedAt: string | null
   createdAt: string
 }
 
@@ -88,17 +89,20 @@ Thank you for your cooperation.
 Prime Mobility Returns`
 }
 
+type Tab = 'active' | 'archived'
+
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [pagination, setPagination] = useState<Pagination | null>(null)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [tab, setTab] = useState<Tab>('active')
 
-  const fetchAlerts = useCallback(async (p: number) => {
+  const fetchAlerts = useCallback(async (p: number, archived: boolean) => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/alerts?page=${p}&limit=25`)
+      const res = await fetch(`/api/alerts?page=${p}&limit=25&archived=${archived}`)
       if (!res.ok) return
       const data = await res.json()
       setAlerts(data.data)
@@ -108,7 +112,13 @@ export default function AlertsPage() {
     }
   }, [])
 
-  useEffect(() => { fetchAlerts(page) }, [page, fetchAlerts])
+  useEffect(() => {
+    setPage(1)
+  }, [tab])
+
+  useEffect(() => {
+    fetchAlerts(page, tab === 'archived')
+  }, [page, tab, fetchAlerts])
 
   async function markAllRead() {
     await fetch('/api/alerts/mark-read', {
@@ -128,6 +138,40 @@ export default function AlertsPage() {
     setAlerts(prev => prev.map(a => a.id === id ? { ...a, readAt: new Date().toISOString() } : a))
   }
 
+  async function archiveOne(id: string) {
+    await fetch('/api/alerts/archive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [id] }),
+    })
+    setAlerts(prev => prev.filter(a => a.id !== id))
+    if (pagination) setPagination(p => p ? { ...p, total: p.total - 1 } : p)
+  }
+
+  async function unarchiveOne(id: string) {
+    await fetch('/api/alerts/archive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [id], unarchive: true }),
+    })
+    setAlerts(prev => prev.filter(a => a.id !== id))
+    if (pagination) setPagination(p => p ? { ...p, total: p.total - 1 } : p)
+  }
+
+  async function archiveAllRead() {
+    await fetch('/api/alerts/archive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ all: true }),
+    })
+    // Remove all read alerts from the current view
+    setAlerts(prev => prev.filter(a => !a.readAt))
+    if (pagination) {
+      const readCount = alerts.filter(a => a.readAt).length
+      setPagination(p => p ? { ...p, total: p.total - readCount } : p)
+    }
+  }
+
   async function copyLetter(alertId: string, firstName: string, productTitle: string) {
     const letter = generateICloudLetter(firstName, productTitle)
     await navigator.clipboard.writeText(letter)
@@ -136,12 +180,13 @@ export default function AlertsPage() {
   }
 
   const unreadCount = alerts.filter(a => !a.readAt).length
+  const readCount = alerts.filter(a => a.readAt).length
 
   return (
     <AppShell>
       <div className="max-w-4xl mx-auto px-4 py-6">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
               <Bell size={20} className="text-white" />
@@ -149,19 +194,57 @@ export default function AlertsPage() {
             <div>
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">Alerts</h1>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {pagination?.total ?? 0} total{unreadCount > 0 && ` · ${unreadCount} unread`}
+                {pagination?.total ?? 0} {tab === 'archived' ? 'archived' : 'active'}
+                {tab === 'active' && unreadCount > 0 && ` · ${unreadCount} unread`}
               </p>
             </div>
           </div>
-          {unreadCount > 0 && (
-            <button
-              onClick={markAllRead}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-colors"
-            >
-              <CheckCheck size={16} />
-              Mark All Read
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {tab === 'active' && readCount > 0 && (
+              <button
+                onClick={archiveAllRead}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <Archive size={16} />
+                Archive All Read
+              </button>
+            )}
+            {tab === 'active' && unreadCount > 0 && (
+              <button
+                onClick={markAllRead}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-colors"
+              >
+                <CheckCheck size={16} />
+                Mark All Read
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 mb-4 bg-gray-100 dark:bg-white/5 rounded-lg p-1">
+          <button
+            onClick={() => setTab('active')}
+            className={clsx(
+              'flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors',
+              tab === 'active'
+                ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300',
+            )}
+          >
+            Active
+          </button>
+          <button
+            onClick={() => setTab('archived')}
+            className={clsx(
+              'flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors',
+              tab === 'archived'
+                ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300',
+            )}
+          >
+            Archived
+          </button>
         </div>
 
         {/* Alert list */}
@@ -171,9 +254,13 @@ export default function AlertsPage() {
           ) : alerts.length === 0 ? (
             <div className="text-center py-12">
               <Bell size={40} className="mx-auto mb-3 text-gray-300 dark:text-gray-600" />
-              <p className="text-gray-500 dark:text-gray-400 font-medium">No alerts yet</p>
+              <p className="text-gray-500 dark:text-gray-400 font-medium">
+                {tab === 'archived' ? 'No archived alerts' : 'No alerts yet'}
+              </p>
               <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
-                Alerts will appear here when notable events occur
+                {tab === 'archived'
+                  ? 'Archived alerts will appear here'
+                  : 'Alerts will appear here when notable events occur'}
               </p>
             </div>
           ) : (
@@ -203,7 +290,7 @@ export default function AlertsPage() {
                 >
                   {/* Unread dot / mark-read button */}
                   <div className="pt-1.5 shrink-0">
-                    {isUnread ? (
+                    {tab === 'active' && isUnread ? (
                       <button
                         onClick={() => markOneRead(alert.id)}
                         title="Mark as read"
@@ -269,6 +356,27 @@ export default function AlertsPage() {
                         ) : (
                           <><Copy size={13} /> Copy iCloud Letter</>
                         )}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Archive / Unarchive button */}
+                  <div className="pt-1 shrink-0">
+                    {tab === 'archived' ? (
+                      <button
+                        onClick={() => unarchiveOne(alert.id)}
+                        title="Unarchive"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors"
+                      >
+                        <ArchiveRestore size={16} />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => archiveOne(alert.id)}
+                        title="Archive"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+                      >
+                        <Archive size={16} />
                       </button>
                     )}
                   </div>

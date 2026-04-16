@@ -141,20 +141,24 @@ export async function POST(
     // Hard block: serials currently IN_STOCK
     const inStock = existing.filter(e => e.status === 'IN_STOCK')
     if (inStock.length > 0) {
-      const dupes = inStock.map(e => `${e.serialNumber} (${e.product.sku})`).join(', ')
-      return NextResponse.json({ error: `Serial(s) already IN_STOCK: ${dupes}` }, { status: 409 })
+      return NextResponse.json({
+        error: 'serials_in_stock',
+        message: 'The following Serials are already in stock, Unable to Receive',
+        serials: inStock.map(e => e.serialNumber),
+      }, { status: 409 })
     }
-    // Soft warning: serials exist but not in stock
+    // Soft warning: serials exist but not in stock (shipped out, etc.)
     const notInStock = existing.filter(e => e.status !== 'IN_STOCK')
     for (const e of notInStock) {
-      allWarnings.push(`${e.serialNumber} already exists as ${e.product.sku} (${e.status})`)
+      allWarnings.push(e.serialNumber)
     }
   }
   if (allWarnings.length > 0 && !confirmExisting) {
-    return NextResponse.json(
-      { error: 'existing_serials_warning', warnings: allWarnings },
-      { status: 409 },
-    )
+    return NextResponse.json({
+      error: 'existing_serials_warning',
+      message: 'The following units exist in the DB but were Shipped Out',
+      serials: allWarnings,
+    }, { status: 409 })
   }
 
   // Normalise gradeId: convert empty strings to null so Prisma doesn't reject them
