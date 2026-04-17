@@ -56,6 +56,24 @@ export async function POST(
       return NextResponse.json({ error: 'No reservations provided' }, { status: 400 })
     }
 
+    // Validate every order item has a SKU that maps to a real product
+    for (const item of order.items) {
+      if (!item.sellerSku) continue
+      const product = await prisma.product.findUnique({ where: { sku: item.sellerSku }, select: { id: true } })
+      if (!product) {
+        const msku = await prisma.productGradeMarketplaceSku.findFirst({
+          where: { sellerSku: item.sellerSku },
+          select: { id: true },
+        })
+        if (!msku) {
+          return NextResponse.json(
+            { error: `SKU "${item.sellerSku}" does not match any existing product. Please update the SKU before processing.` },
+            { status: 400 },
+          )
+        }
+      }
+    }
+
     // Enforce order item's gradeId as source of truth (prevents stale frontend data)
     // Only override if the order item has an explicit gradeId — if null, trust the
     // frontend's gradeId which comes from the MSKU mapping.

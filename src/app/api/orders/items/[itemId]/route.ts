@@ -28,11 +28,28 @@ export async function PATCH(
     include: { order: { select: { workflowStatus: true } } },
   })
   if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
-  if (item.order.workflowStatus !== 'PENDING') {
-    return NextResponse.json({ error: 'SKU can only be edited on PENDING orders' }, { status: 409 })
+  if (item.order.workflowStatus !== 'PENDING' && item.order.workflowStatus !== 'AWAITING_VERIFICATION') {
+    return NextResponse.json({ error: 'SKU can only be edited on PENDING or AWAITING_VERIFICATION orders' }, { status: 409 })
   }
 
   const trimmedSku = sellerSku.trim() || null
+
+  // Validate SKU exists as a product or marketplace SKU mapping
+  if (trimmedSku) {
+    const product = await prisma.product.findUnique({ where: { sku: trimmedSku }, select: { id: true } })
+    if (!product) {
+      const msku = await prisma.productGradeMarketplaceSku.findFirst({
+        where: { sellerSku: trimmedSku },
+        select: { id: true },
+      })
+      if (!msku) {
+        return NextResponse.json(
+          { error: `SKU "${trimmedSku}" does not match any existing product. Please select a valid SKU.` },
+          { status: 400 },
+        )
+      }
+    }
+  }
 
   // Look up the product description for the new SKU (if any)
   const product = trimmedSku
