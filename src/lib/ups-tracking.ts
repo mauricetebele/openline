@@ -379,6 +379,17 @@ export interface ReturnLabelRequest {
   dimUnit?:         'IN' | 'CM'
   description?:     string
   referenceNumber?: string
+  confirmation?:    'none' | 'delivery' | 'signature' | 'adult_signature'
+}
+
+// Map our confirmation values to UPS DeliveryConfirmation DCISType codes
+// 1 = Delivery Confirmation (no signature), 2 = Signature Required, 3 = Adult Signature Required
+function upsDeliveryConfirmation(confirmation?: string): { DeliveryConfirmation: { DCISType: string } } | Record<string, never> {
+  if (!confirmation || confirmation === 'none') return {}
+  const typeMap: Record<string, string> = { delivery: '1', signature: '2', adult_signature: '3' }
+  const code = typeMap[confirmation]
+  if (!code) return {}
+  return { DeliveryConfirmation: { DCISType: code } }
 }
 
 export interface ChargeLineItem {
@@ -494,6 +505,9 @@ export async function generateReturnLabel(req: ReturnLabelRequest, upsCredential
             UnitOfMeasurement: { Code: req.weightUnit, Description: weightUnitDesc },
             Weight: String(req.weightValue),
           },
+          ...Object.keys(upsDeliveryConfirmation(req.confirmation)).length > 0
+            ? { PackageServiceOptions: upsDeliveryConfirmation(req.confirmation) }
+            : {},
           ...(req.referenceNumber ? {
             ReferenceNumber: { Code: 'IK', Value: req.referenceNumber },
           } : {}),
@@ -682,6 +696,9 @@ export async function generateOutboundLabel(req: ReturnLabelRequest, upsCredenti
             UnitOfMeasurement: { Code: req.weightUnit, Description: weightUnitDesc },
             Weight: String(req.weightValue),
           },
+          ...Object.keys(upsDeliveryConfirmation(req.confirmation)).length > 0
+            ? { PackageServiceOptions: upsDeliveryConfirmation(req.confirmation) }
+            : {},
           ...(req.referenceNumber ? {
             ReferenceNumber: { Code: 'IK', Value: req.referenceNumber },
           } : {}),
@@ -1043,10 +1060,11 @@ export interface UpsDirectRate {
  * Used for BackMarket / non-Amazon orders to rate-shop UPS Direct.
  */
 export async function getUpsDirectRates(params: {
-  fromAddress: { line1: string; line2?: string; city: string; state: string; postal: string; country?: string }
-  toAddress:   { line1: string; line2?: string; city: string; state: string; postal: string; country?: string }
-  weight:      { value: number; unit: 'LBS' | 'OZS' }
-  dimensions?: { length: number; width: number; height: number; unit?: 'IN' | 'CM' }
+  fromAddress:   { line1: string; line2?: string; city: string; state: string; postal: string; country?: string }
+  toAddress:     { line1: string; line2?: string; city: string; state: string; postal: string; country?: string }
+  weight:        { value: number; unit: 'LBS' | 'OZS' }
+  dimensions?:   { length: number; width: number; height: number; unit?: 'IN' | 'CM' }
+  confirmation?: 'none' | 'delivery' | 'signature' | 'adult_signature'
 }, upsCredentialId?: string): Promise<UpsDirectRate[]> {
   const creds = upsCredentialId ? await getUPSCredentialsById(upsCredentialId) : await getUPSCredentials()
   const { accountNumber } = creds
@@ -1107,6 +1125,9 @@ export async function getUpsDirectRates(params: {
               UnitOfMeasurement: { Code: params.weight.unit },
               Weight: String(params.weight.value),
             },
+            ...Object.keys(upsDeliveryConfirmation(params.confirmation)).length > 0
+              ? { PackageServiceOptions: upsDeliveryConfirmation(params.confirmation) }
+              : {},
           },
         ],
         ShipmentRatingOptions: { NegotiatedRatesIndicator: 'X' },

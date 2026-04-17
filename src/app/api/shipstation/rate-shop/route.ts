@@ -436,6 +436,7 @@ export async function POST(req: NextRequest) {
         dimensions: body.dimensions.length > 0 && body.dimensions.width > 0 && body.dimensions.height > 0
           ? { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, unit: dimUnit }
           : undefined,
+        confirmation: (body.confirmation ?? 'none') as 'none' | 'delivery' | 'signature' | 'adult_signature',
       }, body.upsCredentialId)
 
       for (const r of upsRates) {

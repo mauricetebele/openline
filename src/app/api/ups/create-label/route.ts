@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
     dimUnit,
     description:      'Outbound Shipment',
     referenceNumber:  undefined,
+    confirmation:     (body.confirmation as ReturnLabelRequest['confirmation']) ?? undefined,
   }
 
   try {

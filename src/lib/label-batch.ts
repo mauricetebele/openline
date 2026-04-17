@@ -177,6 +177,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
           dimUnit:          upsDimUnit,
           description:      'Outbound Shipment',
           referenceNumber:  order.amazonOrderId,
+          confirmation:     (preset.confirmation as UpsLabelRequest['confirmation']) ?? undefined,
         }
 
         const upsResult = await generateOutboundLabel(upsReq)
