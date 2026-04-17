@@ -2515,7 +2515,7 @@ function OrderDetailModal({
     if (grades.length > 0) setGradePickItemId(itemId)
   }
 
-  const isPendingOrder = order.workflowStatus === 'PENDING' || order.workflowStatus === 'AWAITING_VERIFICATION'
+  const isPendingOrder = order.workflowStatus === 'PENDING'
 
   // Commit all staged SKU changes to the DB, then close
   async function saveAllPendingChanges() {

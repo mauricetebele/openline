@@ -28,8 +28,8 @@ export async function PATCH(
     include: { order: { select: { workflowStatus: true } } },
   })
   if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
-  if (item.order.workflowStatus !== 'PENDING' && item.order.workflowStatus !== 'AWAITING_VERIFICATION') {
-    return NextResponse.json({ error: 'SKU can only be edited on PENDING or AWAITING_VERIFICATION orders' }, { status: 409 })
+  if (item.order.workflowStatus !== 'PENDING') {
+    return NextResponse.json({ error: 'SKU can only be edited on PENDING orders' }, { status: 409 })
   }
 
   const trimmedSku = sellerSku.trim() || null
