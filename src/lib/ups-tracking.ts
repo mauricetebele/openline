@@ -1027,6 +1027,155 @@ export async function getRateQuote(req: ReturnLabelRequest, upsCredentialId?: st
   return { publishedRate, negotiatedRate, currency, serviceCode: req.serviceCode, serviceLabel }
 }
 
+// ─── UPS Direct Rate Shopping (all services in one call) ──────────────────────
+
+export interface UpsDirectRate {
+  serviceName:    string
+  serviceCode:    string
+  shipmentCost:   number   // published rate
+  negotiatedCost: number | null  // account-level rate (if available)
+  currency:       string
+}
+
+/**
+ * Fetch rates for ALL available UPS services in a single call (RequestOption: 'Shop').
+ * Used for BackMarket / non-Amazon orders to rate-shop UPS Direct.
+ */
+export async function getUpsDirectRates(params: {
+  fromAddress: { line1: string; line2?: string; city: string; state: string; postal: string; country?: string }
+  toAddress:   { line1: string; line2?: string; city: string; state: string; postal: string; country?: string }
+  weight:      { value: number; unit: 'LBS' | 'OZS' }
+  dimensions?: { length: number; width: number; height: number; unit?: 'IN' | 'CM' }
+}): Promise<UpsDirectRate[]> {
+  const creds = await getUPSCredentials()
+  const { accountNumber } = creds
+  if (!accountNumber) {
+    throw new Error('UPS Account Number is not configured. Add it in Settings → UPS API.')
+  }
+
+  const token = await getUPSToken(creds)
+
+  const fromLine1 = sanitizeAddressLine(params.fromAddress.line1)
+  const fromLines = [fromLine1]
+  if (params.fromAddress.line2?.trim()) fromLines.push(sanitizeAddressLine(params.fromAddress.line2))
+
+  const toLine1 = sanitizeAddressLine(params.toAddress.line1)
+  const toLines = [toLine1]
+  if (params.toAddress.line2?.trim()) toLines.push(sanitizeAddressLine(params.toAddress.line2))
+
+  const body = {
+    RateRequest: {
+      Request: {
+        RequestOption: 'Shop',  // returns ALL available services
+        TransactionReference: { CustomerContext: 'ups-direct-rate-shop' },
+      },
+      Shipment: {
+        Shipper: {
+          Name:          RETURN_ADDRESS.name,
+          ShipperNumber: accountNumber,
+          Address: {
+            AddressLine:       fromLines,
+            City:              sanitizeAddressLine(params.fromAddress.city),
+            StateProvinceCode: params.fromAddress.state?.trim().slice(0, 2),
+            PostalCode:        params.fromAddress.postal?.trim().replace(/[^0-9-]/g, '').slice(0, 10),
+            CountryCode:       params.fromAddress.country?.trim() || 'US',
+          },
+        },
+        ShipTo: {
+          Name: 'Customer',
+          Address: {
+            AddressLine:       toLines,
+            City:              sanitizeAddressLine(params.toAddress.city),
+            StateProvinceCode: params.toAddress.state?.trim().slice(0, 2),
+            PostalCode:        params.toAddress.postal?.trim().replace(/[^0-9-]/g, '').slice(0, 10),
+            CountryCode:       params.toAddress.country?.trim() || 'US',
+          },
+        },
+        Package: [
+          {
+            PackagingType: { Code: '02' },
+            ...(params.dimensions && params.dimensions.length && params.dimensions.width && params.dimensions.height ? {
+              Dimensions: {
+                UnitOfMeasurement: { Code: params.dimensions.unit ?? 'IN' },
+                Length: String(params.dimensions.length),
+                Width:  String(params.dimensions.width),
+                Height: String(params.dimensions.height),
+              },
+            } : {}),
+            PackageWeight: {
+              UnitOfMeasurement: { Code: params.weight.unit },
+              Weight: String(params.weight.value),
+            },
+          },
+        ],
+        ShipmentRatingOptions: { NegotiatedRatesIndicator: 'X' },
+      },
+    },
+  }
+
+  let data: unknown
+  try {
+    const res = await axios.post(UPS_RATE_URL, body, {
+      headers: {
+        Authorization:  `Bearer ${token}`,
+        transId:        `ups-direct-shop-${Date.now()}`,
+        transactionSrc: 'RefundAuditor',
+        'Content-Type': 'application/json',
+      },
+    })
+    data = res.data
+  } catch (e: unknown) {
+    const axiosErr  = e as { response?: { status?: number; data?: { response?: { errors?: { code?: string; message?: string }[] } } } }
+    const upsErrors = axiosErr?.response?.data?.response?.errors ?? []
+    const firstMsg  = upsErrors[0]?.message ?? ''
+    const firstCode = upsErrors[0]?.code ?? ''
+
+    if (firstCode === '250003' || /invalid auth/i.test(firstMsg) || axiosErr?.response?.status === 401) {
+      throw new Error(
+        'UPS returned "Invalid Authentication Information". ' +
+        'Your UPS developer app likely does not have the Rating API product enabled. ' +
+        'Go to developer.ups.com → My Apps → edit your app → add the "Rating" product, then re-save your credentials in Settings → UPS API.'
+      )
+    }
+
+    throw new Error(firstMsg || 'UPS Rating API request failed.')
+  }
+
+  interface RatedShipment {
+    Service?: { Code?: string }
+    TotalCharges?: { MonetaryValue?: string; CurrencyCode?: string }
+    NegotiatedRateCharges?: { TotalCharge?: { MonetaryValue?: string; CurrencyCode?: string } }
+  }
+
+  const ratedShipments = (data as {
+    RateResponse?: { RatedShipment?: RatedShipment | RatedShipment[] }
+  })?.RateResponse?.RatedShipment
+
+  if (!ratedShipments) return []
+
+  const shipments: RatedShipment[] = Array.isArray(ratedShipments) ? ratedShipments : [ratedShipments]
+
+  return shipments
+    .filter(s => s.Service?.Code && s.TotalCharges?.MonetaryValue)
+    .map(s => {
+      const serviceCode = s.Service!.Code!
+      const serviceName = UPS_SERVICES.find(svc => svc.code === serviceCode)?.label ?? `UPS Service ${serviceCode}`
+      const published   = parseFloat(s.TotalCharges!.MonetaryValue!)
+      const negotiated  = s.NegotiatedRateCharges?.TotalCharge?.MonetaryValue
+        ? parseFloat(s.NegotiatedRateCharges.TotalCharge.MonetaryValue)
+        : null
+
+      return {
+        serviceName,
+        serviceCode,
+        shipmentCost:   published,
+        negotiatedCost: negotiated,
+        currency:       s.TotalCharges!.CurrencyCode ?? 'USD',
+      }
+    })
+    .sort((a, b) => (a.negotiatedCost ?? a.shipmentCost) - (b.negotiatedCost ?? b.shipmentCost))
+}
+
 // ─── Void a Return Label ──────────────────────────────────────────────────────
 
 const UPS_VOID_URL = 'https://onlinetools.ups.com/api/shipments/v1/void/cancel'

@@ -12,6 +12,7 @@ import { prisma } from '@/lib/prisma'
 import { ShipStationClient, SSLabelPayload } from '@/lib/shipstation/client'
 import { decrypt } from '@/lib/crypto'
 import { loadFedExCredentials, createShipment, type FedExShipmentParams } from '@/lib/fedex/client'
+import { generateOutboundLabel, RETURN_ADDRESS as UPS_RETURN_ADDRESS, type ReturnLabelRequest as UpsLabelRequest } from '@/lib/ups-tracking'
 
 /** Leave 30s of headroom before the Vercel timeout to safely chain */
 const MAX_RUN_MS = 260_000 // 4 min 20s (out of 5 min maxDuration)
@@ -133,8 +134,61 @@ export async function runLabelBatch(batchId: string): Promise<void> {
 
       const isFedExDirect = order.presetRateCarrier === 'fedex_direct' ||
         order.appliedPreset?.carrierCode === 'fedex_direct'
+      const isUpsDirect = order.presetRateCarrier === 'ups_direct' ||
+        order.appliedPreset?.carrierCode === 'ups_direct'
 
-      if (isFedExDirect) {
+      if (isUpsDirect) {
+        // ── UPS Direct path: create shipment via UPS API ─────────────────────
+        const preset = order.appliedPreset
+        if (!preset) {
+          throw new Error('No applied preset found on order — re-apply preset before batching')
+        }
+        if (!preset.serviceCode) {
+          throw new Error('Preset has no service code — select a UPS service on the preset')
+        }
+
+        const toPostalCode = (order.shipToPostal ?? '').split('-')[0].trim()
+        if (!toPostalCode || !order.shipToCity) {
+          throw new Error('Order ship-to address is incomplete — sync from ShipStation first')
+        }
+
+        let upsWeightUnit: 'LBS' | 'OZS' = 'LBS'
+        let upsWeightValue = preset.weightValue
+        if (preset.weightUnit === 'ounces') upsWeightUnit = 'OZS'
+        else if (preset.weightUnit === 'grams') { upsWeightValue = preset.weightValue / 453.592 }
+        else if (preset.weightUnit === 'kilograms') { upsWeightValue = preset.weightValue * 2.20462 }
+
+        const upsDimUnit: 'IN' | 'CM' = preset.dimUnit === 'centimeters' ? 'CM' : 'IN'
+
+        const upsReq: UpsLabelRequest = {
+          shipFromName:     order.shipToName ?? 'Customer',
+          shipFromAddress1: order.shipToAddress1 ?? '',
+          shipFromAddress2: order.shipToAddress2 ?? '',
+          shipFromCity:     order.shipToCity ?? '',
+          shipFromState:    order.shipToState ?? '',
+          shipFromPostal:   toPostalCode,
+          shipFromCountry:  order.shipToCountry ?? 'US',
+          serviceCode:      preset.serviceCode,
+          weightValue:      Math.max(upsWeightValue, 0.1),
+          weightUnit:       upsWeightUnit,
+          length:           preset.dimLength ?? undefined,
+          width:            preset.dimWidth ?? undefined,
+          height:           preset.dimHeight ?? undefined,
+          dimUnit:          upsDimUnit,
+          description:      'Outbound Shipment',
+          referenceNumber:  order.amazonOrderId,
+        }
+
+        const upsResult = await generateOutboundLabel(upsReq)
+        trackingNumber = upsResult.trackingNumber
+        labelData      = upsResult.labelBase64
+        labelFormat    = upsResult.labelFormat  // 'GIF'
+        shipmentCost   = order.presetRateAmount ? Number(order.presetRateAmount)
+                       : upsResult.shipmentCost ? parseFloat(upsResult.shipmentCost) : undefined
+        carrier        = 'ups_direct'
+        serviceCode    = preset.serviceCode
+
+      } else if (isFedExDirect) {
         // ── FedEx Direct path: create shipment via FedEx API ────────────────
         if (!fedexCreds) {
           throw new Error('FedEx credentials not configured — go to Settings → FedEx')

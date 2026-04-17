@@ -5,6 +5,7 @@ import { decrypt } from '@/lib/crypto'
 import { ShipStationClient, SSRate, V2RatesRequest } from '@/lib/shipstation/client'
 import { SpApiClient } from '@/lib/amazon/sp-api'
 import { loadFedExCredentials, getRates as getFedExRates, type FedExRateParams } from '@/lib/fedex/client'
+import { getUpsDirectRates } from '@/lib/ups-tracking'
 
 export const dynamic = 'force-dynamic'
 
@@ -400,6 +401,60 @@ export async function POST(req: NextRequest) {
       console.error('[rate-shop] FedEx Direct error:', msg)
       rateErrors.push(`FedEx Direct: ${msg}`)
       if (fedexDebug) fedexDebug.error = msg
+    }
+  }
+
+  // ── UPS Direct rates (Back Market orders only) ──────────────────────────────
+  if (!isAmazonOrder) {
+    try {
+      const weightUnit: 'LBS' | 'OZS' = /ounce|oz/i.test(body.weight.units) ? 'OZS' : 'LBS'
+      let weightValue = body.weight.value
+      // Convert pounds to LBS (already correct), grams/kg to LBS
+      if (/gram/i.test(body.weight.units)) { weightValue = weightValue / 453.592; }
+      else if (/kilo/i.test(body.weight.units)) { weightValue = weightValue * 2.20462; }
+
+      const dimUnit: 'IN' | 'CM' = /cent|cm/i.test(body.dimensions.units) ? 'CM' : 'IN'
+
+      const upsRates = await getUpsDirectRates({
+        fromAddress: {
+          line1: body.fromAddress1 ?? '',
+          city:  body.fromCity ?? '',
+          state: body.fromState ?? '',
+          postal: body.fromPostalCode,
+          country: body.fromCountry ?? 'US',
+        },
+        toAddress: {
+          line1: body.toAddress1 ?? '',
+          line2: body.toAddress2 ?? undefined,
+          city:  body.toCity,
+          state: body.toState,
+          postal: body.toPostalCode,
+          country: body.toCountry ?? 'US',
+        },
+        weight: { value: weightValue, unit: weightUnit },
+        dimensions: body.dimensions.length > 0 && body.dimensions.width > 0 && body.dimensions.height > 0
+          ? { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, unit: dimUnit }
+          : undefined,
+      })
+
+      for (const r of upsRates) {
+        const cost = r.negotiatedCost ?? r.shipmentCost
+        allRates.push({
+          serviceName:  r.serviceName,
+          serviceCode:  r.serviceCode,
+          carrierCode:  'ups_direct',
+          carrierName:  'UPS Direct',
+          shipmentCost: cost,
+          otherCost:    0,
+          transitDays:  null,
+          deliveryDate: null,
+        })
+      }
+      console.log('[rate-shop] UPS Direct: %d rates', upsRates.length)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[rate-shop] UPS Direct error:', msg)
+      rateErrors.push(`UPS Direct: ${msg}`)
     }
   }
 

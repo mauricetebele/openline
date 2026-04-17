@@ -3217,6 +3217,7 @@ const CARRIER_LOGOS: Record<string, string> = {
   ups_walleted: '/logos/ups.svg',
   fedex: '/logos/fedex.svg',
   fedex_direct: '/logos/fedex.svg',
+  ups_direct: '/logos/ups.svg',
   dhl_express: '/logos/dhl.svg',
   dhl_express_worldwide: '/logos/dhl.svg',
 }
@@ -3442,6 +3443,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
     setPurchasing(`${rate.carrierCode}-${rate.serviceCode}`); setPurchaseErr(null)
     try {
       const isFedExDirect = rate.carrierCode === 'fedex_direct'
+      const isUpsDirect   = rate.carrierCode === 'ups_direct'
       const selectedWh = warehouses.find(w => String(w.warehouseId) === selectedWhId)
       const { shipTo } = lookup
 
@@ -3464,6 +3466,24 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
               shipDate: labelShipDate, testLabel: testMode,
               confirmation: confirmation !== 'none' ? confirmation : undefined,
               ...(isOneRate ? { packagingType: fedexPkg, oneRate: true } : {}),
+            },
+          )
+        : isUpsDirect
+        ? await apiPost<{ trackingNumber: string; labelData: string; labelFormat: string; shipmentCost?: number }>(
+            '/api/ups/create-label', {
+              serviceCode: rate.serviceCode,
+              fromName: selectedWh?.originAddress.name, fromPhone: selectedWh?.originAddress.phone,
+              fromAddress1: selectedWh?.originAddress.street1, fromAddress2: selectedWh?.originAddress.street2,
+              fromCity: selectedWh?.originAddress.city, fromState: selectedWh?.originAddress.state,
+              fromPostalCode: fromZip, fromCountry: selectedWh?.originAddress.country ?? 'US',
+              toName: shipTo.name, toPhone: shipTo.phone,
+              toAddress1: shipTo.street1, toAddress2: shipTo.street2,
+              toCity: shipTo.city, toState: shipTo.state,
+              toPostalCode: shipTo.postalCode, toCountry: shipTo.country || 'US',
+              weight: { value: weight.value, units: weight.unit },
+              dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
+              shipDate: labelShipDate,
+              confirmation: confirmation !== 'none' ? confirmation : undefined,
             },
           )
         : await apiPost<{ trackingNumber: string; labelData: string; labelFormat: string; shipmentCost?: number }>(
@@ -3788,8 +3808,9 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
           )}
 
           {rates !== null && rates.length > 0 && (() => {
-            const ssRates = rates.filter(r => r.carrierCode !== 'fedex_direct')
+            const ssRates = rates.filter(r => r.carrierCode !== 'fedex_direct' && r.carrierCode !== 'ups_direct')
             const fedexDirectRates = rates.filter(r => r.carrierCode === 'fedex_direct')
+            const upsDirectRates = rates.filter(r => r.carrierCode === 'ups_direct')
             const renderRate = (rate: SSRate, idx: number) => {
               const total = rate.shipmentCost + rate.otherCost, isBuying = purchasing === `${rate.carrierCode}-${rate.serviceCode}`
               // Compute estimated delivery date: use deliveryDate if provided, otherwise transit days + ship date
@@ -3834,6 +3855,12 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
                   <section className="space-y-2">
                     <h3 className="text-xs font-semibold text-purple-700 uppercase tracking-wide flex items-center gap-1.5"><CarrierLogo carrierCode="fedex_direct" size={12} /> FedEx Direct Rates ({fedexDirectRates.length})</h3>
                     {fedexDirectRates.map(renderRate)}
+                  </section>
+                )}
+                {upsDirectRates.length > 0 && (
+                  <section className="space-y-2">
+                    <h3 className="text-xs font-semibold text-amber-700 uppercase tracking-wide flex items-center gap-1.5"><CarrierLogo carrierCode="ups_direct" size={12} /> UPS Direct Rates ({upsDirectRates.length})</h3>
+                    {upsDirectRates.map(renderRate)}
                   </section>
                 )}
               </div>
@@ -3911,7 +3938,7 @@ function PresetManagementModal({ onClose, onChange }: {
       .then(r => r.ok ? r.json() : null)
       .then((d: { v1?: { ok: boolean; carriers?: { code: string; name: string; nickname: string | null }[] } } | null) => {
         if (d?.v1?.ok && Array.isArray(d.v1.carriers)) {
-          setCarriers([...d.v1.carriers.map(c => ({ code: c.code, name: c.name, nickname: c.nickname })), { code: 'fedex_direct', name: 'FedEx Direct', nickname: null }])
+          setCarriers([...d.v1.carriers.map(c => ({ code: c.code, name: c.name, nickname: c.nickname })), { code: 'fedex_direct', name: 'FedEx Direct', nickname: null }, { code: 'ups_direct', name: 'UPS Direct', nickname: null }])
         }
       })
       .catch(() => {})
@@ -3939,6 +3966,15 @@ function PresetManagementModal({ onClose, onChange }: {
     { code: 'FEDEX_EXTRA_LARGE_BOX', name: 'FedEx Extra Large Box' },
     { code: 'FEDEX_TUBE',            name: 'FedEx Tube' },
   ]
+  const UPS_DIRECT_SERVICES = [
+    { code: '03', name: 'UPS Ground' },
+    { code: '12', name: 'UPS 3-Day Select' },
+    { code: '02', name: 'UPS 2nd Day Air' },
+    { code: '59', name: 'UPS 2nd Day Air A.M.' },
+    { code: '13', name: 'UPS Next Day Air Saver' },
+    { code: '01', name: 'UPS Next Day Air' },
+    { code: '14', name: 'UPS Next Day Air Early' },
+  ]
 
   // Load services + packages whenever the selected carrier changes
   useEffect(() => {
@@ -3947,6 +3983,11 @@ function PresetManagementModal({ onClose, onChange }: {
     if (form.carrierCode === 'fedex_direct') {
       setServices(FEDEX_DIRECT_SERVICES)
       setPackages(FEDEX_DIRECT_PACKAGES)
+      return
+    }
+    if (form.carrierCode === 'ups_direct') {
+      setServices(UPS_DIRECT_SERVICES)
+      setPackages([{ code: 'package', name: 'Customer Supplied Package' }])
       return
     }
     setLoadingServices(true)
