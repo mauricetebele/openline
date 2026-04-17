@@ -3252,6 +3252,8 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   const [confirmation, setConfirmation] = useState<string>('none')
   const [fedexPkg, setFedexPkg] = useState<string>('none')
   const [labelShipDate, setLabelShipDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [upsAccounts, setUpsAccounts] = useState<{ id: string; nickname: string; isDefault: boolean; maskedAccountNumber?: string | null }[]>([])
+  const [selectedUpsAccountId, setSelectedUpsAccountId] = useState<string>('')
 
   // Hydrate from localStorage after mount (avoids SSR/client mismatch)
   useEffect(() => {
@@ -3274,6 +3276,20 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   useEffect(() => { try { localStorage.setItem(FROM_ZIP_KEY, fromZip) } catch { /* */ } }, [fromZip])
   useEffect(() => { localStorage.setItem(CONF_KEY, JSON.stringify(confirmation)) }, [confirmation])
   useEffect(() => { try { localStorage.setItem(WH_KEY, selectedWhId) } catch { /* */ } }, [selectedWhId])
+
+  // Load UPS accounts for BackMarket orders
+  useEffect(() => {
+    if (order.orderSource !== 'backmarket') return
+    fetch('/api/ups/credentials')
+      .then(r => r.json())
+      .then(data => {
+        const accts = (data.accounts ?? []) as { id: string; nickname: string; isDefault: boolean; maskedAccountNumber?: string | null }[]
+        setUpsAccounts(accts)
+        const def = accts.find(a => a.isDefault) ?? accts[0]
+        if (def) setSelectedUpsAccountId(def.id)
+      })
+      .catch(() => {})
+  }, [order.orderSource])
 
   const [rates, setRates]               = useState<SSRate[] | null>(null)
   const [amazonServices, setAmazonServices] = useState<{ code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[] | null>(null)
@@ -3374,6 +3390,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
           dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
           confirmation, residential: true,
           ...(fedexPkg !== 'none' ? { fedexPackaging: fedexPkg } : {}),
+          ...(selectedUpsAccountId ? { upsCredentialId: selectedUpsAccountId } : {}),
           amazonOrderId: order.amazonOrderId,
           orderSource: order.orderSource ?? 'amazon',
           orderItems: order.items.map(item => ({ orderItemId: item.orderItemId, title: item.title, quantity: item.quantityOrdered })),
@@ -3484,6 +3501,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
               dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
               shipDate: labelShipDate,
               confirmation: confirmation !== 'none' ? confirmation : undefined,
+              ...(selectedUpsAccountId ? { upsCredentialId: selectedUpsAccountId } : {}),
             },
           )
         : await apiPost<{ trackingNumber: string; labelData: string; labelFormat: string; shipmentCost?: number }>(
@@ -3662,6 +3680,18 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
                     <option value="FEDEX_LARGE_BOX">FedEx Large Box</option>
                     <option value="FEDEX_EXTRA_LARGE_BOX">FedEx Extra Large Box</option>
                     <option value="FEDEX_TUBE">FedEx Tube</option>
+                  </select>
+                </div>
+              )}
+              {order.orderSource === 'backmarket' && upsAccounts.length > 1 && (
+                <div className="flex flex-col gap-1 shrink-0">
+                  <label className="text-xs font-medium text-gray-600">UPS Account</label>
+                  <select value={selectedUpsAccountId} onChange={e => { setSelectedUpsAccountId(e.target.value); setRates(null) }} className="h-8 rounded border border-gray-300 px-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF9900]">
+                    {upsAccounts.map(a => (
+                      <option key={a.id} value={a.id}>
+                        {a.nickname}{a.maskedAccountNumber ? ` (${a.maskedAccountNumber})` : ''}{a.isDefault ? ' ★' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}

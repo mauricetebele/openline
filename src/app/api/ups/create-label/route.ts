@@ -26,6 +26,7 @@ interface CreateLabelBody {
   dimensions: { units: string; length: number; width: number; height: number }
   shipDate?: string
   confirmation?: string
+  upsCredentialId?: string
 }
 
 export async function POST(req: NextRequest) {
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await generateOutboundLabel(labelReq)
+    const result = await generateOutboundLabel(labelReq, body.upsCredentialId)
     return NextResponse.json({
       trackingNumber: result.trackingNumber,
       labelData:      result.labelBase64,

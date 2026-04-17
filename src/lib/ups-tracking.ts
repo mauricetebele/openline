@@ -1047,8 +1047,8 @@ export async function getUpsDirectRates(params: {
   toAddress:   { line1: string; line2?: string; city: string; state: string; postal: string; country?: string }
   weight:      { value: number; unit: 'LBS' | 'OZS' }
   dimensions?: { length: number; width: number; height: number; unit?: 'IN' | 'CM' }
-}): Promise<UpsDirectRate[]> {
-  const creds = await getUPSCredentials()
+}, upsCredentialId?: string): Promise<UpsDirectRate[]> {
+  const creds = upsCredentialId ? await getUPSCredentialsById(upsCredentialId) : await getUPSCredentials()
   const { accountNumber } = creds
   if (!accountNumber) {
     throw new Error('UPS Account Number is not configured. Add it in Settings → UPS API.')

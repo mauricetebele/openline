@@ -42,6 +42,7 @@ interface RateShopPayload {
   orderSource?: string  // 'amazon' | 'backmarket' — controls which carriers to query
   shipDate?: string     // YYYY-MM-DD — future ship date for rate shopping
   fedexPackaging?: string // FedEx One Rate packaging type, e.g. 'FEDEX_PAK'
+  upsCredentialId?: string // specific UPS account to use for UPS Direct rates
 }
 
 /** 'ounces' → 'ounce', 'pounds' → 'pound', 'inches' → 'inch', etc. (V2 uses singular units) */
@@ -435,7 +436,7 @@ export async function POST(req: NextRequest) {
         dimensions: body.dimensions.length > 0 && body.dimensions.width > 0 && body.dimensions.height > 0
           ? { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, unit: dimUnit }
           : undefined,
-      })
+      }, body.upsCredentialId)
 
       for (const r of upsRates) {
         const cost = r.negotiatedCost ?? r.shipmentCost
