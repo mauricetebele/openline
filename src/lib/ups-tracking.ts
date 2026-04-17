@@ -9,7 +9,7 @@
 import axios from 'axios'
 import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/crypto'
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, degrees } from 'pdf-lib'
 
 const UPS_AUTH_URL   = 'https://onlinetools.ups.com/security/v1/oauth/token'
 const UPS_TRACK_URL  = 'https://onlinetools.ups.com/api/track/v1/details'
@@ -398,13 +398,22 @@ async function pngLabelToPdf(pngBase64: string): Promise<string> {
   const pngBytes = Buffer.from(pngBase64, 'base64')
   const pdf = await PDFDocument.create()
   const pngImage = await pdf.embedPng(pngBytes)
-  // 4×6 inches at 72 DPI
-  const page = pdf.addPage([4 * 72, 6 * 72])
-  page.drawImage(pngImage, {
-    x: 0, y: 0,
-    width:  4 * 72,
-    height: 6 * 72,
-  })
+
+  const W = 4 * 72  // 288 pt
+  const H = 6 * 72  // 432 pt
+  const isLandscape = pngImage.width > pngImage.height
+
+  if (isLandscape) {
+    // UPS returns landscape PNG — draw on landscape page, then set /Rotate 90
+    // so PDF viewers/printers render it as portrait 4×6
+    const page = pdf.addPage([H, W])          // landscape page: 432 × 288
+    page.drawImage(pngImage, { x: 0, y: 0, width: H, height: W })
+    page.setRotation(degrees(90))
+  } else {
+    const page = pdf.addPage([W, H])
+    page.drawImage(pngImage, { x: 0, y: 0, width: W, height: H })
+  }
+
   const pdfBytes = await pdf.save()
   return Buffer.from(pdfBytes).toString('base64')
 }
