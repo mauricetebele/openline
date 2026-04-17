@@ -515,6 +515,7 @@ export async function generateReturnLabel(req: ReturnLabelRequest, upsCredential
       },
       LabelSpecification: {
         LabelImageFormat: { Code: 'GIF', Description: 'GIF' },
+        LabelStockSize:   { Height: '6', Width: '4' },
         HTTPUserAgent:    'Mozilla/4.5',
       },
     },
@@ -706,6 +707,7 @@ export async function generateOutboundLabel(req: ReturnLabelRequest, upsCredenti
       },
       LabelSpecification: {
         LabelImageFormat: { Code: 'GIF', Description: 'GIF' },
+        LabelStockSize:   { Height: '6', Width: '4' },
         HTTPUserAgent:    'Mozilla/4.5',
       },
     },
