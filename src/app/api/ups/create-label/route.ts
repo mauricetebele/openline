@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
       labelData:      result.labelBase64,
       labelFormat:    result.labelFormat,  // 'GIF'
       shipmentCost:   result.shipmentCost ? parseFloat(result.shipmentCost) : undefined,
+      shipmentId:     result.shipmentId,   // UPS ShipmentIdentificationNumber — needed to void
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

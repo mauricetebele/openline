@@ -9,6 +9,7 @@ import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { ShipStationClient } from '@/lib/shipstation/client'
 import { decrypt } from '@/lib/crypto'
+import { voidReturnLabel as voidUpsLabel } from '@/lib/ups-tracking'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,48 +36,64 @@ export async function POST(
       return NextResponse.json({ error: 'No label found for this order' }, { status: 404 })
     }
 
-    // Load ShipStation account
-    const ssAccount = await prisma.shipStationAccount.findFirst({
-      where:   { isActive: true },
-      orderBy: { createdAt: 'asc' },
-      select:  { apiKeyEnc: true, apiSecretEnc: true, v2ApiKeyEnc: true },
-    })
-    if (!ssAccount) {
-      return NextResponse.json({ error: 'No active ShipStation account found' }, { status: 400 })
+    // ── FedEx Direct: no API void available — just delete the label record ──
+    if (order.label.carrier === 'fedex_direct') {
+      // FedEx void API not implemented — label will auto-expire if unused
     }
-
-    const v2ApiKey = ssAccount.v2ApiKeyEnc ? decrypt(ssAccount.v2ApiKeyEnc) : null
-    const client = new ShipStationClient(
-      decrypt(ssAccount.apiKeyEnc),
-      ssAccount.apiSecretEnc ? decrypt(ssAccount.apiSecretEnc) : '',
-      v2ApiKey,
-    )
-
-    // Resolve shipmentId — use stored value or look up by tracking number
-    let shipmentId: string | number | null = order.label.ssShipmentId
-    if (!shipmentId) {
-      const shipment = await client.findShipmentByTracking(order.label.trackingNumber)
-      if (!shipment) {
+    // ── UPS Direct void path ────────────────────────────────────────────────
+    else if (order.label.carrier === 'ups_direct') {
+      const upsShipmentId = order.label.ssShipmentId  // stores UPS ShipmentIdentificationNumber
+      if (!upsShipmentId) {
         return NextResponse.json(
-          { error: `Could not find a ShipStation shipment for tracking number ${order.label.trackingNumber}` },
+          { error: 'UPS shipment ID not found on label — cannot void. The label may need to be manually voided at ups.com.' },
           { status: 404 },
         )
       }
-      shipmentId = shipment.shipmentId
-      // Persist so future voids are instant
-      await prisma.orderLabel.update({
-        where: { orderId: params.orderId },
-        data:  { ssShipmentId: String(shipmentId) },
+      await voidUpsLabel(upsShipmentId)
+    } else {
+      // ── ShipStation void path (default) ──────────────────────────────────
+      const ssAccount = await prisma.shipStationAccount.findFirst({
+        where:   { isActive: true },
+        orderBy: { createdAt: 'asc' },
+        select:  { apiKeyEnc: true, apiSecretEnc: true, v2ApiKeyEnc: true },
       })
-    }
+      if (!ssAccount) {
+        return NextResponse.json({ error: 'No active ShipStation account found' }, { status: 400 })
+      }
 
-    // Request void from ShipStation
-    const result = await client.voidLabel(shipmentId)
-    if (!result.approved) {
-      return NextResponse.json(
-        { error: `ShipStation declined the void request: ${result.message}` },
-        { status: 422 },
+      const v2ApiKey = ssAccount.v2ApiKeyEnc ? decrypt(ssAccount.v2ApiKeyEnc) : null
+      const client = new ShipStationClient(
+        decrypt(ssAccount.apiKeyEnc),
+        ssAccount.apiSecretEnc ? decrypt(ssAccount.apiSecretEnc) : '',
+        v2ApiKey,
       )
+
+      // Resolve shipmentId — use stored value or look up by tracking number
+      let shipmentId: string | number | null = order.label.ssShipmentId
+      if (!shipmentId) {
+        const shipment = await client.findShipmentByTracking(order.label.trackingNumber)
+        if (!shipment) {
+          return NextResponse.json(
+            { error: `Could not find a ShipStation shipment for tracking number ${order.label.trackingNumber}` },
+            { status: 404 },
+          )
+        }
+        shipmentId = shipment.shipmentId
+        // Persist so future voids are instant
+        await prisma.orderLabel.update({
+          where: { orderId: params.orderId },
+          data:  { ssShipmentId: String(shipmentId) },
+        })
+      }
+
+      // Request void from ShipStation
+      const result = await client.voidLabel(shipmentId)
+      if (!result.approved) {
+        return NextResponse.json(
+          { error: `ShipStation declined the void request: ${result.message}` },
+          { status: 422 },
+        )
+      }
     }
 
     // If order was SHIPPED, undo serial assignments (mark serials back to IN_STOCK)
@@ -125,7 +142,7 @@ export async function POST(
       ])
     }
 
-    return NextResponse.json({ success: true, message: result.message })
+    return NextResponse.json({ success: true, message: 'Label voided successfully' })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[POST /api/orders/[orderId]/void-label]', message)

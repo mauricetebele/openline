@@ -3528,6 +3528,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
             carrier:        rate.carrierCode,
             serviceCode:    rate.serviceCode,
             isAmazonBuyShipping: !!rate.rate_id,
+            ...((label as Record<string, unknown>).shipmentId ? { ssShipmentId: (label as Record<string, unknown>).shipmentId } : {}),
           })
 
           // Notify parent so the unshipped list refreshes and order disappears
