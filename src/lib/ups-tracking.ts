@@ -14,6 +14,7 @@ const UPS_AUTH_URL   = 'https://onlinetools.ups.com/security/v1/oauth/token'
 const UPS_TRACK_URL  = 'https://onlinetools.ups.com/api/track/v1/details'
 const UPS_SHIP_URL   = 'https://onlinetools.ups.com/api/shipments/v1/ship'
 const UPS_RATE_URL   = 'https://onlinetools.ups.com/api/rating/v1/Rate'
+const UPS_SHOP_URL   = 'https://onlinetools.ups.com/api/rating/v1/Shop'
 
 const FEDEX_AUTH_URL  = 'https://apis.fedex.com/oauth/token'
 const FEDEX_TRACK_URL = 'https://apis.fedex.com/track/v1/trackingnumbers'
@@ -1115,7 +1116,7 @@ export async function getUpsDirectRates(params: {
 
   let data: unknown
   try {
-    const res = await axios.post(UPS_RATE_URL, body, {
+    const res = await axios.post(UPS_SHOP_URL, body, {
       headers: {
         Authorization:  `Bearer ${token}`,
         transId:        `ups-direct-shop-${Date.now()}`,
