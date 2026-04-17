@@ -183,7 +183,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
         const upsResult = await generateOutboundLabel(upsReq)
         trackingNumber = upsResult.trackingNumber
         labelData      = upsResult.labelBase64
-        labelFormat    = upsResult.labelFormat  // 'GIF'
+        labelFormat    = upsResult.labelFormat  // 'pdf'
         shipmentCost   = order.presetRateAmount ? Number(order.presetRateAmount)
                        : upsResult.shipmentCost ? parseFloat(upsResult.shipmentCost) : undefined
         carrier        = 'ups_direct'

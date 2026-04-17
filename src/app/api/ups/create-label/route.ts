@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       trackingNumber: result.trackingNumber,
       labelData:      result.labelBase64,
-      labelFormat:    result.labelFormat,  // 'GIF'
+      labelFormat:    result.labelFormat,  // 'pdf'
       shipmentCost:   result.shipmentCost ? parseFloat(result.shipmentCost) : undefined,
       shipmentId:     result.shipmentId,   // UPS ShipmentIdentificationNumber — needed to void
     })

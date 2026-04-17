@@ -9,6 +9,7 @@
 import axios from 'axios'
 import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/crypto'
+import { PDFDocument } from 'pdf-lib'
 
 const UPS_AUTH_URL   = 'https://onlinetools.ups.com/security/v1/oauth/token'
 const UPS_TRACK_URL  = 'https://onlinetools.ups.com/api/track/v1/details'
@@ -392,6 +393,22 @@ function upsDeliveryConfirmation(confirmation?: string): { DeliveryConfirmation:
   return { DeliveryConfirmation: { DCISType: code } }
 }
 
+/** Convert a base64 PNG label image into a 4×6 inch PDF (matching FedEx/ShipStation output). */
+async function pngLabelToPdf(pngBase64: string): Promise<string> {
+  const pngBytes = Buffer.from(pngBase64, 'base64')
+  const pdf = await PDFDocument.create()
+  const pngImage = await pdf.embedPng(pngBytes)
+  // 4×6 inches at 72 DPI
+  const page = pdf.addPage([4 * 72, 6 * 72])
+  page.drawImage(pngImage, {
+    x: 0, y: 0,
+    width:  4 * 72,
+    height: 6 * 72,
+  })
+  const pdfBytes = await pdf.save()
+  return Buffer.from(pdfBytes).toString('base64')
+}
+
 export interface ChargeLineItem {
   description: string
   amount:      string
@@ -401,8 +418,8 @@ export interface ChargeLineItem {
 export interface ReturnLabelResult {
   trackingNumber:   string
   shipmentId:       string   // UPS ShipmentIdentificationNumber — needed to void
-  labelBase64:      string   // base64-encoded GIF image
-  labelFormat:      'GIF'
+  labelBase64:      string   // base64-encoded label image (PNG from UPS, or PDF after conversion)
+  labelFormat:      string   // 'PNG' | 'pdf'
   shipmentCost?:    string   // total charge from UPS (e.g. "12.50")
   currency?:        string   // e.g. "USD"
   chargeBreakdown?: ChargeLineItem[]  // itemised line items making up the total
@@ -514,7 +531,7 @@ export async function generateReturnLabel(req: ReturnLabelRequest, upsCredential
         },
       },
       LabelSpecification: {
-        LabelImageFormat: { Code: 'GIF', Description: 'GIF' },
+        LabelImageFormat: { Code: 'PNG', Description: 'PNG' },
         LabelStockSize:   { Height: '6', Width: '4' },
         HTTPUserAgent:    'Mozilla/4.5',
       },
@@ -605,8 +622,10 @@ export async function generateReturnLabel(req: ReturnLabelRequest, upsCredential
     addLine(label, item)
   }
 
+  const pdfBase64 = await pngLabelToPdf(labelBase64)
+
   return {
-    trackingNumber, shipmentId, labelBase64, labelFormat: 'GIF',
+    trackingNumber, shipmentId, labelBase64: pdfBase64, labelFormat: 'pdf',
     shipmentCost, currency,
     chargeBreakdown: breakdown.length > 0 ? breakdown : undefined,
   }
@@ -706,7 +725,7 @@ export async function generateOutboundLabel(req: ReturnLabelRequest, upsCredenti
         },
       },
       LabelSpecification: {
-        LabelImageFormat: { Code: 'GIF', Description: 'GIF' },
+        LabelImageFormat: { Code: 'PNG', Description: 'PNG' },
         LabelStockSize:   { Height: '6', Width: '4' },
         HTTPUserAgent:    'Mozilla/4.5',
       },
@@ -792,8 +811,10 @@ export async function generateOutboundLabel(req: ReturnLabelRequest, upsCredenti
     addLine(label, item)
   }
 
+  const pdfBase64 = await pngLabelToPdf(labelBase64)
+
   return {
-    trackingNumber, shipmentId, labelBase64, labelFormat: 'GIF',
+    trackingNumber, shipmentId, labelBase64: pdfBase64, labelFormat: 'pdf',
     shipmentCost, currency,
     chargeBreakdown: breakdown.length > 0 ? breakdown : undefined,
   }
