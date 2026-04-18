@@ -85,6 +85,9 @@ export async function GET(
       gradeName = msku.grade?.grade ?? null
     }
 
+    // Build grade filter: if gradeId is set, match it; otherwise only show ungraded inventory
+    const gradeFilter = gradeId ? { gradeId } : { gradeId: null }
+
     // Try exact product match first, then fall back to grade's product
     let product = await prisma.product.findUnique({
       where: { sku: item.sellerSku },
@@ -92,7 +95,7 @@ export async function GET(
         inventoryItems: {
           where: {
             qty: { gt: 0 },
-            ...(gradeId ? { gradeId } : {}),
+            ...gradeFilter,
           },
           include: { location: { include: { warehouse: true } }, grade: true },
           orderBy: { qty: 'desc' },
@@ -108,7 +111,7 @@ export async function GET(
           inventoryItems: {
             where: {
               qty: { gt: 0 },
-              ...(gradeId ? { gradeId } : {}),
+              ...gradeFilter,
             },
             include: { location: { include: { warehouse: true } }, grade: true },
             orderBy: { qty: 'desc' },
