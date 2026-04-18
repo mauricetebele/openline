@@ -187,7 +187,7 @@ export async function POST(
           shippedAt:    new Date(),
         },
       })
-    })
+    }, { timeout: 30000 })
 
     // Push updated qty to marketplaces
     const productIds = Array.from(new Set(reservations.map(r => r.productId)))
