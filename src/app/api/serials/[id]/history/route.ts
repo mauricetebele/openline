@@ -51,7 +51,7 @@ export async function GET(
           shipTracking: true,
           shippingCost: true,
           total:        true,
-          customer:     { select: { name: true } },
+          customer:     { select: { companyName: true } },
         },
       },
       location: {
