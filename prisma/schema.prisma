@@ -1295,6 +1295,9 @@ model SerialHistory {
   // Sale context (populated for SALE events)
   orderId           String?
   order             Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  // Wholesale sale context (populated for wholesale SALE events)
+  salesOrderId      String?
+  salesOrder        SalesOrder?     @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
   // FBA shipment context (populated for FBA_SHIPMENT events)
   fbaShipmentId     String?
   fbaShipment       FbaShipment?    @relation(fields: [fbaShipmentId], references: [id], onDelete: SetNull)
@@ -1514,6 +1517,7 @@ model SalesOrder {
   serialAssignments      SalesOrderSerialAssignment[]
   inventoryReservations  SalesOrderInventoryReservation[]
   customerRMASerials     CustomerRMASerial[]
+  serialHistory          SerialHistory[]
 
   @@index([customerId])
   @@index([status])

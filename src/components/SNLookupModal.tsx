@@ -15,6 +15,7 @@ interface HistoryEvent {
   receipt:       { id: string; receivedAt: string } | null
   purchaseOrder: { id: string; poNumber: number; vendor: { name: string } } | null
   order:         { id: string; olmNumber: number | null; amazonOrderId: string; orderSource: string; shipToName: string | null; shipToCity: string | null; shipToState: string | null; orderTotal: string | null; currency: string | null; label: { trackingNumber: string; carrier: string | null; serviceCode: string | null; shipmentCost: string | null } | null } | null
+  salesOrder:    { id: string; orderNumber: string; shipCarrier: string | null; shipTracking: string | null; shippingCost: string | null; total: string | null; customer: { name: string } } | null
   location:      { name: string; warehouse: { name: string } } | null
   fromLocation:  { name: string; warehouse: { name: string } } | null
   fromProduct:   { id: string; description: string; sku: string } | null
@@ -412,7 +413,36 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                               </>
                             ) : event.eventType === 'SALE' ? (
                               <>
-                                {event.order && (
+                                {event.salesOrder ? (
+                                  <>
+                                    <p>
+                                      <span className="text-gray-400">Wholesale Order:</span>{' '}
+                                      <span className="font-semibold font-mono text-gray-800">{event.salesOrder.orderNumber}</span>
+                                    </p>
+                                    <p>
+                                      <span className="text-gray-400">Customer:</span>{' '}
+                                      <span className="font-medium text-gray-800">{event.salesOrder.customer.name}</span>
+                                    </p>
+                                    {event.salesOrder.shipTracking && (
+                                      <p>
+                                        <span className="text-gray-400">Tracking:</span>{' '}
+                                        <span className="font-mono font-medium text-gray-800">{event.salesOrder.shipTracking}</span>
+                                      </p>
+                                    )}
+                                    {event.salesOrder.shipCarrier && (
+                                      <p>
+                                        <span className="text-gray-400">Carrier:</span>{' '}
+                                        <span className="font-medium text-gray-800">{event.salesOrder.shipCarrier}</span>
+                                      </p>
+                                    )}
+                                    {event.salesOrder.shippingCost && (
+                                      <p>
+                                        <span className="text-gray-400">Shipping Cost:</span>{' '}
+                                        <span className="font-medium text-gray-800">${Number(event.salesOrder.shippingCost).toFixed(2)}</span>
+                                      </p>
+                                    )}
+                                  </>
+                                ) : event.order ? (
                                   <>
                                     {event.order.olmNumber && (
                                       <p>
@@ -458,7 +488,7 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                                       </>
                                     )}
                                   </>
-                                )}
+                                ) : null}
                                 {event.location && (
                                   <p>
                                     <span className="text-gray-400">Shipped from:</span>{' '}

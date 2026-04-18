@@ -141,6 +141,7 @@ export async function POST(
               eventType:         'SALE',
               locationId:        serial.locationId,
               userId:            user.dbId,
+              salesOrderId:      params.id,
               notes:             `Wholesale sale — ${so.orderNumber} (${carrier.trim()} ${tracking.trim()})`,
             },
           })
@@ -167,6 +168,7 @@ export async function POST(
             data: {
               inventorySerialId: serial.id,
               eventType:         'SALE',
+              salesOrderId:      params.id,
               locationId:        serial.locationId,
               userId:            user.dbId,
               notes:             `Wholesale sale — ${so.orderNumber} (${carrier.trim()} ${tracking.trim()})`,

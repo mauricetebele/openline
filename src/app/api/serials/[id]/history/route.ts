@@ -43,6 +43,17 @@ export async function GET(
           },
         },
       },
+      salesOrder: {
+        select: {
+          id:           true,
+          orderNumber:  true,
+          shipCarrier:  true,
+          shipTracking: true,
+          shippingCost: true,
+          total:        true,
+          customer:     { select: { name: true } },
+        },
+      },
       location: {
         select: { name: true, warehouse: { select: { name: true } } },
       },
