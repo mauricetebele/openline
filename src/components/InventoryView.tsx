@@ -364,6 +364,31 @@ function ModalSerialRow({ serial, index }: { serial: Serial; index: number }) {
                       {new Date(event.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
                     </span>
                   </div>
+                  {event.order && (
+                    <>
+                      {event.order.olmNumber && (
+                        <p className="mt-0.5"><span className="text-gray-400">OLM #:</span> <span className="font-semibold font-mono">OLM-{event.order.olmNumber}</span></p>
+                      )}
+                      <p className="mt-0.5">
+                        <span className="text-gray-400">{event.order.orderSource === 'backmarket' ? 'BackMarket #:' : 'Amazon #:'}</span>{' '}
+                        <span className="font-mono">{event.order.amazonOrderId}</span>
+                      </p>
+                      {event.order.shipToName && (
+                        <p className="mt-0.5"><span className="text-gray-400">Buyer:</span> {event.order.shipToName}</p>
+                      )}
+                    </>
+                  )}
+                  {event.salesOrder && (
+                    <>
+                      <p className="mt-0.5"><span className="text-gray-400">Wholesale Order:</span> <span className="font-semibold font-mono">{event.salesOrder.orderNumber}</span></p>
+                      {event.salesOrder.customer && (
+                        <p className="mt-0.5"><span className="text-gray-400">Customer:</span> {event.salesOrder.customer.name}</p>
+                      )}
+                      {event.salesOrder.shipTracking && (
+                        <p className="mt-0.5"><span className="text-gray-400">Tracking:</span> <span className="font-mono">{event.salesOrder.shipCarrier ? `${event.salesOrder.shipCarrier} · ` : ''}{event.salesOrder.shipTracking}</span></p>
+                      )}
+                    </>
+                  )}
                   {event.location && (
                     <p className="mt-0.5"><span className="text-gray-400">Location:</span> {event.location.warehouse.name} / {event.location.name}</p>
                   )}
