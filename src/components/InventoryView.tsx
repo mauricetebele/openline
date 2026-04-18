@@ -34,6 +34,7 @@ interface HistoryEvent {
   receipt:       { id: string; receivedAt: string } | null
   purchaseOrder: { id: string; poNumber: number; vendor: { name: string } } | null
   order:         { id: string; olmNumber: number | null; amazonOrderId: string; orderSource: string; shipToName: string | null; shipToCity: string | null; shipToState: string | null; orderTotal: string | null; currency: string | null; label: { trackingNumber: string; carrier: string | null; serviceCode: string | null; shipmentCost: string | null } | null } | null
+  salesOrder:    { id: string; orderNumber: string; customer: { name: string } | null; shipCarrier: string | null; shipTracking: string | null; shippingCost: string | null; total: string | null } | null
   location:      { name: string; warehouse: { name: string } } | null
   fromLocation:  { name: string; warehouse: { name: string } } | null
   fromProduct:   { id: string; description: string; sku: string } | null
@@ -228,6 +229,25 @@ function SerialRow({ serial, index }: { serial: Serial; index: number }) {
                             <p>
                               <span className="text-gray-400">Buyer:</span>{' '}
                               <span className="font-medium text-gray-800">{event.order.shipToName}</span>
+                            </p>
+                          )}
+                        </>
+                      ) : (event.eventType === 'SALE' || event.eventType === 'ASSIGNED' || event.eventType === 'UNASSIGNED') && event.salesOrder ? (
+                        <>
+                          <p>
+                            <span className="text-gray-400">Wholesale Order:</span>{' '}
+                            <span className="font-semibold font-mono text-gray-800">{event.salesOrder.orderNumber}</span>
+                          </p>
+                          {event.salesOrder.customer && (
+                            <p>
+                              <span className="text-gray-400">Customer:</span>{' '}
+                              <span className="font-medium text-gray-800">{event.salesOrder.customer.name}</span>
+                            </p>
+                          )}
+                          {event.salesOrder.shipTracking && (
+                            <p>
+                              <span className="text-gray-400">Tracking:</span>{' '}
+                              <span className="font-mono text-gray-800">{event.salesOrder.shipCarrier ? `${event.salesOrder.shipCarrier} · ` : ''}{event.salesOrder.shipTracking}</span>
                             </p>
                           )}
                         </>
