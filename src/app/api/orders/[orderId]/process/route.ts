@@ -74,13 +74,29 @@ export async function POST(
       }
     }
 
-    // Enforce order item's gradeId as source of truth (prevents stale frontend data)
-    // Only override if the order item has an explicit gradeId — if null, trust the
-    // frontend's gradeId which comes from the MSKU mapping.
+    // Enforce order item's gradeId as source of truth (prevents stale frontend data).
+    // If the order item has a gradeId, use it. If the order item has no gradeId,
+    // check if the SKU maps to a product via MSKU (which carries a grade). Only if
+    // neither source provides a grade do we leave it null (ungraded).
     const itemGradeMap = new Map(order.items.map(i => [i.id, i.gradeId ?? null]))
     for (const r of reservations) {
-      const authoritative = itemGradeMap.get(r.orderItemId)
-      if (authoritative) r.gradeId = authoritative
+      const itemGrade = itemGradeMap.get(r.orderItemId)
+      if (itemGrade) {
+        // Order item has explicit grade — always use it
+        r.gradeId = itemGrade
+      } else if (itemGradeMap.has(r.orderItemId)) {
+        // Order item exists but has null gradeId — check MSKU mapping
+        const item = order.items.find(i => i.id === r.orderItemId)
+        if (item?.sellerSku) {
+          const msku = await prisma.productGradeMarketplaceSku.findFirst({
+            where: { sellerSku: item.sellerSku },
+            select: { gradeId: true },
+          })
+          r.gradeId = msku?.gradeId ?? null
+        } else {
+          r.gradeId = null
+        }
+      }
     }
 
     // Validate basic inputs before entering transaction
