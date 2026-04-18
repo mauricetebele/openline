@@ -1271,7 +1271,61 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
   const [submitting, setSubmitting] = useState(false)
   const [submitErr, setSubmitErr]   = useState<string | null>(null)
 
+  const [bulkPasting, setBulkPasting] = useState(false)
+  const [bulkErrors, setBulkErrors]   = useState<string[]>([])
+
   const serializableItems = order.items.filter(i => i.isSerializable)
+
+  const totalSerialsNeeded = serializableItems.reduce((sum, i) => sum + i.quantityOrdered, 0)
+
+  // Bulk paste: auto-match serials to order items by product
+  const handleBulkPaste = useCallback(async (text: string) => {
+    const lines = text.split(/[\n\r\t,;]+/).map(s => s.trim()).filter(Boolean)
+    if (lines.length === 0) return
+    setBulkPasting(true)
+    setBulkErrors([])
+    try {
+      const res = await fetch(`/api/wholesale/orders/${order.id}/auto-match-serials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serials: lines }),
+      })
+      const data: { results: Record<string, { valid: boolean; serialId?: string; orderItemId?: string; sku?: string; location?: string; reason?: string; detail?: string }> } = await res.json()
+
+      // Group valid results by orderItemId
+      const byItem = new Map<string, { sn: string; serialId: string; location: string }[]>()
+      const errors: string[] = []
+      for (const sn of lines) {
+        const r = data.results[sn]
+        if (!r) { errors.push(`${sn}: no response`); continue }
+        if (!r.valid) { errors.push(`${sn}: ${r.detail ?? r.reason ?? 'invalid'}`); continue }
+        const arr = byItem.get(r.orderItemId!) ?? []
+        arr.push({ sn, serialId: r.serialId!, location: r.location ?? '' })
+        byItem.set(r.orderItemId!, arr)
+      }
+      setBulkErrors(errors)
+
+      // Fill serial inputs from matched results
+      setSerialInputs(prev => {
+        const next = { ...prev }
+        for (const [orderItemId, matched] of Array.from(byItem.entries())) {
+          matched.forEach((m, i) => {
+            const key = `${orderItemId}-${i}`
+            next[key] = { value: m.sn, valid: true, message: m.location || '✓ Valid', checking: false, serialId: m.serialId }
+          })
+        }
+        return next
+      })
+
+      if (errors.length === 0) playTone(true)
+      else playTone(false)
+    } catch {
+      setBulkErrors(['Failed to validate serials — try again'])
+      playTone(false)
+    } finally {
+      setBulkPasting(false)
+    }
+  }, [order.id])
 
   // Pre-fill from existing serial assignments
   useEffect(() => {
@@ -1483,6 +1537,44 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Global bulk paste */}
+          <div className="rounded-lg border border-dashed border-purple-300 bg-purple-50/40 p-3">
+            <p className="text-[10px] font-bold text-purple-500 uppercase tracking-wider mb-1.5">
+              Bulk Paste — All SKUs ({totalSerialsNeeded} serial{totalSerialsNeeded !== 1 ? 's' : ''} needed)
+            </p>
+            <textarea
+              placeholder={`Paste all ${totalSerialsNeeded} serials here (one per line) — they'll auto-match to the correct SKU…`}
+              rows={3}
+              disabled={bulkPasting}
+              className="w-full rounded border border-purple-200 px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none placeholder:text-gray-400 disabled:opacity-50"
+              onPaste={e => {
+                e.preventDefault()
+                const text = e.clipboardData.getData('text')
+                handleBulkPaste(text)
+                ;(e.target as HTMLTextAreaElement).value = ''
+              }}
+              onChange={e => {
+                const text = e.target.value
+                if (text.includes('\n') || text.includes('\t')) {
+                  handleBulkPaste(text)
+                  e.target.value = ''
+                }
+              }}
+            />
+            {bulkPasting && (
+              <div className="flex items-center gap-2 text-xs text-purple-500 mt-1">
+                <RefreshCcw size={11} className="animate-spin" /> Matching serials to order items…
+              </div>
+            )}
+            {bulkErrors.length > 0 && (
+              <div className="mt-2 space-y-0.5">
+                {bulkErrors.map((err, i) => (
+                  <p key={i} className="text-xs text-red-600 font-mono">{err}</p>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Order Items with serial inputs */}
           <div>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
