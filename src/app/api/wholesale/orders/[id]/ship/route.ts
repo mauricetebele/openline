@@ -128,12 +128,21 @@ export async function POST(
       }
 
       if (hasBodySerials && resolvedBodySerials.length > 0) {
-        // All-at-once flow: create assignments + mark OUT_OF_STOCK
-        // Mark serials OUT_OF_STOCK by serial number (avoids ID pattern validation)
+        // All-at-once flow: create assignments + mark OUT_OF_STOCK + record SALE history
         for (const s of resolvedBodySerials) {
-          await tx.inventorySerial.update({
+          const serial = await tx.inventorySerial.update({
             where: { id: s.serialId },
             data: { status: 'OUT_OF_STOCK' },
+            select: { id: true, serialNumber: true, locationId: true },
+          })
+          await tx.serialHistory.create({
+            data: {
+              inventorySerialId: serial.id,
+              eventType:         'SALE',
+              locationId:        serial.locationId,
+              userId:            user.dbId,
+              notes:             `Wholesale sale — ${so.orderNumber} (${carrier.trim()} ${tracking.trim()})`,
+            },
           })
         }
         await tx.salesOrderSerialAssignment.createMany({
@@ -144,14 +153,26 @@ export async function POST(
           })),
         })
       } else if (hasPreAssigned) {
-        // Pre-serialized flow: mark pre-assigned serials as OUT_OF_STOCK
-        // Use relation filter to avoid passing ID arrays to Prisma
+        // Pre-serialized flow: mark pre-assigned serials as OUT_OF_STOCK + record SALE history
+        const preAssignedSerials = await tx.inventorySerial.findMany({
+          where: { salesOrderAssignment: { salesOrderId: params.id } },
+          select: { id: true, serialNumber: true, locationId: true },
+        })
         await tx.inventorySerial.updateMany({
-          where: {
-            salesOrderAssignment: { salesOrderId: params.id },
-          },
+          where: { salesOrderAssignment: { salesOrderId: params.id } },
           data: { status: 'OUT_OF_STOCK' },
         })
+        for (const serial of preAssignedSerials) {
+          await tx.serialHistory.create({
+            data: {
+              inventorySerialId: serial.id,
+              eventType:         'SALE',
+              locationId:        serial.locationId,
+              userId:            user.dbId,
+              notes:             `Wholesale sale — ${so.orderNumber} (${carrier.trim()} ${tracking.trim()})`,
+            },
+          })
+        }
       }
 
       // Ship the order
