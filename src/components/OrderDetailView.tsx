@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Package, MapPin, Truck, Hash, FileText, Printer,
-  CheckCircle2, AlertCircle, Loader2, RotateCcw, Crown,
+  CheckCircle2, AlertCircle, Loader2, RotateCcw,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
@@ -229,8 +229,11 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
               {WORKFLOW_LABEL[order.workflowStatus] ?? order.workflowStatus}
             </span>
             {order.isPrime && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-blue-600 text-white flex items-center gap-0.5">
-                <Crown size={10} /> Prime
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-[#00A8E1] text-white flex items-center gap-0.5">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Prime
               </span>
             )}
           </div>
