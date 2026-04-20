@@ -577,7 +577,8 @@ export async function syncUnshippedOrders(
                 update: {
                   quantityOrdered: item.QuantityOrdered ?? 1,
                   quantityShipped: item.QuantityShipped ?? 0,
-                  sellerSku: item.SellerSKU ?? null,
+                  // NOTE: sellerSku intentionally excluded — users may manually
+                  // edit it via the SKU swap UI and we must not revert their change.
                   itemPrice: item.ItemPrice?.Amount ? parseFloat(item.ItemPrice.Amount) : undefined,
                   itemTax: item.ItemTax?.Amount ? parseFloat(item.ItemTax.Amount) : undefined,
                   shippingPrice: item.ShippingPrice?.Amount ? parseFloat(item.ShippingPrice.Amount) : undefined,

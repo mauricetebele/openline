@@ -266,8 +266,8 @@ export async function syncBackMarketOrders(
               imageUrl: lineImageUrl,
             },
             update: {
-              sellerSku: line.listing ?? null,
-              title: line.product ?? null,
+              // NOTE: sellerSku and title intentionally excluded — users may
+              // manually edit them via the SKU swap UI and we must not revert.
               quantityOrdered: line.quantity ?? 1,
               itemPrice: line.price != null ? parseFloat(String(line.price)) : null,
               shippingPrice: line.shipping_price != null ? parseFloat(String(line.shipping_price)) : null,
