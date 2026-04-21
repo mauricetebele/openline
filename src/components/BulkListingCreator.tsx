@@ -431,12 +431,13 @@ export default function BulkListingCreator() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           })
-          const data = await res.json()
-          if (!res.ok) throw new Error(data.error ?? 'Failed')
+          let data: Record<string, unknown>
+          try { data = await res.json() } catch { data = { error: `HTTP ${res.status}: ${res.statusText}` } }
+          if (!res.ok) throw new Error((data.error as string) ?? `HTTP ${res.status}`)
 
           // Cache the resolved template group ID for subsequent calls with the same template
           if (data.shippingTemplateGroupId && row.shippingTemplate && !templateCache.has(row.shippingTemplate)) {
-            templateCache.set(row.shippingTemplate, data.shippingTemplateGroupId)
+            templateCache.set(row.shippingTemplate, data.shippingTemplateGroupId as string)
           }
 
           setProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'success' } : r))
@@ -563,11 +564,12 @@ export default function BulkListingCreator() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           })
-          const data = await res.json()
-          if (!res.ok) throw new Error(data.error ?? 'Failed')
+          let data: Record<string, unknown>
+          try { data = await res.json() } catch { data = { error: `HTTP ${res.status}: ${res.statusText}` } }
+          if (!res.ok) throw new Error((data.error as string) ?? `HTTP ${res.status}`)
 
           if (data.shippingTemplateGroupId && row.shippingTemplate && !templateCache.has(row.shippingTemplate)) {
-            templateCache.set(row.shippingTemplate, data.shippingTemplateGroupId)
+            templateCache.set(row.shippingTemplate, data.shippingTemplateGroupId as string)
           }
 
           setUploadProgressRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'success' } : r))
@@ -949,7 +951,7 @@ export default function BulkListingCreator() {
                           {row.status === 'success' && <CheckCircle2 size={14} className="text-green-600" />}
                           {row.status === 'error' && <XCircle size={14} className="text-red-500" />}
                         </td>
-                        <td className="px-3 py-2 text-xs text-red-600 max-w-[200px] truncate" title={row.error}>
+                        <td className="px-3 py-2 text-xs text-red-600 max-w-[400px] break-words" title={row.error}>
                           {row.error ?? ''}
                         </td>
                       </tr>
@@ -1505,8 +1507,9 @@ export default function BulkListingCreator() {
                           {row.status === 'creating' && <Loader2 size={14} className="animate-spin text-amazon-blue" />}
                           {row.status === 'success' && <CheckCircle2 size={14} className="text-green-600" />}
                           {row.status === 'error' && (
-                            <span title={row.error}>
-                              <XCircle size={14} className="text-red-500" />
+                            <span className="flex items-center gap-1">
+                              <XCircle size={14} className="text-red-500 shrink-0" />
+                              <span className="text-xs text-red-600 break-all">{row.error}</span>
                             </span>
                           )}
                         </td>

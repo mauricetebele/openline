@@ -16,6 +16,9 @@ import { requireAdmin } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
 import { randomUUID } from 'crypto'
 
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
 const bodySchema = z.object({
   accountId: z.string().min(1),
   sku: z.string().min(1),
