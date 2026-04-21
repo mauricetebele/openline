@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const gradeId     = searchParams.get('gradeId')
   const productId   = searchParams.get('productId')
 
-  const [items, reservationGroups, fbaReservationGroups, wholesaleReservationGroups, costRows] = await Promise.all([
+  const [items, reservationGroups, fbaReservationGroups, wholesaleReservationGroups, costRows, serialCostRows] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: {
         ...(productId   ? { productId } : {}),
@@ -73,6 +73,13 @@ export async function GET(req: NextRequest) {
       FROM purchase_order_lines
       ORDER BY "productId", "gradeId", "createdAt" DESC
     `,
+    // Fallback: avg unit cost from inventory_serials (covers migrations + direct receives)
+    prisma.$queryRaw<{ productId: string; gradeId: string | null; avgCost: number }[]>`
+      SELECT "productId", "gradeId", AVG("unitCost")::float8 as "avgCost"
+      FROM inventory_serials
+      WHERE "unitCost" IS NOT NULL AND status = 'IN_STOCK'
+      GROUP BY "productId", "gradeId"
+    `,
   ])
 
   // Build lookup: `${productId}:${locationId}:${gradeId ?? ''}` → reserved qty
@@ -102,6 +109,15 @@ export async function GET(req: NextRequest) {
       costProductOnly.set(c.productId, c.unitCost)
     }
   }
+  // Fallback cost from serial-level unitCost (migrations, direct receives)
+  const serialCostMap = new Map<string, number>()
+  const serialCostProductOnly = new Map<string, number>()
+  for (const c of serialCostRows) {
+    serialCostMap.set(`${c.productId}:${c.gradeId ?? ''}`, c.avgCost)
+    if (!serialCostProductOnly.has(c.productId)) {
+      serialCostProductOnly.set(c.productId, c.avgCost)
+    }
+  }
 
   // Batch lookup fulfillment channels for amazon marketplace SKUs
   const allSellerSkus = new Set<string>()
@@ -126,7 +142,9 @@ export async function GET(req: NextRequest) {
       const wholesaleReserved = wholesaleReservedMap.get(key) ?? 0
       const onHand   = item.qty + hardReserved          // qty has hard-reserves subtracted
       const reserved = hardReserved + wholesaleReserved  // total committed to orders
-      const unitCost = costMap.get(`${item.productId}:${item.gradeId ?? ''}`) ?? costProductOnly.get(item.productId) ?? null
+      const costKey = `${item.productId}:${item.gradeId ?? ''}`
+      const unitCost = costMap.get(costKey) ?? costProductOnly.get(item.productId)
+        ?? serialCostMap.get(costKey) ?? serialCostProductOnly.get(item.productId) ?? null
       // Enrich marketplaceSkus with fulfillmentChannel
       const product = {
         ...item.product,
