@@ -484,16 +484,17 @@ export async function syncUnshippedOrders(
                   workflowStatus: 'SHIPPED',
                   shippedAt: new Date(fullOrder.LastUpdateDate ?? Date.now()),
                 } : {}),
-                ...(addr ? {
-                  shipToName:     addr.Name         ?? null,
-                  shipToAddress1: addr.AddressLine1 ?? null,
-                  shipToAddress2: addr.AddressLine2 ?? null,
-                  shipToCity:     addr.City         ?? null,
-                  shipToState:    addr.StateOrRegion ?? null,
-                  shipToPostal:   addr.PostalCode   ?? null,
-                  shipToCountry:  addr.CountryCode  ?? null,
-                  shipToPhone:    addr.Phone        ?? null,
-                } : {}),
+                // Only overwrite address fields when Amazon provides non-null values.
+                // Amazon masks PII on unshipped MFN orders (name, address, postal
+                // come back null) — we must not clobber previously-good data.
+                ...(addr?.Name         ? { shipToName:     addr.Name }         : {}),
+                ...(addr?.AddressLine1 ? { shipToAddress1: addr.AddressLine1 } : {}),
+                ...(addr?.AddressLine2 ? { shipToAddress2: addr.AddressLine2 } : {}),
+                ...(addr?.City         ? { shipToCity:     addr.City }         : {}),
+                ...(addr?.StateOrRegion? { shipToState:    addr.StateOrRegion }: {}),
+                ...(addr?.PostalCode   ? { shipToPostal:   addr.PostalCode }   : {}),
+                ...(addr?.CountryCode  ? { shipToCountry:  addr.CountryCode }  : {}),
+                ...(addr?.Phone        ? { shipToPhone:    addr.Phone }        : {}),
               },
             })
           } catch (err) {
