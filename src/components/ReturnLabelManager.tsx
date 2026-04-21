@@ -100,9 +100,18 @@ const FALLBACK_SERVICES: { code: string; label: string }[] = [
 // ─── Print Preview Component ─────────────────────────────────────────────────
 
 function PrintPreview({ base64, format, onClose }: { base64: string; format: string; onClose: () => void }) {
-  const dataUrl = `data:image/${format.toLowerCase()};base64,${base64}`
+  const isPdf = format.toLowerCase() === 'pdf'
+  const dataUrl = isPdf
+    ? `data:application/pdf;base64,${base64}`
+    : `data:image/${format.toLowerCase()};base64,${base64}`
 
   const handlePrint = () => {
+    if (isPdf) {
+      // Open PDF in new tab — browser handles print natively
+      const win = window.open(dataUrl, '_blank')
+      if (!win) toast.error('Pop-up blocked — allow pop-ups and try again')
+      return
+    }
     const win = window.open('', '_blank')
     if (!win) { toast.error('Pop-up blocked — allow pop-ups and try again'); return }
     win.document.write(`<html><head><title>Return Label</title><style>
@@ -126,9 +135,13 @@ function PrintPreview({ base64, format, onClose }: { base64: string; format: str
           </button>
         </div>
       </div>
-      <div style={{ padding: 0 }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={dataUrl} alt="Return Label" style={{ width: '100%', height: 'auto', display: 'block' }} />
+      <div className="flex-1 overflow-auto" style={{ padding: 0 }}>
+        {isPdf ? (
+          <iframe src={dataUrl} title="Return Label" style={{ width: '100%', height: '100%', border: 'none', minHeight: '80vh' }} />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={dataUrl} alt="Return Label" style={{ width: '100%', height: 'auto', display: 'block' }} />
+        )}
       </div>
     </div>
   )

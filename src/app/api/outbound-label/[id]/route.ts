@@ -25,7 +25,7 @@ export async function GET(
 
   return NextResponse.json({
     labelData:      label.labelData,
-    labelFormat:    'GIF',
+    labelFormat:    'pdf',
     trackingNumber: label.trackingNumber,
     voided:         label.voided,
   })
