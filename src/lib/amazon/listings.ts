@@ -276,18 +276,32 @@ export async function resolveTemplateGroupId(
 ): Promise<string> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
 
-  // Sample listings that use this template from the most recent sync for this template.
+  // Sample Active listings that use this template — prefer active listings
+  // since inactive/deleted ones may 404 on the SP-API GET.
   const samples = await prisma.sellerListing.findMany({
     where: {
       accountId,
       fulfillmentChannel: 'MFN',
       shippingTemplate: { equals: templateName, mode: 'insensitive' },
+      listingStatus: 'Active',
     },
     orderBy: { lastSyncedAt: 'desc' },
-    take: 5,
+    take: 10,
   })
+  // Fallback: if no active listings, try any listing (may include inactive)
+  const finalSamples = samples.length > 0
+    ? samples
+    : await prisma.sellerListing.findMany({
+        where: {
+          accountId,
+          fulfillmentChannel: 'MFN',
+          shippingTemplate: { equals: templateName, mode: 'insensitive' },
+        },
+        orderBy: { lastSyncedAt: 'desc' },
+        take: 10,
+      })
 
-  if (samples.length === 0) {
+  if (finalSamples.length === 0) {
     throw new Error(
       `Cannot resolve UUID for template "${templateName}": no listings from the most recent sync are assigned to it. ` +
       `Make sure at least one active MFN listing uses this template in Seller Central, then re-sync.`,
@@ -297,18 +311,22 @@ export async function resolveTemplateGroupId(
   const client = new SpApiClient(accountId)
   const uuidCounts = new Map<string, number>()
 
-  for (const sample of samples) {
-    const item = await client.get<ListingItemResponse>(
-      `/listings/2021-08-01/items/${account.sellerId}/${encodeURIComponent(sample.sku)}`,
-      { marketplaceIds: account.marketplaceId, includedData: 'attributes' },
-    )
-    const group = item.attributes?.merchant_shipping_group as
-      | Array<{ value: string; marketplace_id: string }>
-      | undefined
-    const uuid =
-      group?.find((g) => g.marketplace_id === account.marketplaceId)?.value
-      ?? group?.[0]?.value
-    if (uuid) uuidCounts.set(uuid, (uuidCounts.get(uuid) ?? 0) + 1)
+  for (const sample of finalSamples) {
+    try {
+      const item = await client.get<ListingItemResponse>(
+        `/listings/2021-08-01/items/${account.sellerId}/${encodeURIComponent(sample.sku)}`,
+        { marketplaceIds: account.marketplaceId, includedData: 'attributes' },
+      )
+      const group = item.attributes?.merchant_shipping_group as
+        | Array<{ value: string; marketplace_id: string }>
+        | undefined
+      const uuid =
+        group?.find((g) => g.marketplace_id === account.marketplaceId)?.value
+        ?? group?.[0]?.value
+      if (uuid) uuidCounts.set(uuid, (uuidCounts.get(uuid) ?? 0) + 1)
+    } catch (sampleErr) {
+      console.warn(`[resolveTemplateGroupId] sample SKU=${sample.sku} fetch failed (skipping):`, sampleErr)
+    }
   }
 
   if (uuidCounts.size === 0) {
@@ -323,12 +341,12 @@ export async function resolveTemplateGroupId(
 
   if (uuidCounts.size > 1) {
     console.warn(
-      `[resolveTemplateGroupId] Multiple UUIDs found for "${templateName}" across ${samples.length} recently-synced samples. ` +
-      `Using most common: ${uuid} (${count}/${samples.length}).`,
+      `[resolveTemplateGroupId] Multiple UUIDs found for "${templateName}" across ${finalSamples.length} recently-synced samples. ` +
+      `Using most common: ${uuid} (${count}/${finalSamples.length}).`,
     )
   }
 
-  console.log(`[resolveTemplateGroupId] "${templateName}" → UUID ${uuid} (${count}/${samples.length} samples agree)`)
+  console.log(`[resolveTemplateGroupId] "${templateName}" → UUID ${uuid} (${count}/${finalSamples.length} samples agree)`)
   return uuid
 }
 
