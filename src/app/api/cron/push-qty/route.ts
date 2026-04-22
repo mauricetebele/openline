@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const results = await pushAllQuantities()
+    const { results } = await pushAllQuantities()
     const pushed = results.filter((r) => !r.error)
     const errors = results.filter((r) => r.error)
 

@@ -266,7 +266,7 @@ export async function getBmContext(mskus: MskuWithRelations[]) {
 
 // ─── Bulk push (cron) — rock-solid implementation ───────────────────────────
 
-export async function pushAllQuantities(): Promise<PushResult[]> {
+export async function pushAllQuantities(): Promise<{ results: PushResult[]; feedId?: string }> {
   const startTime = Date.now()
 
   // 1. Load all enabled MSKUs with relations
@@ -279,7 +279,7 @@ export async function pushAllQuantities(): Promise<PushResult[]> {
     },
   })
 
-  if (mskus.length === 0) return []
+  if (mskus.length === 0) return { results: [] }
 
   // 2. Filter out FBA SKUs — Amazon manages FBA inventory
   const filteredMskus = mskus.filter(m => m.marketplaceListing?.fulfillmentChannel !== 'FBA')
@@ -357,6 +357,7 @@ export async function pushAllQuantities(): Promise<PushResult[]> {
   }
 
   // 8. Submit all Amazon updates as a single inventory feed (batch)
+  let lastFeedId: string | null = null
   if (amazonBatch.length > 0) {
     const accountId = amazonBatch[0].accountId
     try {
@@ -364,6 +365,7 @@ export async function pushAllQuantities(): Promise<PushResult[]> {
         accountId,
         amazonBatch.map(b => ({ sku: b.sku, quantity: b.quantity })),
       )
+      lastFeedId = feedId
       console.log(`[push-qty] Inventory feed submitted: feedId=${feedId}, ${amazonBatch.length} SKU(s)`)
 
       // Mirror quantities in DB
@@ -398,7 +400,9 @@ export async function pushAllQuantities(): Promise<PushResult[]> {
         prisma.productGradeMarketplaceSku.update({
           where: { id: u.id },
           data: { lastPushedQty: u.qty, lastPushedAt: now },
-        }).catch(() => {})
+        }).catch(err => {
+          console.error(`[push-qty] Failed to update lastPushedQty for MSKU ${u.id}: ${err instanceof Error ? err.message : String(err)}`)
+        })
       )
     )
   }
@@ -408,7 +412,7 @@ export async function pushAllQuantities(): Promise<PushResult[]> {
     `[push-qty] Done in ${totalElapsed}ms — pushed=${pushed} skipped=${skipped} errors=${errors} total=${filteredMskus.length}`
   )
 
-  return results
+  return { results, feedId: lastFeedId ?? undefined }
 }
 
 // ─── Single MSKU push by ID (used when toggling syncQty on) ─────────────────
@@ -453,10 +457,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Push all enabled
-    const results = await pushAllQuantities()
+    const { results, feedId } = await pushAllQuantities()
     const pushed = results.filter((r) => !r.error)
     const errored = results.filter((r) => r.error)
-    return NextResponse.json({ pushed, errors: errored, total: results.length })
+    return NextResponse.json({ pushed, errors: errored, total: results.length, feedId })
   } catch (err) {
     console.error('[push-qty]', err)
     return NextResponse.json(

@@ -1,8 +1,10 @@
 /**
  * GET /api/listings/debug?sku=IPHONE-13PROMAX-128-BLUE-UNLK-B
+ * GET /api/listings/debug?feedId=XXXX
  *
  * Debug endpoint: fetches a listing directly from Amazon SP-API
  * to see its real status, productType, quantity, and any issues.
+ * Also supports checking feed processing status by feedId.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
@@ -18,13 +20,46 @@ export async function GET(req: NextRequest) {
   const adminErr = requireAdmin(user)
   if (adminErr) return adminErr
 
-  const sku = req.nextUrl.searchParams.get('sku')
-  if (!sku) return NextResponse.json({ error: 'Missing sku param' }, { status: 400 })
-
   const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
   if (!account) return NextResponse.json({ error: 'No active Amazon account' }, { status: 404 })
 
   const client = new SpApiClient(account.id)
+
+  // Feed status check mode
+  const feedId = req.nextUrl.searchParams.get('feedId')
+  if (feedId) {
+    try {
+      const feed = await client.get<Record<string, unknown>>(
+        `/feeds/2021-06-30/feeds/${feedId}`,
+      )
+
+      // If feed is DONE, try to get the result document
+      let feedResult: unknown = null
+      const resultDocId = (feed as { resultFeedDocumentId?: string }).resultFeedDocumentId
+      if (resultDocId) {
+        try {
+          const doc = await client.get<{ url: string }>(
+            `/feeds/2021-06-30/documents/${resultDocId}`,
+          )
+          // Download the result document
+          const resp = await fetch(doc.url)
+          feedResult = await resp.text()
+        } catch (docErr) {
+          feedResult = { error: docErr instanceof Error ? docErr.message : String(docErr) }
+        }
+      }
+
+      return NextResponse.json({ feedId, feed, feedResult })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return NextResponse.json({ feedId, error: msg }, { status: 502 })
+    }
+  }
+
+  // SKU debug mode
+  const sku = req.nextUrl.searchParams.get('sku')
+  if (!sku) return NextResponse.json({ error: 'Missing sku or feedId param' }, { status: 400 })
+
   const encodedSku = encodeURIComponent(sku)
 
   try {

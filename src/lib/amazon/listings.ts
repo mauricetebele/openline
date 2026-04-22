@@ -813,11 +813,15 @@ ${messages}
   )
 
   // 2. Upload XML to presigned URL
-  await fetch(docResp.url, {
+  const uploadResp = await fetch(docResp.url, {
     method: 'PUT',
     headers: { 'Content-Type': 'text/xml; charset=UTF-8' },
     body: feedXml,
   })
+  if (!uploadResp.ok) {
+    const uploadErr = await uploadResp.text().catch(() => '')
+    throw new Error(`Feed XML upload failed (${uploadResp.status}): ${uploadErr.slice(0, 500)}`)
+  }
 
   // 3. Create the feed
   const feedResp = await client.post<{ feedId: string }>(
