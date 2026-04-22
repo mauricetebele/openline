@@ -838,18 +838,64 @@ ${messages}
 }
 
 /**
- * Update a single listing's quantity via the Feeds API.
- * Wrapper around submitInventoryFeed for single-SKU callers.
+ * Update a single listing's quantity via Listings Items API PATCH.
+ * GETs the listing first to determine the real productType and preserve
+ * existing fulfillment_availability fields (like lead_time_to_ship_max_days).
  */
 export async function updateListingQuantity(
   accountId: string,
   sku: string,
   quantity: number,
 ): Promise<void> {
-  const feedId = await submitInventoryFeed(accountId, [{ sku, quantity }])
-  console.log(`[updateListingQuantity] SKU=${sku} qty=${quantity} feedId=${feedId}`)
+  const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
+  const client = new SpApiClient(accountId)
+  const encodedSku = encodeURIComponent(sku)
 
-  // Mirror new quantity in DB immediately (feed processing is async).
+  // 1. GET listing to determine productType and existing fulfillment_availability
+  const listingItem = await client.get<ListingItemResponse>(
+    `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+    { marketplaceIds: account.marketplaceId, includedData: 'summaries,attributes' },
+  )
+
+  const productType =
+    listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
+    ?? listingItem.summaries?.[0]?.productType
+    ?? 'PRODUCT'
+
+  // 2. Preserve existing fulfillment_availability fields, only update quantity
+  const existingFA = (listingItem.attributes?.fulfillment_availability as
+    Array<Record<string, unknown>> | undefined)?.[0] ?? {}
+
+  const patchResult = await client.patch<ListingsPatchResponse>(
+    `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+    {
+      productType,
+      patches: [
+        {
+          op: 'replace',
+          path: '/attributes/fulfillment_availability',
+          value: [{
+            ...existingFA,
+            fulfillment_channel_code: 'DEFAULT',
+            quantity,
+          }],
+        },
+      ],
+    },
+    { marketplaceIds: account.marketplaceId },
+  )
+
+  if (patchResult.status === 'INVALID') {
+    const errors = patchResult.issues
+      ?.filter((i) => i.severity === 'ERROR')
+      .map((i) => `${i.code}: ${i.message}`)
+      .join('; ')
+    throw new Error(`Amazon rejected qty update (INVALID) — ${errors ?? 'no details'} — productType: ${productType}`)
+  }
+
+  console.log(`[updateListingQuantity] SKU=${sku} qty=${quantity} productType=${productType} status=${patchResult.status}`)
+
+  // Mirror new quantity in DB immediately.
   await prisma.sellerListing.updateMany({
     where: { accountId, sku },
     data: { quantity, updatedAt: new Date() },

@@ -24,7 +24,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { updateListingQuantity as updateAmazonQty, submitInventoryFeed } from '@/lib/amazon/listings'
+import { updateListingQuantity as updateAmazonQty } from '@/lib/amazon/listings'
 import { BackMarketClient } from '@/lib/backmarket/client'
 import { decrypt } from '@/lib/crypto'
 
@@ -266,7 +266,7 @@ export async function getBmContext(mskus: MskuWithRelations[]) {
 
 // ─── Bulk push (cron) — rock-solid implementation ───────────────────────────
 
-export async function pushAllQuantities(): Promise<{ results: PushResult[]; feedId?: string }> {
+export async function pushAllQuantities(): Promise<{ results: PushResult[] }> {
   const startTime = Date.now()
 
   // 1. Load all enabled MSKUs with relations
@@ -303,15 +303,19 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[]; feed
   // 6. Resolve default Amazon account ID once
   let defaultAccountId: string | null = null
 
-  // 7. Calculate quantities for all MSKUs, collecting Amazon updates for batch feed
+  // 7. Push quantities per-SKU via Listings API PATCH (Amazon) or BM API
   const results: PushResult[] = []
   let skipped = 0
   let pushed = 0
   let errors = 0
-  const pushUpdates: { id: string; qty: number }[] = []
-  const amazonBatch: Array<{ sku: string; quantity: number; mskuId: string; accountId: string }> = []
 
   for (const msku of filteredMskus) {
+    // Timeout guard — stop 10s before Vercel kills us
+    if (Date.now() - startTime > TIMEOUT_MS) {
+      console.log(`[push-qty] Timeout approaching after ${pushed} pushed, ${skipped} skipped, ${errors} errors`)
+      break
+    }
+
     const finalQty = calculateFinalQty(msku, bulk)
 
     // Skip if unchanged — unless stale (>6h since last push) to catch Amazon-side drift
@@ -327,84 +331,38 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[]; feed
       console.log(`[push-qty] ${msku.sellerSku}: re-pushing ${finalQty} (stale ${Math.round(hoursSinceLastPush)}h)`)
     }
 
-    if (msku.marketplace === 'amazon') {
-      const accountId = msku.accountId ?? defaultAccountId ?? await (async () => {
-        const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
-        if (!account) throw new Error('No active Amazon account found')
-        defaultAccountId = account.id
-        return account.id
-      })()
-      amazonBatch.push({ sku: msku.sellerSku, quantity: finalQty, mskuId: msku.id, accountId })
-      pushed++
-      results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
-      pushUpdates.push({ id: msku.id, qty: finalQty })
-    } else if (msku.marketplace === 'backmarket') {
-      try {
+    try {
+      if (msku.marketplace === 'amazon') {
+        const accountId = msku.accountId ?? defaultAccountId ?? await (async () => {
+          const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
+          if (!account) throw new Error('No active Amazon account found')
+          defaultAccountId = account.id
+          return account.id
+        })()
+        await updateAmazonQty(accountId, msku.sellerSku, finalQty)
+      } else if (msku.marketplace === 'backmarket') {
         if (!bmClient || !bmListingsCache) throw new Error('No active Back Market credentials')
         const listingId = bmListingsCache.get(msku.sellerSku)
         if (!listingId) throw new Error(`BM listing not found for SKU ${msku.sellerSku}`)
         await bmClient.updateListingQuantity(listingId, finalQty)
-        pushed++
-        results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
-        pushUpdates.push({ id: msku.id, qty: finalQty })
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        console.error(`[push-qty] Failed for ${msku.sellerSku}: ${msg}`)
-        errors++
-        results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: -1, error: msg })
       }
-    }
-  }
 
-  // 8. Submit all Amazon updates as a single inventory feed (batch)
-  let lastFeedId: string | null = null
-  if (amazonBatch.length > 0) {
-    const accountId = amazonBatch[0].accountId
-    try {
-      const feedId = await submitInventoryFeed(
-        accountId,
-        amazonBatch.map(b => ({ sku: b.sku, quantity: b.quantity })),
-      )
-      lastFeedId = feedId
-      console.log(`[push-qty] Inventory feed submitted: feedId=${feedId}, ${amazonBatch.length} SKU(s)`)
+      pushed++
+      results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
 
-      // Mirror quantities in DB
-      await Promise.all(
-        amazonBatch.map(b =>
-          prisma.sellerListing.updateMany({
-            where: { accountId, sku: b.sku },
-            data: { quantity: b.quantity, updatedAt: new Date() },
-          }).catch(() => {})
-        )
-      )
+      // Update lastPushedQty on success
+      await prisma.productGradeMarketplaceSku.update({
+        where: { id: msku.id },
+        data: { lastPushedQty: finalQty, lastPushedAt: new Date() },
+      }).catch(err => {
+        console.error(`[push-qty] Failed to update lastPushedQty for ${msku.sellerSku}: ${err instanceof Error ? err.message : String(err)}`)
+      })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      console.error(`[push-qty] Amazon feed submission failed: ${msg}`)
-      // Mark all Amazon SKUs as errors
-      for (const b of amazonBatch) {
-        const idx = results.findIndex(r => r.sellerSku === b.sku)
-        if (idx >= 0) results[idx] = { sellerSku: b.sku, marketplace: 'amazon', quantity: -1, error: msg }
-        const updateIdx = pushUpdates.findIndex(u => u.id === b.mskuId)
-        if (updateIdx >= 0) pushUpdates.splice(updateIdx, 1)
-      }
-      errors += amazonBatch.length
-      pushed -= amazonBatch.length
+      console.error(`[push-qty] Failed for ${msku.sellerSku}: ${msg}`)
+      errors++
+      results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: -1, error: msg })
     }
-  }
-
-  // 9. Batch update lastPushedQty for all successful pushes
-  if (pushUpdates.length > 0) {
-    const now = new Date()
-    await Promise.all(
-      pushUpdates.map(u =>
-        prisma.productGradeMarketplaceSku.update({
-          where: { id: u.id },
-          data: { lastPushedQty: u.qty, lastPushedAt: now },
-        }).catch(err => {
-          console.error(`[push-qty] Failed to update lastPushedQty for MSKU ${u.id}: ${err instanceof Error ? err.message : String(err)}`)
-        })
-      )
-    )
   }
 
   const totalElapsed = Date.now() - startTime
@@ -412,7 +370,7 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[]; feed
     `[push-qty] Done in ${totalElapsed}ms — pushed=${pushed} skipped=${skipped} errors=${errors} total=${filteredMskus.length}`
   )
 
-  return { results, feedId: lastFeedId ?? undefined }
+  return { results }
 }
 
 // ─── Single MSKU push by ID (used when toggling syncQty on) ─────────────────
@@ -457,10 +415,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Push all enabled
-    const { results, feedId } = await pushAllQuantities()
+    const { results } = await pushAllQuantities()
     const pushed = results.filter((r) => !r.error)
     const errored = results.filter((r) => r.error)
-    return NextResponse.json({ pushed, errors: errored, total: results.length, feedId })
+    return NextResponse.json({ pushed, errors: errored, total: results.length })
   } catch (err) {
     console.error('[push-qty]', err)
     return NextResponse.json(
