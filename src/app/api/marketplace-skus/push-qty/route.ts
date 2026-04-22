@@ -24,7 +24,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { updateListingQuantity as updateAmazonQty } from '@/lib/amazon/listings'
+import { updateListingQuantity as updateAmazonQty, submitInventoryFeed } from '@/lib/amazon/listings'
 import { BackMarketClient } from '@/lib/backmarket/client'
 import { decrypt } from '@/lib/crypto'
 
@@ -303,22 +303,15 @@ export async function pushAllQuantities(): Promise<PushResult[]> {
   // 6. Resolve default Amazon account ID once
   let defaultAccountId: string | null = null
 
-  // 7. Process each MSKU with timeout awareness
+  // 7. Calculate quantities for all MSKUs, collecting Amazon updates for batch feed
   const results: PushResult[] = []
   let skipped = 0
   let pushed = 0
   let errors = 0
   const pushUpdates: { id: string; qty: number }[] = []
+  const amazonBatch: Array<{ sku: string; quantity: number; mskuId: string; accountId: string }> = []
 
   for (const msku of filteredMskus) {
-    // Timeout check — stop before Vercel kills us
-    const elapsed = Date.now() - startTime
-    if (elapsed > TIMEOUT_MS) {
-      const remaining = filteredMskus.length - results.length
-      console.log(`[push-qty] Timeout at ${elapsed}ms — ${results.length} processed, ${remaining} deferred to next run`)
-      break
-    }
-
     const finalQty = calculateFinalQty(msku, bulk)
 
     // Skip if unchanged — unless stale (>6h since last push) to catch Amazon-side drift
@@ -331,54 +324,73 @@ export async function pushAllQuantities(): Promise<PushResult[]> {
         results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
         continue
       }
-      // Stale — re-push to correct any Amazon-side drift
       console.log(`[push-qty] ${msku.sellerSku}: re-pushing ${finalQty} (stale ${Math.round(hoursSinceLastPush)}h)`)
     }
 
-    // Fallback skip: check Amazon listing quantity (for SKUs without lastPushedQty yet)
-    if (msku.marketplace === 'amazon' && msku.lastPushedQty == null) {
-      const listingKey = `${msku.sellerSku}::${msku.accountId}`
-      const currentListingQty = bulk.listingQtyMap.get(listingKey)
-      if (currentListingQty != null && currentListingQty === finalQty) {
-        skipped++
-        results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
-        // Backfill lastPushedQty so future checks use the fast path
-        pushUpdates.push({ id: msku.id, qty: finalQty })
-        continue
-      }
-    }
-
-    // Push to marketplace
-    try {
-      if (msku.marketplace === 'amazon') {
-        const accountId = msku.accountId ?? defaultAccountId ?? await (async () => {
-          const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
-          if (!account) throw new Error('No active Amazon account found')
-          defaultAccountId = account.id
-          return account.id
-        })()
-
-        // Always GET real productType — 'PRODUCT' shortcut caused silent failures
-        await updateAmazonQty(accountId, msku.sellerSku, finalQty)
-      } else if (msku.marketplace === 'backmarket') {
+    if (msku.marketplace === 'amazon') {
+      const accountId = msku.accountId ?? defaultAccountId ?? await (async () => {
+        const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
+        if (!account) throw new Error('No active Amazon account found')
+        defaultAccountId = account.id
+        return account.id
+      })()
+      amazonBatch.push({ sku: msku.sellerSku, quantity: finalQty, mskuId: msku.id, accountId })
+      pushed++
+      results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
+      pushUpdates.push({ id: msku.id, qty: finalQty })
+    } else if (msku.marketplace === 'backmarket') {
+      try {
         if (!bmClient || !bmListingsCache) throw new Error('No active Back Market credentials')
         const listingId = bmListingsCache.get(msku.sellerSku)
         if (!listingId) throw new Error(`BM listing not found for SKU ${msku.sellerSku}`)
         await bmClient.updateListingQuantity(listingId, finalQty)
+        pushed++
+        results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
+        pushUpdates.push({ id: msku.id, qty: finalQty })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[push-qty] Failed for ${msku.sellerSku}: ${msg}`)
+        errors++
+        results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: -1, error: msg })
       }
-
-      pushed++
-      results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
-      pushUpdates.push({ id: msku.id, qty: finalQty })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error(`[push-qty] Failed for ${msku.sellerSku}: ${msg}`)
-      errors++
-      results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: -1, error: msg })
     }
   }
 
-  // 8. Batch update lastPushedQty for all successful pushes + backfills
+  // 8. Submit all Amazon updates as a single inventory feed (batch)
+  if (amazonBatch.length > 0) {
+    const accountId = amazonBatch[0].accountId
+    try {
+      const feedId = await submitInventoryFeed(
+        accountId,
+        amazonBatch.map(b => ({ sku: b.sku, quantity: b.quantity })),
+      )
+      console.log(`[push-qty] Inventory feed submitted: feedId=${feedId}, ${amazonBatch.length} SKU(s)`)
+
+      // Mirror quantities in DB
+      await Promise.all(
+        amazonBatch.map(b =>
+          prisma.sellerListing.updateMany({
+            where: { accountId, sku: b.sku },
+            data: { quantity: b.quantity, updatedAt: new Date() },
+          }).catch(() => {})
+        )
+      )
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[push-qty] Amazon feed submission failed: ${msg}`)
+      // Mark all Amazon SKUs as errors
+      for (const b of amazonBatch) {
+        const idx = results.findIndex(r => r.sellerSku === b.sku)
+        if (idx >= 0) results[idx] = { sellerSku: b.sku, marketplace: 'amazon', quantity: -1, error: msg }
+        const updateIdx = pushUpdates.findIndex(u => u.id === b.mskuId)
+        if (updateIdx >= 0) pushUpdates.splice(updateIdx, 1)
+      }
+      errors += amazonBatch.length
+      pushed -= amazonBatch.length
+    }
+  }
+
+  // 9. Batch update lastPushedQty for all successful pushes
   if (pushUpdates.length > 0) {
     const now = new Date()
     await Promise.all(

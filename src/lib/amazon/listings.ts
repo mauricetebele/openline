@@ -768,83 +768,84 @@ export async function updateListingPrice(
 
 // ─── updateListingQuantity ─────────────────────────────────────────────────
 
+/**
+ * Submit inventory quantity updates via the Feeds API (POST_INVENTORY_AVAILABILITY_DATA).
+ * This is the reliable, battle-tested way to update MFN inventory — the Listings Items
+ * API PATCH silently drops updates for many listing types.
+ *
+ * Accepts multiple SKU/qty pairs for batch efficiency.
+ */
+export async function submitInventoryFeed(
+  accountId: string,
+  updates: Array<{ sku: string; quantity: number; fulfillmentLatency?: number }>,
+): Promise<string> {
+  const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
+  const client = new SpApiClient(accountId)
+
+  const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+  const messages = updates.map((u, i) =>
+    `  <Message>
+    <MessageID>${i + 1}</MessageID>
+    <OperationType>Update</OperationType>
+    <Inventory>
+      <SKU>${escapeXml(u.sku)}</SKU>
+      <Quantity>${u.quantity}</Quantity>
+      <FulfillmentLatency>${u.fulfillmentLatency ?? 1}</FulfillmentLatency>
+    </Inventory>
+  </Message>`
+  ).join('\n')
+
+  const feedXml = `<?xml version="1.0" encoding="utf-8"?>
+<AmazonEnvelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="amzn-envelope.xsd">
+  <Header>
+    <DocumentVersion>1.01</DocumentVersion>
+    <MerchantIdentifier>${escapeXml(account.sellerId)}</MerchantIdentifier>
+  </Header>
+  <MessageType>Inventory</MessageType>
+${messages}
+</AmazonEnvelope>`
+
+  // 1. Create feed document
+  const docResp = await client.post<{ feedDocumentId: string; url: string }>(
+    '/feeds/2021-06-30/documents',
+    { contentType: 'text/xml; charset=UTF-8' },
+  )
+
+  // 2. Upload XML to presigned URL
+  await fetch(docResp.url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'text/xml; charset=UTF-8' },
+    body: feedXml,
+  })
+
+  // 3. Create the feed
+  const feedResp = await client.post<{ feedId: string }>(
+    '/feeds/2021-06-30/feeds',
+    {
+      feedType: 'POST_INVENTORY_AVAILABILITY_DATA',
+      marketplaceIds: [account.marketplaceId],
+      inputFeedDocumentId: docResp.feedDocumentId,
+    },
+  )
+
+  console.log(`[submitInventoryFeed] Feed submitted: feedId=${feedResp.feedId}, ${updates.length} SKU(s)`)
+  return feedResp.feedId
+}
+
+/**
+ * Update a single listing's quantity via the Feeds API.
+ * Wrapper around submitInventoryFeed for single-SKU callers.
+ */
 export async function updateListingQuantity(
   accountId: string,
   sku: string,
   quantity: number,
 ): Promise<void> {
-  const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
-  const client = new SpApiClient(accountId)
-  const encodedSku = encodeURIComponent(sku)
+  const feedId = await submitInventoryFeed(accountId, [{ sku, quantity }])
+  console.log(`[updateListingQuantity] SKU=${sku} qty=${quantity} feedId=${feedId}`)
 
-  // 1. GET listing with summaries + attributes to determine productType and
-  //    preserve existing fulfillment_availability fields (e.g. lead_time_to_ship_max_days).
-  //    Amazon silently rejects PATCH if existing fields are dropped.
-  const listingItem = await client.get<ListingItemResponse>(
-    `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
-    { marketplaceIds: account.marketplaceId, includedData: 'summaries,attributes' },
-  )
-
-  let productType =
-    listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
-    ?? listingItem.summaries?.[0]?.productType
-
-  if (!productType) {
-    console.warn(`[updateListingQuantity] SKU=${sku}: no productType in summaries (listing may be suppressed/inactive), using fallback 'PRODUCT'`)
-    productType = 'PRODUCT'
-  }
-
-  // 2. Build PATCH value by merging quantity into the existing fulfillment_availability.
-  //    This preserves lead_time_to_ship_max_days and any other fields Amazon expects.
-  const existingFA = (listingItem.attributes?.fulfillment_availability as
-    | Array<Record<string, unknown>>
-    | undefined
-  )?.find(f => f.fulfillment_channel_code === 'DEFAULT')
-
-  const faValue = {
-    ...(existingFA ?? {}),
-    fulfillment_channel_code: 'DEFAULT',
-    quantity,
-  }
-
-  const patches = [
-    {
-      op: 'replace',
-      path: '/attributes/fulfillment_availability',
-      value: [faValue],
-    },
-  ]
-
-  let patchResult: ListingsPatchResponse
-  try {
-    patchResult = await client.patch<ListingsPatchResponse>(
-      `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
-      { productType, patches },
-      { marketplaceIds: account.marketplaceId },
-    )
-  } catch (err: unknown) {
-    const base = err instanceof Error ? err.message : String(err)
-    throw new Error(`${base} — productType: ${productType}`)
-  }
-
-  // Log any issues even on ACCEPTED — warnings can indicate silent failures
-  if (patchResult.issues?.length) {
-    console.warn(`[updateListingQuantity] SKU=${sku} issues:`, JSON.stringify(patchResult.issues))
-  }
-
-  if (patchResult.status === 'INVALID') {
-    const errors = patchResult.issues
-      ?.filter((i) => i.severity === 'ERROR')
-      .map((i) => `${i.code}: ${i.message}${i.attributeNames?.length ? ` (${i.attributeNames.join(', ')})` : ''}`)
-      .join('; ')
-    throw new Error(
-      `Amazon rejected quantity update (INVALID) — ${errors ?? 'no details'} — productType: ${productType}`,
-    )
-  }
-
-  console.log(`[updateListingQuantity] SKU=${sku} qty=${quantity} status=${patchResult.status} submissionId=${patchResult.submissionId} productType=${productType}`)
-
-  // Mirror new quantity in DB immediately.
+  // Mirror new quantity in DB immediately (feed processing is async).
   await prisma.sellerListing.updateMany({
     where: { accountId, sku },
     data: { quantity, updatedAt: new Date() },
