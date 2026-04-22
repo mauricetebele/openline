@@ -728,10 +728,12 @@ export default function MarketplaceSkuManager() {
       const pushCount = data.pushed?.length ?? 0
       const errCount = data.errors?.length ?? 0
       const feedId = data.feedId ?? null
+      const firstError = data.errors?.[0]?.error ?? ''
       if (feedId) console.log('[push-qty] Amazon feedId:', feedId)
+      console.log('[push-qty] Full response:', JSON.stringify(data))
       setToast(
-        `Pushed quantities for ${pushCount} SKU${pushCount !== 1 ? 's' : ''}` +
-        (errCount > 0 ? ` (${errCount} error${errCount !== 1 ? 's' : ''})` : '') +
+        `Pushed ${pushCount} SKU${pushCount !== 1 ? 's' : ''}` +
+        (errCount > 0 ? ` (${errCount} error: ${firstError})` : '') +
         (feedId ? ` — feedId: ${feedId}` : ''),
       )
       setLastPushAt(new Date())
