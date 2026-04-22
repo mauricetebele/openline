@@ -205,20 +205,9 @@ export async function pushOneQuantity(
   const buffered = available <= 3 && available > 0 ? 1 : available
   const finalQty = msku.maxQty != null ? Math.min(buffered, msku.maxQty) : buffered
 
-  // 5. Skip marketplace API call if quantity hasn't changed
-  if (msku.marketplace === 'amazon') {
-    const currentListing = await prisma.sellerListing.findFirst({
-      where: { sku: msku.sellerSku, ...(msku.accountId ? { accountId: msku.accountId } : {}) },
-      select: { quantity: true },
-    })
-    if (currentListing && currentListing.quantity === finalQty) {
-      await prisma.productGradeMarketplaceSku.update({
-        where: { id: msku.id },
-        data: { lastPushedQty: finalQty, lastPushedAt: new Date() },
-      }).catch(() => {})
-      return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty }
-    }
-  }
+  // 5. Always push to marketplace — don't skip based on DB quantity.
+  //    The DB qty is optimistically mirrored after PATCH, but Amazon may not have
+  //    actually applied it (ACCEPTED is async). Always re-push to ensure correctness.
 
   // 6. Push to marketplace
   if (msku.marketplace === 'amazon') {
