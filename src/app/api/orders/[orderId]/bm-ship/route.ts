@@ -110,23 +110,34 @@ export async function POST(
     // Ship via POST /ws/orders/{order_id} — one call per orderline SKU
     // Per BM support: use serial_number (not imei) for non-smartphones,
     // new_state: 1, and include serial + tracking in the same payload.
+
+    // Fetch order from BackMarket to get the original listing SKUs.
+    // Users may change sellerSku locally (SKU swap), but BM still
+    // expects the original listing SKU.
+    const bmOrder = await client.get<{ orderlines?: Array<{ id?: number | string; listing?: string }> }>(`/orders/${bmOrderId}`)
+    const bmSkuByLineId = new Map<string, string>()
+    for (const line of bmOrder.orderlines ?? []) {
+      if (line.id && line.listing) bmSkuByLineId.set(String(line.id), line.listing)
+    }
+
     for (const item of order.items) {
-      if (!item.sellerSku) {
-        console.warn(`[bm-ship] Skipping item ${item.id} — no sellerSku`)
+      const sku = bmSkuByLineId.get(item.orderItemId) ?? item.sellerSku
+      if (!sku) {
+        console.warn(`[bm-ship] Skipping item ${item.id} — no SKU`)
         continue
       }
 
       const serialNumber = (item.bmSerials ?? []).join(',')
 
       console.log(
-        '[bm-ship] order=%s sku=%s tracking=%s shipper=%s serial_number=%s',
-        bmOrderId, item.sellerSku, trackingNumber, shipper, serialNumber,
+        '[bm-ship] order=%s sku=%s (local=%s) tracking=%s shipper=%s serial_number=%s',
+        bmOrderId, sku, item.sellerSku, trackingNumber, shipper, serialNumber,
       )
 
       const shipResponse = await client.post(`/orders/${bmOrderId}`, {
         order_id:        bmOrderId,
         new_state:       3,
-        sku:             item.sellerSku,
+        sku,
         tracking_number: trackingNumber,
         ...(shipper ? { shipper } : {}),
         ...(serialNumber ? { serial_number: serialNumber } : {}),

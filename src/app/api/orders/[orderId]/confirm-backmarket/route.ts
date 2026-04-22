@@ -52,15 +52,27 @@ export async function POST(
       return NextResponse.json({ error: 'Order has no items to confirm' }, { status: 400 })
     }
 
+    // Fetch order from BackMarket to get the original listing SKUs.
+    // Users may change sellerSku locally (SKU swap), but BM still
+    // expects the original listing SKU for confirmation.
+    const bmOrder = await client.get<{ orderlines?: Array<{ id?: number | string; listing?: string }> }>(`/orders/${bmOrderId}`)
+    const bmSkuByLineId = new Map<string, string>()
+    for (const line of bmOrder.orderlines ?? []) {
+      if (line.id && line.listing) bmSkuByLineId.set(String(line.id), line.listing)
+    }
+
     for (const item of items) {
-      if (!item.sellerSku) {
-        console.warn(`[confirm-backmarket] Skipping item ${item.id} — no sellerSku`)
+      // Use the original BM listing SKU (matched by orderline ID),
+      // falling back to the local sellerSku if not found
+      const sku = bmSkuByLineId.get(item.orderItemId) ?? item.sellerSku
+      if (!sku) {
+        console.warn(`[confirm-backmarket] Skipping item ${item.id} — no SKU`)
         continue
       }
       await client.post(`/orders/${bmOrderId}`, {
         order_id: bmOrderId,
         new_state: 2,
-        sku: item.sellerSku,
+        sku,
       })
     }
 
