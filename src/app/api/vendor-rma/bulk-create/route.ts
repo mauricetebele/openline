@@ -18,11 +18,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No serial IDs provided' }, { status: 400 })
   }
 
-  // Load serials with PO chain for vendor + product info
+  // Load serials with PO chain + direct vendor for vendor + product info
   const serials = await prisma.inventorySerial.findMany({
     where: { id: { in: serialIds } },
     include: {
       product: { select: { id: true, sku: true } },
+      vendor: { select: { id: true, name: true } },
       receiptLine: {
         include: {
           purchaseOrderLine: {
@@ -64,14 +65,15 @@ export async function POST(req: NextRequest) {
   }
 
   // Validate all serials have a vendor and it's the same vendor
+  // Check PO chain first, then fall back to direct vendorId
   const vendorIds = new Set<string>()
   const noVendor: string[] = []
   for (const s of serials) {
-    const vendorId = s.receiptLine?.purchaseOrderLine?.purchaseOrder?.vendor?.id
-    if (!vendorId) {
+    const vid = s.receiptLine?.purchaseOrderLine?.purchaseOrder?.vendor?.id ?? s.vendor?.id
+    if (!vid) {
       noVendor.push(s.serialNumber)
     } else {
-      vendorIds.add(vendorId)
+      vendorIds.add(vid)
     }
   }
 

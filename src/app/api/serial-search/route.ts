@@ -46,16 +46,18 @@ export async function GET(req: NextRequest) {
   if (sku) where.product = { sku: { contains: sku, mode: 'insensitive' } }
   if (grade) where.grade = { grade }
   if (vendorId) {
-    where.receiptLine = {
-      ...((where.receiptLine as Record<string, unknown>) ?? {}),
-      purchaseOrderLine: {
-        ...((where.receiptLine as Record<string, unknown>)?.purchaseOrderLine as Record<string, unknown> ?? {}),
-        purchaseOrder: {
-          ...(((where.receiptLine as Record<string, unknown>)?.purchaseOrderLine as Record<string, unknown>)?.purchaseOrder as Record<string, unknown> ?? {}),
-          vendorId,
+    // Match serials with vendor via PO chain OR direct vendorId
+    where.OR = [
+      ...(Array.isArray(where.OR) ? where.OR : []),
+      { vendorId },
+      {
+        receiptLine: {
+          purchaseOrderLine: {
+            purchaseOrder: { vendorId },
+          },
         },
       },
-    }
+    ]
   }
   if (poNumber) {
     where.receiptLine = {
@@ -83,6 +85,7 @@ export async function GET(req: NextRequest) {
           warehouse: { select: { id: true, name: true } },
         },
       },
+      vendor: { select: { id: true, name: true } },
       receiptLine: {
         include: {
           purchaseOrderLine: {
@@ -128,8 +131,8 @@ export async function GET(req: NextRequest) {
       productId:     r.product.id,
       sku:           r.product.sku,
       description:   r.product.description,
-      vendorId:      po?.vendor.id ?? null,
-      vendor:        po?.vendor.name ?? null,
+      vendorId:      po?.vendor.id ?? r.vendor?.id ?? null,
+      vendor:        po?.vendor.name ?? r.vendor?.name ?? null,
       lastEventType: lastHistory?.eventType ?? null,
       lastEventDate: lastHistory?.createdAt ?? null,
       lastMovementType: lastMovement?.eventType ?? null,

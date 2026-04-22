@@ -223,7 +223,7 @@ export async function POST(
           }
         }
 
-        // Re-activate existing serials (update status, location, grade, receiptLine)
+        // Re-activate existing serials (update status, location, grade, receiptLine, vendor)
         if (reactivateIds.length > 0) {
           await tx.inventorySerial.updateMany({
             where: { id: { in: reactivateIds } },
@@ -233,6 +233,7 @@ export async function POST(
               gradeId:       line.gradeId || null,
               receiptLineId: receiptLine.id,
               productId:     line.productId,
+              vendorId:      po.vendorId,
             },
           })
         }
@@ -246,6 +247,7 @@ export async function POST(
               locationId:    line.locationId,
               gradeId:       line.gradeId || null,
               receiptLineId: receiptLine.id,
+              vendorId:      po.vendorId,
               status:        'IN_STOCK' as const,
             })),
           })

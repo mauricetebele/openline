@@ -862,9 +862,10 @@ model Vendor {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  purchaseOrders PurchaseOrder[]
-  vendorRMAs     VendorRMA[]
-  ledgerEntries  VendorLedgerEntry[]
+  purchaseOrders   PurchaseOrder[]
+  vendorRMAs       VendorRMA[]
+  ledgerEntries    VendorLedgerEntry[]
+  inventorySerials InventorySerial[]
 
   @@map("vendors")
 }
@@ -1255,6 +1256,8 @@ model InventorySerial {
   grade         Grade?  @relation(fields: [gradeId], references: [id], onDelete: SetNull)
   receiptLineId String?
   receiptLine   POReceiptLine? @relation(fields: [receiptLineId], references: [id])
+  vendorId      String?
+  vendor        Vendor?        @relation(fields: [vendorId], references: [id], onDelete: SetNull)
   status        SerialStatus   @default(IN_STOCK)
   note          String?
   binLocation   String?
@@ -1272,6 +1275,7 @@ model InventorySerial {
   @@unique([productId, serialNumber])
   @@index([productId, locationId])
   @@index([locationId])
+  @@index([vendorId])
   @@map("inventory_serials")
 }
 
