@@ -727,9 +727,12 @@ export default function MarketplaceSkuManager() {
       const data = await apiPost('/api/marketplace-skus/push-qty', {})
       const pushCount = data.pushed?.length ?? 0
       const errCount = data.errors?.length ?? 0
+      const feedId = data.feedId ?? null
+      if (feedId) console.log('[push-qty] Amazon feedId:', feedId)
       setToast(
         `Pushed quantities for ${pushCount} SKU${pushCount !== 1 ? 's' : ''}` +
-        (errCount > 0 ? ` (${errCount} error${errCount !== 1 ? 's' : ''})` : ''),
+        (errCount > 0 ? ` (${errCount} error${errCount !== 1 ? 's' : ''})` : '') +
+        (feedId ? ` — feedId: ${feedId}` : ''),
       )
       setLastPushAt(new Date())
       loadQtyBreakdown()
