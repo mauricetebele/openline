@@ -45,13 +45,15 @@ export async function GET(req: NextRequest) {
     })
 
     // Check recent inventory feeds
-    let recentFeeds = null
+    let recentFeeds: unknown = null
     try {
       recentFeeds = await client.get<Record<string, unknown>>(
         '/feeds/2021-06-30/feeds',
         { feedTypes: 'POST_INVENTORY_AVAILABILITY_DATA', pageSize: '5' },
       )
-    } catch { /* non-fatal */ }
+    } catch (feedErr) {
+      recentFeeds = { error: feedErr instanceof Error ? feedErr.message : String(feedErr) }
+    }
 
     return NextResponse.json({
       sku,
