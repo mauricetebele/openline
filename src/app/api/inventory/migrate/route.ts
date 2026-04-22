@@ -356,6 +356,7 @@ async function handleCommit(req: NextRequest, userId: string) {
             productId,
             locationId,
             gradeId,
+            vendorId: vendor.id,
             status: 'IN_STOCK',
             unitCost: row.cost != null ? row.cost : undefined,
           },
