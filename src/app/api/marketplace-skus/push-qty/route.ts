@@ -369,9 +369,8 @@ export async function pushAllQuantities(): Promise<PushResult[]> {
           return account.id
         })()
 
-        // Use 'PRODUCT' to skip GET call (~500ms savings per SKU)
-        // Auto-retries with GET if Amazon rejects it
-        await updateAmazonQty(accountId, msku.sellerSku, finalQty, 'PRODUCT')
+        // Always GET real productType — 'PRODUCT' shortcut caused silent failures
+        await updateAmazonQty(accountId, msku.sellerSku, finalQty)
       } else if (msku.marketplace === 'backmarket') {
         if (!bmClient || !bmListingsCache) throw new Error('No active Back Market credentials')
         const listingId = bmListingsCache.get(msku.sellerSku)

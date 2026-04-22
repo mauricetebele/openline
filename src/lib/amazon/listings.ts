@@ -772,30 +772,27 @@ export async function updateListingQuantity(
   accountId: string,
   sku: string,
   quantity: number,
-  productTypeOverride?: string,
 ): Promise<void> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
   const encodedSku = encodeURIComponent(sku)
 
-  // 1. Determine productType — skip GET when override is provided (saves ~500ms per call)
-  let productType = productTypeOverride
+  // 1. Always GET real productType — the old 'PRODUCT' shortcut was causing silent
+  //    failures where Amazon returned ACCEPTED but never applied the quantity.
+  const listingItem = await client.get<ListingItemResponse>(
+    `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+    { marketplaceIds: account.marketplaceId, includedData: 'summaries' },
+  )
+
+  let productType =
+    listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
+    ?? listingItem.summaries?.[0]?.productType
+
   if (!productType) {
-    const listingItem = await client.get<ListingItemResponse>(
-      `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
-      { marketplaceIds: account.marketplaceId, includedData: 'summaries' },
-    )
-
-    productType =
-      listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
-      ?? listingItem.summaries?.[0]?.productType
-
-    // Inactive (out-of-stock) listings may return empty summaries.
-    // Fall back to 'PRODUCT' — Amazon accepts it for quantity-only patches.
-    if (!productType) {
-      console.warn(`[updateListingQuantity] No productType for SKU=${sku} (likely inactive), using fallback 'PRODUCT'`)
-      productType = 'PRODUCT'
-    }
+    // Listing has no summaries — likely suppressed or inactive on Amazon.
+    // Log clearly so we can diagnose.
+    console.warn(`[updateListingQuantity] SKU=${sku}: no productType in summaries (listing may be suppressed/inactive), using fallback 'PRODUCT'`)
+    productType = 'PRODUCT'
   }
 
   // 2. PATCH with fulfillment_availability attribute
@@ -824,12 +821,12 @@ export async function updateListingQuantity(
     throw new Error(`${base} — productType: ${productType}`)
   }
 
+  // Log any issues even on ACCEPTED — warnings can indicate silent failures
+  if (patchResult.issues?.length) {
+    console.warn(`[updateListingQuantity] SKU=${sku} issues:`, JSON.stringify(patchResult.issues))
+  }
+
   if (patchResult.status === 'INVALID') {
-    // If we used an override and Amazon rejected it, retry with GET-based productType
-    if (productTypeOverride) {
-      console.warn(`[updateListingQuantity] Override '${productTypeOverride}' rejected for SKU=${sku}, retrying with GET`)
-      return updateListingQuantity(accountId, sku, quantity)
-    }
     const errors = patchResult.issues
       ?.filter((i) => i.severity === 'ERROR')
       .map((i) => `${i.code}: ${i.message}${i.attributeNames?.length ? ` (${i.attributeNames.join(', ')})` : ''}`)
@@ -839,7 +836,7 @@ export async function updateListingQuantity(
     )
   }
 
-  console.log(`[updateListingQuantity] SKU=${sku} qty=${quantity} status=${patchResult.status} submissionId=${patchResult.submissionId}`)
+  console.log(`[updateListingQuantity] SKU=${sku} qty=${quantity} status=${patchResult.status} submissionId=${patchResult.submissionId} productType=${productType}`)
 
   // Mirror new quantity in DB immediately.
   await prisma.sellerListing.updateMany({
