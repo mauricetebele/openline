@@ -9,6 +9,7 @@
     { "path": "/api/cron/sync-fba-inventory", "schedule": "0 */6 * * *" },
     { "path": "/api/cron/sync-replacements", "schedule": "0 */6 * * *" },
     { "path": "/api/cron/sync-fba-orders", "schedule": "0 */12 * * *" },
-    { "path": "/api/cron/sync-mfn-returns", "schedule": "0 6 * * *" }
+    { "path": "/api/cron/sync-mfn-returns", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/sync-listings", "schedule": "0 */6 * * *" }
   ]
 }

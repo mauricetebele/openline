@@ -205,7 +205,7 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
         "fulfillmentChannel" = EXCLUDED."fulfillmentChannel",
         "shippingTemplate" = EXCLUDED."shippingTemplate",
         "listingStatus" = EXCLUDED."listingStatus",
-        quantity = CASE WHEN EXCLUDED."fulfillmentChannel" = 'FBA' THEN seller_listings.quantity ELSE EXCLUDED.quantity END,
+        quantity = seller_listings.quantity,
         price = EXCLUDED.price,
         "minPrice" = EXCLUDED."minPrice",
         "maxPrice" = EXCLUDED."maxPrice",
