@@ -44,6 +44,15 @@ export async function GET(req: NextRequest) {
       select: { sellerSku: true, lastPushedQty: true, lastPushedAt: true, syncQty: true },
     })
 
+    // Check recent inventory feeds
+    let recentFeeds = null
+    try {
+      recentFeeds = await client.get<Record<string, unknown>>(
+        '/feeds/2021-06-30/feeds',
+        { feedTypes: 'POST_INVENTORY_AVAILABILITY_DATA', pageSize: '5' },
+      )
+    } catch { /* non-fatal */ }
+
     return NextResponse.json({
       sku,
       sellerId: account.sellerId,
@@ -56,6 +65,7 @@ export async function GET(req: NextRequest) {
         lastSyncedAt: dbListing.lastSyncedAt,
       } : null,
       msku,
+      recentFeeds,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
