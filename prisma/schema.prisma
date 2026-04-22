@@ -371,6 +371,7 @@ model SellerListing {
   maxPrice           Decimal? @db.Decimal(12, 2)
 
   fnsku              String?   // Fulfillment Network SKU (from fulfillment-channel-sku TSV column)
+  productType        String?   // Amazon productType (e.g. CELLULAR_PHONE), cached from SP-API
 
   sold24h            Int       @default(0)
   sold3d             Int       @default(0)

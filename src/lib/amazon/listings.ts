@@ -839,32 +839,35 @@ ${messages}
 
 /**
  * Update a single listing's quantity via Listings Items API PATCH.
- * GETs the listing first to determine the real productType and preserve
- * existing fulfillment_availability fields (like lead_time_to_ship_max_days).
+ * Accepts an optional cached productType to skip the GET call.
+ * Returns the productType used (for caching by the caller).
  */
 export async function updateListingQuantity(
   accountId: string,
   sku: string,
   quantity: number,
-): Promise<void> {
+  cachedProductType?: string,
+): Promise<string> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
   const encodedSku = encodeURIComponent(sku)
 
-  // 1. GET listing to determine productType and existing fulfillment_availability
-  const listingItem = await client.get<ListingItemResponse>(
-    `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
-    { marketplaceIds: account.marketplaceId, includedData: 'summaries,attributes' },
-  )
+  let productType = cachedProductType
+  let existingFA: Record<string, unknown> = {}
 
-  const productType =
-    listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
-    ?? listingItem.summaries?.[0]?.productType
-    ?? 'PRODUCT'
-
-  // 2. Preserve existing fulfillment_availability fields, only update quantity
-  const existingFA = (listingItem.attributes?.fulfillment_availability as
-    Array<Record<string, unknown>> | undefined)?.[0] ?? {}
+  if (!productType) {
+    // GET listing to determine productType and existing fulfillment_availability
+    const listingItem = await client.get<ListingItemResponse>(
+      `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+      { marketplaceIds: account.marketplaceId, includedData: 'summaries,attributes' },
+    )
+    productType =
+      listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
+      ?? listingItem.summaries?.[0]?.productType
+      ?? 'PRODUCT'
+    existingFA = (listingItem.attributes?.fulfillment_availability as
+      Array<Record<string, unknown>> | undefined)?.[0] ?? {}
+  }
 
   const patchResult = await client.patch<ListingsPatchResponse>(
     `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
@@ -895,9 +898,11 @@ export async function updateListingQuantity(
 
   console.log(`[updateListingQuantity] SKU=${sku} qty=${quantity} productType=${productType} status=${patchResult.status}`)
 
-  // Mirror new quantity in DB immediately.
+  // Mirror new quantity + cache productType in DB.
   await prisma.sellerListing.updateMany({
     where: { accountId, sku },
-    data: { quantity, updatedAt: new Date() },
+    data: { quantity, productType, updatedAt: new Date() },
   })
+
+  return productType
 }

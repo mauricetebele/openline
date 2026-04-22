@@ -303,19 +303,30 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[] }> {
   // 6. Resolve default Amazon account ID once
   let defaultAccountId: string | null = null
 
-  // 7. Push quantities per-SKU via Listings API PATCH (Amazon) or BM API
+  // 7. Pre-load cached productTypes from seller_listings (avoids per-SKU GET)
+  const amazonSkus = filteredMskus.filter(m => m.marketplace === 'amazon').map(m => m.sellerSku)
+  const productTypeCache = new Map<string, string>()
+  if (amazonSkus.length > 0) {
+    const listings = await prisma.sellerListing.findMany({
+      where: { sku: { in: amazonSkus }, productType: { not: null } },
+      select: { sku: true, productType: true },
+    })
+    for (const l of listings) {
+      if (l.productType) productTypeCache.set(l.sku, l.productType)
+    }
+    console.log(`[push-qty] productType cache: ${productTypeCache.size}/${amazonSkus.length} cached`)
+  }
+
+  // 8. Build work queue — filter out skipped SKUs
+  interface WorkItem {
+    msku: typeof filteredMskus[0]
+    finalQty: number
+  }
+  const workQueue: WorkItem[] = []
   const results: PushResult[] = []
   let skipped = 0
-  let pushed = 0
-  let errors = 0
 
   for (const msku of filteredMskus) {
-    // Timeout guard — stop 10s before Vercel kills us
-    if (Date.now() - startTime > TIMEOUT_MS) {
-      console.log(`[push-qty] Timeout approaching after ${pushed} pushed, ${skipped} skipped, ${errors} errors`)
-      break
-    }
-
     const finalQty = calculateFinalQty(msku, bulk)
 
     // Skip if unchanged — unless stale (>6h since last push) to catch Amazon-side drift
@@ -328,40 +339,65 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[] }> {
         results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
         continue
       }
-      console.log(`[push-qty] ${msku.sellerSku}: re-pushing ${finalQty} (stale ${Math.round(hoursSinceLastPush)}h)`)
     }
 
-    try {
-      if (msku.marketplace === 'amazon') {
-        const accountId = msku.accountId ?? defaultAccountId ?? await (async () => {
-          const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
-          if (!account) throw new Error('No active Amazon account found')
-          defaultAccountId = account.id
-          return account.id
-        })()
-        await updateAmazonQty(accountId, msku.sellerSku, finalQty)
-      } else if (msku.marketplace === 'backmarket') {
-        if (!bmClient || !bmListingsCache) throw new Error('No active Back Market credentials')
-        const listingId = bmListingsCache.get(msku.sellerSku)
-        if (!listingId) throw new Error(`BM listing not found for SKU ${msku.sellerSku}`)
-        await bmClient.updateListingQuantity(listingId, finalQty)
+    workQueue.push({ msku, finalQty })
+  }
+
+  console.log(`[push-qty] ${workQueue.length} to push, ${skipped} skipped (unchanged)`)
+
+  // 9. Push in parallel batches of 5 (respects SP-API rate limit ~5 req/s)
+  let pushed = 0
+  let errors = 0
+  const BATCH_SIZE = 5
+
+  for (let i = 0; i < workQueue.length; i += BATCH_SIZE) {
+    // Timeout guard
+    if (Date.now() - startTime > TIMEOUT_MS) {
+      console.log(`[push-qty] Timeout approaching after ${pushed} pushed, ${errors} errors — ${workQueue.length - i} remaining`)
+      break
+    }
+
+    const batch = workQueue.slice(i, i + BATCH_SIZE)
+    const batchResults = await Promise.allSettled(
+      batch.map(async ({ msku, finalQty }) => {
+        if (msku.marketplace === 'amazon') {
+          const accountId = msku.accountId ?? defaultAccountId ?? await (async () => {
+            const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
+            if (!account) throw new Error('No active Amazon account found')
+            defaultAccountId = account.id
+            return account.id
+          })()
+          const cachedPT = productTypeCache.get(msku.sellerSku)
+          const usedPT = await updateAmazonQty(accountId, msku.sellerSku, finalQty, cachedPT)
+          // Cache the discovered productType for future runs
+          if (!cachedPT && usedPT) productTypeCache.set(msku.sellerSku, usedPT)
+        } else if (msku.marketplace === 'backmarket') {
+          if (!bmClient || !bmListingsCache) throw new Error('No active Back Market credentials')
+          const listingId = bmListingsCache.get(msku.sellerSku)
+          if (!listingId) throw new Error(`BM listing not found for SKU ${msku.sellerSku}`)
+          await bmClient.updateListingQuantity(listingId, finalQty)
+        }
+        return { msku, finalQty }
+      }),
+    )
+
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled') {
+        const { msku, finalQty } = result.value
+        pushed++
+        results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
+        await prisma.productGradeMarketplaceSku.update({
+          where: { id: msku.id },
+          data: { lastPushedQty: finalQty, lastPushedAt: new Date() },
+        }).catch(() => {})
+      } else {
+        const msku = batch[batchResults.indexOf(result)].msku
+        const msg = result.reason instanceof Error ? result.reason.message : String(result.reason)
+        console.error(`[push-qty] Failed for ${msku.sellerSku}: ${msg}`)
+        errors++
+        results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: -1, error: msg })
       }
-
-      pushed++
-      results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty })
-
-      // Update lastPushedQty on success
-      await prisma.productGradeMarketplaceSku.update({
-        where: { id: msku.id },
-        data: { lastPushedQty: finalQty, lastPushedAt: new Date() },
-      }).catch(err => {
-        console.error(`[push-qty] Failed to update lastPushedQty for ${msku.sellerSku}: ${err instanceof Error ? err.message : String(err)}`)
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error(`[push-qty] Failed for ${msku.sellerSku}: ${msg}`)
-      errors++
-      results.push({ sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: -1, error: msg })
     }
   }
 
