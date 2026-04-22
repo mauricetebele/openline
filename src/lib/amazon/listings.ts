@@ -777,11 +777,12 @@ export async function updateListingQuantity(
   const client = new SpApiClient(accountId)
   const encodedSku = encodeURIComponent(sku)
 
-  // 1. Always GET real productType — the old 'PRODUCT' shortcut was causing silent
-  //    failures where Amazon returned ACCEPTED but never applied the quantity.
+  // 1. GET listing with summaries + attributes to determine productType and
+  //    preserve existing fulfillment_availability fields (e.g. lead_time_to_ship_max_days).
+  //    Amazon silently rejects PATCH if existing fields are dropped.
   const listingItem = await client.get<ListingItemResponse>(
     `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
-    { marketplaceIds: account.marketplaceId, includedData: 'summaries' },
+    { marketplaceIds: account.marketplaceId, includedData: 'summaries,attributes' },
   )
 
   let productType =
@@ -789,23 +790,28 @@ export async function updateListingQuantity(
     ?? listingItem.summaries?.[0]?.productType
 
   if (!productType) {
-    // Listing has no summaries — likely suppressed or inactive on Amazon.
-    // Log clearly so we can diagnose.
     console.warn(`[updateListingQuantity] SKU=${sku}: no productType in summaries (listing may be suppressed/inactive), using fallback 'PRODUCT'`)
     productType = 'PRODUCT'
   }
 
-  // 2. PATCH with fulfillment_availability attribute
+  // 2. Build PATCH value by merging quantity into the existing fulfillment_availability.
+  //    This preserves lead_time_to_ship_max_days and any other fields Amazon expects.
+  const existingFA = (listingItem.attributes?.fulfillment_availability as
+    | Array<Record<string, unknown>>
+    | undefined
+  )?.find(f => f.fulfillment_channel_code === 'DEFAULT')
+
+  const faValue = {
+    ...(existingFA ?? {}),
+    fulfillment_channel_code: 'DEFAULT',
+    quantity,
+  }
+
   const patches = [
     {
       op: 'replace',
       path: '/attributes/fulfillment_availability',
-      value: [
-        {
-          fulfillment_channel_code: 'DEFAULT',
-          quantity,
-        },
-      ],
+      value: [faValue],
     },
   ]
 
