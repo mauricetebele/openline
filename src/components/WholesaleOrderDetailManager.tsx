@@ -31,7 +31,7 @@ interface SerialAssignment {
 
 interface Allocation {
   id: string; amount: number
-  payment: { id: string; paymentDate: string; method: string; reference?: string }
+  payment: { id: string; paymentNumber?: string; paymentDate: string; method: string; reference?: string }
 }
 
 interface CreditMemoAllocation {
@@ -437,7 +437,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                   <div key={alloc.id} className="flex items-center justify-between">
                     <div className="min-w-0">
                       <Link href={`/wholesale/payments/${alloc.payment.id}`} className="text-xs text-orange-600 hover:text-orange-700 font-medium">
-                        {new Date(alloc.payment.paymentDate).toLocaleDateString()} — {alloc.payment.method.replace('_', ' ')}
+                        {alloc.payment.paymentNumber || new Date(alloc.payment.paymentDate).toLocaleDateString()} — {alloc.payment.method.replace('_', ' ')}
                       </Link>
                     </div>
                     <span className="text-xs font-medium text-green-600 ml-2 shrink-0">{fmt(Number(alloc.amount))}</span>

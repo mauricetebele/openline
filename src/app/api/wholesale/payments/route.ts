@@ -38,8 +38,21 @@ export async function POST(req: NextRequest) {
   if (payAmount <= 0) return NextResponse.json({ error: 'Amount must be positive' }, { status: 400 })
 
   const payment = await prisma.$transaction(async (tx) => {
+    // Auto-generate payment number (PMT-0001 pattern)
+    const lastPayment = await tx.wholesalePayment.findFirst({
+      where: { paymentNumber: { not: '' } },
+      orderBy: { paymentNumber: 'desc' },
+    })
+    let nextNum = 1
+    if (lastPayment) {
+      const match = lastPayment.paymentNumber.match(/PMT-?(\d+)/)
+      if (match) nextNum = parseInt(match[1]) + 1
+    }
+    const paymentNumber = `PMT-${String(nextNum).padStart(4, '0')}`
+
     const p = await tx.wholesalePayment.create({
       data: {
+        paymentNumber,
         customerId,
         paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
         amount:      payAmount,

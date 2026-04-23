@@ -1591,10 +1591,11 @@ model SalesOrderSerialAssignment {
 }
 
 model WholesalePayment {
-  id          String            @id @default(cuid())
-  customerId  String
-  customer    WholesaleCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  paymentDate DateTime
+  id            String            @id @default(cuid())
+  paymentNumber String            @unique @default("")
+  customerId    String
+  customer      WholesaleCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  paymentDate   DateTime
   amount      Decimal           @db.Decimal(12, 2)
   method      PaymentMethod
   reference   String?

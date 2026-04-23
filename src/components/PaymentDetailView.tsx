@@ -12,6 +12,7 @@ interface PaymentAllocation {
 
 interface Payment {
   id: string
+  paymentNumber: string
   paymentDate: string
   amount: number
   method: string
@@ -50,32 +51,39 @@ export default function PaymentDetailView({ id }: { id: string }) {
       {/* Header */}
       <div className="flex flex-wrap items-center gap-4">
         <button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-gray-700">←</button>
-        <h1 className="font-mono text-2xl font-bold text-orange-600">Payment</h1>
-        <span className="text-sm text-gray-600">
-          {new Date(payment.paymentDate).toLocaleDateString()}
-        </span>
-        <span className="inline-flex px-2.5 py-1 rounded text-xs font-semibold bg-blue-100 text-blue-700 uppercase">
-          {payment.method.replace('_', ' ')}
-        </span>
-        <Link href={`/wholesale/customers/${payment.customer.id}`} className="text-sm text-gray-600 hover:text-orange-600">
-          {payment.customer.companyName}
-        </Link>
+        <h1 className="font-mono text-2xl font-bold text-orange-600">{payment.paymentNumber || 'Payment'}</h1>
       </div>
 
-      {/* Details card */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 text-sm space-y-2">
-        {payment.reference && (
-          <div className="flex justify-between">
-            <span className="text-gray-500">Reference</span>
-            <span className="font-mono">{payment.reference}</span>
+      {/* Payment details */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 text-sm">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Date</p>
+            <p className="font-medium text-gray-700">{new Date(payment.paymentDate).toLocaleDateString()}</p>
           </div>
-        )}
-        {payment.memo && (
-          <div className="flex justify-between">
-            <span className="text-gray-500">Memo</span>
-            <span>{payment.memo}</span>
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Amount</p>
+            <p className="font-medium text-gray-700">{fmt(Number(payment.amount))}</p>
           </div>
-        )}
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Method</p>
+            <p className="font-medium text-gray-700">{payment.method.replace('_', ' ')}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Customer</p>
+            <Link href={`/wholesale/customers/${payment.customer.id}`} className="font-medium text-orange-600 hover:text-orange-700">
+              {payment.customer.companyName}
+            </Link>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Reference</p>
+            <p className="font-mono font-medium text-gray-700">{payment.reference || '—'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Memo</p>
+            <p className="font-medium text-gray-700">{payment.memo || '—'}</p>
+          </div>
+        </div>
       </div>
 
       {/* Summary bar */}

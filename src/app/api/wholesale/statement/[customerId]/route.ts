@@ -64,7 +64,7 @@ export async function GET(
       line: {
         date:           p.paymentDate,
         type:           'PAYMENT' as const,
-        reference:      p.reference ?? `PMT-${p.id.slice(-6).toUpperCase()}`,
+        reference:      p.paymentNumber || p.reference || p.id.slice(-6).toUpperCase(),
         invoiceNumber:  null,
         charges:        0,
         credits:        Number(p.amount),
