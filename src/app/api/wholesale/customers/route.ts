@@ -40,6 +40,9 @@ export async function GET(req: NextRequest) {
           allocations: { select: { amount: true } },
         },
       },
+      payments: {
+        select: { unallocated: true },
+      },
     },
   })
 
@@ -49,11 +52,13 @@ export async function GET(req: NextRequest) {
       const allocated = cm.allocations.reduce((s, a) => s + Number(a.amount), 0)
       return sum + (Number(cm.total) - allocated)
     }, 0)
+    const unallocatedPayments = c.payments.reduce((sum, p) => sum + Number(p.unallocated), 0)
     return {
       ...c,
-      openBalance: orderBal - unallocatedCredits,
+      openBalance: orderBal - unallocatedCredits - unallocatedPayments,
       salesOrders: undefined,
       creditMemos: undefined,
+      payments: undefined,
     }
   })
 

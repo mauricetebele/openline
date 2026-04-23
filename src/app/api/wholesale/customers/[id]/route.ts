@@ -27,8 +27,8 @@ export async function GET(
 
   if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Open balance = order balances - unallocated credit memo amounts
-  const [orderBal, cmTotal, cmAllocated] = await Promise.all([
+  // Open balance = order balances - unallocated credit memos - unallocated payments
+  const [orderBal, cmTotal, cmAllocated, pmtUnallocated] = await Promise.all([
     prisma.salesOrder.aggregate({
       where: { customerId: params.id, status: { in: ['INVOICED', 'PARTIALLY_PAID'] } },
       _sum: { balance: true },
@@ -41,9 +41,14 @@ export async function GET(
       where: { creditMemo: { customerId: params.id } },
       _sum: { amount: true },
     }),
+    prisma.wholesalePayment.aggregate({
+      where: { customerId: params.id },
+      _sum: { unallocated: true },
+    }),
   ])
   const unallocatedCredits = Number(cmTotal._sum.total ?? 0) - Number(cmAllocated._sum.amount ?? 0)
-  const openBalance = Number(orderBal._sum.balance ?? 0) - unallocatedCredits
+  const unallocatedPayments = Number(pmtUnallocated._sum.unallocated ?? 0)
+  const openBalance = Number(orderBal._sum.balance ?? 0) - unallocatedCredits - unallocatedPayments
 
   return NextResponse.json({
     ...customer,
