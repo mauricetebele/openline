@@ -12,26 +12,27 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get('q')?.trim()
   if (!q) return NextResponse.json({ data: [] })
 
-  // Extract numeric portion from "OLM-104", "olm 104", "OLM104", or plain "104"
-  const olmMatch = q.match(/^(?:olm[- ]?)?(\d+)$/i)
+  // Match OLM numbers: "OLM-104", "olm 104", "OLM104".
+  // Pure numbers only match as OLM when ≤6 digits (avoids colliding with
+  // BackMarket numeric order IDs which are 8+ digits).
+  const olmMatch = q.match(/^olm[- ]?(\d+)$/i) ?? (q.match(/^(\d{1,6})$/) ? q.match(/^(\d{1,6})$/) : null)
 
   let matchingIds: string[] | null = null
 
   if (olmMatch) {
-    // Prefix filter: cast olmNumber to text and use LIKE 'prefix%'
     const prefix = olmMatch[1]
     const rows = await prisma.$queryRaw<Array<{ id: string }>>(
       Prisma.sql`SELECT id FROM orders WHERE "workflowStatus" = 'SHIPPED' AND CAST("olmNumber" AS TEXT) LIKE ${prefix + '%'} LIMIT 20`
     )
     matchingIds = rows.map(r => r.id)
-    if (matchingIds.length === 0) return NextResponse.json({ data: [] })
+    // If no OLM matches, fall through to text search (handles numeric BackMarket IDs)
   }
 
   const where: Record<string, unknown> = {
     workflowStatus: 'SHIPPED',
   }
 
-  if (matchingIds) {
+  if (matchingIds && matchingIds.length > 0) {
     where.id = { in: matchingIds }
   } else {
     where.OR = [
