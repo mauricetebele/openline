@@ -40,7 +40,8 @@ function fmtUSD(n: number) {
   return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function generateStatementPDF(customer: Customer, lines: StatementLine[], openBalance: number) {
+function generateStatementPDF(customer: Customer, lines: StatementLine[], openBalance: number, viewType: 'activity' | 'open' = 'activity') {
+  const isOpen = viewType === 'open'
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const w = doc.internal.pageSize.getWidth()
   const h = doc.internal.pageSize.getHeight()
@@ -104,7 +105,7 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
 
   // Title
   doc.setFontSize(24); doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
-  doc.text('STATEMENT', right, 42, { align: 'right' })
+  doc.text(isOpen ? 'OPEN STATEMENT' : 'STATEMENT', right, 42, { align: 'right' })
   doc.setDrawColor(...blue); doc.setLineWidth(2)
   doc.line(right - 130, 48, right - 30, 48)
   doc.setDrawColor(...red); doc.setLineWidth(2)
@@ -147,12 +148,13 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
   doc.line(margin, y + 6, right, y + 6)
   doc.setFontSize(7.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(...gray500)
   doc.text('DATE', margin + 8, y)
-  doc.text('TYPE', margin + 80, y)
-  doc.text('REFERENCE', margin + 160, y)
-  doc.text('DOCUMENT #', margin + 260, y)
-  doc.text('CHARGES', right - 130, y, { align: 'right' })
-  doc.text('CREDITS', right - 60, y, { align: 'right' })
-  doc.text('BALANCE', right - 8, y, { align: 'right' })
+  doc.text('TYPE', margin + 70, y)
+  doc.text('REFERENCE', margin + 140, y)
+  doc.text('DOCUMENT #', margin + 230, y)
+  doc.text('CHARGES', right - 190, y, { align: 'right' })
+  doc.text('CREDITS', right - 125, y, { align: 'right' })
+  doc.text('APPLIED', right - 62, y, { align: 'right' })
+  doc.text(isOpen ? 'REMAINING' : 'BALANCE', right - 8, y, { align: 'right' })
   y += 18
 
   const typeLabel: Record<string, string> = { INVOICE: 'Invoice', PAYMENT: 'Payment', CREDIT_MEMO: 'Credit Memo' }
@@ -161,19 +163,21 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
     if (y > h - 80) { doc.addPage(); y = margin }
     doc.setTextColor(...gray700)
     doc.text(new Date(line.date).toLocaleDateString(), margin + 8, y)
-    doc.text(typeLabel[line.type] ?? line.type, margin + 80, y)
-    doc.text(line.reference.substring(0, 18), margin + 160, y)
-    doc.text(line.invoiceNumber ?? '', margin + 260, y)
-    doc.text(line.charges > 0 ? fmtUSD(line.charges) : '', right - 130, y, { align: 'right' })
+    doc.text(typeLabel[line.type] ?? line.type, margin + 70, y)
+    doc.text(line.reference.substring(0, 16), margin + 140, y)
+    doc.text((line.invoiceNumber ?? '').substring(0, 14), margin + 230, y)
+    doc.text(line.charges > 0 ? fmtUSD(line.charges) : '', right - 190, y, { align: 'right' })
     if (line.credits > 0) {
       doc.setTextColor(22, 163, 74)
-      doc.text(fmtUSD(line.credits), right - 60, y, { align: 'right' })
+      doc.text(fmtUSD(line.credits), right - 125, y, { align: 'right' })
       doc.setTextColor(...gray700)
     } else {
-      doc.text('', right - 60, y, { align: 'right' })
+      doc.text('', right - 125, y, { align: 'right' })
     }
+    doc.text(Number(line.applied) > 0 ? fmtUSD(line.applied) : '', right - 62, y, { align: 'right' })
     doc.setFont('helvetica', 'bold')
-    doc.text(fmtUSD(line.balance), right - 8, y, { align: 'right' })
+    const balVal = isOpen ? line.remaining : line.balance
+    doc.text(fmtUSD(balVal), right - 8, y, { align: 'right' })
     doc.setFont('helvetica', 'normal')
     y += 6
     doc.setDrawColor(...gray200); doc.setLineWidth(0.3)
@@ -189,7 +193,8 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
   doc.text('Total Balance Due:', right - 200, y + 12)
   doc.text(fmtUSD(openBalance), right - 8, y + 12, { align: 'right' })
 
-  doc.save(`Statement-${customer.companyName.replace(/\s+/g, '-')}.pdf`)
+  const prefix = isOpen ? 'Open-Statement' : 'Statement'
+  doc.save(`${prefix}-${customer.companyName.replace(/\s+/g, '-')}.pdf`)
 }
 
 export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
@@ -450,7 +455,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
               {currentData && (
                 <button
                   onClick={() => {
-                    generateStatementPDF(customer, currentData.lines, currentData.openBalance)
+                    generateStatementPDF(customer, currentData.lines, currentData.openBalance, tab as 'activity' | 'open')
                   }}
                   className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
                 >
