@@ -14,10 +14,11 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { type, id, viewType } = body as {
+  const { type, id, viewType, to: overrideTo } = body as {
     type: 'invoice' | 'credit-memo' | 'payment' | 'statement'
     id: string
     viewType?: 'activity' | 'open'
+    to?: string
   }
 
   if (!type || !id) {
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
         if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
         const email = order.customer.email
-        if (!email) return NextResponse.json({ error: 'Customer has no email on file' }, { status: 400 })
+        if (!email && !overrideTo) return NextResponse.json({ error: 'Customer has no email on file' }, { status: 400 })
 
         const billing = (order.customer.addresses ?? []).find((a: { type: string }) => a.type === 'BILLING') ?? null
         const shipping = (order.customer.addresses ?? []).find((a: { type: string }) => a.type === 'SHIPPING') ?? null
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest) {
           shippedAt: order.shippedAt?.toISOString(),
         }, true) as Buffer
 
-        to = email
+        to = email ?? ''
         subject = `Invoice ${invRef} — Open Line Mobility`
         html = `<p>Hi,</p><p>Please find your invoice <strong>${invRef}</strong> attached.</p><p>Thank you,<br/>Open Line Mobility</p>`
         filename = `Invoice-${invRef}.pdf`
@@ -117,7 +118,7 @@ export async function POST(req: NextRequest) {
         if (!memo) return NextResponse.json({ error: 'Credit memo not found' }, { status: 404 })
 
         const email = memo.customer.email
-        if (!email) return NextResponse.json({ error: 'Customer has no email on file' }, { status: 400 })
+        if (!email && !overrideTo) return NextResponse.json({ error: 'Customer has no email on file' }, { status: 400 })
 
         const billing = (memo.customer.addresses ?? []).find((a: { type: string }) => a.type === 'BILLING') ?? null
 
@@ -156,7 +157,7 @@ export async function POST(req: NextRequest) {
           notes: memo.notes,
         }, true) as Buffer
 
-        to = email
+        to = email ?? ''
         subject = `Credit Memo ${memo.memoNumber} — Open Line Mobility`
         html = `<p>Hi,</p><p>Please find your credit memo <strong>${memo.memoNumber}</strong> attached.</p><p>Thank you,<br/>Open Line Mobility</p>`
         filename = `CreditMemo-${memo.memoNumber}.pdf`
@@ -178,7 +179,7 @@ export async function POST(req: NextRequest) {
         if (!payment) return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
 
         const email = payment.customer.email
-        if (!email) return NextResponse.json({ error: 'Customer has no email on file' }, { status: 400 })
+        if (!email && !overrideTo) return NextResponse.json({ error: 'Customer has no email on file' }, { status: 400 })
 
         const buf = generatePaymentReceiptPDF({
           paymentNumber: payment.paymentNumber,
@@ -196,7 +197,7 @@ export async function POST(req: NextRequest) {
           })),
         }, true) as Buffer
 
-        to = email
+        to = email ?? ''
         subject = `Payment Receipt ${payment.paymentNumber} — Open Line Mobility`
         html = `<p>Hi,</p><p>Please find your payment receipt <strong>${payment.paymentNumber}</strong> attached.</p><p>Thank you,<br/>Open Line Mobility</p>`
         filename = `Payment-${payment.paymentNumber}.pdf`
@@ -212,7 +213,7 @@ export async function POST(req: NextRequest) {
           select: { id: true, companyName: true, contactName: true, email: true },
         })
         if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
-        if (!customer.email) return NextResponse.json({ error: 'Customer has no email on file' }, { status: 400 })
+        if (!customer.email && !overrideTo) return NextResponse.json({ error: 'Customer has no email on file' }, { status: 400 })
 
         const [orders, payments, creditMemos] = await Promise.all([
           prisma.salesOrder.findMany({
@@ -286,7 +287,7 @@ export async function POST(req: NextRequest) {
         ) as Buffer
 
         const prefix = view === 'open' ? 'Open Statement' : 'Statement'
-        to = customer.email
+        to = customer.email ?? ''
         subject = `${prefix} — ${customer.companyName} — Open Line Mobility`
         html = `<p>Hi,</p><p>Please find the ${prefix.toLowerCase()} for <strong>${customer.companyName}</strong> attached.</p><p>Thank you,<br/>Open Line Mobility</p>`
         filename = `${prefix.replace(' ', '-')}-${customer.companyName.replace(/\s+/g, '-')}.pdf`
@@ -297,6 +298,8 @@ export async function POST(req: NextRequest) {
       default:
         return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
     }
+
+    if (overrideTo) to = overrideTo
 
     await resend.emails.send({
       from: FROM,

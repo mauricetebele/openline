@@ -5,21 +5,7 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import { ClipboardCheck, MapPin, RefreshCcw, AlertCircle, X, Truck, Plus, Trash2, ExternalLink, Package, Mail } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generate-wholesale-invoice'
-
-async function sendOrderEmail(orderId: string, toast: { success: (msg: string) => void; error: (msg: string) => void }) {
-  try {
-    const res = await fetch('/api/wholesale/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'invoice', id: orderId }),
-    })
-    const data = await res.json()
-    if (!res.ok) { toast.error(data.error ?? 'Failed to send email'); return }
-    toast.success('Invoice emailed')
-  } catch {
-    toast.error('Failed to send email')
-  }
-}
+import EmailDocumentModal from '@/components/EmailDocumentModal'
 
 const SO_STATUS_COLOR: Record<string, string> = {
   PENDING_APPROVAL: 'bg-amber-100 text-amber-700',
@@ -59,7 +45,7 @@ interface Address { addressLine1: string; addressLine2?: string; city: string; s
 interface Order {
   id: string; orderNumber: string; status: string; fulfillmentStatus: string; orderDate: string; dueDate?: string
   customerPoNumber?: string
-  customer: { id: string; companyName: string; paymentTerms: string }
+  customer: { id: string; companyName: string; paymentTerms: string; email?: string }
   items: OrderItem[]
   allocations: Allocation[]
   creditMemoAllocations: CreditMemoAllocation[]
@@ -87,6 +73,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
   } | null>(null)
   const [trackingLoading, setTrackingLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [emailModal, setEmailModal] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -239,7 +226,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                 className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50">
                 Print Invoice
               </button>
-              <button onClick={() => sendOrderEmail(order.id, toast)}
+              <button onClick={() => setEmailModal(true)}
                 className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50 flex items-center gap-1">
                 <Mail size={12} /> Email Invoice
               </button>
@@ -251,7 +238,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                 className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50">
                 Print Invoice
               </button>
-              <button onClick={() => sendOrderEmail(order.id, toast)}
+              <button onClick={() => setEmailModal(true)}
                 className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50 flex items-center gap-1">
                 <Mail size={12} /> Email Invoice
               </button>
@@ -491,6 +478,15 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
       {/* Process to Fulfillment modal */}
       {showProcessModal && <ProcessModal orderId={order.id} orderNumber={order.orderNumber} onClose={() => setShowProcessModal(false)} onProcessed={() => { setShowProcessModal(false); load() }} />}
       {showInvoiceModal && <CreateInvoiceModal order={order} onClose={() => setShowInvoiceModal(false)} onCreated={() => { setShowInvoiceModal(false); load() }} />}
+      {emailModal && (
+        <EmailDocumentModal
+          type="invoice"
+          id={order.id}
+          defaultEmail={order.customer.email ?? ''}
+          label="Invoice"
+          onClose={() => setEmailModal(false)}
+        />
+      )}
     </div>
   )
 }

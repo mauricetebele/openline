@@ -7,6 +7,7 @@ import { generateInvoicePDF } from '@/lib/generate-wholesale-invoice'
 import { generateCreditMemoPDF } from '@/lib/generate-credit-memo-pdf'
 import { generatePaymentReceiptPDF } from '@/lib/generate-payment-receipt'
 import { generateStatementPDF } from '@/lib/generate-statement-pdf'
+import EmailDocumentModal from '@/components/EmailDocumentModal'
 
 const SO_STATUS_COLOR: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
@@ -87,25 +88,13 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
   }, [tab])
 
   const [downloading, setDownloading] = useState<string | null>(null)
-  const [emailing, setEmailing] = useState<string | null>(null)
-
-  async function sendEmail(type: 'invoice' | 'credit-memo' | 'payment' | 'statement', emailId: string, viewType?: 'activity' | 'open') {
-    setEmailing(emailId)
-    try {
-      const res = await fetch('/api/wholesale/email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, id: emailId, viewType }),
-      })
-      const data = await res.json()
-      if (!res.ok) { toast.error(data.error ?? 'Failed to send email'); return }
-      toast.success('Email sent')
-    } catch {
-      toast.error('Failed to send email')
-    } finally {
-      setEmailing(null)
-    }
-  }
+  const [emailModal, setEmailModal] = useState<{
+    type: 'invoice' | 'credit-memo' | 'payment' | 'statement'
+    id: string
+    email: string
+    label: string
+    viewType?: 'activity' | 'open'
+  } | null>(null)
 
   async function downloadInvoicePDF(orderNumber: string) {
     if (!customer) return
@@ -305,6 +294,17 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
         </div>
       )}
 
+      {emailModal && (
+        <EmailDocumentModal
+          type={emailModal.type}
+          id={emailModal.id}
+          defaultEmail={emailModal.email}
+          label={emailModal.label}
+          viewType={emailModal.viewType}
+          onClose={() => setEmailModal(null)}
+        />
+      )}
+
       {(tab === 'activity' || tab === 'open') && (() => {
         const currentData = tab === 'open' ? openStatement : statement
         const label = tab === 'open' ? 'Statement (Open)' : 'Activity Statement'
@@ -325,12 +325,11 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                     Print {label}
                   </button>
                   <button
-                    onClick={() => sendEmail('statement', customer.id, tab as 'activity' | 'open')}
-                    disabled={emailing === customer.id}
-                    className="px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1"
+                    onClick={() => setEmailModal({ type: 'statement', id: customer.id, email: customer.email ?? '', label, viewType: tab as 'activity' | 'open' })}
+                    className="px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center gap-1"
                     title={`Email ${label}`}
                   >
-                    <Mail size={14} /> {emailing === customer.id ? 'Sending…' : 'Email'}
+                    <Mail size={14} /> Email
                   </button>
                 </div>
               )}
@@ -399,26 +398,24 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                                   e.stopPropagation()
                                   if (line.type === 'INVOICE') {
                                     const order = customer.salesOrders.find(o => o.orderNumber === line.reference)
-                                    if (order) sendEmail('invoice', order.id)
+                                    if (order) setEmailModal({ type: 'invoice', id: order.id, email: customer.email ?? '', label: 'Invoice' })
                                   } else if (line.type === 'CREDIT_MEMO') {
-                                    // Need to look up CM id - fetch from API
                                     fetch(`/api/wholesale/credit-memo?customerId=${customer.id}`)
                                       .then(r => r.json())
                                       .then(json => {
                                         const memos = json.data ?? json
                                         const cm = (Array.isArray(memos) ? memos : []).find((m: { memoNumber: string }) => m.memoNumber === (line.invoiceNumber ?? line.reference))
-                                        if (cm) sendEmail('credit-memo', cm.id)
+                                        if (cm) setEmailModal({ type: 'credit-memo', id: cm.id, email: customer.email ?? '', label: 'Credit Memo' })
                                         else toast.error('Credit memo not found')
                                       })
                                   } else if (line.paymentId) {
-                                    sendEmail('payment', line.paymentId)
+                                    setEmailModal({ type: 'payment', id: line.paymentId, email: customer.email ?? '', label: 'Payment Receipt' })
                                   }
                                 }}
-                                disabled={emailing === lineKey}
-                                className="text-gray-400 hover:text-blue-600 disabled:opacity-40"
+                                className="text-gray-400 hover:text-blue-600"
                                 title={`Email ${line.type === 'INVOICE' ? 'Invoice' : line.type === 'CREDIT_MEMO' ? 'Credit Memo' : 'Payment Receipt'}`}
                               >
-                                {emailing === lineKey ? <span className="text-xs">...</span> : <Mail size={14} />}
+                                <Mail size={14} />
                               </button>
                             </div>
                           )}

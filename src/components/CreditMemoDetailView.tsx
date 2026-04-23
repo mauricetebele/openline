@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { Mail } from 'lucide-react'
+import EmailDocumentModal from '@/components/EmailDocumentModal'
 
 const STATUS_COLOR: Record<string, string> = {
   UNAPPLIED: 'bg-gray-100 text-gray-600',
@@ -31,7 +32,7 @@ interface CreditMemo {
   memo?: string
   description?: string
   createdAt: string
-  customer: { id: string; companyName: string }
+  customer: { id: string; companyName: string; email?: string }
   rma: { id: string; rmaNumber: string } | null
   allocations: CreditMemoAllocation[]
 }
@@ -40,6 +41,7 @@ export default function CreditMemoDetailView({ id }: { id: string }) {
   const router = useRouter()
   const [memo, setMemo] = useState<CreditMemo | null>(null)
   const [loading, setLoading] = useState(true)
+  const [emailModal, setEmailModal] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -82,20 +84,7 @@ export default function CreditMemoDetailView({ id }: { id: string }) {
           {new Date(memo.createdAt).toLocaleDateString()}
         </span>
         <button
-          onClick={async () => {
-            try {
-              const res = await fetch('/api/wholesale/email', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'credit-memo', id: memo.id }),
-              })
-              const data = await res.json()
-              if (!res.ok) { toast.error(data.error ?? 'Failed to send email'); return }
-              toast.success('Credit memo emailed')
-            } catch {
-              toast.error('Failed to send email')
-            }
-          }}
+          onClick={() => setEmailModal(true)}
           className="ml-auto px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50 flex items-center gap-1"
         >
           <Mail size={12} /> Email Credit Memo
@@ -185,6 +174,16 @@ export default function CreditMemoDetailView({ id }: { id: string }) {
           </table>
         )}
       </div>
+
+      {emailModal && (
+        <EmailDocumentModal
+          type="credit-memo"
+          id={memo.id}
+          defaultEmail={memo.customer.email ?? ''}
+          label="Credit Memo"
+          onClose={() => setEmailModal(false)}
+        />
+      )}
     </div>
   )
 }
