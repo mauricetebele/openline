@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 
 interface CustomerResult {
@@ -21,9 +21,9 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
   const [step, setStep] = useState(1)
 
   // Step 1
-  const [customerSearch, setCustomerSearch] = useState('')
-  const [customerResults, setCustomerResults] = useState<CustomerResult[]>([])
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerResult | null>(null)
+  const [customers, setCustomers] = useState<CustomerResult[]>([])
+  const [customersLoading, setCustomersLoading] = useState(true)
+  const [selectedCustomerId, setSelectedCustomerId] = useState('')
 
   // Step 2
   const [amount, setAmount] = useState('')
@@ -32,24 +32,16 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
   const [memo, setMemo] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // Customer search with 250ms debounce
-  const searchCustomers = useCallback(async (q: string) => {
-    if (!q.trim()) { setCustomerResults([]); return }
-    const res = await fetch(`/api/wholesale/customers?search=${encodeURIComponent(q)}`)
-    const data = await res.json()
-    setCustomerResults(data.data ?? [])
+  // Load all customers on mount
+  useEffect(() => {
+    fetch('/api/wholesale/customers?active=true')
+      .then((r) => r.json())
+      .then((d) => setCustomers(d.data ?? []))
+      .catch(() => {})
+      .finally(() => setCustomersLoading(false))
   }, [])
 
-  useEffect(() => {
-    const t = setTimeout(() => searchCustomers(customerSearch), 250)
-    return () => clearTimeout(t)
-  }, [customerSearch, searchCustomers])
-
-  function selectCustomer(c: CustomerResult) {
-    setSelectedCustomer(c)
-    setCustomerSearch('')
-    setCustomerResults([])
-  }
+  const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) ?? null
 
   async function handleSubmit() {
     if (!selectedCustomer) return
@@ -112,51 +104,30 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Customer *</label>
-                {selectedCustomer ? (
-                  <div className="flex items-center gap-3 p-3 border border-green-200 bg-green-50 rounded-lg">
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">{selectedCustomer.companyName}</p>
-                      {selectedCustomer.contactName && <p className="text-xs text-gray-500">{selectedCustomer.contactName}</p>}
-                    </div>
-                    <button
-                      onClick={() => setSelectedCustomer(null)}
-                      className="text-xs text-red-500 hover:text-red-600"
-                    >
-                      Change
-                    </button>
-                  </div>
+                {customersLoading ? (
+                  <p className="text-sm text-gray-400 py-2">Loading customers...</p>
                 ) : (
-                  <div className="relative">
-                    <input
-                      value={customerSearch}
-                      onChange={(e) => setCustomerSearch(e.target.value)}
-                      placeholder="Search customer..."
-                      autoFocus
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                    />
-                    {customerResults.length > 0 && (
-                      <div className="absolute top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-48 overflow-y-auto">
-                        {customerResults.map((c) => (
-                          <button
-                            key={c.id}
-                            onClick={() => selectCustomer(c)}
-                            className="w-full text-left px-4 py-2.5 hover:bg-gray-50 text-sm"
-                          >
-                            <span className="font-medium">{c.companyName}</span>
-                            {c.contactName && <span className="text-gray-500 ml-2 text-xs">{c.contactName}</span>}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <select
+                    value={selectedCustomerId}
+                    onChange={(e) => setSelectedCustomerId(e.target.value)}
+                    autoFocus
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  >
+                    <option value="">Select a customer...</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.companyName}{c.contactName ? ` — ${c.contactName}` : ''}
+                      </option>
+                    ))}
+                  </select>
                 )}
               </div>
 
               <div className="flex justify-end">
                 <button
-                  onClick={() => { if (!selectedCustomer) { toast.error('Select a customer'); return } setStep(2) }}
+                  onClick={() => { if (!selectedCustomerId) { toast.error('Select a customer'); return } setStep(2) }}
                   className="px-6 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
-                  disabled={!selectedCustomer}
+                  disabled={!selectedCustomerId}
                 >
                   Next
                 </button>
