@@ -10,6 +10,45 @@ import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/crypto'
 import { ShipStationClient } from '@/lib/shipstation/client'
 
+/**
+ * Enrich a single order's address from ShipStation. Call this at label-save
+ * time — ShipStation must have the address if a label was just purchased.
+ * Returns true if the order was updated.
+ */
+export async function enrichSingleOrderAddress(orderId: string, amazonOrderId: string): Promise<boolean> {
+  const ssAccount = await prisma.shipStationAccount.findFirst({
+    where: { isActive: true },
+    orderBy: { createdAt: 'asc' },
+    select: { apiKeyEnc: true, apiSecretEnc: true },
+  })
+  if (!ssAccount) return false
+
+  const ssClient = new ShipStationClient(
+    decrypt(ssAccount.apiKeyEnc),
+    ssAccount.apiSecretEnc ? decrypt(ssAccount.apiSecretEnc) : '',
+  )
+
+  const ssOrder = await ssClient.findOrderByNumber(amazonOrderId)
+  if (!ssOrder?.shipTo) return false
+
+  const st = ssOrder.shipTo
+  await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      ssOrderId:      ssOrder.orderId,
+      shipToName:     st.name       || null,
+      shipToAddress1: st.street1    || null,
+      shipToAddress2: st.street2    || null,
+      shipToCity:     st.city       || null,
+      shipToState:    st.state      || null,
+      shipToPostal:   st.postalCode || null,
+      shipToCountry:  st.country    || null,
+      shipToPhone:    st.phone      || null,
+    },
+  })
+  return true
+}
+
 export interface EnrichResult {
   enriched: number   // orders that got ssOrderId set
   addresses: number  // orders that got address fields set

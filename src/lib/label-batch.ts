@@ -13,6 +13,7 @@ import { ShipStationClient, SSLabelPayload } from '@/lib/shipstation/client'
 import { decrypt } from '@/lib/crypto'
 import { loadFedExCredentials, createShipment, type FedExShipmentParams } from '@/lib/fedex/client'
 import { generateOutboundLabel, RETURN_ADDRESS as UPS_RETURN_ADDRESS, type ReturnLabelRequest as UpsLabelRequest } from '@/lib/ups-tracking'
+import { enrichSingleOrderAddress } from '@/lib/shipstation/enrich-orders'
 
 /** Leave 30s of headroom before the Vercel timeout to safely chain */
 const MAX_RUN_MS = 260_000 // 4 min 20s (out of 5 min maxDuration)
@@ -375,6 +376,11 @@ export async function runLabelBatch(batchId: string): Promise<void> {
         where: { id: order.id },
         data:  { workflowStatus: 'AWAITING_VERIFICATION' },
       })
+
+      // Backfill address from ShipStation if missing (non-blocking)
+      if (!order.shipToAddress1 || !order.ssOrderId) {
+        enrichSingleOrderAddress(order.id, order.amazonOrderId).catch(() => {})
+      }
 
       completedCount++
       await prisma.labelBatchItem.update({

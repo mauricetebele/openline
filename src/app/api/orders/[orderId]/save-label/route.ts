@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { submitFulfillmentWithTransparency } from '@/lib/amazon/submit-fulfillment'
+import { enrichSingleOrderAddress } from '@/lib/shipstation/enrich-orders'
 
 export const dynamic = 'force-dynamic'
 
@@ -73,6 +74,14 @@ export async function POST(
       data:  { workflowStatus: 'AWAITING_VERIFICATION' },
     }),
   ])
+
+  // Backfill address from ShipStation if missing (non-blocking).
+  // At label time, ShipStation must have the address or the label wouldn't work.
+  if (!order.shipToAddress1 || !order.ssOrderId) {
+    enrichSingleOrderAddress(order.id, order.amazonOrderId).catch(err => {
+      console.error('[save-label] Address backfill failed:', err)
+    })
+  }
 
   // Submit fulfillment confirmation with transparency codes to Amazon (non-blocking).
   // Skip for Amazon Buy Shipping — Amazon already owns the shipment/tracking.
