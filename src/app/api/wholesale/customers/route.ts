@@ -34,14 +34,28 @@ export async function GET(req: NextRequest) {
         where: { status: { in: ['INVOICED', 'PARTIALLY_PAID'] } },
         select: { balance: true },
       },
+      creditMemos: {
+        select: {
+          total: true,
+          allocations: { select: { amount: true } },
+        },
+      },
     },
   })
 
-  const data = customers.map((c) => ({
-    ...c,
-    openBalance: c.salesOrders.reduce((sum, o) => sum + Number(o.balance), 0),
-    salesOrders: undefined,
-  }))
+  const data = customers.map((c) => {
+    const orderBal = c.salesOrders.reduce((sum, o) => sum + Number(o.balance), 0)
+    const unallocatedCredits = c.creditMemos.reduce((sum, cm) => {
+      const allocated = cm.allocations.reduce((s, a) => s + Number(a.amount), 0)
+      return sum + (Number(cm.total) - allocated)
+    }, 0)
+    return {
+      ...c,
+      openBalance: orderBal - unallocatedCredits,
+      salesOrders: undefined,
+      creditMemos: undefined,
+    }
+  })
 
   return NextResponse.json({ data })
 }

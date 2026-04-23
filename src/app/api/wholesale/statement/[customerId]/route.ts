@@ -56,7 +56,7 @@ export async function GET(
         reference:      o.orderNumber,
         invoiceNumber:  o.invoiceNumber ?? null,
         charges:        Number(o.total),
-        credits:        Number(o.paidAmount),
+        credits:        0,
       },
     })),
     ...payments.map((p) => ({
@@ -93,17 +93,12 @@ export async function GET(
     lines.push({ ...event.line, balance: runningBalance })
   }
 
-  const openBalance = await prisma.salesOrder.aggregate({
-    where: {
-      customerId: params.customerId,
-      status: { in: ['INVOICED', 'PARTIALLY_PAID'] },
-    },
-    _sum: { balance: true },
-  })
+  // Open balance = final running balance (already accounts for invoices, payments, AND credit memos)
+  const openBalance = lines.length > 0 ? lines[lines.length - 1].balance : 0
 
   return NextResponse.json({
     customer,
     lines: lines.reverse(),
-    openBalance: Number(openBalance._sum.balance ?? 0),
+    openBalance,
   })
 }
