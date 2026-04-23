@@ -129,8 +129,17 @@ export async function GET(
     lines.push({ ...event.line, balance: runningBalance })
   }
 
-  // Open balance = final running balance (already accounts for invoices, payments, AND credit memos)
-  const openBalance = lines.length > 0 ? lines[lines.length - 1].balance : 0
+  // For open view, sum per-line remaining (invoice balances minus unapplied payments/credits)
+  // For activity view, use running balance
+  let openBalance: number
+  if (view === 'open') {
+    openBalance = lines.reduce((sum, l) => {
+      if (l.type === 'INVOICE') return sum + l.remaining
+      return sum - l.remaining  // unapplied payments/credits reduce balance
+    }, 0)
+  } else {
+    openBalance = lines.length > 0 ? lines[lines.length - 1].balance : 0
+  }
 
   return NextResponse.json({
     customer,
