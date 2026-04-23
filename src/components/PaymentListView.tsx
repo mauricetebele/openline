@@ -2,7 +2,8 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Search, X } from 'lucide-react'
+import { Plus, Search, X } from 'lucide-react'
+import ReceivePaymentModal from './ReceivePaymentModal'
 
 interface Payment {
   id: string
@@ -20,14 +21,17 @@ export default function PaymentListView() {
   const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [showModal, setShowModal] = useState(false)
 
-  useEffect(() => {
+  function loadPayments() {
     fetch('/api/wholesale/payments')
       .then((r) => r.json())
       .then((d) => setPayments(d.data ?? []))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [])
+  }
+
+  useEffect(() => { loadPayments() }, [])
 
   const fmt = (n: number) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
@@ -52,6 +56,12 @@ export default function PaymentListView() {
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Payments</h1>
+        <button
+          onClick={() => setShowModal(true)}
+          className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 flex items-center gap-1.5"
+        >
+          <Plus size={14} /> Receive Payment
+        </button>
       </div>
 
       {/* Search */}
@@ -123,6 +133,12 @@ export default function PaymentListView() {
           </div>
         )}
       </div>
+      {showModal && (
+        <ReceivePaymentModal
+          onClose={() => setShowModal(false)}
+          onSuccess={() => { setShowModal(false); loadPayments() }}
+        />
+      )}
     </div>
   )
 }

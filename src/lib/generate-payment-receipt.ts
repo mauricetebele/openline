@@ -185,17 +185,18 @@ export function generatePaymentReceiptPDF(payment: ReceiptPayment) {
       doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray500)
       doc.text(new Date(alloc.createdAt).toLocaleDateString(), right - 8, y, { align: 'right' })
 
-      y += 16
+      y += 6
       doc.setDrawColor(...gray200); doc.setLineWidth(0.3)
-      doc.line(margin, y - 4, right, y - 4)
+      doc.line(margin, y, right, y)
+      y += 14
     }
 
     // Allocations total
     y += 4
     doc.setDrawColor(...navy); doc.setLineWidth(1)
-    doc.line(right - 180, y - 2, right, y - 2)
+    doc.line(margin, y - 2, right, y - 2)
     doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
-    doc.text('Total Applied', right - 180, y + 10)
+    doc.text('Total Applied', margin + 8, y + 10)
     doc.text($(allocated), right - 130, y + 10, { align: 'right' })
   }
 
