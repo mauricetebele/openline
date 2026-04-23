@@ -55,20 +55,21 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
   doc.setFontSize(9)
   doc.text('Date',      45, y)
   doc.text('Type',     120, y)
-  doc.text('Reference',185, y)
-  doc.text('Invoice #', 270, y)
+  doc.text('Reference',210, y)
+  doc.text('Invoice #', 300, y)
   doc.text('Charges',  400, y, { align: 'right' })
   doc.text('Credits',  475, y, { align: 'right' })
   doc.text('Balance',  w - 45, y, { align: 'right' })
   y += 16
 
+  const typeLabel: Record<string, string> = { INVOICE: 'Invoice', PAYMENT: 'Payment', CREDIT_MEMO: 'Credit Memo' }
   doc.setFont('helvetica', 'normal')
   for (const line of lines) {
     if (y > 720) { doc.addPage(); y = 50 }
     doc.text(new Date(line.date).toLocaleDateString(), 45, y)
-    doc.text(line.type, 120, y)
-    doc.text(line.reference.substring(0, 20), 185, y)
-    doc.text(line.invoiceNumber ?? '', 270, y)
+    doc.text(typeLabel[line.type] ?? line.type, 120, y)
+    doc.text(line.reference.substring(0, 20), 210, y)
+    doc.text(line.invoiceNumber ?? '', 300, y)
     doc.text(line.charges > 0 ? `$${line.charges.toFixed(2)}` : '', 400, y, { align: 'right' })
     doc.text(line.credits > 0 ? `$${line.credits.toFixed(2)}` : '', 475, y, { align: 'right' })
     doc.text(`$${Number(line.balance).toFixed(2)}`, w - 45, y, { align: 'right' })
