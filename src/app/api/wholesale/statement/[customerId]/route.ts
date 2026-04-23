@@ -3,11 +3,13 @@ import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { customerId: string } },
 ) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const view = req.nextUrl.searchParams.get('view') // 'open' or null (activity)
 
   const customer = await prisma.wholesaleCustomer.findUnique({
     where: { id: params.customerId },
@@ -15,20 +17,31 @@ export async function GET(
   })
   if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // For open view, only fetch transactions that are not fully closed
+  const orderStatusFilter = view === 'open'
+    ? { in: ['INVOICED', 'PARTIALLY_PAID'] }
+    : { in: ['INVOICED', 'PARTIALLY_PAID', 'PAID'] }
+
   const [orders, payments, creditMemos] = await Promise.all([
     prisma.salesOrder.findMany({
       where: {
         customerId: params.customerId,
-        status: { in: ['INVOICED', 'PARTIALLY_PAID', 'PAID'] },
+        status: orderStatusFilter,
       },
       orderBy: { orderDate: 'asc' },
     }),
     prisma.wholesalePayment.findMany({
-      where: { customerId: params.customerId },
+      where: {
+        customerId: params.customerId,
+        ...(view === 'open' ? { unallocated: { gt: 0 } } : {}),
+      },
       orderBy: { paymentDate: 'asc' },
     }),
     prisma.wholesaleCreditMemo.findMany({
-      where: { customerId: params.customerId },
+      where: {
+        customerId: params.customerId,
+        ...(view === 'open' ? { unallocated: { gt: 0 } } : {}),
+      },
       include: { rma: { select: { rmaNumber: true } } },
       orderBy: { createdAt: 'asc' },
     }),
@@ -78,7 +91,7 @@ export async function GET(
       line: {
         date:           cm.createdAt,
         type:           'CREDIT_MEMO' as const,
-        reference:      cm.rma?.rmaNumber ?? '',
+        reference:      cm.rma?.rmaNumber ?? cm.memo ?? '',
         invoiceNumber:  cm.memoNumber,
         charges:        0,
         credits:        Number(cm.total),

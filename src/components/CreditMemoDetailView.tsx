@@ -26,9 +26,11 @@ interface CreditMemo {
   total: number
   unallocated: number
   notes?: string
+  memo?: string
+  description?: string
   createdAt: string
   customer: { id: string; companyName: string }
-  rma: { id: string; rmaNumber: string }
+  rma: { id: string; rmaNumber: string } | null
   allocations: CreditMemoAllocation[]
 }
 
@@ -67,9 +69,13 @@ export default function CreditMemoDetailView({ id }: { id: string }) {
         <Link href={`/wholesale/customers/${memo.customer.id}`} className="text-sm text-gray-600 hover:text-orange-600">
           {memo.customer.companyName}
         </Link>
-        <span className="text-sm text-gray-500">
-          RMA# <span className="font-mono font-medium text-gray-700">{memo.rma.rmaNumber}</span>
-        </span>
+        {memo.rma ? (
+          <span className="text-sm text-gray-500">
+            RMA# <span className="font-mono font-medium text-gray-700">{memo.rma.rmaNumber}</span>
+          </span>
+        ) : (
+          <span className="inline-flex px-2 py-0.5 rounded bg-orange-50 text-orange-600 text-xs font-medium">Manual Credit</span>
+        )}
         <span className="text-sm text-gray-500">
           {new Date(memo.createdAt).toLocaleDateString()}
         </span>
@@ -101,10 +107,26 @@ export default function CreditMemoDetailView({ id }: { id: string }) {
         </div>
       </div>
 
-      {memo.notes && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 text-sm">
-          <p className="text-xs font-semibold text-gray-400 uppercase mb-1">Notes</p>
-          <p>{memo.notes}</p>
+      {(memo.memo || memo.description || memo.notes) && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 text-sm space-y-3">
+          {memo.memo && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase mb-1">Memo</p>
+              <p>{memo.memo}</p>
+            </div>
+          )}
+          {memo.description && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase mb-1">Description</p>
+              <p className="whitespace-pre-wrap">{memo.description}</p>
+            </div>
+          )}
+          {memo.notes && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase mb-1">Notes</p>
+              <p>{memo.notes}</p>
+            </div>
+          )}
         </div>
       )}
 

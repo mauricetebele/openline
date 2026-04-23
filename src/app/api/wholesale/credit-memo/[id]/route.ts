@@ -11,7 +11,21 @@ export async function GET(
 
   const memo = await prisma.wholesaleCreditMemo.findUnique({
     where: { id: params.id },
-    include: {
+    select: {
+      id: true,
+      memoNumber: true,
+      customerId: true,
+      rmaId: true,
+      subtotal: true,
+      restockingFee: true,
+      restockingReason: true,
+      total: true,
+      status: true,
+      unallocated: true,
+      notes: true,
+      memo: true,
+      description: true,
+      createdAt: true,
       customer: { select: { id: true, companyName: true } },
       rma: { select: { id: true, rmaNumber: true } },
       allocations: {

@@ -1616,8 +1616,8 @@ model WholesaleCreditMemo {
   memoNumber       String            @unique
   customerId       String
   customer         WholesaleCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  rmaId            String            @unique
-  rma              CustomerRMA       @relation(fields: [rmaId], references: [id], onDelete: Restrict)
+  rmaId            String?           @unique
+  rma              CustomerRMA?      @relation(fields: [rmaId], references: [id], onDelete: Restrict)
   subtotal         Decimal           @db.Decimal(12, 2)
   restockingFee    Decimal           @default(0) @db.Decimal(12, 2)
   restockingReason String?
@@ -1625,6 +1625,8 @@ model WholesaleCreditMemo {
   status           String            @default("UNAPPLIED") // UNAPPLIED, PARTIALLY_APPLIED, APPLIED
   unallocated      Decimal           @default(0) @db.Decimal(12, 2)
   notes            String?
+  memo             String?
+  description      String?
   createdAt        DateTime          @default(now())
 
   allocations CreditMemoAllocation[]

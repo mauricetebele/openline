@@ -194,8 +194,9 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
   const router = useRouter()
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'orders' | 'statement'>('orders')
+  const [tab, setTab] = useState<'orders' | 'activity' | 'open'>('orders')
   const [statement, setStatement] = useState<{ lines: StatementLine[]; openBalance: number } | null>(null)
+  const [openStatement, setOpenStatement] = useState<{ lines: StatementLine[]; openBalance: number } | null>(null)
   const [stmtLoading, setStmtLoading] = useState(false)
 
   const load = useCallback(async () => {
@@ -209,14 +210,20 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
 
   useEffect(() => { load() }, [load])
 
-  async function loadStatement() {
-    if (statement) return
+  async function loadStatement(view: 'activity' | 'open') {
+    if (view === 'activity' && statement) return
+    if (view === 'open' && openStatement) return
     setStmtLoading(true)
     try {
-      const res = await fetch(`/api/wholesale/statement/${id}`)
+      const url = view === 'open'
+        ? `/api/wholesale/statement/${id}?view=open`
+        : `/api/wholesale/statement/${id}`
+      const res = await fetch(url)
       if (res.ok) {
         const data = await res.json()
-        setStatement({ lines: data.lines, openBalance: data.openBalance })
+        const payload = { lines: data.lines, openBalance: data.openBalance }
+        if (view === 'open') setOpenStatement(payload)
+        else setStatement(payload)
       }
     } finally {
       setStmtLoading(false)
@@ -224,7 +231,8 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
   }
 
   useEffect(() => {
-    if (tab === 'statement') loadStatement()
+    if (tab === 'activity') loadStatement('activity')
+    if (tab === 'open') loadStatement('open')
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
@@ -259,13 +267,6 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
       const memo = (Array.isArray(memos) ? memos : []).find((m: { memoNumber: string }) => m.memoNumber === memoNumber)
       if (!memo) { toast.error(`Credit memo ${memoNumber} not found`); return }
 
-      // Fetch RMA to get serials
-      const rmaId = memo.rmaId ?? memo.rma?.id
-      if (!rmaId) { toast.error('Credit memo has no RMA reference'); return }
-      const rmaRes = await fetch(`/api/wholesale/customer-rma/${rmaId}`)
-      if (!rmaRes.ok) { toast.error(`Failed to load RMA (${rmaRes.status})`); return }
-      const rma = await rmaRes.json()
-
       // Fetch customer billing address from addresses array
       let billingAddress: { addressLine1: string; addressLine2?: string | null; city: string; state: string; postalCode: string } | null = null
       try {
@@ -277,13 +278,24 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
         }
       } catch { /* skip */ }
 
-      const receivedSerials = (rma.serials ?? []).filter((s: { receivedAt: string | null }) => s.receivedAt)
+      // Fetch RMA serials if RMA-based credit memo
+      const rmaId = memo.rmaId ?? memo.rma?.id
+      let receivedSerials: { serialNumber: string; product?: { sku: string }; sku?: string; salePrice: string | null }[] = []
+      let rmaNumber = memo.memo ?? 'Manual Credit'
+      if (rmaId) {
+        const rmaRes = await fetch(`/api/wholesale/customer-rma/${rmaId}`)
+        if (rmaRes.ok) {
+          const rma = await rmaRes.json()
+          receivedSerials = (rma.serials ?? []).filter((s: { receivedAt: string | null }) => s.receivedAt)
+          rmaNumber = memo.rma?.rmaNumber ?? rma.rmaNumber ?? memoNumber
+        }
+      }
 
       const pdfData = {
         memoNumber: memo.memoNumber,
         createdAt: memo.createdAt,
         customerName: customer.companyName,
-        rmaNumber: memo.rma?.rmaNumber ?? rma.rmaNumber ?? memoNumber,
+        rmaNumber,
         billingAddress,
         serials: receivedSerials.map((s: { serialNumber: string; product?: { sku: string }; sku?: string; salePrice: string | null }) => ({
           serialNumber: s.serialNumber,
@@ -295,7 +307,6 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
         total: parseFloat(memo.total ?? '0'),
         notes: memo.notes ?? null,
       }
-      console.log('Credit memo PDF data:', pdfData)
       await generateCreditMemoPDF(pdfData)
     } catch (err) {
       console.error('Credit memo PDF error:', err)
@@ -367,15 +378,19 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200">
-        {(['orders', 'statement'] as const).map((t) => (
+        {([
+          { key: 'orders', label: 'Orders' },
+          { key: 'open', label: 'Statement (Open)' },
+          { key: 'activity', label: 'Activity Statement' },
+        ] as const).map((t) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`py-2.5 px-5 text-sm font-medium border-b-2 transition-colors capitalize ${
-              tab === t ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`py-2.5 px-5 text-sm font-medium border-b-2 transition-colors ${
+              tab === t.key ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            {t}
+            {t.label}
           </button>
         ))}
       </div>
@@ -421,95 +436,100 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
         </div>
       )}
 
-      {tab === 'statement' && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <p className="text-sm font-semibold text-gray-700">
-              Open Balance: <span className="text-orange-600">{fmt(statement?.openBalance ?? 0)}</span>
-            </p>
-            {statement && (
-              <button
-                onClick={() => {
-                  if (!statement) { toast.error('Statement not loaded'); return }
-                  generateStatementPDF(customer, statement.lines, statement.openBalance)
-                }}
-                className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
-              >
-                Print Statement
-              </button>
+      {(tab === 'activity' || tab === 'open') && (() => {
+        const currentData = tab === 'open' ? openStatement : statement
+        const label = tab === 'open' ? 'Statement (Open)' : 'Activity Statement'
+        return (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <p className="text-sm font-semibold text-gray-700">
+                Open Balance: <span className="text-orange-600">{fmt(currentData?.openBalance ?? 0)}</span>
+              </p>
+              {currentData && (
+                <button
+                  onClick={() => {
+                    generateStatementPDF(customer, currentData.lines, currentData.openBalance)
+                  }}
+                  className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
+                >
+                  Print {label}
+                </button>
+              )}
+            </div>
+
+            {stmtLoading ? (
+              <div className="p-8 text-center text-gray-400 text-sm">Loading statement…</div>
+            ) : !currentData || currentData.lines.length === 0 ? (
+              <div className="p-8 text-center text-gray-400 text-sm">
+                {tab === 'open' ? 'No open transactions' : 'No statement activity'}
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-500 uppercase">
+                      <th className="text-left px-5 py-3">Date</th>
+                      <th className="text-left px-5 py-3">Type</th>
+                      <th className="text-left px-5 py-3">Reference</th>
+                      <th className="text-left px-5 py-3">Document #</th>
+                      <th className="text-right px-5 py-3">Charges</th>
+                      <th className="text-right px-5 py-3">Credits</th>
+                      <th className="text-right px-5 py-3">Balance</th>
+                      <th className="px-3 py-3 w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {currentData.lines.map((line, i) => (
+                      <tr key={i} className={line.type === 'PAYMENT' ? 'bg-green-50/30' : line.type === 'CREDIT_MEMO' ? 'bg-purple-50/30' : ''}>
+                        <td className="px-5 py-2.5 text-gray-500">{new Date(line.date).toLocaleDateString()}</td>
+                        <td className="px-5 py-2.5">
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                            line.type === 'INVOICE' ? 'bg-yellow-100 text-yellow-700'
+                              : line.type === 'CREDIT_MEMO' ? 'bg-purple-100 text-purple-700'
+                              : 'bg-green-100 text-green-700'
+                          }`}>{line.type === 'CREDIT_MEMO' ? 'CREDIT MEMO' : line.type}</span>
+                        </td>
+                        <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.reference}</td>
+                        <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.invoiceNumber ?? ''}</td>
+                        <td className="px-5 py-2.5 text-right">{line.charges > 0 ? fmt(line.charges) : ''}</td>
+                        <td className="px-5 py-2.5 text-right text-green-600">{line.credits > 0 ? fmt(line.credits) : ''}</td>
+                        <td className="px-5 py-2.5 text-right font-semibold">{fmt(Number(line.balance))}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          {(() => {
+                            const key = line.type === 'PAYMENT' ? line.paymentId : line.reference
+                            const title = line.type === 'INVOICE' ? 'Download Invoice PDF'
+                              : line.type === 'CREDIT_MEMO' ? 'Download Credit Memo PDF'
+                              : 'Download Payment Receipt'
+                            return key ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  if (line.type === 'INVOICE') downloadInvoicePDF(line.reference)
+                                  else if (line.type === 'CREDIT_MEMO') downloadCreditMemoPDF(line.invoiceNumber ?? line.reference)
+                                  else if (line.paymentId) downloadPaymentReceipt(line.paymentId)
+                                }}
+                                disabled={downloading === key}
+                                className="text-gray-400 hover:text-gray-700 disabled:opacity-40"
+                                title={title}
+                              >
+                                {downloading === key ? (
+                                  <span className="text-xs">...</span>
+                                ) : (
+                                  <Download size={14} />
+                                )}
+                              </button>
+                            ) : null
+                          })()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
-
-          {stmtLoading ? (
-            <div className="p-8 text-center text-gray-400 text-sm">Loading statement…</div>
-          ) : !statement || statement.lines.length === 0 ? (
-            <div className="p-8 text-center text-gray-400 text-sm">No statement activity</div>
-          ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-500 uppercase">
-                    <th className="text-left px-5 py-3">Date</th>
-                    <th className="text-left px-5 py-3">Type</th>
-                    <th className="text-left px-5 py-3">Reference</th>
-                    <th className="text-left px-5 py-3">Document #</th>
-                    <th className="text-right px-5 py-3">Charges</th>
-                    <th className="text-right px-5 py-3">Credits</th>
-                    <th className="text-right px-5 py-3">Balance</th>
-                    <th className="px-3 py-3 w-10"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {statement.lines.map((line, i) => (
-                    <tr key={i} className={line.type === 'PAYMENT' ? 'bg-green-50/30' : line.type === 'CREDIT_MEMO' ? 'bg-purple-50/30' : ''}>
-                      <td className="px-5 py-2.5 text-gray-500">{new Date(line.date).toLocaleDateString()}</td>
-                      <td className="px-5 py-2.5">
-                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                          line.type === 'INVOICE' ? 'bg-yellow-100 text-yellow-700'
-                            : line.type === 'CREDIT_MEMO' ? 'bg-purple-100 text-purple-700'
-                            : 'bg-green-100 text-green-700'
-                        }`}>{line.type === 'CREDIT_MEMO' ? 'CREDIT MEMO' : line.type}</span>
-                      </td>
-                      <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.reference}</td>
-                      <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.invoiceNumber ?? ''}</td>
-                      <td className="px-5 py-2.5 text-right">{line.charges > 0 ? fmt(line.charges) : ''}</td>
-                      <td className="px-5 py-2.5 text-right text-green-600">{line.credits > 0 ? fmt(line.credits) : ''}</td>
-                      <td className="px-5 py-2.5 text-right font-semibold">{fmt(Number(line.balance))}</td>
-                      <td className="px-3 py-2.5 text-center">
-                        {(() => {
-                          const key = line.type === 'PAYMENT' ? line.paymentId : line.reference
-                          const title = line.type === 'INVOICE' ? 'Download Invoice PDF'
-                            : line.type === 'CREDIT_MEMO' ? 'Download Credit Memo PDF'
-                            : 'Download Payment Receipt'
-                          return key ? (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                if (line.type === 'INVOICE') downloadInvoicePDF(line.reference)
-                                else if (line.type === 'CREDIT_MEMO') downloadCreditMemoPDF(line.invoiceNumber ?? line.reference)
-                                else if (line.paymentId) downloadPaymentReceipt(line.paymentId)
-                              }}
-                              disabled={downloading === key}
-                              className="text-gray-400 hover:text-gray-700 disabled:opacity-40"
-                              title={title}
-                            >
-                              {downloading === key ? (
-                                <span className="text-xs">...</span>
-                              ) : (
-                                <Download size={14} />
-                              )}
-                            </button>
-                          ) : null
-                        })()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
