@@ -3,7 +3,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { Pencil } from 'lucide-react'
+import { Pencil, Printer } from 'lucide-react'
+import { generatePaymentReceiptPDF } from '@/lib/generate-payment-receipt'
 
 const PAYMENT_METHODS = [
   { value: 'CHECK', label: 'Check' },
@@ -108,9 +109,14 @@ export default function PaymentDetailView({ id }: { id: string }) {
         <button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-gray-700">←</button>
         <h1 className="font-mono text-2xl font-bold text-orange-600">{payment.paymentNumber || 'Payment'}</h1>
         {!editing && (
-          <button onClick={startEdit} className="ml-auto px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs font-medium hover:bg-gray-200 flex items-center gap-1">
-            <Pencil size={12} /> Edit
-          </button>
+          <div className="ml-auto flex gap-2">
+            <button onClick={() => generatePaymentReceiptPDF(payment)} className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50 flex items-center gap-1">
+              <Printer size={12} /> Print Receipt
+            </button>
+            <button onClick={startEdit} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs font-medium hover:bg-gray-200 flex items-center gap-1">
+              <Pencil size={12} /> Edit
+            </button>
+          </div>
         )}
       </div>
 
