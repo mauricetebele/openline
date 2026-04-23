@@ -2,11 +2,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import jsPDF from 'jspdf'
-import { Download } from 'lucide-react'
+import { Download, Mail } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generate-wholesale-invoice'
 import { generateCreditMemoPDF } from '@/lib/generate-credit-memo-pdf'
 import { generatePaymentReceiptPDF } from '@/lib/generate-payment-receipt'
+import { generateStatementPDF } from '@/lib/generate-statement-pdf'
 
 const SO_STATUS_COLOR: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
@@ -38,163 +38,6 @@ interface Customer {
 
 function fmtUSD(n: number) {
   return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function generateStatementPDF(customer: Customer, lines: StatementLine[], openBalance: number, viewType: 'activity' | 'open' = 'activity') {
-  const isOpen = viewType === 'open'
-  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
-  const w = doc.internal.pageSize.getWidth()
-  const h = doc.internal.pageSize.getHeight()
-  const margin = 48
-  const right = w - margin
-
-  // Brand colors
-  const blue: [number, number, number] = [27, 94, 166]
-  const red: [number, number, number] = [193, 52, 44]
-  const navy: [number, number, number] = [27, 58, 92]
-  const gray50: [number, number, number] = [249, 250, 251]
-  const gray200: [number, number, number] = [229, 231, 235]
-  const gray500: [number, number, number] = [107, 114, 128]
-  const gray700: [number, number, number] = [55, 65, 81]
-
-  // ─── Logo ───────────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
-  const olCharSpace = 2.5
-  const olBaseW = doc.getTextWidth('OPEN LINE')
-  const olFullW = olBaseW + ('OPEN LINE'.length - 1) * olCharSpace
-  doc.setFontSize(9)
-  const mCharSpace = 4
-  const mBaseW = doc.getTextWidth('MOBILITY')
-  const mFullW = mBaseW + ('MOBILITY'.length - 1) * mCharSpace
-  const blockW = Math.max(olFullW, mFullW)
-  const blockCx = margin + blockW / 2
-
-  const sc = 0.4
-  const logoOx = blockCx - (135 * sc)
-  const logoOy = 8
-  const p0x = 60*sc+logoOx, p0y = 105*sc+logoOy
-  const c1x = 100*sc+logoOx, c1y = 120*sc+logoOy
-  const c2x = 160*sc+logoOx, c2y = 40*sc+logoOy
-  const p3x = 210*sc+logoOx, p3y = 55*sc+logoOy
-
-  doc.setLineWidth(1.5)
-  for (let t = 0; t < 1; t += 0.04) {
-    const t2 = Math.min(t + 0.04, 1)
-    const bx = (ti: number) => Math.pow(1-ti,3)*p0x + 3*Math.pow(1-ti,2)*ti*c1x + 3*(1-ti)*ti*ti*c2x + ti*ti*ti*p3x
-    const by = (ti: number) => Math.pow(1-ti,3)*p0y + 3*Math.pow(1-ti,2)*ti*c1y + 3*(1-ti)*ti*ti*c2y + ti*ti*ti*p3y
-    const r = Math.round(blue[0] + (red[0]-blue[0])*t)
-    const g = Math.round(blue[1] + (red[1]-blue[1])*t)
-    const b = Math.round(blue[2] + (red[2]-blue[2])*t)
-    doc.setDrawColor(r, g, b)
-    doc.line(bx(t), by(t), bx(t2), by(t2))
-  }
-  const ldx = 58*sc+logoOx, ldy = 104*sc+logoOy
-  doc.setDrawColor(...blue); doc.setLineWidth(1.6)
-  doc.circle(ldx, ldy, 4.5, 'S')
-  doc.setFillColor(...blue); doc.circle(ldx, ldy, 1.5, 'F')
-  const rdx = 212*sc+logoOx, rdy = 54*sc+logoOy
-  doc.setDrawColor(...red); doc.setLineWidth(1.6)
-  doc.circle(rdx, rdy, 5, 'S')
-  doc.setFillColor(...red); doc.circle(rdx, rdy, 1.6, 'F')
-
-  const textY = Math.max(ldy, rdy) + 22
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...navy)
-  doc.text('OPEN LINE', blockCx - olFullW / 2, textY, { charSpace: olCharSpace })
-  doc.setFontSize(9); doc.setTextColor(...red)
-  doc.text('MOBILITY', blockCx - mFullW / 2, textY + 13, { charSpace: mCharSpace })
-
-  // Title
-  doc.setFontSize(24); doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
-  doc.text(isOpen ? 'OPEN STATEMENT' : 'STATEMENT', right, 42, { align: 'right' })
-  doc.setDrawColor(...blue); doc.setLineWidth(2)
-  doc.line(right - 130, 48, right - 30, 48)
-  doc.setDrawColor(...red); doc.setLineWidth(2)
-  doc.line(right - 30, 48, right, 48)
-
-  // Meta (right)
-  let y = 68
-  doc.setFontSize(8.5)
-  const metaRows: [string, string][] = [
-    ['Date', new Date().toLocaleDateString()],
-    ['Open Balance', fmtUSD(openBalance)],
-  ]
-  metaRows.forEach(([label, val]) => {
-    doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray500)
-    doc.text(label, right - 120, y)
-    doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
-    doc.text(val, right, y, { align: 'right' })
-    y += 14
-  })
-
-  // Customer info
-  const logoBottom = textY + 28
-  y = Math.max(y + 10, logoBottom + 10)
-  doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray500)
-  doc.text('CUSTOMER', margin, y)
-  y += 14
-  doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
-  doc.text(customer.companyName, margin, y)
-  if (customer.contactName) {
-    y += 14
-    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray700)
-    doc.text(customer.contactName, margin, y)
-  }
-  y += 24
-
-  // Table header
-  doc.setFillColor(...gray50)
-  doc.rect(margin, y - 12, right - margin, 18, 'F')
-  doc.setDrawColor(...gray200); doc.setLineWidth(0.5)
-  doc.line(margin, y + 6, right, y + 6)
-  doc.setFontSize(7.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(...gray500)
-  doc.text('DATE', margin + 8, y)
-  doc.text('TYPE', margin + 70, y)
-  doc.text('REFERENCE', margin + 140, y)
-  doc.text('DOCUMENT #', margin + 230, y)
-  doc.text('CHARGES', right - 190, y, { align: 'right' })
-  doc.text('CREDITS', right - 125, y, { align: 'right' })
-  doc.text('APPLIED', right - 62, y, { align: 'right' })
-  doc.text('BALANCE', right - 8, y, { align: 'right' })
-  y += 18
-
-  const typeLabel: Record<string, string> = { INVOICE: 'Invoice', PAYMENT: 'Payment', CREDIT_MEMO: 'Credit Memo' }
-  doc.setFontSize(8.5); doc.setFont('helvetica', 'normal')
-  for (const line of lines) {
-    if (y > h - 80) { doc.addPage(); y = margin }
-    doc.setTextColor(...gray700)
-    doc.text(new Date(line.date).toLocaleDateString(), margin + 8, y)
-    doc.text(typeLabel[line.type] ?? line.type, margin + 70, y)
-    doc.text(line.reference.substring(0, 16), margin + 140, y)
-    doc.text((line.invoiceNumber ?? '').substring(0, 14), margin + 230, y)
-    doc.text(line.charges > 0 ? fmtUSD(line.charges) : '', right - 190, y, { align: 'right' })
-    if (line.credits > 0) {
-      doc.setTextColor(22, 163, 74)
-      doc.text(fmtUSD(line.credits), right - 125, y, { align: 'right' })
-      doc.setTextColor(...gray700)
-    } else {
-      doc.text('', right - 125, y, { align: 'right' })
-    }
-    doc.text(Number(line.applied) > 0 ? fmtUSD(line.applied) : '', right - 62, y, { align: 'right' })
-    doc.setFont('helvetica', 'bold')
-    const balVal = isOpen ? line.remaining : line.balance
-    doc.text(fmtUSD(balVal), right - 8, y, { align: 'right' })
-    doc.setFont('helvetica', 'normal')
-    y += 6
-    doc.setDrawColor(...gray200); doc.setLineWidth(0.3)
-    doc.line(margin, y, right, y)
-    y += 14
-  }
-
-  // Total
-  y += 8
-  doc.setDrawColor(...navy); doc.setLineWidth(1)
-  doc.line(right - 200, y - 2, right, y - 2)
-  doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy)
-  doc.text('Total Balance Due:', right - 200, y + 12)
-  doc.text(fmtUSD(openBalance), right - 8, y + 12, { align: 'right' })
-
-  const prefix = isOpen ? 'Open-Statement' : 'Statement'
-  doc.save(`${prefix}-${customer.companyName.replace(/\s+/g, '-')}.pdf`)
 }
 
 export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
@@ -244,6 +87,25 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
   }, [tab])
 
   const [downloading, setDownloading] = useState<string | null>(null)
+  const [emailing, setEmailing] = useState<string | null>(null)
+
+  async function sendEmail(type: 'invoice' | 'credit-memo' | 'payment' | 'statement', emailId: string, viewType?: 'activity' | 'open') {
+    setEmailing(emailId)
+    try {
+      const res = await fetch('/api/wholesale/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, id: emailId, viewType }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error ?? 'Failed to send email'); return }
+      toast.success('Email sent')
+    } catch {
+      toast.error('Failed to send email')
+    } finally {
+      setEmailing(null)
+    }
+  }
 
   async function downloadInvoicePDF(orderNumber: string) {
     if (!customer) return
@@ -453,14 +315,24 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                 Open Balance: <span className="text-orange-600">{fmt(currentData?.openBalance ?? 0)}</span>
               </p>
               {currentData && (
-                <button
-                  onClick={() => {
-                    generateStatementPDF(customer, currentData.lines, currentData.openBalance, tab as 'activity' | 'open')
-                  }}
-                  className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
-                >
-                  Print {label}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      generateStatementPDF(customer, currentData.lines, currentData.openBalance, tab as 'activity' | 'open')
+                    }}
+                    className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
+                  >
+                    Print {label}
+                  </button>
+                  <button
+                    onClick={() => sendEmail('statement', customer.id, tab as 'activity' | 'open')}
+                    disabled={emailing === customer.id}
+                    className="px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1"
+                    title={`Email ${label}`}
+                  >
+                    <Mail size={14} /> {emailing === customer.id ? 'Sending…' : 'Email'}
+                  </button>
+                </div>
               )}
             </div>
 
@@ -483,12 +355,13 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                       <th className="text-right px-5 py-3">Credits</th>
                       <th className="text-right px-5 py-3">Applied</th>
                       <th className="text-right px-5 py-3">Balance</th>
-                      <th className="px-3 py-3 w-10"></th>
+                      <th className="px-3 py-3 w-16"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {currentData.lines.map((line, i) => {
                       const balanceVal = tab === 'open' ? Number(line.remaining) : Number(line.balance)
+                      const lineKey = line.type === 'PAYMENT' ? line.paymentId : line.reference
                       return (
                       <tr key={i} className={line.type === 'PAYMENT' ? 'bg-green-50/30' : line.type === 'CREDIT_MEMO' ? 'bg-purple-50/30' : ''}>
                         <td className="px-5 py-2.5 text-gray-500">{new Date(line.date).toLocaleDateString()}</td>
@@ -506,12 +379,8 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                         <td className="px-5 py-2.5 text-right text-gray-500">{Number(line.applied) > 0 ? fmt(Number(line.applied)) : ''}</td>
                         <td className="px-5 py-2.5 text-right font-semibold">{fmt(balanceVal)}</td>
                         <td className="px-3 py-2.5 text-center">
-                          {(() => {
-                            const key = line.type === 'PAYMENT' ? line.paymentId : line.reference
-                            const title = line.type === 'INVOICE' ? 'Download Invoice PDF'
-                              : line.type === 'CREDIT_MEMO' ? 'Download Credit Memo PDF'
-                              : 'Download Payment Receipt'
-                            return key ? (
+                          {lineKey && (
+                            <div className="flex items-center gap-1 justify-center">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
@@ -519,18 +388,40 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                                   else if (line.type === 'CREDIT_MEMO') downloadCreditMemoPDF(line.invoiceNumber ?? line.reference)
                                   else if (line.paymentId) downloadPaymentReceipt(line.paymentId)
                                 }}
-                                disabled={downloading === key}
+                                disabled={downloading === lineKey}
                                 className="text-gray-400 hover:text-gray-700 disabled:opacity-40"
-                                title={title}
+                                title={line.type === 'INVOICE' ? 'Download Invoice PDF' : line.type === 'CREDIT_MEMO' ? 'Download Credit Memo PDF' : 'Download Payment Receipt'}
                               >
-                                {downloading === key ? (
-                                  <span className="text-xs">...</span>
-                                ) : (
-                                  <Download size={14} />
-                                )}
+                                {downloading === lineKey ? <span className="text-xs">...</span> : <Download size={14} />}
                               </button>
-                            ) : null
-                          })()}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  if (line.type === 'INVOICE') {
+                                    const order = customer.salesOrders.find(o => o.orderNumber === line.reference)
+                                    if (order) sendEmail('invoice', order.id)
+                                  } else if (line.type === 'CREDIT_MEMO') {
+                                    // Need to look up CM id - fetch from API
+                                    fetch(`/api/wholesale/credit-memo?customerId=${customer.id}`)
+                                      .then(r => r.json())
+                                      .then(json => {
+                                        const memos = json.data ?? json
+                                        const cm = (Array.isArray(memos) ? memos : []).find((m: { memoNumber: string }) => m.memoNumber === (line.invoiceNumber ?? line.reference))
+                                        if (cm) sendEmail('credit-memo', cm.id)
+                                        else toast.error('Credit memo not found')
+                                      })
+                                  } else if (line.paymentId) {
+                                    sendEmail('payment', line.paymentId)
+                                  }
+                                }}
+                                disabled={emailing === lineKey}
+                                className="text-gray-400 hover:text-blue-600 disabled:opacity-40"
+                                title={`Email ${line.type === 'INVOICE' ? 'Invoice' : line.type === 'CREDIT_MEMO' ? 'Credit Memo' : 'Payment Receipt'}`}
+                              >
+                                {emailing === lineKey ? <span className="text-xs">...</span> : <Mail size={14} />}
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )})}

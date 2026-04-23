@@ -23,7 +23,7 @@ function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
 }
 
-export async function generateCreditMemoPDF(data: CreditMemoPDFData) {
+export async function generateCreditMemoPDF(data: CreditMemoPDFData, returnBuffer?: boolean): Promise<Buffer | void> {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const w = doc.internal.pageSize.getWidth()
   const h = doc.internal.pageSize.getHeight()
@@ -251,5 +251,6 @@ export async function generateCreditMemoPDF(data: CreditMemoPDFData) {
   doc.text('Thank you for your business.', w / 2, footY, { align: 'center' })
   doc.text(data.memoNumber || '', right, footY, { align: 'right' })
 
+  if (returnBuffer) return Buffer.from(doc.output('arraybuffer'))
   doc.save(`CreditMemo-${data.memoNumber}.pdf`)
 }

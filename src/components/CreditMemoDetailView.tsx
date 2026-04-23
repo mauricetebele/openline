@@ -2,6 +2,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { toast } from 'sonner'
+import { Mail } from 'lucide-react'
 
 const STATUS_COLOR: Record<string, string> = {
   UNAPPLIED: 'bg-gray-100 text-gray-600',
@@ -79,6 +81,25 @@ export default function CreditMemoDetailView({ id }: { id: string }) {
         <span className="text-sm text-gray-500">
           {new Date(memo.createdAt).toLocaleDateString()}
         </span>
+        <button
+          onClick={async () => {
+            try {
+              const res = await fetch('/api/wholesale/email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'credit-memo', id: memo.id }),
+              })
+              const data = await res.json()
+              if (!res.ok) { toast.error(data.error ?? 'Failed to send email'); return }
+              toast.success('Credit memo emailed')
+            } catch {
+              toast.error('Failed to send email')
+            }
+          }}
+          className="ml-auto px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50 flex items-center gap-1"
+        >
+          <Mail size={12} /> Email Credit Memo
+        </button>
       </div>
 
       {/* Financial summary */}

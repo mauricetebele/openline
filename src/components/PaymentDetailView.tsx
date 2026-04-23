@@ -3,8 +3,23 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { Pencil, Printer } from 'lucide-react'
+import { Pencil, Printer, Mail } from 'lucide-react'
 import { generatePaymentReceiptPDF } from '@/lib/generate-payment-receipt'
+
+async function sendPaymentEmail(paymentId: string, toast: { success: (msg: string) => void; error: (msg: string) => void }) {
+  try {
+    const res = await fetch('/api/wholesale/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'payment', id: paymentId }),
+    })
+    const data = await res.json()
+    if (!res.ok) { toast.error(data.error ?? 'Failed to send email'); return }
+    toast.success('Receipt emailed')
+  } catch {
+    toast.error('Failed to send email')
+  }
+}
 
 const PAYMENT_METHODS = [
   { value: 'CHECK', label: 'Check' },
@@ -112,6 +127,9 @@ export default function PaymentDetailView({ id }: { id: string }) {
           <div className="ml-auto flex gap-2">
             <button onClick={() => generatePaymentReceiptPDF(payment)} className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50 flex items-center gap-1">
               <Printer size={12} /> Print Receipt
+            </button>
+            <button onClick={() => sendPaymentEmail(payment.id, toast)} className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50 flex items-center gap-1">
+              <Mail size={12} /> Email Receipt
             </button>
             <button onClick={startEdit} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs font-medium hover:bg-gray-200 flex items-center gap-1">
               <Pencil size={12} /> Edit

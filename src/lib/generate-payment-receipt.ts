@@ -21,7 +21,7 @@ const METHOD_LABEL: Record<string, string> = {
   CASH: 'Cash', ZELLE: 'Zelle', OTHER: 'Other',
 }
 
-export function generatePaymentReceiptPDF(payment: ReceiptPayment) {
+export function generatePaymentReceiptPDF(payment: ReceiptPayment, returnBuffer?: boolean): Buffer | void {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const w = doc.internal.pageSize.getWidth()
   const margin = 48
@@ -205,5 +205,6 @@ export function generatePaymentReceiptPDF(payment: ReceiptPayment) {
   doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(...gray500)
   doc.text('Thank you for your payment.', w / 2, footerY, { align: 'center' })
 
+  if (returnBuffer) return Buffer.from(doc.output('arraybuffer'))
   doc.save(`Payment-${payment.paymentNumber}.pdf`)
 }

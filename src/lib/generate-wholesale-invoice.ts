@@ -47,7 +47,7 @@ function addrLines(a: InvAddress | null): string[] {
   ]
 }
 
-export function generateInvoicePDF(order: InvOrder) {
+export function generateInvoicePDF(order: InvOrder, returnBuffer?: boolean): Buffer | void {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const w = doc.internal.pageSize.getWidth()
   const h = doc.internal.pageSize.getHeight()
@@ -395,5 +395,6 @@ export function generateInvoicePDF(order: InvOrder) {
   doc.text('Thank you for your business.', w / 2, footY, { align: 'center' })
   doc.text(`${invRef}`, right, footY, { align: 'right' })
 
+  if (returnBuffer) return Buffer.from(doc.output('arraybuffer'))
   doc.save(`Invoice-${invRef}.pdf`)
 }
