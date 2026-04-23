@@ -130,6 +130,7 @@ const NAV: NavItem[] = [
     label: 'Wholesale',
     icon: Store,
     children: [
+      { href: '/wholesale',            label: 'Dashboard',      icon: Store },
       { href: '/wholesale/customers', label: 'Customers',     icon: Users },
       { href: '/wholesale/orders',    label: 'Orders',         icon: FileText },
       { href: '/wholesale/payments',  label: 'Payments',       icon: CreditCard },
@@ -298,6 +299,7 @@ export default function TopNav() {
 
   function isActive(href: string) {
     const path = href.split('?')[0]  // strip query string for active check
+    if (path === '/wholesale') return pathname === '/wholesale'
     return pathname.startsWith(path)
   }
 

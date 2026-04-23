@@ -2,6 +2,18 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { toast } from 'sonner'
+import { Pencil } from 'lucide-react'
+
+const PAYMENT_METHODS = [
+  { value: 'CHECK', label: 'Check' },
+  { value: 'ACH', label: 'ACH' },
+  { value: 'WIRE', label: 'Wire' },
+  { value: 'CREDIT_CARD', label: 'Credit Card' },
+  { value: 'CASH', label: 'Cash' },
+  { value: 'ZELLE', label: 'Zelle' },
+  { value: 'OTHER', label: 'Other' },
+]
 
 interface PaymentAllocation {
   id: string
@@ -27,6 +39,14 @@ export default function PaymentDetailView({ id }: { id: string }) {
   const router = useRouter()
   const [payment, setPayment] = useState<Payment | null>(null)
   const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // Edit form state
+  const [editDate, setEditDate] = useState('')
+  const [editMethod, setEditMethod] = useState('')
+  const [editReference, setEditReference] = useState('')
+  const [editMemo, setEditMemo] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -38,6 +58,41 @@ export default function PaymentDetailView({ id }: { id: string }) {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  function startEdit() {
+    if (!payment) return
+    setEditDate(new Date(payment.paymentDate).toISOString().slice(0, 10))
+    setEditMethod(payment.method)
+    setEditReference(payment.reference ?? '')
+    setEditMemo(payment.memo ?? '')
+    setEditing(true)
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/wholesale/payments/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentDate: editDate,
+          method: editMethod,
+          reference: editReference,
+          memo: editMemo,
+        }),
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        toast.error(e.error ?? 'Failed to update')
+        return
+      }
+      setPayment(await res.json())
+      setEditing(false)
+      toast.success('Payment updated')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const fmt = (n: number) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
@@ -52,38 +107,105 @@ export default function PaymentDetailView({ id }: { id: string }) {
       <div className="flex flex-wrap items-center gap-4">
         <button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-gray-700">←</button>
         <h1 className="font-mono text-2xl font-bold text-orange-600">{payment.paymentNumber || 'Payment'}</h1>
+        {!editing && (
+          <button onClick={startEdit} className="ml-auto px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs font-medium hover:bg-gray-200 flex items-center gap-1">
+            <Pencil size={12} /> Edit
+          </button>
+        )}
       </div>
 
       {/* Payment details */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 text-sm">
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Date</p>
-            <p className="font-medium text-gray-700">{new Date(payment.paymentDate).toLocaleDateString()}</p>
+        {editing ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Amount</label>
+                <p className="font-medium text-gray-400 py-1.5">{fmt(Number(payment.amount))}</p>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Method</label>
+                <select
+                  value={editMethod}
+                  onChange={(e) => setEditMethod(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                >
+                  {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Customer</label>
+                <p className="font-medium text-gray-400 py-1.5">{payment.customer.companyName}</p>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Reference</label>
+                <input
+                  type="text"
+                  value={editReference}
+                  onChange={(e) => setEditReference(e.target.value)}
+                  placeholder="Optional"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Memo</label>
+                <input
+                  type="text"
+                  value={editMemo}
+                  onChange={(e) => setEditMemo(e.target.value)}
+                  placeholder="Optional"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end pt-1">
+              <button onClick={() => setEditing(false)} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-xs bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 font-medium">
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
           </div>
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Amount</p>
-            <p className="font-medium text-gray-700">{fmt(Number(payment.amount))}</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Date</p>
+              <p className="font-medium text-gray-700">{new Date(payment.paymentDate).toLocaleDateString()}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Amount</p>
+              <p className="font-medium text-gray-700">{fmt(Number(payment.amount))}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Method</p>
+              <p className="font-medium text-gray-700">{payment.method.replace('_', ' ')}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Customer</p>
+              <Link href={`/wholesale/customers/${payment.customer.id}`} className="font-medium text-orange-600 hover:text-orange-700">
+                {payment.customer.companyName}
+              </Link>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Reference</p>
+              <p className="font-mono font-medium text-gray-700">{payment.reference || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Memo</p>
+              <p className="font-medium text-gray-700">{payment.memo || '—'}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Method</p>
-            <p className="font-medium text-gray-700">{payment.method.replace('_', ' ')}</p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Customer</p>
-            <Link href={`/wholesale/customers/${payment.customer.id}`} className="font-medium text-orange-600 hover:text-orange-700">
-              {payment.customer.companyName}
-            </Link>
-          </div>
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Reference</p>
-            <p className="font-mono font-medium text-gray-700">{payment.reference || '—'}</p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Memo</p>
-            <p className="font-medium text-gray-700">{payment.memo || '—'}</p>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Summary bar */}
