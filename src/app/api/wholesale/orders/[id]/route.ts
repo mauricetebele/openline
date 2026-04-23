@@ -38,6 +38,9 @@ export async function GET(
       items: { include: { product: { include: { inventoryItems: { select: { qty: true, gradeId: true, grade: { select: { grade: true } } } } } }, grade: { select: { grade: true } } } },
       customer: { include: { addresses: true } },
       allocations: { include: { payment: true } },
+      creditMemoAllocations: {
+        include: { creditMemo: { select: { id: true, memoNumber: true } } },
+      },
       serialAssignments: {
         include: {
           inventorySerial: {

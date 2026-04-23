@@ -31,7 +31,12 @@ interface SerialAssignment {
 
 interface Allocation {
   id: string; amount: number
-  payment: { paymentDate: string; method: string; reference?: string }
+  payment: { id: string; paymentDate: string; method: string; reference?: string }
+}
+
+interface CreditMemoAllocation {
+  id: string; amount: number; createdAt: string
+  creditMemo: { id: string; memoNumber: string }
 }
 
 interface Address { addressLine1: string; addressLine2?: string; city: string; state: string; postalCode: string }
@@ -42,6 +47,7 @@ interface Order {
   customer: { id: string; companyName: string; paymentTerms: string }
   items: OrderItem[]
   allocations: Allocation[]
+  creditMemoAllocations: CreditMemoAllocation[]
   serialAssignments?: SerialAssignment[]
   shippingAddress: Address | null
   billingAddress:  Address | null
@@ -421,6 +427,36 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
               <span>{fmt(Number(order.balance))}</span>
             </div>
           </div>
+
+          {/* Payments & Credits Applied */}
+          {(order.allocations.length > 0 || order.creditMemoAllocations.length > 0) && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5 text-sm space-y-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase">Payments & Credits Applied</p>
+              <div className="space-y-2">
+                {order.allocations.map((alloc) => (
+                  <div key={alloc.id} className="flex items-center justify-between">
+                    <div className="min-w-0">
+                      <Link href={`/wholesale/payments/${alloc.payment.id}`} className="text-xs text-orange-600 hover:text-orange-700 font-medium">
+                        {new Date(alloc.payment.paymentDate).toLocaleDateString()} — {alloc.payment.method.replace('_', ' ')}
+                      </Link>
+                    </div>
+                    <span className="text-xs font-medium text-green-600 ml-2 shrink-0">{fmt(Number(alloc.amount))}</span>
+                  </div>
+                ))}
+                {order.creditMemoAllocations.map((alloc) => (
+                  <div key={alloc.id} className="flex items-center justify-between">
+                    <div className="min-w-0">
+                      <Link href={`/wholesale/credit-memo/${alloc.creditMemo.id}`} className="text-xs text-orange-600 hover:text-orange-700 font-medium">
+                        {alloc.creditMemo.memoNumber}
+                      </Link>
+                      <span className="text-xs text-gray-400 ml-1">Credit</span>
+                    </div>
+                    <span className="text-xs font-medium text-green-600 ml-2 shrink-0">{fmt(Number(alloc.amount))}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
         </div>
       </div>
