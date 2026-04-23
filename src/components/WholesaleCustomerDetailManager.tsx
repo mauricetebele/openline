@@ -32,6 +32,10 @@ interface Customer {
   salesOrders: { id: string; orderNumber: string; orderDate: string; total: number; balance: number; status: string; dueDate?: string }[]
 }
 
+function fmtUSD(n: number) {
+  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 function generateStatementPDF(customer: Customer, lines: StatementLine[], openBalance: number) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const w = doc.internal.pageSize.getWidth()
@@ -45,7 +49,7 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
   doc.text(`Customer: ${customer.companyName}`, 40, 70)
   if (customer.contactName) doc.text(`Contact: ${customer.contactName}`, 40, 85)
   doc.text(`Date: ${new Date().toLocaleDateString()}`, w - 40, 70, { align: 'right' })
-  doc.text(`Open Balance: $${openBalance.toFixed(2)}`, w - 40, 85, { align: 'right' })
+  doc.text(`Open Balance: ${fmtUSD(openBalance)}`, w - 40, 85, { align: 'right' })
 
   // Table header
   let y = 115
@@ -70,9 +74,9 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
     doc.text(typeLabel[line.type] ?? line.type, 120, y)
     doc.text(line.reference.substring(0, 20), 210, y)
     doc.text(line.invoiceNumber ?? '', 300, y)
-    doc.text(line.charges > 0 ? `$${line.charges.toFixed(2)}` : '', 400, y, { align: 'right' })
-    doc.text(line.credits > 0 ? `$${line.credits.toFixed(2)}` : '', 475, y, { align: 'right' })
-    doc.text(`$${Number(line.balance).toFixed(2)}`, w - 45, y, { align: 'right' })
+    doc.text(line.charges > 0 ? fmtUSD(line.charges) : '', 400, y, { align: 'right' })
+    doc.text(line.credits > 0 ? fmtUSD(line.credits) : '', 475, y, { align: 'right' })
+    doc.text(fmtUSD(line.balance), w - 45, y, { align: 'right' })
     y += 16
   }
 
@@ -81,7 +85,7 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
   doc.line(40, y, w - 40, y)
   y += 14
   doc.setFont('helvetica', 'bold')
-  doc.text(`Total Balance Due: $${openBalance.toFixed(2)}`, w - 40, y, { align: 'right' })
+  doc.text(`Total Balance Due: ${fmtUSD(openBalance)}`, w - 40, y, { align: 'right' })
 
   doc.save(`Statement-${customer.companyName.replace(/\s+/g, '-')}.pdf`)
 }
