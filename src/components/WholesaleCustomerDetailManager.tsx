@@ -171,9 +171,10 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
     doc.setFont('helvetica', 'bold')
     doc.text(fmtUSD(line.balance), right - 8, y, { align: 'right' })
     doc.setFont('helvetica', 'normal')
-    y += 16
+    y += 6
     doc.setDrawColor(...gray200); doc.setLineWidth(0.3)
-    doc.line(margin, y - 4, right, y - 4)
+    doc.line(margin, y, right, y)
+    y += 14
   }
 
   // Total
