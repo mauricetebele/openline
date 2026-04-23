@@ -154,7 +154,7 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
   doc.text('CHARGES', right - 190, y, { align: 'right' })
   doc.text('CREDITS', right - 125, y, { align: 'right' })
   doc.text('APPLIED', right - 62, y, { align: 'right' })
-  doc.text(isOpen ? 'REMAINING' : 'BALANCE', right - 8, y, { align: 'right' })
+  doc.text('BALANCE', right - 8, y, { align: 'right' })
   y += 18
 
   const typeLabel: Record<string, string> = { INVOICE: 'Invoice', PAYMENT: 'Payment', CREDIT_MEMO: 'Credit Memo' }
@@ -482,7 +482,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                       <th className="text-right px-5 py-3">Charges</th>
                       <th className="text-right px-5 py-3">Credits</th>
                       <th className="text-right px-5 py-3">Applied</th>
-                      <th className="text-right px-5 py-3">{tab === 'open' ? 'Remaining' : 'Balance'}</th>
+                      <th className="text-right px-5 py-3">Balance</th>
                       <th className="px-3 py-3 w-10"></th>
                     </tr>
                   </thead>
