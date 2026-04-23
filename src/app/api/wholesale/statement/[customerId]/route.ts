@@ -29,6 +29,7 @@ export async function GET(
     }),
     prisma.wholesaleCreditMemo.findMany({
       where: { customerId: params.customerId },
+      include: { rma: { select: { rmaNumber: true } } },
       orderBy: { createdAt: 'asc' },
     }),
   ])
@@ -75,8 +76,8 @@ export async function GET(
       line: {
         date:           cm.createdAt,
         type:           'CREDIT_MEMO' as const,
-        reference:      cm.memoNumber,
-        invoiceNumber:  null,
+        reference:      cm.rma?.rmaNumber ?? '',
+        invoiceNumber:  cm.memoNumber,
         charges:        0,
         credits:        Number(cm.total),
       },

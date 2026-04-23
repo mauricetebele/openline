@@ -145,7 +145,7 @@ function generateStatementPDF(customer: Customer, lines: StatementLine[], openBa
   doc.text('DATE', margin + 8, y)
   doc.text('TYPE', margin + 80, y)
   doc.text('REFERENCE', margin + 160, y)
-  doc.text('INVOICE #', margin + 260, y)
+  doc.text('DOCUMENT #', margin + 260, y)
   doc.text('CHARGES', right - 130, y, { align: 'right' })
   doc.text('CREDITS', right - 60, y, { align: 'right' })
   doc.text('BALANCE', right - 8, y, { align: 'right' })
@@ -437,7 +437,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                     <th className="text-left px-5 py-3">Date</th>
                     <th className="text-left px-5 py-3">Type</th>
                     <th className="text-left px-5 py-3">Reference</th>
-                    <th className="text-left px-5 py-3">Invoice #</th>
+                    <th className="text-left px-5 py-3">Document #</th>
                     <th className="text-right px-5 py-3">Charges</th>
                     <th className="text-right px-5 py-3">Credits</th>
                     <th className="text-right px-5 py-3">Balance</th>
