@@ -2,7 +2,9 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Search, X } from 'lucide-react'
+import { FileText, Plus, Search, X } from 'lucide-react'
+import { toast } from 'sonner'
+import { generatePaymentReceiptPDF } from '@/lib/generate-payment-receipt'
 import ReceivePaymentModal from './ReceivePaymentModal'
 
 interface Payment {
@@ -34,6 +36,17 @@ export default function PaymentListView() {
   useEffect(() => { loadPayments() }, [])
 
   const fmt = (n: number) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+
+  async function downloadReceipt(e: React.MouseEvent, paymentId: string) {
+    e.stopPropagation()
+    try {
+      const res = await fetch(`/api/wholesale/payments/${paymentId}`)
+      if (!res.ok) throw new Error()
+      generatePaymentReceiptPDF(await res.json())
+    } catch {
+      toast.error('Failed to generate receipt')
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!search.trim()) return payments
@@ -99,6 +112,7 @@ export default function PaymentListView() {
                   <th className="text-right px-5 py-3">Amount</th>
                   <th className="text-left px-5 py-3">Payment Method</th>
                   <th className="text-left px-5 py-3">Memo</th>
+                  <th className="px-3 py-3 w-10"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -126,6 +140,15 @@ export default function PaymentListView() {
                     <td className="px-5 py-3 text-right font-medium">{fmt(Number(p.amount))}</td>
                     <td className="px-5 py-3">{p.method.replace('_', ' ')}</td>
                     <td className="px-5 py-3 text-gray-500 truncate max-w-[200px]">{p.memo || '—'}</td>
+                    <td className="px-3 py-3">
+                      <button
+                        onClick={(e) => downloadReceipt(e, p.id)}
+                        title="Download Receipt"
+                        className="text-gray-400 hover:text-orange-600"
+                      >
+                        <FileText size={15} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
