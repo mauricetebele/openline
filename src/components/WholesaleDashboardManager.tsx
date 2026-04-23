@@ -141,62 +141,6 @@ export default function WholesaleDashboardManager() {
         ))}
       </div>
 
-      {/* Recent invoices */}
-      <div className="bg-white rounded-xl border border-gray-200">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900">Recent Open Invoices</h2>
-        </div>
-        {loading ? (
-          <div className="p-8 text-center text-gray-400 text-sm">Loading…</div>
-        ) : orders.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">No open invoices</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  <th className="text-left px-5 py-3">Order #</th>
-                  <th className="text-left px-5 py-3">Customer</th>
-                  <th className="text-right px-5 py-3">Total</th>
-                  <th className="text-right px-5 py-3">Balance</th>
-                  <th className="text-left px-5 py-3">Due</th>
-                  <th className="text-left px-5 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {orders.map((o) => (
-                  <tr
-                    key={o.id}
-                    onClick={() => router.push(`/wholesale/orders/${o.id}`)}
-                    className="hover:bg-gray-50 cursor-pointer"
-                  >
-                    <td className="px-5 py-3 font-mono text-orange-600">{o.orderNumber}</td>
-                    <td className="px-5 py-3">
-                      <Link
-                        href={`/wholesale/customers/${o.customer.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="hover:text-orange-600"
-                      >
-                        {o.customer.companyName}
-                      </Link>
-                    </td>
-                    <td className="px-5 py-3 text-right">{fmt(Number(o.total))}</td>
-                    <td className="px-5 py-3 text-right font-semibold">{fmt(Number(o.balance))}</td>
-                    <td className="px-5 py-3 text-gray-500">
-                      {o.dueDate ? new Date(o.dueDate).toLocaleDateString() : '—'}
-                    </td>
-                    <td className="px-5 py-3">
-                      <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${SO_STATUS_COLOR[o.status] ?? ''}`}>
-                        {o.status.replace('_', ' ')}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
 
       {showPaymentModal && (
         <ReceivePaymentModal

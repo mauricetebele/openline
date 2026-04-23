@@ -125,10 +125,16 @@ const NAV: NavItem[] = [
       { href: '/audit',              label: 'Audit Log',          icon: ClipboardList },
     ],
   },
-  { divider: true, label: 'Wholesale' },
-  { href: '/wholesale',         label: 'Wholesale',    icon: Store },
-  { href: '/wholesale/orders',  label: 'WS Orders',    icon: FileText },
-  { href: '/wholesale/aging',   label: 'Aging Report', icon: BarChart2 },
+  {
+    group: true,
+    label: 'Wholesale',
+    icon: Store,
+    children: [
+      { href: '/wholesale/customers', label: 'Customers',     icon: Users },
+      { href: '/wholesale/aging',     label: 'Aging Summary',  icon: BarChart2 },
+      { href: '/wholesale/orders',    label: 'Orders',         icon: FileText },
+    ],
+  },
 ]
 
 // ─── Dropdown group item ───────────────────────────────────────────────────────
@@ -291,7 +297,6 @@ export default function TopNav() {
 
   function isActive(href: string) {
     const path = href.split('?')[0]  // strip query string for active check
-    if (path === '/wholesale') return pathname === '/wholesale'
     return pathname.startsWith(path)
   }
 
