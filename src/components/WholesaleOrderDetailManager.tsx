@@ -15,7 +15,6 @@ const SO_STATUS_COLOR: Record<string, string> = {
   PAID: 'bg-green-100 text-green-700',
 }
 
-const PAYMENT_METHODS = ['CHECK', 'ACH', 'WIRE', 'CREDIT_CARD', 'CASH', 'OTHER']
 
 interface OrderItem {
   id: string; productId?: string; sku?: string; title: string; description?: string
@@ -59,11 +58,6 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
   const [transitioning, setTransitioning] = useState(false)
-  const [showPaymentModal, setShowPaymentModal] = useState(false)
-  const [payForm, setPayForm] = useState({
-    amount: '', method: 'CHECK', reference: '', memo: '',
-  })
-  const [paymentSaving, setPaymentSaving] = useState(false)
   const [showProcessModal, setShowProcessModal] = useState(false)
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
   const [trackingStatus, setTrackingStatus] = useState<{
@@ -131,32 +125,6 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
       router.push('/wholesale/orders')
     } finally {
       setDeleting(false)
-    }
-  }
-
-  async function recordPayment() {
-    if (!payForm.amount || Number(payForm.amount) <= 0) { toast.error('Enter amount'); return }
-    setPaymentSaving(true)
-    try {
-      const res = await fetch('/api/wholesale/payments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId: order!.customer.id,
-          amount: Number(payForm.amount),
-          method: payForm.method,
-          reference: payForm.reference,
-          memo: payForm.memo,
-          allocations: [{ orderId: id, amount: Number(payForm.amount) }],
-        }),
-      })
-      if (!res.ok) { const e = await res.json(); toast.error(e.error ?? 'Failed'); return }
-      toast.success('Payment recorded')
-      setShowPaymentModal(false)
-      setPayForm({ amount: '', method: 'CHECK', reference: '', memo: '' })
-      load()
-    } finally {
-      setPaymentSaving(false)
     }
   }
 
@@ -245,16 +213,10 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
             </>
           )}
           {(order.status === 'INVOICED' || order.status === 'PARTIALLY_PAID') && (
-            <>
-              <button onClick={() => setShowPaymentModal(true)}
-                className="px-3 py-1.5 bg-green-500 text-white rounded text-xs font-medium hover:bg-green-600">
-                Record Payment
-              </button>
-              <button onClick={() => generateInvoicePDF(order)}
-                className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50">
-                Print Invoice
-              </button>
-            </>
+            <button onClick={() => generateInvoicePDF(order)}
+              className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-50">
+              Print Invoice
+            </button>
           )}
           {order.status === 'PAID' && (
             <button onClick={() => generateInvoicePDF(order)}
@@ -460,94 +422,12 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
             </div>
           </div>
 
-          {/* Payment history */}
-          {order.allocations.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <p className="text-xs font-semibold text-gray-400 uppercase mb-3">Payment History</p>
-              <div className="space-y-2 text-sm">
-                {order.allocations.map((alloc) => (
-                  <div key={alloc.id} className="flex justify-between items-center">
-                    <div>
-                      <p className="font-medium">{alloc.payment.method}</p>
-                      <p className="text-xs text-gray-400">{new Date(alloc.payment.paymentDate).toLocaleDateString()}</p>
-                      {alloc.payment.reference && <p className="text-xs text-gray-400">Ref: {alloc.payment.reference}</p>}
-                    </div>
-                    <span className="text-green-600 font-semibold">{fmt(Number(alloc.amount))}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Payment modal */}
       {/* Process to Fulfillment modal */}
       {showProcessModal && <ProcessModal orderId={order.id} orderNumber={order.orderNumber} onClose={() => setShowProcessModal(false)} onProcessed={() => { setShowProcessModal(false); load() }} />}
       {showInvoiceModal && <CreateInvoiceModal order={order} onClose={() => setShowInvoiceModal(false)} onCreated={() => { setShowInvoiceModal(false); load() }} />}
-
-      {showPaymentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowPaymentModal(false)} />
-          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
-            <h3 className="font-semibold text-gray-900">Record Payment</h3>
-            <p className="text-sm text-gray-500">Balance due: <strong>{fmt(Number(order.balance))}</strong></p>
-
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Amount *</label>
-              <input
-                type="number" min="0" step="0.01"
-                value={payForm.amount}
-                onChange={(e) => setPayForm((f) => ({ ...f, amount: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Method</label>
-              <select
-                value={payForm.method}
-                onChange={(e) => setPayForm((f) => ({ ...f, method: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              >
-                {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Reference #</label>
-              <input
-                type="text"
-                value={payForm.reference}
-                onChange={(e) => setPayForm((f) => ({ ...f, reference: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Memo</label>
-              <input
-                type="text"
-                value={payForm.memo}
-                onChange={(e) => setPayForm((f) => ({ ...f, memo: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              />
-            </div>
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={recordPayment}
-                disabled={paymentSaving}
-                className="flex-1 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 disabled:opacity-50"
-              >
-                {paymentSaving ? 'Saving…' : 'Record Payment'}
-              </button>
-              <button
-                onClick={() => setShowPaymentModal(false)}
-                className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
