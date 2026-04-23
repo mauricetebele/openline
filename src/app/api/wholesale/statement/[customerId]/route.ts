@@ -43,6 +43,7 @@ export async function GET(
     charges: number
     credits: number
     balance: number
+    paymentId?: string
   }
 
   const lines: StatementLine[] = []
@@ -65,10 +66,11 @@ export async function GET(
       line: {
         date:           p.paymentDate,
         type:           'PAYMENT' as const,
-        reference:      p.paymentNumber || p.reference || p.id.slice(-6).toUpperCase(),
-        invoiceNumber:  null,
+        reference:      p.reference || '',
+        invoiceNumber:  p.paymentNumber || null,
         charges:        0,
         credits:        Number(p.amount),
+        paymentId:      p.id,
       },
     })),
     ...creditMemos.map((cm) => ({

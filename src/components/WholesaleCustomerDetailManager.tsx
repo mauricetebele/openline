@@ -6,6 +6,7 @@ import jsPDF from 'jspdf'
 import { Download } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generate-wholesale-invoice'
 import { generateCreditMemoPDF } from '@/lib/generate-credit-memo-pdf'
+import { generatePaymentReceiptPDF } from '@/lib/generate-payment-receipt'
 
 const SO_STATUS_COLOR: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
@@ -23,6 +24,7 @@ interface StatementLine {
   charges: number
   credits: number
   balance: number
+  paymentId?: string
 }
 
 interface Customer {
@@ -303,6 +305,19 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
     }
   }
 
+  async function downloadPaymentReceipt(paymentId: string) {
+    setDownloading(paymentId)
+    try {
+      const res = await fetch(`/api/wholesale/payments/${paymentId}`)
+      if (!res.ok) { toast.error('Failed to load payment'); return }
+      generatePaymentReceiptPDF(await res.json())
+    } catch {
+      toast.error('Failed to generate payment receipt')
+    } finally {
+      setDownloading(null)
+    }
+  }
+
   const fmt = (n: number) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
   if (loading) return <div className="p-8 text-center text-gray-400 text-sm">Loading…</div>
@@ -461,24 +476,31 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                       <td className="px-5 py-2.5 text-right text-green-600">{line.credits > 0 ? fmt(line.credits) : ''}</td>
                       <td className="px-5 py-2.5 text-right font-semibold">{fmt(Number(line.balance))}</td>
                       <td className="px-3 py-2.5 text-center">
-                        {(line.type === 'INVOICE' || line.type === 'CREDIT_MEMO') && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (line.type === 'INVOICE') downloadInvoicePDF(line.reference)
-                              else downloadCreditMemoPDF(line.reference)
-                            }}
-                            disabled={downloading === line.reference}
-                            className="text-gray-400 hover:text-gray-700 disabled:opacity-40"
-                            title={line.type === 'INVOICE' ? 'Download Invoice PDF' : 'Download Credit Memo PDF'}
-                          >
-                            {downloading === line.reference ? (
-                              <span className="text-xs">...</span>
-                            ) : (
-                              <Download size={14} />
-                            )}
-                          </button>
-                        )}
+                        {(() => {
+                          const key = line.type === 'PAYMENT' ? line.paymentId : line.reference
+                          const title = line.type === 'INVOICE' ? 'Download Invoice PDF'
+                            : line.type === 'CREDIT_MEMO' ? 'Download Credit Memo PDF'
+                            : 'Download Payment Receipt'
+                          return key ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (line.type === 'INVOICE') downloadInvoicePDF(line.reference)
+                                else if (line.type === 'CREDIT_MEMO') downloadCreditMemoPDF(line.invoiceNumber ?? line.reference)
+                                else if (line.paymentId) downloadPaymentReceipt(line.paymentId)
+                              }}
+                              disabled={downloading === key}
+                              className="text-gray-400 hover:text-gray-700 disabled:opacity-40"
+                              title={title}
+                            >
+                              {downloading === key ? (
+                                <span className="text-xs">...</span>
+                              ) : (
+                                <Download size={14} />
+                              )}
+                            </button>
+                          ) : null
+                        })()}
                       </td>
                     </tr>
                   ))}
