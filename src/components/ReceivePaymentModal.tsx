@@ -22,6 +22,7 @@ const PAYMENT_METHODS = [
   { value: 'WIRE', label: 'Wire' },
   { value: 'CREDIT_CARD', label: 'Credit Card' },
   { value: 'CASH', label: 'Cash' },
+  { value: 'ZELLE', label: 'Zelle' },
   { value: 'OTHER', label: 'Other' },
 ]
 
