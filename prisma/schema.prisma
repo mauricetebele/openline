@@ -1417,6 +1417,7 @@ enum PaymentMethod {
   WIRE
   CREDIT_CARD
   CASH
+  ZELLE
   OTHER
 }
 
