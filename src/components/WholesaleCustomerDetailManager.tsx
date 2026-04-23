@@ -23,6 +23,8 @@ interface StatementLine {
   invoiceNumber: string | null
   charges: number
   credits: number
+  applied: number
+  remaining: number
   balance: number
   paymentId?: string
 }
@@ -474,12 +476,15 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                       <th className="text-left px-5 py-3">Document #</th>
                       <th className="text-right px-5 py-3">Charges</th>
                       <th className="text-right px-5 py-3">Credits</th>
-                      <th className="text-right px-5 py-3">Balance</th>
+                      <th className="text-right px-5 py-3">Applied</th>
+                      <th className="text-right px-5 py-3">{tab === 'open' ? 'Remaining' : 'Balance'}</th>
                       <th className="px-3 py-3 w-10"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {currentData.lines.map((line, i) => (
+                    {currentData.lines.map((line, i) => {
+                      const balanceVal = tab === 'open' ? Number(line.remaining) : Number(line.balance)
+                      return (
                       <tr key={i} className={line.type === 'PAYMENT' ? 'bg-green-50/30' : line.type === 'CREDIT_MEMO' ? 'bg-purple-50/30' : ''}>
                         <td className="px-5 py-2.5 text-gray-500">{new Date(line.date).toLocaleDateString()}</td>
                         <td className="px-5 py-2.5">
@@ -493,7 +498,8 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                         <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.invoiceNumber ?? ''}</td>
                         <td className="px-5 py-2.5 text-right">{line.charges > 0 ? fmt(line.charges) : ''}</td>
                         <td className="px-5 py-2.5 text-right text-green-600">{line.credits > 0 ? fmt(line.credits) : ''}</td>
-                        <td className="px-5 py-2.5 text-right font-semibold">{fmt(Number(line.balance))}</td>
+                        <td className="px-5 py-2.5 text-right text-gray-500">{Number(line.applied) > 0 ? fmt(Number(line.applied)) : ''}</td>
+                        <td className="px-5 py-2.5 text-right font-semibold">{fmt(balanceVal)}</td>
                         <td className="px-3 py-2.5 text-center">
                           {(() => {
                             const key = line.type === 'PAYMENT' ? line.paymentId : line.reference
@@ -522,7 +528,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                           })()}
                         </td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>
