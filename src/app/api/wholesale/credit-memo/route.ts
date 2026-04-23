@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     }
     const memoNumber = `CM-${String(nextNum).padStart(4, '0')}`
 
-    // Create credit memo
+    // Create credit memo (unapplied — manual allocation via Apply Credit modal)
     const cm = await tx.wholesaleCreditMemo.create({
       data: {
         memoNumber,
@@ -81,51 +81,11 @@ export async function POST(req: NextRequest) {
         restockingFee: fee,
         restockingReason: fee > 0 ? restockingReason?.trim() : null,
         total,
+        status: 'UNAPPLIED',
+        unallocated: total,
         notes: notes?.trim() || null,
       },
     })
-
-    // FIFO-allocate credit to oldest unpaid invoices
-    let remaining = total
-    const openOrders = await tx.salesOrder.findMany({
-      where: {
-        customerId: rma.customerId,
-        status: { in: ['INVOICED', 'PARTIALLY_PAID'] },
-        balance: { gt: 0 },
-      },
-      orderBy: { dueDate: 'asc' },
-    })
-
-    for (const order of openOrders) {
-      if (remaining <= 0) break
-      const orderBalance = Number(order.balance)
-      const allocAmt = Math.min(orderBalance, remaining)
-
-      await tx.creditMemoAllocation.create({
-        data: { creditMemoId: cm.id, orderId: order.id, amount: allocAmt },
-      })
-
-      const newPaid = Number(order.paidAmount) + allocAmt
-      const newBalance = Number(order.total) - newPaid
-      let newStatus: string = order.status
-
-      if (newBalance <= 0.005) {
-        newStatus = 'PAID'
-      } else if (newPaid > 0) {
-        newStatus = 'PARTIALLY_PAID'
-      }
-
-      await tx.salesOrder.update({
-        where: { id: order.id },
-        data: {
-          paidAmount: newPaid,
-          balance: Math.max(0, newBalance),
-          status: newStatus as never,
-        },
-      })
-
-      remaining -= allocAmt
-    }
 
     // Update RMA status to REFUNDED and set creditAmount
     await tx.customerRMA.update({

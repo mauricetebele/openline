@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ReceivePaymentModal from './ReceivePaymentModal'
+import ApplyCreditModal from './ApplyCreditModal'
 
 const SO_STATUS_COLOR: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
@@ -27,6 +28,7 @@ export default function WholesaleDashboardManager() {
   const [orders, setOrders] = useState<RecentOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [showCreditModal, setShowCreditModal] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [stats, setStats] = useState({
     totalAR: 0,
@@ -91,6 +93,12 @@ export default function WholesaleDashboardManager() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Wholesale Dashboard</h1>
         <div className="flex gap-2">
+          <button
+            onClick={() => setShowCreditModal(true)}
+            className="px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 transition-colors"
+          >
+            Apply Credit
+          </button>
           <button
             onClick={() => setShowPaymentModal(true)}
             className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
@@ -193,6 +201,13 @@ export default function WholesaleDashboardManager() {
       {showPaymentModal && (
         <ReceivePaymentModal
           onClose={() => setShowPaymentModal(false)}
+          onSuccess={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {showCreditModal && (
+        <ApplyCreditModal
+          onClose={() => setShowCreditModal(false)}
           onSuccess={() => setRefreshKey((k) => k + 1)}
         />
       )}
