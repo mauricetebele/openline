@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
       for (const alloc of allocations) {
         const allocAmt = Number(alloc.amount)
         if (allocAmt <= 0) continue
-        if (allocAmt > remaining) {
+        if (allocAmt > remaining + 0.005) {
           throw new Error('Allocation amount exceeds payment amount')
         }
         allocationRecords.push({ orderId: alloc.orderId, allocatedAmt: allocAmt })
