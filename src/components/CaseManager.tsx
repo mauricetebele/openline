@@ -84,6 +84,44 @@ function AvatarInitial({ name }: { name: string }) {
   )
 }
 
+// Parse @[Name](userId) mentions in message body and render as highlighted spans
+const MENTION_RE = /@\[([^\]]+)\]\(([^)]+)\)/g
+
+function renderMessageBody(body: string) {
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  const re = new RegExp(MENTION_RE.source, 'g')
+  while ((match = re.exec(body)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(body.slice(lastIndex, match.index))
+    }
+    const name = match[1]
+    parts.push(
+      <span key={match.index} className="inline-flex items-center px-1 py-0.5 rounded bg-amazon-blue/10 text-amazon-blue dark:bg-amazon-blue/20 dark:text-blue-300 font-semibold text-[13px]">
+        @{name}
+      </span>,
+    )
+    lastIndex = re.lastIndex
+  }
+  if (lastIndex < body.length) {
+    parts.push(body.slice(lastIndex))
+  }
+  return parts.length > 0 ? parts : body
+}
+
+// Extract mentioned user IDs from the compose text
+function extractMentionedUserIds(text: string): string[] {
+  const ids: string[] = []
+  let match: RegExpExecArray | null
+  const re = new RegExp(MENTION_RE.source, 'g')
+  while ((match = re.exec(text)) !== null) {
+    ids.push(match[2])
+  }
+  return ids
+}
+
 const STATUS_BADGE = {
   UNRESOLVED: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   RESOLVED: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
@@ -363,8 +401,31 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
   const [showAddUsers, setShowAddUsers] = useState(false)
   const [addingUsers, setAddingUsers] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
+  const composeRef = useRef<HTMLTextAreaElement>(null)
+
+  // @mention autocomplete state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionStart, setMentionStart] = useState(0) // cursor position of the '@'
+  const [mentionIdx, setMentionIdx] = useState(0) // keyboard highlight index
 
   const isCreator = caseDetail.createdBy.id === currentUserId
+
+  // Build mentionable users list: tagged users + creator (exclude self)
+  const mentionableUsers: { id: string; name: string }[] = []
+  const seen = new Set<string>()
+  for (const tu of caseDetail.taggedUsers) {
+    if (tu.userId !== currentUserId && !seen.has(tu.userId)) {
+      seen.add(tu.userId)
+      mentionableUsers.push({ id: tu.userId, name: tu.user.name })
+    }
+  }
+  if (caseDetail.createdBy.id !== currentUserId && !seen.has(caseDetail.createdBy.id)) {
+    mentionableUsers.push({ id: caseDetail.createdBy.id, name: caseDetail.createdBy.name })
+  }
+
+  const filteredMentions = mentionQuery !== null
+    ? mentionableUsers.filter(u => u.name.toLowerCase().startsWith(mentionQuery.toLowerCase()))
+    : []
 
   useEffect(() => {
     if (threadRef.current) {
@@ -372,14 +433,56 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
     }
   }, [caseDetail.messages])
 
+  function insertMention(user: { id: string; name: string }) {
+    const before = compose.slice(0, mentionStart)
+    const after = compose.slice(composeRef.current?.selectionStart ?? compose.length)
+    const mention = `@[${user.name}](${user.id}) `
+    const newText = before + mention + after
+    setCompose(newText)
+    setMentionQuery(null)
+    // Restore cursor after mention
+    requestAnimationFrame(() => {
+      const pos = before.length + mention.length
+      composeRef.current?.setSelectionRange(pos, pos)
+      composeRef.current?.focus()
+    })
+  }
+
+  function handleComposeChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value
+    setCompose(val)
+
+    const cursor = e.target.selectionStart ?? val.length
+    // Walk backward from cursor to find an unmatched '@'
+    let atPos = -1
+    for (let i = cursor - 1; i >= 0; i--) {
+      if (val[i] === '@') { atPos = i; break }
+      if (val[i] === ' ' || val[i] === '\n') break
+    }
+
+    if (atPos >= 0 && (atPos === 0 || val[atPos - 1] === ' ' || val[atPos - 1] === '\n')) {
+      const query = val.slice(atPos + 1, cursor)
+      // Don't show dropdown if they already completed a mention (contains '[')
+      if (!query.includes('[')) {
+        setMentionQuery(query)
+        setMentionStart(atPos)
+        setMentionIdx(0)
+        return
+      }
+    }
+    setMentionQuery(null)
+  }
+
   async function handleSendMessage() {
     if (!compose.trim()) return
     setSendingMsg(true)
+    setMentionQuery(null)
     try {
+      const mentionedUserIds = extractMentionedUserIds(compose.trim())
       const res = await fetch(`/api/cases/${caseDetail.id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: compose.trim() }),
+        body: JSON.stringify({ body: compose.trim(), mentionedUserIds }),
       })
       if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed'); return }
       const newMsg: CaseMessageItem = await res.json()
@@ -395,6 +498,29 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
   }
 
   function handleComposeKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // If mention dropdown is open, handle arrow keys / Enter / Escape
+    if (mentionQuery !== null && filteredMentions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIdx(prev => Math.min(prev + 1, filteredMentions.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIdx(prev => Math.max(prev - 1, 0))
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        insertMention(filteredMentions[mentionIdx])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMentionQuery(null)
+        return
+      }
+    }
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       handleSendMessage()
@@ -538,31 +664,59 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
               {caseDetail.messages.length === 0 && (
                 <p className="text-sm text-gray-400 dark:text-gray-500 italic">No messages yet.</p>
               )}
-              {caseDetail.messages.map(m => (
-                <div key={m.id} className="flex gap-3">
-                  <AvatarInitial name={m.author.name} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-2 flex-wrap">
-                      <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">{m.author.name}</span>
-                      <span className="text-[10px] text-gray-400 dark:text-gray-500">{relativeTime(m.createdAt)}</span>
+              {caseDetail.messages.map(m => {
+                const hasMentions = MENTION_RE.test(m.body)
+                return (
+                  <div key={m.id} className={clsx('flex gap-3', hasMentions && 'bg-red-50/60 dark:bg-red-900/10 -mx-2 px-2 py-1.5 rounded-lg border-l-2 border-red-400')}>
+                    <AvatarInitial name={m.author.name} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">{m.author.name}</span>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500">{relativeTime(m.createdAt)}</span>
+                        {hasMentions && (
+                          <span className="text-[10px] font-semibold text-red-500 dark:text-red-400">Attention Requested</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5 whitespace-pre-wrap break-words">{renderMessageBody(m.body)}</p>
                     </div>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5 whitespace-pre-wrap break-words">{m.body}</p>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             {/* Compose */}
-            <div className="border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
+            <div className="relative border border-gray-300 dark:border-gray-600 rounded-lg overflow-visible">
+              {/* @mention dropdown */}
+              {mentionQuery !== null && filteredMentions.length > 0 && (
+                <div className="absolute bottom-full left-0 mb-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl py-1 z-50 max-h-40 overflow-y-auto">
+                  {filteredMentions.map((u, i) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onMouseDown={e => { e.preventDefault(); insertMention(u) }}
+                      className={clsx(
+                        'flex items-center gap-2 w-full px-3 py-2 text-sm text-left transition-colors',
+                        i === mentionIdx
+                          ? 'bg-amazon-blue/10 text-amazon-blue dark:bg-amazon-blue/20 dark:text-blue-300'
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700',
+                      )}
+                    >
+                      <AvatarInitial name={u.name} />
+                      {u.name}
+                    </button>
+                  ))}
+                </div>
+              )}
               <textarea
+                ref={composeRef}
                 value={compose}
-                onChange={e => setCompose(e.target.value)}
+                onChange={handleComposeChange}
                 onKeyDown={handleComposeKeyDown}
                 rows={3}
-                placeholder="Write a message… (Cmd+Enter to send)"
-                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none resize-none"
+                placeholder="Write a message… Type @ to mention (Cmd+Enter to send)"
+                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none resize-none rounded-t-lg"
               />
-              <div className="flex justify-end px-3 py-2 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex justify-end px-3 py-2 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg">
                 <button
                   onClick={handleSendMessage}
                   disabled={sendingMsg || !compose.trim()}

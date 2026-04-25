@@ -39,6 +39,33 @@ export function sendCaseCreatedNotification(
   }
 }
 
+export function sendCaseAttentionNotification(
+  caseInfo: CaseInfo,
+  messageBody: string,
+  authorName: string,
+  recipients: Recipient[],
+) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://openlinemobility.vercel.app'
+  const caseUrl = `${baseUrl}/cases?id=${caseInfo.id}`
+  // Strip mention markup for the email body
+  const cleanBody = messageBody.replace(/@\[([^\]]+)\]\([^)]+\)/g, '@$1')
+
+  for (const r of recipients) {
+    resend.emails.send({
+      from: FROM,
+      to: r.email,
+      subject: `[Case #${caseInfo.caseNumber}] Your Attention is Needed`,
+      html: `
+        <p>Hi ${r.name},</p>
+        <p><strong>${authorName}</strong> requested your attention on <strong>Case #${caseInfo.caseNumber}: ${caseInfo.title}</strong>:</p>
+        <blockquote style="border-left:3px solid #dc2626;padding:8px 12px;margin:12px 0;color:#555;">${cleanBody.replace(/\n/g, '<br/>')}</blockquote>
+        <p><a href="${caseUrl}">View Case</a></p>
+        <p>— Open Line Mobility</p>
+      `,
+    }).catch(err => console.error(`[case-emails] Failed to send attention notification to ${r.email}:`, err))
+  }
+}
+
 export function sendCaseMessageNotification(
   caseInfo: CaseInfo,
   messageBody: string,

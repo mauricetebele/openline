@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { sendCaseMessageNotification } from '@/lib/case-emails'
+import { sendCaseMessageNotification, sendCaseAttentionNotification } from '@/lib/case-emails'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,7 +29,10 @@ export async function POST(
   }
 
   const body = await req.json()
-  const { body: messageBody } = body as { body?: string }
+  const { body: messageBody, mentionedUserIds } = body as {
+    body?: string
+    mentionedUserIds?: string[]
+  }
 
   if (!messageBody?.trim()) {
     return NextResponse.json({ error: 'Message body is required' }, { status: 400 })
@@ -44,27 +47,32 @@ export async function POST(
     include: { author: { select: { id: true, name: true } } },
   })
 
-  // Send email notifications fire-and-forget (exclude author)
-  const recipients = c.taggedUsers
+  // Build recipient lists: mentioned users get attention email, others get regular
+  const mentionedSet = new Set(mentionedUserIds ?? [])
+  const allRecipients = c.taggedUsers
     .filter(tu => tu.userId !== user.dbId)
-    .map(tu => ({ email: tu.user.email, name: tu.user.name }))
+    .map(tu => ({ userId: tu.userId, email: tu.user.email, name: tu.user.name }))
 
-  // Also notify creator if they're not the author and not already tagged
+  // Also include creator if they're not the author and not already tagged
   if (c.createdById !== user.dbId && !c.taggedUsers.some(tu => tu.userId === c.createdById)) {
     const creator = await prisma.user.findUnique({
       where: { id: c.createdById },
-      select: { email: true, name: true },
+      select: { id: true, email: true, name: true },
     })
-    if (creator) recipients.push({ email: creator.email, name: creator.name })
+    if (creator) allRecipients.push({ userId: creator.id, email: creator.email, name: creator.name })
   }
 
-  if (recipients.length > 0) {
-    sendCaseMessageNotification(
-      { id: c.id, caseNumber: c.caseNumber, title: c.title },
-      messageBody.trim(),
-      user.name,
-      recipients,
-    )
+  const caseInfo = { id: c.id, caseNumber: c.caseNumber, title: c.title }
+
+  // Mentioned users → attention email (in lieu of regular notification)
+  const attentionRecipients = allRecipients.filter(r => mentionedSet.has(r.userId))
+  const regularRecipients = allRecipients.filter(r => !mentionedSet.has(r.userId))
+
+  if (attentionRecipients.length > 0) {
+    sendCaseAttentionNotification(caseInfo, messageBody.trim(), user.name, attentionRecipients)
+  }
+  if (regularRecipients.length > 0) {
+    sendCaseMessageNotification(caseInfo, messageBody.trim(), user.name, regularRecipients)
   }
 
   return NextResponse.json(message, { status: 201 })
