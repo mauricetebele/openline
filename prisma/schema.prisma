@@ -942,6 +942,7 @@ model ProductGradeMarketplaceSku {
   sellerSku   String
   syncQty     Boolean       @default(false)
   maxQty      Int?          // null = no cap; when set, pushed qty is min(available, maxQty)
+  isDefaultSku Boolean      @default(false) // true = receives the 1 unit when low-stock buffer applies
   isSynced    Boolean       @default(false) // true = came from marketplace sync
   fnsku       String?       // Fulfillment Network SKU (for FBA shipments)
   lastPushedQty Int?        // last quantity successfully pushed to marketplace

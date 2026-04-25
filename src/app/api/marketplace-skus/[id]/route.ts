@@ -14,11 +14,11 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { syncQty, maxQty } = body as { syncQty?: boolean; maxQty?: number | null }
+  const { syncQty, maxQty, isDefaultSku } = body as { syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean }
 
   // At least one field must be provided
-  if (typeof syncQty !== 'boolean' && maxQty === undefined) {
-    return NextResponse.json({ error: 'syncQty (boolean) or maxQty (number|null) is required' }, { status: 400 })
+  if (typeof syncQty !== 'boolean' && maxQty === undefined && typeof isDefaultSku !== 'boolean') {
+    return NextResponse.json({ error: 'syncQty, maxQty, or isDefaultSku is required' }, { status: 400 })
   }
 
   const msku = await prisma.productGradeMarketplaceSku.findUnique({
@@ -28,9 +28,23 @@ export async function PATCH(
     return NextResponse.json({ error: 'Marketplace SKU not found' }, { status: 404 })
   }
 
-  const data: { syncQty?: boolean; maxQty?: number | null } = {}
+  // When setting isDefaultSku=true, unset all other defaults in the same (productId, gradeId) group
+  if (isDefaultSku === true) {
+    await prisma.productGradeMarketplaceSku.updateMany({
+      where: {
+        productId: msku.productId,
+        gradeId: msku.gradeId ?? null,
+        id: { not: msku.id },
+        isDefaultSku: true,
+      },
+      data: { isDefaultSku: false },
+    })
+  }
+
+  const data: { syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean } = {}
   if (typeof syncQty === 'boolean') data.syncQty = syncQty
   if (maxQty !== undefined) data.maxQty = maxQty
+  if (typeof isDefaultSku === 'boolean') data.isDefaultSku = isDefaultSku
 
   const updated = await prisma.productGradeMarketplaceSku.update({
     where: { id: params.id },

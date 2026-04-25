@@ -30,6 +30,7 @@ interface MarketplaceSku {
   fnsku: string | null
   syncQty: boolean
   maxQty: number | null
+  isDefaultSku: boolean
   fulfillmentChannel: string | null
 }
 
@@ -70,6 +71,9 @@ interface QtyBreakdown {
   maxQty: number | null
   pushing: number
   lowStockBuffer: boolean
+  groupSize: number
+  splitPct: number
+  isDefaultSku: boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -348,13 +352,19 @@ function QtyBadge({ breakdown }: { breakdown: QtyBreakdown }) {
                 <span className="font-mono text-orange-300">{breakdown.maxQty}</span>
               </div>
             )}
+            {breakdown.groupSize > 1 && (
+              <div className="flex justify-between gap-4 border-t border-gray-700 mt-1 pt-1">
+                <span className="text-gray-300">Split</span>
+                <span className="font-mono text-purple-300">{breakdown.splitPct}% ({breakdown.groupSize} SKUs)</span>
+              </div>
+            )}
             {breakdown.lowStockBuffer && (
               <div className="flex justify-between gap-4">
                 <span className="text-gray-300">Low Stock Buffer</span>
-                <span className="font-mono text-orange-300">cap 1</span>
+                <span className="font-mono text-orange-300">{breakdown.isDefaultSku || breakdown.groupSize <= 1 ? 'cap 1' : '→ default SKU'}</span>
               </div>
             )}
-            {breakdown.pushing !== breakdown.available && (
+            {(breakdown.pushing !== breakdown.available || breakdown.groupSize > 1) && (
               <div className="flex justify-between gap-4 border-t border-gray-700 mt-1 pt-1">
                 <span className="text-gray-300">Pushing</span>
                 <span className="font-mono font-bold text-green-300">{breakdown.pushing}</span>
@@ -717,6 +727,28 @@ export default function MarketplaceSkuManager() {
         next.delete(id)
         return next
       })
+    }
+  }
+
+  async function handleSetDefaultSku(id: string, value: boolean) {
+    try {
+      await apiPatch(`/api/marketplace-skus/${id}`, { isDefaultSku: value })
+      // Update local state: when setting true, unset others in same group
+      setSkus(prev => {
+        const target = prev.find(s => s.id === id)
+        if (!target) return prev
+        return prev.map(s => {
+          if (s.id === id) return { ...s, isDefaultSku: value }
+          if (value && s.productId === target.productId && (s.gradeId ?? null) === (target.gradeId ?? null)) {
+            return { ...s, isDefaultSku: false }
+          }
+          return s
+        })
+      })
+      loadQtyBreakdown()
+      setToast(value ? 'Set as default SKU for this group' : 'Removed default SKU')
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to update default SKU')
     }
   }
 
@@ -1195,7 +1227,31 @@ export default function MarketplaceSkuManager() {
                       {s.fulfillmentChannel === 'FBA' ? (
                         <span className="text-[10px] text-gray-400">—</span>
                       ) : s.syncQty && qtyMap[s.id] ? (
-                        <QtyBadge breakdown={qtyMap[s.id]} />
+                        <div className="inline-flex items-center gap-1.5">
+                          <QtyBadge breakdown={qtyMap[s.id]} />
+                          {qtyMap[s.id].groupSize > 1 && (
+                            <span className="text-[10px] text-purple-500 font-medium whitespace-nowrap">
+                              {(() => {
+                                const group = filteredSkus.filter(sk => sk.productId === s.productId && (sk.gradeId ?? null) === (s.gradeId ?? null) && sk.syncQty)
+                                const idx = group.findIndex(sk => sk.id === s.id)
+                                return `${idx + 1}/${qtyMap[s.id].groupSize}`
+                              })()}
+                            </span>
+                          )}
+                          {qtyMap[s.id].groupSize > 1 && (
+                            <button
+                              type="button"
+                              title={s.isDefaultSku ? 'Default SKU (receives buffer qty)' : 'Set as default SKU'}
+                              onClick={() => handleSetDefaultSku(s.id, !s.isDefaultSku)}
+                              className={clsx(
+                                'text-[12px] transition-colors',
+                                s.isDefaultSku ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-400 opacity-0 group-hover:opacity-100',
+                              )}
+                            >
+                              ★
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-xs text-gray-300">—</span>
                       )}

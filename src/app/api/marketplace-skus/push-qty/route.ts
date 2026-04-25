@@ -53,7 +53,7 @@ function pgKey(productId: string, gradeId: string | null | undefined): string {
 
 // ─── Bulk quantity pre-computation ──────────────────────────────────────────
 
-interface BulkQuantities {
+export interface BulkQuantities {
   inventoryMap: Map<string, number>   // pgKey → on-hand qty
   pendingMap: Map<string, number>     // sellerSku → pending MFN order qty
   wholesaleMap: Map<string, number>   // pgKey → wholesale reserved qty
@@ -131,112 +131,76 @@ async function computeBulkQuantities(mskus: MskuWithRelations[]): Promise<BulkQu
   return { inventoryMap, pendingMap, wholesaleMap, listingQtyMap }
 }
 
-// ─── Pure quantity calculation (no DB calls) ────────────────────────────────
+// ─── Split qty evenly across a group of SKUs ─────────────────────────────────
 
-function calculateFinalQty(
-  msku: { productId: string; gradeId: string | null; marketplace: string; sellerSku: string; maxQty: number | null },
-  bulk: BulkQuantities,
-): number {
-  const key = pgKey(msku.productId, msku.gradeId)
-  const onHand = bulk.inventoryMap.get(key) ?? 0
-  const pendingQty = msku.marketplace === 'amazon' ? (bulk.pendingMap.get(msku.sellerSku) ?? 0) : 0
-  const wholesaleQty = bulk.wholesaleMap.get(key) ?? 0
-
-  const available = Math.max(0, onHand - pendingQty - wholesaleQty)
-  // Low-stock buffer: when available ≤3, push only 1 to prevent oversales during sync gap
-  const buffered = available <= 3 && available > 0 ? 1 : available
-  return msku.maxQty != null ? Math.min(buffered, msku.maxQty) : buffered
+export function splitQtyForGroup(available: number, count: number): number[] {
+  if (count === 0) return []
+  if (count === 1) return [available]
+  const base = Math.floor(available / count)
+  const remainder = available % count
+  return Array.from({ length: count }, (_, i) => base + (i < remainder ? 1 : 0))
 }
 
-// ─── Single MSKU push (per-SKU queries, used when toggling syncQty on) ──────
+// ─── Compute available qty for a product+grade group ─────────────────────────
 
-export async function pushOneQuantity(
-  msku: MskuWithRelations,
-  bmClient: BackMarketClient | null,
-  bmListingsCache: Map<string, number> | null,
-): Promise<PushResult> {
-  // 1. Get available inventory for this product + grade (only finished-goods locations)
-  const inventoryWhere: Record<string, unknown> = {
-    productId: msku.productId,
-    location: { isFinishedGoods: true },
-    gradeId: msku.gradeId ?? null,
+function computeGroupAvailable(
+  mskus: { productId: string; gradeId: string | null; marketplace: string; sellerSku: string }[],
+  bulk: BulkQuantities,
+): number {
+  const key = pgKey(mskus[0].productId, mskus[0].gradeId)
+  const onHand = bulk.inventoryMap.get(key) ?? 0
+  // Pending orders are per-sellerSku — sum across all SKUs in the group
+  const pendingQty = mskus.reduce((sum, m) => {
+    return sum + (m.marketplace === 'amazon' ? (bulk.pendingMap.get(m.sellerSku) ?? 0) : 0)
+  }, 0)
+  const wholesaleQty = bulk.wholesaleMap.get(key) ?? 0
+  return Math.max(0, onHand - pendingQty - wholesaleQty)
+}
+
+// ─── Compute per-MSKU quantities for a group (with split + buffer + maxQty) ──
+
+interface GroupMsku {
+  id: string
+  productId: string
+  gradeId: string | null
+  marketplace: string
+  sellerSku: string
+  maxQty: number | null
+  isDefaultSku: boolean
+  createdAt: Date
+}
+
+export function calculateGroupQuantities(
+  mskus: GroupMsku[],
+  bulk: BulkQuantities,
+): Map<string, number> {
+  const result = new Map<string, number>()
+  if (mskus.length === 0) return result
+
+  const available = computeGroupAvailable(mskus, bulk)
+
+  // Find the default SKU: explicit isDefaultSku flag, else earliest createdAt
+  const defaultIdx = mskus.findIndex(m => m.isDefaultSku)
+  const bufferIdx = defaultIdx >= 0 ? defaultIdx : mskus.reduce((best, m, i) =>
+    m.createdAt < mskus[best].createdAt ? i : best, 0)
+
+  // Group-level low-stock buffer: if available ≤3 && >0, push 1 to default SKU, 0 to rest
+  if (available > 0 && available <= 3) {
+    for (let i = 0; i < mskus.length; i++) {
+      const allocated = i === bufferIdx ? 1 : 0
+      const finalQty = mskus[i].maxQty != null ? Math.min(allocated, mskus[i].maxQty!) : allocated
+      result.set(mskus[i].id, finalQty)
+    }
+    return result
   }
 
-  const { _sum } = await prisma.inventoryItem.aggregate({
-    where: inventoryWhere as Parameters<typeof prisma.inventoryItem.aggregate>[0]['where'],
-    _sum: { qty: true },
-  })
-  const onHand = _sum.qty ?? 0
-
-  // 2. Subtract unprocessed Amazon MFN order quantities
-  let pendingQty = 0
-  if (msku.marketplace === 'amazon') {
-    const pendingItems = await prisma.orderItem.findMany({
-      where: {
-        sellerSku: msku.sellerSku,
-        order: {
-          fulfillmentChannel: 'MFN',
-          orderSource: 'amazon',
-          workflowStatus: 'PENDING',
-        },
-      },
-      select: { quantityOrdered: true, quantityShipped: true },
-    })
-    pendingQty = pendingItems.reduce(
-      (sum, item) => sum + (item.quantityOrdered - item.quantityShipped),
-      0,
-    )
+  // Even split
+  const allocations = splitQtyForGroup(available, mskus.length)
+  for (let i = 0; i < mskus.length; i++) {
+    const finalQty = mskus[i].maxQty != null ? Math.min(allocations[i], mskus[i].maxQty!) : allocations[i]
+    result.set(mskus[i].id, finalQty)
   }
-
-  // 3. Subtract wholesale soft-reserved qty (not yet shipped)
-  const wholesaleReserved = await prisma.salesOrderInventoryReservation.aggregate({
-    where: {
-      productId: msku.productId,
-      gradeId: msku.gradeId ?? null,
-      location: { isFinishedGoods: true },
-      salesOrder: { fulfillmentStatus: { in: ['PROCESSING'] } },
-    },
-    _sum: { qtyReserved: true },
-  })
-  const wholesaleQty = wholesaleReserved._sum.qtyReserved ?? 0
-
-  // 4. Calculate final available, applying maxQty cap and low-stock buffer
-  const available = Math.max(0, onHand - pendingQty - wholesaleQty)
-  const buffered = available <= 3 && available > 0 ? 1 : available
-  const finalQty = msku.maxQty != null ? Math.min(buffered, msku.maxQty) : buffered
-
-  // 5. Always push to marketplace — don't skip based on DB quantity.
-  //    The DB qty is optimistically mirrored after PATCH, but Amazon may not have
-  //    actually applied it (ACCEPTED is async). Always re-push to ensure correctness.
-
-  // 6. Push to marketplace
-  if (msku.marketplace === 'amazon') {
-    const accountId = msku.accountId
-    if (!accountId) {
-      const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
-      if (!account) throw new Error('No active Amazon account found')
-      await updateAmazonQty(account.id, msku.sellerSku, finalQty)
-    } else {
-      await updateAmazonQty(accountId, msku.sellerSku, finalQty)
-    }
-  } else if (msku.marketplace === 'backmarket') {
-    if (!bmClient || !bmListingsCache) {
-      throw new Error('No active Back Market credentials')
-    }
-    const listingId = bmListingsCache.get(msku.sellerSku)
-    if (!listingId) {
-      throw new Error(`BM listing not found for SKU ${msku.sellerSku}`)
-    }
-    await bmClient.updateListingQuantity(listingId, finalQty)
-  }
-
-  // 7. Save lastPushedQty on success
-  await prisma.productGradeMarketplaceSku.update({
-    where: { id: msku.id },
-    data: { lastPushedQty: finalQty, lastPushedAt: new Date() },
-  }).catch(() => {})
-
-  return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: finalQty }
+  return result
 }
 
 // ─── Back Market client init ────────────────────────────────────────────────
@@ -317,7 +281,23 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[] }> {
     console.log(`[push-qty] productType cache: ${productTypeCache.size}/${amazonSkus.length} cached`)
   }
 
-  // 8. Build work queue — filter out skipped SKUs
+  // 8. Group MSKUs by (productId, gradeId) and compute split quantities
+  const groups = new Map<string, typeof filteredMskus>()
+  for (const msku of filteredMskus) {
+    const key = pgKey(msku.productId, msku.gradeId)
+    const group = groups.get(key)
+    if (group) group.push(msku)
+    else groups.set(key, [msku])
+  }
+
+  // Compute per-MSKU quantities using group-aware split
+  const qtyMap = new Map<string, number>()
+  groups.forEach(group => {
+    const groupQtys = calculateGroupQuantities(group, bulk)
+    groupQtys.forEach((qty, id) => qtyMap.set(id, qty))
+  })
+
+  // Build work queue — filter out skipped SKUs
   interface WorkItem {
     msku: typeof filteredMskus[0]
     finalQty: number
@@ -327,7 +307,7 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[] }> {
   let skipped = 0
 
   for (const msku of filteredMskus) {
-    const finalQty = calculateFinalQty(msku, bulk)
+    const finalQty = qtyMap.get(msku.id) ?? 0
 
     // Skip if unchanged — unless stale (>6h since last push) to catch Amazon-side drift
     if (msku.lastPushedQty === finalQty) {
@@ -410,6 +390,7 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[] }> {
 }
 
 // ─── Single MSKU push by ID (used when toggling syncQty on) ─────────────────
+// Now pushes ALL siblings in the same (productId, gradeId) group so the split is correct.
 
 export async function pushSingleQuantity(mskuId: string): Promise<PushResult> {
   const msku = await prisma.productGradeMarketplaceSku.findUniqueOrThrow({
@@ -426,8 +407,63 @@ export async function pushSingleQuantity(mskuId: string): Promise<PushResult> {
     return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: -1, error: 'FBA inventory is managed by Amazon' }
   }
 
-  const { bmClient, bmListingsCache } = await getBmContext([msku])
-  return pushOneQuantity(msku, bmClient, bmListingsCache)
+  // Find all active-push siblings in the same (productId, gradeId) group
+  const siblings = await prisma.productGradeMarketplaceSku.findMany({
+    where: {
+      productId: msku.productId,
+      gradeId: msku.gradeId ?? null,
+      syncQty: true,
+    },
+    include: {
+      product: { select: { id: true, sku: true } },
+      grade: { select: { id: true, grade: true } },
+      marketplaceListing: { select: { fulfillmentChannel: true } },
+    },
+  })
+
+  // Filter out FBA siblings
+  const group = siblings.filter(m => m.marketplaceListing?.fulfillmentChannel !== 'FBA')
+  if (group.length === 0) {
+    return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: 0 }
+  }
+
+  // Compute split quantities for the whole group
+  const bulk = await computeBulkQuantities(group)
+  const qtyMap = calculateGroupQuantities(group, bulk)
+
+  // Push all siblings (not just the toggled one) so they all get correct split
+  const { bmClient, bmListingsCache } = await getBmContext(group)
+  let targetResult: PushResult | null = null
+
+  for (const sibling of group) {
+    const finalQty = qtyMap.get(sibling.id) ?? 0
+    try {
+      if (sibling.marketplace === 'amazon') {
+        const accountId = sibling.accountId ?? (await prisma.amazonAccount.findFirst({ where: { isActive: true } }))?.id
+        if (!accountId) throw new Error('No active Amazon account found')
+        await updateAmazonQty(accountId, sibling.sellerSku, finalQty)
+      } else if (sibling.marketplace === 'backmarket') {
+        if (!bmClient || !bmListingsCache) throw new Error('No active Back Market credentials')
+        const listingId = bmListingsCache.get(sibling.sellerSku)
+        if (!listingId) throw new Error(`BM listing not found for SKU ${sibling.sellerSku}`)
+        await bmClient.updateListingQuantity(listingId, finalQty)
+      }
+      await prisma.productGradeMarketplaceSku.update({
+        where: { id: sibling.id },
+        data: { lastPushedQty: finalQty, lastPushedAt: new Date() },
+      }).catch(() => {})
+      if (sibling.id === mskuId) {
+        targetResult = { sellerSku: sibling.sellerSku, marketplace: sibling.marketplace, quantity: finalQty }
+      }
+    } catch (err) {
+      console.error(`[push-qty] Failed sibling push for ${sibling.sellerSku}:`, err instanceof Error ? err.message : err)
+      if (sibling.id === mskuId) {
+        targetResult = { sellerSku: sibling.sellerSku, marketplace: sibling.marketplace, quantity: -1, error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  }
+
+  return targetResult ?? { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: qtyMap.get(msku.id) ?? 0 }
 }
 
 // ─── HTTP handler ───────────────────────────────────────────────────────────
