@@ -103,8 +103,7 @@ const NAV: NavItem[] = [
       { href: '/wholesale/customers?new=1', label: 'Add a Customer', icon: Plus },
     ],
   },
-  { href: '/todo-list',        label: 'To Do',       icon: ListTodo },
-  { href: '/cases',            label: 'Resolution Center', icon: FolderOpen },
+{ href: '/cases',            label: 'Resolution Center', icon: FolderOpen },
   { href: '/serial-search',    label: 'Serial Search',    icon: Barcode },
   {
     group: true,
