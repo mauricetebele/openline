@@ -396,6 +396,7 @@ interface DetailPanelProps {
 
 function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPanelProps) {
   const [compose, setCompose] = useState('')
+  const [messages, setMessages] = useState<CaseMessageItem[]>(caseDetail.messages)
   const [sendingMsg, setSendingMsg] = useState(false)
   const [showResolve, setShowResolve] = useState(false)
   const [resolving, setResolving] = useState(false)
@@ -403,6 +404,9 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
   const [addingUsers, setAddingUsers] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
   const composeRef = useRef<HTMLTextAreaElement>(null)
+
+  // Sync messages from prop when caseDetail changes (e.g. resolve updates the full detail)
+  useEffect(() => { setMessages(caseDetail.messages) }, [caseDetail.messages])
 
   // @mention autocomplete state
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -434,7 +438,7 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
     if (threadRef.current) {
       threadRef.current.scrollTop = threadRef.current.scrollHeight
     }
-  }, [caseDetail.messages])
+  }, [messages])
 
   function insertMention(user: { id: string; name: string }) {
     const before = compose.slice(0, mentionStart)
@@ -506,13 +510,15 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
       })
       if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed'); return }
       const newMsg: CaseMessageItem = await res.json()
-      onUpdated({
-        ...caseDetail,
-        messages: [...caseDetail.messages, newMsg],
-        _count: { messages: caseDetail._count.messages + 1 },
-      })
+      const updatedMessages = [...messages, newMsg]
+      setMessages(updatedMessages)
       setCompose('')
       mentionMapRef.current.clear()
+      onUpdated({
+        ...caseDetail,
+        messages: updatedMessages,
+        _count: { messages: updatedMessages.length },
+      })
     } finally {
       setSendingMsg(false)
     }
@@ -675,17 +681,17 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
           {/* Message Thread */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-              Messages ({caseDetail.messages.length})
+              Messages ({messages.length})
             </label>
 
             <div
               ref={threadRef}
               className="space-y-3 max-h-[320px] overflow-y-auto pr-1 mb-3"
             >
-              {caseDetail.messages.length === 0 && (
+              {messages.length === 0 && (
                 <p className="text-sm text-gray-400 dark:text-gray-500 italic">No messages yet.</p>
               )}
-              {caseDetail.messages.map(m => {
+              {messages.map(m => {
                 const msgHasMentions = hasMentions(m.body)
                 return (
                   <div key={m.id} className={clsx('flex gap-3', msgHasMentions && 'bg-red-50/60 dark:bg-red-900/10 -mx-2 px-2 py-1.5 rounded-lg border-l-2 border-red-400')}>
