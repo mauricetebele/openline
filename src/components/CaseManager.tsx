@@ -408,6 +408,8 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(0) // cursor position of the '@'
   const [mentionIdx, setMentionIdx] = useState(0) // keyboard highlight index
+  // Track mentions by the display text "@Name" → userId mapping
+  const mentionMapRef = useRef<Map<string, string>>(new Map())
 
   const isCreator = caseDetail.createdBy.id === currentUserId
 
@@ -436,17 +438,35 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
 
   function insertMention(user: { id: string; name: string }) {
     const before = compose.slice(0, mentionStart)
-    const after = compose.slice(composeRef.current?.selectionStart ?? compose.length)
-    const mention = `@[${user.name}](${user.id}) `
-    const newText = before + mention + after
+    const cursorPos = composeRef.current?.selectionStart ?? compose.length
+    const after = compose.slice(cursorPos)
+    // Insert clean "@Name " into the textarea (no userId visible)
+    const displayMention = `@${user.name} `
+    const newText = before + displayMention + after
     setCompose(newText)
     setMentionQuery(null)
-    // Restore cursor after mention
+    // Track this mention for send time
+    mentionMapRef.current.set(user.name, user.id)
     requestAnimationFrame(() => {
-      const pos = before.length + mention.length
+      const pos = before.length + displayMention.length
       composeRef.current?.setSelectionRange(pos, pos)
       composeRef.current?.focus()
     })
+  }
+
+  // At send time, convert "@Name" back to "@[Name](userId)" for storage
+  function buildMessageBody(text: string): { body: string; mentionedUserIds: string[] } {
+    let body = text
+    const mentionedUserIds: string[] = []
+    // Also match any mentionable user name in case the map missed it
+    for (const u of mentionableUsers) {
+      const displayPattern = `@${u.name}`
+      if (body.includes(displayPattern)) {
+        body = body.split(displayPattern).join(`@[${u.name}](${u.id})`)
+        mentionedUserIds.push(u.id)
+      }
+    }
+    return { body, mentionedUserIds }
   }
 
   function handleComposeChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -463,7 +483,6 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
 
     if (atPos >= 0 && (atPos === 0 || val[atPos - 1] === ' ' || val[atPos - 1] === '\n')) {
       const query = val.slice(atPos + 1, cursor)
-      // Don't show dropdown if they already completed a mention (contains '[')
       if (!query.includes('[')) {
         setMentionQuery(query)
         setMentionStart(atPos)
@@ -479,11 +498,11 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
     setSendingMsg(true)
     setMentionQuery(null)
     try {
-      const mentionedUserIds = extractMentionedUserIds(compose.trim())
+      const { body: finalBody, mentionedUserIds } = buildMessageBody(compose.trim())
       const res = await fetch(`/api/cases/${caseDetail.id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: compose.trim(), mentionedUserIds }),
+        body: JSON.stringify({ body: finalBody, mentionedUserIds }),
       })
       if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed'); return }
       const newMsg: CaseMessageItem = await res.json()
@@ -493,6 +512,7 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
         _count: { messages: caseDetail._count.messages + 1 },
       })
       setCompose('')
+      mentionMapRef.current.clear()
     } finally {
       setSendingMsg(false)
     }
