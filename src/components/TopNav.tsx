@@ -104,7 +104,7 @@ const NAV: NavItem[] = [
     ],
   },
   { href: '/todo-list',        label: 'To Do',       icon: ListTodo },
-  { href: '/cases',            label: 'Cases',       icon: FolderOpen },
+  { href: '/cases',            label: 'Resolution Center', icon: FolderOpen },
   { href: '/serial-search',    label: 'Serial Search',    icon: Barcode },
   {
     group: true,

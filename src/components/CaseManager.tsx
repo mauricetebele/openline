@@ -855,7 +855,7 @@ export default function CaseManager() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <FolderOpen size={22} className="text-amazon-blue" />
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Cases</h1>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Resolution Center</h1>
         </div>
         <button
           onClick={() => setShowCreate(true)}
