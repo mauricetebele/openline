@@ -19,6 +19,8 @@ export async function GET(req: NextRequest) {
       { rmaNumber: { contains: search, mode: 'insensitive' } },
       { order: { shipToName: { contains: search, mode: 'insensitive' } } },
       { order: { amazonOrderId: { contains: search, mode: 'insensitive' } } },
+      { items: { some: { sellerSku: { contains: search, mode: 'insensitive' } } } },
+      { items: { some: { product: { sku: { contains: search, mode: 'insensitive' } } } } },
       { items: { some: { serials: { some: { serialNumber: { contains: search, mode: 'insensitive' } } } } } },
     ]
   }
