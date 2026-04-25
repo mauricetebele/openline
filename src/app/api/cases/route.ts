@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { sendCaseCreatedNotification } from '@/lib/case-emails'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,10 +69,24 @@ export async function POST(req: NextRequest) {
     },
     include: {
       createdBy: { select: { id: true, name: true } },
-      taggedUsers: { include: { user: { select: { id: true, name: true } } } },
+      taggedUsers: { include: { user: { select: { id: true, name: true, email: true } } } },
       _count: { select: { messages: true } },
     },
   })
+
+  // Notify tagged users about the new case
+  const recipients = created.taggedUsers
+    .filter(tu => tu.userId !== user.dbId)
+    .map(tu => ({ email: tu.user.email, name: tu.user.name }))
+
+  if (recipients.length > 0) {
+    sendCaseCreatedNotification(
+      { id: created.id, caseNumber: created.caseNumber, title: created.title },
+      user.name,
+      created.description,
+      recipients,
+    )
+  }
 
   return NextResponse.json(created, { status: 201 })
 }

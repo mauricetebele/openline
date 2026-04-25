@@ -13,6 +13,32 @@ interface Recipient {
   name: string
 }
 
+export function sendCaseCreatedNotification(
+  caseInfo: CaseInfo,
+  creatorName: string,
+  description: string | null,
+  recipients: Recipient[],
+) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://openlinemobility.vercel.app'
+  const caseUrl = `${baseUrl}/cases?id=${caseInfo.id}`
+
+  for (const r of recipients) {
+    resend.emails.send({
+      from: FROM,
+      to: r.email,
+      subject: `[Case #${caseInfo.caseNumber}] You've been tagged by ${creatorName}`,
+      html: `
+        <p>Hi ${r.name},</p>
+        <p><strong>${creatorName}</strong> tagged you on a new case:</p>
+        <p style="font-size:16px;font-weight:600;">Case #${caseInfo.caseNumber}: ${caseInfo.title}</p>
+        ${description ? `<p style="color:#555;">${description.replace(/\n/g, '<br/>')}</p>` : ''}
+        <p><a href="${caseUrl}">View Case</a></p>
+        <p>— Open Line Mobility</p>
+      `,
+    }).catch(err => console.error(`[case-emails] Failed to send created notification to ${r.email}:`, err))
+  }
+}
+
 export function sendCaseMessageNotification(
   caseInfo: CaseInfo,
   messageBody: string,
