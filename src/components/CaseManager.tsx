@@ -1,0 +1,790 @@
+'use client'
+
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { FolderOpen, Plus, MessageSquare, X, Send, Search, CheckCircle2, UserPlus } from 'lucide-react'
+import { clsx } from 'clsx'
+import { useAuth } from '@/context/AuthContext'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { toast } from 'sonner'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type CaseStatus = 'UNRESOLVED' | 'RESOLVED'
+
+interface TaggedUser {
+  id: string
+  userId: string
+  user: { id: string; name: string; email?: string }
+}
+
+interface CaseSummary {
+  id: string
+  caseNumber: number
+  title: string
+  description: string | null
+  status: CaseStatus
+  createdAt: string
+  createdBy: { id: string; name: string }
+  taggedUsers: TaggedUser[]
+  _count: { messages: number }
+}
+
+interface CaseMessageItem {
+  id: string
+  caseId: string
+  authorId: string
+  author: { id: string; name: string }
+  body: string
+  createdAt: string
+}
+
+interface CaseDetail extends CaseSummary {
+  resolvedAt: string | null
+  resolvedBy: { id: string; name: string } | null
+  resolutionNote: string | null
+  updatedAt: string
+  messages: CaseMessageItem[]
+}
+
+interface UserOption {
+  id: string
+  name: string
+  email: string
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function formatDateTime(iso: string) {
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+    d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+function relativeTime(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
+}
+
+function AvatarInitial({ name }: { name: string }) {
+  const initial = name?.[0]?.toUpperCase() ?? '?'
+  return (
+    <div className="w-7 h-7 rounded-full bg-amazon-blue flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+      {initial}
+    </div>
+  )
+}
+
+const STATUS_BADGE = {
+  UNRESOLVED: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  RESOLVED: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+} as const
+
+// ─── Create Modal ─────────────────────────────────────────────────────────────
+
+interface CreateModalProps {
+  onClose: () => void
+  onCreate: (c: CaseSummary) => void
+}
+
+function CreateModal({ onClose, onCreate }: CreateModalProps) {
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [allUsers, setAllUsers] = useState<UserOption[]>([])
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set())
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const titleRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { titleRef.current?.focus() }, [])
+
+  useEffect(() => {
+    fetch('/api/admin/users')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.data) setAllUsers(d.data.map((u: UserOption) => ({ id: u.id, name: u.name, email: u.email })))
+      })
+      .catch(() => {})
+  }, [])
+
+  function toggleUser(uid: string) {
+    setSelectedUserIds(prev => {
+      const next = new Set(prev)
+      if (next.has(uid)) next.delete(uid)
+      else next.add(uid)
+      return next
+    })
+  }
+
+  async function submit() {
+    if (!title.trim()) { setError('Title is required'); return }
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch('/api/cases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim() || null,
+          taggedUserIds: Array.from(selectedUserIds),
+        }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed') }
+      const newCase: CaseSummary = await res.json()
+      toast.success('Case created')
+      onCreate(newCase)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to create case')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey && (e.target as HTMLElement).tagName === 'INPUT') {
+      e.preventDefault()
+      submit()
+    }
+    if (e.key === 'Escape') onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onKeyDown={handleKeyDown}>
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">New Case</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><X size={18} /></button>
+        </div>
+
+        {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title <span className="text-red-500">*</span></label>
+            <input
+              ref={titleRef}
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Case title"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              rows={3}
+              placeholder="Optional details"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amazon-blue resize-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tag Users</label>
+            <div className="border border-gray-300 dark:border-gray-600 rounded-lg max-h-40 overflow-y-auto p-2 space-y-1">
+              {allUsers.length === 0 && <p className="text-xs text-gray-400">Loading users…</p>}
+              {allUsers.map(u => (
+                <label key={u.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedUserIds.has(u.id)}
+                    onChange={() => toggleUser(u.id)}
+                    className="rounded border-gray-300 dark:border-gray-600 text-amazon-blue focus:ring-amazon-blue"
+                  />
+                  <span className="text-sm text-gray-800 dark:text-gray-200">{u.name}</span>
+                  <span className="text-xs text-gray-400 ml-auto">{u.email}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            className="px-4 py-2 text-sm bg-amazon-blue text-white rounded-lg hover:bg-amazon-blue/90 disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Creating…' : 'Create Case'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Resolve Modal ────────────────────────────────────────────────────────────
+
+interface ResolveModalProps {
+  onClose: () => void
+  onResolve: (note: string) => void
+  saving: boolean
+}
+
+function ResolveModal({ onClose, onResolve, saving }: ResolveModalProps) {
+  const [note, setNote] = useState('')
+  const noteRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => { noteRef.current?.focus() }, [])
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Escape') onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onKeyDown={handleKeyDown}>
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Resolve Case</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><X size={18} /></button>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Provide a resolution note explaining how this case was resolved.</p>
+        <textarea
+          ref={noteRef}
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          rows={4}
+          placeholder="Resolution note…"
+          className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amazon-blue resize-none"
+        />
+        <div className="flex justify-end gap-3 mt-4">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={() => onResolve(note)}
+            disabled={saving || !note.trim()}
+            className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Resolving…' : 'Resolve'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Add Users Modal ──────────────────────────────────────────────────────────
+
+interface AddUsersModalProps {
+  existingUserIds: Set<string>
+  onClose: () => void
+  onAdd: (userIds: string[]) => void
+  saving: boolean
+}
+
+function AddUsersModal({ existingUserIds, onClose, onAdd, saving }: AddUsersModalProps) {
+  const [allUsers, setAllUsers] = useState<UserOption[]>([])
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    fetch('/api/admin/users')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.data) setAllUsers(d.data.filter((u: UserOption) => !existingUserIds.has(u.id)))
+      })
+      .catch(() => {})
+  }, [existingUserIds])
+
+  function toggleUser(uid: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(uid)) next.delete(uid)
+      else next.add(uid)
+      return next
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onKeyDown={e => e.key === 'Escape' && onClose()}>
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Add Tagged Users</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><X size={18} /></button>
+        </div>
+        <div className="border border-gray-300 dark:border-gray-600 rounded-lg max-h-48 overflow-y-auto p-2 space-y-1">
+          {allUsers.length === 0 && <p className="text-xs text-gray-400">No more users to add.</p>}
+          {allUsers.map(u => (
+            <label key={u.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected.has(u.id)}
+                onChange={() => toggleUser(u.id)}
+                className="rounded border-gray-300 dark:border-gray-600 text-amazon-blue focus:ring-amazon-blue"
+              />
+              <span className="text-sm text-gray-800 dark:text-gray-200">{u.name}</span>
+            </label>
+          ))}
+        </div>
+        <div className="flex justify-end gap-3 mt-4">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={() => onAdd(Array.from(selected))}
+            disabled={saving || selected.size === 0}
+            className="px-4 py-2 text-sm bg-amazon-blue text-white rounded-lg hover:bg-amazon-blue/90 disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Adding…' : 'Add'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Detail Slide-over ────────────────────────────────────────────────────────
+
+interface DetailPanelProps {
+  caseDetail: CaseDetail
+  onClose: () => void
+  onUpdated: (updated: CaseDetail) => void
+  currentUserId: string
+}
+
+function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPanelProps) {
+  const [compose, setCompose] = useState('')
+  const [sendingMsg, setSendingMsg] = useState(false)
+  const [showResolve, setShowResolve] = useState(false)
+  const [resolving, setResolving] = useState(false)
+  const [showAddUsers, setShowAddUsers] = useState(false)
+  const [addingUsers, setAddingUsers] = useState(false)
+  const threadRef = useRef<HTMLDivElement>(null)
+
+  const isCreator = caseDetail.createdBy.id === currentUserId
+
+  useEffect(() => {
+    if (threadRef.current) {
+      threadRef.current.scrollTop = threadRef.current.scrollHeight
+    }
+  }, [caseDetail.messages])
+
+  async function handleSendMessage() {
+    if (!compose.trim()) return
+    setSendingMsg(true)
+    try {
+      const res = await fetch(`/api/cases/${caseDetail.id}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: compose.trim() }),
+      })
+      if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed'); return }
+      const newMsg: CaseMessageItem = await res.json()
+      onUpdated({
+        ...caseDetail,
+        messages: [...caseDetail.messages, newMsg],
+        _count: { messages: caseDetail._count.messages + 1 },
+      })
+      setCompose('')
+    } finally {
+      setSendingMsg(false)
+    }
+  }
+
+  function handleComposeKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handleSendMessage()
+    }
+  }
+
+  async function handleResolve(note: string) {
+    setResolving(true)
+    try {
+      const res = await fetch(`/api/cases/${caseDetail.id}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolutionNote: note }),
+      })
+      if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed'); return }
+      const updated: CaseDetail = await res.json()
+      toast.success('Case resolved')
+      onUpdated(updated)
+      setShowResolve(false)
+    } finally {
+      setResolving(false)
+    }
+  }
+
+  async function handleAddUsers(userIds: string[]) {
+    setAddingUsers(true)
+    try {
+      const res = await fetch(`/api/cases/${caseDetail.id}/tag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds }),
+      })
+      if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed'); return }
+      const updated: CaseDetail = await res.json()
+      toast.success('Users tagged')
+      onUpdated(updated)
+      setShowAddUsers(false)
+    } finally {
+      setAddingUsers(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex">
+      <div className="flex-1 bg-black/30" onClick={onClose} />
+
+      <div className="w-full max-w-[600px] bg-white dark:bg-gray-900 shadow-2xl flex flex-col h-full overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-bold text-gray-500 dark:text-gray-400">#{caseDetail.caseNumber}</span>
+            <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium', STATUS_BADGE[caseDetail.status])}>
+              {caseDetail.status === 'UNRESOLVED' ? 'Unresolved' : 'Resolved'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {caseDetail.status === 'UNRESOLVED' && (
+              <button
+                onClick={() => setShowResolve(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-300 transition-colors"
+              >
+                <CheckCircle2 size={14} />
+                Resolve
+              </button>
+            )}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1"><X size={18} /></button>
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {/* Resolution Banner */}
+          {caseDetail.status === 'RESOLVED' && (
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 size={16} className="text-green-600 dark:text-green-400" />
+                <span className="text-sm font-semibold text-green-800 dark:text-green-300">
+                  Resolved by {caseDetail.resolvedBy?.name}
+                </span>
+                {caseDetail.resolvedAt && (
+                  <span className="text-xs text-green-600 dark:text-green-500 ml-auto">{formatDateTime(caseDetail.resolvedAt)}</span>
+                )}
+              </div>
+              {caseDetail.resolutionNote && (
+                <p className="text-sm text-green-700 dark:text-green-300 whitespace-pre-wrap">{caseDetail.resolutionNote}</p>
+              )}
+            </div>
+          )}
+
+          {/* Title */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Title</label>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">{caseDetail.title}</h2>
+          </div>
+
+          {/* Description */}
+          {caseDetail.description && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Description</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{caseDetail.description}</p>
+            </div>
+          )}
+
+          {/* Tagged Users */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Tagged Users</label>
+              {isCreator && (
+                <button
+                  onClick={() => setShowAddUsers(true)}
+                  className="text-amazon-blue hover:text-amazon-blue/80 transition-colors"
+                  title="Add users"
+                >
+                  <UserPlus size={14} />
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {caseDetail.taggedUsers.map(tu => (
+                <span key={tu.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-xs font-medium text-gray-700 dark:text-gray-300">
+                  <AvatarInitial name={tu.user.name} />
+                  {tu.user.name}
+                </span>
+              ))}
+              {caseDetail.taggedUsers.length === 0 && (
+                <p className="text-xs text-gray-400 italic">No tagged users</p>
+              )}
+            </div>
+          </div>
+
+          {/* Message Thread */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+              Messages ({caseDetail.messages.length})
+            </label>
+
+            <div
+              ref={threadRef}
+              className="space-y-3 max-h-[320px] overflow-y-auto pr-1 mb-3"
+            >
+              {caseDetail.messages.length === 0 && (
+                <p className="text-sm text-gray-400 dark:text-gray-500 italic">No messages yet.</p>
+              )}
+              {caseDetail.messages.map(m => (
+                <div key={m.id} className="flex gap-3">
+                  <AvatarInitial name={m.author.name} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">{m.author.name}</span>
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500">{relativeTime(m.createdAt)}</span>
+                    </div>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5 whitespace-pre-wrap break-words">{m.body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Compose */}
+            <div className="border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
+              <textarea
+                value={compose}
+                onChange={e => setCompose(e.target.value)}
+                onKeyDown={handleComposeKeyDown}
+                rows={3}
+                placeholder="Write a message… (Cmd+Enter to send)"
+                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none resize-none"
+              />
+              <div className="flex justify-end px-3 py-2 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={handleSendMessage}
+                  disabled={sendingMsg || !compose.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amazon-blue text-white text-xs rounded-lg hover:bg-amazon-blue/90 disabled:opacity-50 transition-colors"
+                >
+                  <Send size={12} />
+                  {sendingMsg ? 'Sending…' : 'Send'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Meta */}
+          <div className="text-xs text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-800 pt-4 space-y-1">
+            <p>Created by {caseDetail.createdBy.name} on {formatDateTime(caseDetail.createdAt)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Resolve Modal */}
+      {showResolve && (
+        <ResolveModal
+          onClose={() => setShowResolve(false)}
+          onResolve={handleResolve}
+          saving={resolving}
+        />
+      )}
+
+      {/* Add Users Modal */}
+      {showAddUsers && (
+        <AddUsersModal
+          existingUserIds={new Set(caseDetail.taggedUsers.map(tu => tu.userId))}
+          onClose={() => setShowAddUsers(false)}
+          onAdd={handleAddUsers}
+          saving={addingUsers}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+export default function CaseManager() {
+  const { user } = useAuth()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const [cases, setCases] = useState<CaseSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState<'all' | CaseStatus>('UNRESOLVED')
+  const [search, setSearch] = useState('')
+  const [showCreate, setShowCreate] = useState(false)
+  const [detail, setDetail] = useState<CaseDetail | null>(null)
+
+  const loadCases = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (statusFilter !== 'all') params.set('status', statusFilter)
+      if (search.trim()) params.set('search', search.trim())
+      const res = await fetch(`/api/cases?${params}`)
+      const data = await res.json()
+      setCases(data.data ?? [])
+    } finally {
+      setLoading(false)
+    }
+  }, [statusFilter, search])
+
+  useEffect(() => { loadCases() }, [loadCases])
+
+  // Deep-link: open case from ?id= query param
+  useEffect(() => {
+    const id = searchParams.get('id')
+    if (id) {
+      fetch(`/api/cases/${id}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setDetail(d) })
+        .catch(() => {})
+    }
+  }, [searchParams])
+
+  async function openDetail(c: CaseSummary) {
+    const res = await fetch(`/api/cases/${c.id}`)
+    const full: CaseDetail = await res.json()
+    setDetail(full)
+  }
+
+  function handleCreated(newCase: CaseSummary) {
+    setCases(prev => [newCase, ...prev])
+    setShowCreate(false)
+  }
+
+  function handleUpdated(updated: CaseDetail) {
+    setDetail(updated)
+    setCases(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c))
+  }
+
+  function handleClose() {
+    setDetail(null)
+    // Clean up ?id= from URL
+    if (searchParams.get('id')) {
+      router.replace('/cases', { scroll: false })
+    }
+  }
+
+  return (
+    <div className="p-6 max-w-full">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <FolderOpen size={22} className="text-amazon-blue" />
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Cases</h1>
+        </div>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="flex items-center gap-1.5 px-4 py-2 bg-amazon-blue text-white text-sm font-medium rounded-lg hover:bg-amazon-blue/90 transition-colors"
+        >
+          <Plus size={16} />
+          New Case
+        </button>
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
+        <div className="flex gap-1">
+          {(['all', 'UNRESOLVED', 'RESOLVED'] as const).map(s => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={clsx(
+                'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
+                statusFilter === s
+                  ? s === 'all' ? 'bg-amazon-blue text-white'
+                    : s === 'UNRESOLVED' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                    : 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600',
+              )}
+            >
+              {s === 'all' ? 'All' : s === 'UNRESOLVED' ? 'Unresolved' : 'Resolved'}
+            </button>
+          ))}
+        </div>
+
+        <div className="relative ml-auto">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search cases…"
+            className="pl-9 pr-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amazon-blue w-56"
+          />
+        </div>
+      </div>
+
+      {/* Case Cards */}
+      {loading ? (
+        <div className="py-16 text-center text-sm text-gray-400">Loading…</div>
+      ) : cases.length === 0 ? (
+        <div className="py-16 text-center text-sm text-gray-400">
+          {search || statusFilter !== 'all'
+            ? 'No cases match your filters.'
+            : 'No cases yet — click New Case to get started.'}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {cases.map(c => (
+            <div
+              key={c.id}
+              onClick={() => openDetail(c)}
+              className={clsx(
+                'flex items-center gap-4 px-4 py-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 border-l-4 cursor-pointer hover:shadow-md transition-shadow',
+                c.status === 'UNRESOLVED' ? 'border-l-amber-500' : 'border-l-green-500',
+              )}
+            >
+              {/* Content */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-gray-400 dark:text-gray-500">#{c.caseNumber}</span>
+                  <span className="text-sm font-medium text-gray-900 dark:text-white truncate">{c.title}</span>
+                  <span className={clsx('inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium', STATUS_BADGE[c.status])}>
+                    {c.status === 'UNRESOLVED' ? 'Unresolved' : 'Resolved'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 dark:text-gray-500">
+                  <span>by {c.createdBy.name}</span>
+                  <span>{formatDate(c.createdAt)}</span>
+                  {c.taggedUsers.length > 0 && (
+                    <span>{c.taggedUsers.length} tagged</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Message count */}
+              {c._count.messages > 0 && (
+                <span className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 shrink-0">
+                  <MessageSquare size={12} />
+                  {c._count.messages}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Create Modal */}
+      {showCreate && (
+        <CreateModal
+          onClose={() => setShowCreate(false)}
+          onCreate={handleCreated}
+        />
+      )}
+
+      {/* Detail Slide-over */}
+      {detail && user && (
+        <DetailPanel
+          caseDetail={detail}
+          onClose={handleClose}
+          onUpdated={handleUpdated}
+          currentUserId={user.dbId}
+        />
+      )}
+    </div>
+  )
+}

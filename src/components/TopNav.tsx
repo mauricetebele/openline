@@ -9,7 +9,7 @@ import {
   LayoutGrid, RefreshCcw, PackageMinus, Barcode, List, ListTodo,
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
-  Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard,
+  Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -104,6 +104,7 @@ const NAV: NavItem[] = [
     ],
   },
   { href: '/todo-list',        label: 'To Do',       icon: ListTodo },
+  { href: '/cases',            label: 'Cases',       icon: FolderOpen },
   { href: '/serial-search',    label: 'Serial Search',    icon: Barcode },
   {
     group: true,

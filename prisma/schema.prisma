@@ -35,6 +35,11 @@ model User {
   companyName          String?
   clientNotes          ClientNote[]
 
+  casesCreated    Case[]           @relation("CaseCreatedBy")
+  casesResolved   Case[]           @relation("CaseResolvedBy")
+  caseTaggedUsers CaseTaggedUser[]
+  caseMessages    CaseMessage[]
+
   @@map("users")
 }
 
@@ -2245,4 +2250,56 @@ model LegacyPOSerial {
 
   @@unique([serial, fileName])
   @@map("legacy_po_serials")
+}
+
+// ─── Case Log ──────────────────────────────────────────────────────────────
+
+enum CaseStatus {
+  UNRESOLVED
+  RESOLVED
+}
+
+model Case {
+  id              String       @id @default(cuid())
+  caseNumber      Int          @unique @default(autoincrement())
+  title           String
+  description     String?      @db.Text
+  status          CaseStatus   @default(UNRESOLVED)
+  resolvedAt      DateTime?
+  resolvedById    String?
+  resolvedBy      User?        @relation("CaseResolvedBy", fields: [resolvedById], references: [id])
+  resolutionNote  String?      @db.Text
+  createdById     String
+  createdBy       User         @relation("CaseCreatedBy", fields: [createdById], references: [id])
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  taggedUsers     CaseTaggedUser[]
+  messages        CaseMessage[]
+
+  @@index([status])
+  @@map("cases")
+}
+
+model CaseTaggedUser {
+  id       String @id @default(cuid())
+  caseId   String
+  case     Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+
+  @@unique([caseId, userId])
+  @@map("case_tagged_users")
+}
+
+model CaseMessage {
+  id        String   @id @default(cuid())
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([caseId])
+  @@map("case_messages")
 }
