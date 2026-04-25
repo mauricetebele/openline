@@ -23,6 +23,7 @@ const SORT_FIELDS: Record<string, keyof Prisma.OrderOrderByWithRelationInput> = 
   purchaseDate:         'purchaseDate',
   latestShipDate:       'latestShipDate',
   orderTotal:           'orderTotal',
+  shipToName:           'shipToName',
   shipToState:          'shipToState',
   workflowStatus:       'workflowStatus',
   shipmentServiceLevel: 'shipmentServiceLevel',

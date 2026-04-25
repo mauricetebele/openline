@@ -5605,7 +5605,16 @@ export default function UnshippedOrders() {
   }
 
   function handleSort(field: string) {
-    if (sortBy === field) {
+    if (field === 'latestShipDate') {
+      // Dates column cycles: purchaseDate desc → latestShipDate asc → latestShipDate desc → purchaseDate desc
+      if (sortBy === 'purchaseDate') {
+        setSortBy('latestShipDate'); setSortDir('asc')
+      } else if (sortBy === 'latestShipDate' && sortDir === 'asc') {
+        setSortDir('desc')
+      } else {
+        setSortBy('purchaseDate'); setSortDir('desc')
+      }
+    } else if (sortBy === field) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     } else {
       setSortBy(field)
@@ -6414,9 +6423,13 @@ export default function UnshippedOrders() {
           break
         }
         case 'latestShipDate': {
-          const dA = a.latestShipDate ? new Date(a.latestShipDate).getTime() : 0
-          const dB = b.latestShipDate ? new Date(b.latestShipDate).getTime() : 0
-          cmp = dA - dB
+          const dA = a.latestShipDate ? new Date(a.latestShipDate).getTime() : null
+          const dB = b.latestShipDate ? new Date(b.latestShipDate).getTime() : null
+          // Nulls always sort to the end regardless of direction
+          if (dA == null && dB == null) cmp = 0
+          else if (dA == null) return 1
+          else if (dB == null) return -1
+          else cmp = dA - dB
           break
         }
         default: // purchaseDate
@@ -7204,7 +7217,7 @@ export default function UnshippedOrders() {
               <th onClick={() => handleSort('latestShipDate')}
                 className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
                 <span className="inline-flex items-center gap-1">Dates
-                  <span className={clsx('text-[10px]', sortBy === 'latestShipDate' || sortBy === 'purchaseDate' || sortBy === 'latestDeliveryDate' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'latestShipDate' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+                  <span className={clsx('text-[10px]', sortBy === 'latestShipDate' || sortBy === 'purchaseDate' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'latestShipDate' ? (sortDir === 'asc' ? '↑' : '↓') : sortBy === 'purchaseDate' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
               <th onClick={() => handleSort('sku')}
