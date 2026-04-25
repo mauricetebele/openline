@@ -85,14 +85,15 @@ function AvatarInitial({ name }: { name: string }) {
 }
 
 // Parse @[Name](userId) mentions in message body and render as highlighted spans
-const MENTION_RE = /@\[([^\]]+)\]\(([^)]+)\)/g
+const MENTION_PATTERN = /@\[([^\]]+)\]\(([^)]+)\)/
+const hasMentions = (body: string) => MENTION_PATTERN.test(body)
 
 function renderMessageBody(body: string) {
   const parts: React.ReactNode[] = []
   let lastIndex = 0
   let match: RegExpExecArray | null
 
-  const re = new RegExp(MENTION_RE.source, 'g')
+  const re = new RegExp(MENTION_PATTERN.source, 'g')
   while ((match = re.exec(body)) !== null) {
     if (match.index > lastIndex) {
       parts.push(body.slice(lastIndex, match.index))
@@ -115,7 +116,7 @@ function renderMessageBody(body: string) {
 function extractMentionedUserIds(text: string): string[] {
   const ids: string[] = []
   let match: RegExpExecArray | null
-  const re = new RegExp(MENTION_RE.source, 'g')
+  const re = new RegExp(MENTION_PATTERN.source, 'g')
   while ((match = re.exec(text)) !== null) {
     ids.push(match[2])
   }
@@ -665,15 +666,15 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
                 <p className="text-sm text-gray-400 dark:text-gray-500 italic">No messages yet.</p>
               )}
               {caseDetail.messages.map(m => {
-                const hasMentions = MENTION_RE.test(m.body)
+                const msgHasMentions = hasMentions(m.body)
                 return (
-                  <div key={m.id} className={clsx('flex gap-3', hasMentions && 'bg-red-50/60 dark:bg-red-900/10 -mx-2 px-2 py-1.5 rounded-lg border-l-2 border-red-400')}>
+                  <div key={m.id} className={clsx('flex gap-3', msgHasMentions && 'bg-red-50/60 dark:bg-red-900/10 -mx-2 px-2 py-1.5 rounded-lg border-l-2 border-red-400')}>
                     <AvatarInitial name={m.author.name} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-baseline gap-2 flex-wrap">
                         <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">{m.author.name}</span>
                         <span className="text-[10px] text-gray-400 dark:text-gray-500">{relativeTime(m.createdAt)}</span>
-                        {hasMentions && (
+                        {msgHasMentions && (
                           <span className="text-[10px] font-semibold text-red-500 dark:text-red-400">Attention Requested</span>
                         )}
                       </div>
