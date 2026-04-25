@@ -9,7 +9,7 @@ import {
   LayoutGrid, RefreshCcw, PackageMinus, Barcode, List, ListTodo,
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
-  Moon, Sun, FolderOpen, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard,
+  Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -94,7 +94,6 @@ const NAV: NavItem[] = [
       { href: '/shipping-manifest', label: 'Manifest',      icon: ClipboardList },
     ],
   },
-  { href: '/cases',            label: 'Cases',       icon: FolderOpen },
   {
     group: true,
     label: 'Customers',

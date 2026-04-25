@@ -24,10 +24,6 @@ model User {
   reviews     Review[]
   auditEvents AuditEvent[]
 
-  casesCreated  Case[]        @relation("CaseCreatedBy")
-  casesAssigned Case[]        @relation("CaseAssignedTo")
-  caseMessages  CaseMessage[]
-
   todos        Todo[]
   todoComments TodoComment[]
 
@@ -1825,45 +1821,6 @@ model ReturnLabel {
   createdAt        DateTime  @default(now())
 
   @@map("return_labels")
-}
-
-// ─── Case Manager ─────────────────────────────────────────────────────────────
-
-enum CaseStatus {
-  UNRESOLVED
-  RESOLVED
-}
-
-model Case {
-  id                  String     @id @default(cuid())
-  caseNumber          Int        @unique @default(autoincrement())
-  title               String
-  description         String?    @db.Text
-  status              CaseStatus @default(UNRESOLVED)
-  marketplaceCaseIds  String[]   @default([])
-  createdById         String
-  createdBy           User       @relation("CaseCreatedBy", fields: [createdById], references: [id])
-  assignedToId        String?
-  assignedTo          User?      @relation("CaseAssignedTo", fields: [assignedToId], references: [id])
-  createdAt           DateTime   @default(now())
-  updatedAt           DateTime   @updatedAt
-  messages            CaseMessage[]
-
-  @@index([status])
-  @@map("cases")
-}
-
-model CaseMessage {
-  id        String   @id @default(cuid())
-  caseId    String
-  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id])
-  body      String   @db.Text
-  createdAt DateTime @default(now())
-
-  @@index([caseId])
-  @@map("case_messages")
 }
 
 // ─── Marketplace Returns (MP-RMA) ────────────────────────────────────────────
