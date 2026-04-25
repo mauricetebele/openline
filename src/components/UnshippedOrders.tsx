@@ -5,7 +5,9 @@ import {
   Download, Link2, CheckCircle2, Truck, Settings, FlaskConical, ClipboardCheck,
   MapPin, Printer, RotateCcw, Hash, XCircle, ExternalLink, Phone, FileText, Eye,
   AlertTriangle, Pencil, Tag, History, ChevronDown, ChevronUp, Ban, ShieldCheck, ScanLine, Clock,
+  Loader2,
 } from 'lucide-react'
+import { detectCarrier, trackingUrl } from '@/lib/tracking-utils'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
 import GradeBadge from '@/components/GradeBadge'
@@ -5110,6 +5112,64 @@ const EMPTY_MESSAGES: Record<ActiveTab, { title: string; sub: string }> = {
   cancelled: { title: 'No cancelled orders.',             sub: 'Cancelled orders will appear here.' },
 }
 
+// ─── Tracking status types & badge ───────────────────────────────────────────
+
+interface TrackingInfo { status: string; deliveredAt: string | null; estimatedDelivery: string | null }
+type TrackingResult = TrackingInfo | { error: string }
+
+function trackingStatusBadge(info: TrackingResult | undefined, loading: boolean) {
+  if (loading) {
+    return <Loader2 size={12} className="animate-spin text-gray-400" />
+  }
+  if (!info) return null
+
+  if ('error' in info) {
+    return (
+      <span
+        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200 cursor-help"
+        title={info.error}
+      >
+        Error
+      </span>
+    )
+  }
+
+  const s = info.status.toLowerCase()
+  if (s.includes('delivered')) {
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 border border-green-200">
+        {info.status}
+      </span>
+    )
+  }
+  if (s.includes('out for delivery')) {
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200">
+        {info.status}
+      </span>
+    )
+  }
+  if (s.includes('in transit') || s.includes('on the way') || s.includes('picked up') || s.includes('label created')) {
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
+        {info.status}
+      </span>
+    )
+  }
+  if (s.includes('cancel')) {
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700 border border-red-200">
+        {info.status}
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
+      {info.status}
+    </span>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function UnshippedOrders() {
@@ -5187,6 +5247,64 @@ export default function UnshippedOrders() {
   // Order detail modal
   const [detailOrder, setDetailOrder] = useState<Order | null>(null)
   const [unserializeOrder, setUnserializeOrder] = useState<Order | null>(null)
+
+  // Tracking status state (shipped tab)
+  const [trackingMap, setTrackingMap]         = useState<Record<string, TrackingResult>>({})
+  const [trackingLoading, setTrackingLoading] = useState<Set<string>>(new Set())
+
+  // Fetch live tracking status when shipped tab is active
+  useEffect(() => {
+    if (activeTab !== 'shipped' || orders.length === 0) return
+
+    const trackable = orders
+      .map((o) => o.label?.trackingNumber ?? o.shipTracking)
+      .filter((tn): tn is string => {
+        if (!tn) return false
+        const c = detectCarrier(tn)
+        return c === 'UPS' || c === 'FEDEX'
+      })
+
+    const unique = Array.from(new Set(trackable)).filter((tn) => !trackingMap[tn])
+    if (unique.length === 0) return
+
+    const batches: string[][] = []
+    for (let i = 0; i < unique.length; i += 20) {
+      batches.push(unique.slice(i, i + 20))
+    }
+
+    setTrackingLoading((prev) => {
+      const next = new Set(prev)
+      unique.forEach((tn) => next.add(tn))
+      return next
+    })
+
+    let cancelled = false
+    ;(async () => {
+      for (const batch of batches) {
+        if (cancelled) break
+        try {
+          const res = await fetch('/api/ups/batch-track', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ trackingNumbers: batch }),
+          })
+          if (!res.ok) continue
+          const data: { results: Record<string, TrackingResult> } = await res.json()
+          if (!cancelled) setTrackingMap((prev) => ({ ...prev, ...data.results }))
+        } catch { /* ignore */ }
+        if (!cancelled) {
+          setTrackingLoading((prev) => {
+            const next = new Set(prev)
+            batch.forEach((tn) => next.delete(tn))
+            return next
+          })
+        }
+      }
+    })()
+
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, orders])
 
   // Shipping presets state
   const [presets, setPresets]                 = useState<ShippingPreset[]>([])
@@ -7313,12 +7431,28 @@ export default function UnshippedOrders() {
                   <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs font-semibold text-gray-800 dark:text-gray-200 tabular-nums">{orderTotal(order)}</td>
                   {/* Ship To */}
                   <td className="px-3 py-2.5 whitespace-nowrap text-[11px] text-gray-700 dark:text-gray-300">
-                    {(activeTab === 'awaiting' || activeTab === 'shipped') && order.label
-                      ? <span className="font-mono text-[10px] text-purple-700 font-medium">{order.label.trackingNumber}</span>
-                      : (activeTab === 'shipped') && order.shipTracking
-                        ? <span className="font-mono text-[10px] text-emerald-700 font-medium">{order.shipTracking}</span>
-                        : [order.shipToCity, order.shipToState].filter(Boolean).join(', ') || '—'
-                    }
+                    {(() => {
+                      const tn = order.label?.trackingNumber ?? ((activeTab === 'shipped') ? order.shipTracking : null)
+                      if ((activeTab === 'awaiting' || activeTab === 'shipped') && tn) {
+                        return (
+                          <div className="flex flex-col gap-0.5">
+                            <a
+                              href={trackingUrl(tn)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={clsx(
+                                'font-mono text-[10px] font-medium hover:underline',
+                                order.label ? 'text-purple-700' : 'text-emerald-700',
+                              )}
+                            >
+                              {tn}
+                            </a>
+                            {activeTab === 'shipped' && trackingStatusBadge(trackingMap[tn], trackingLoading.has(tn))}
+                          </div>
+                        )
+                      }
+                      return [order.shipToCity, order.shipToState].filter(Boolean).join(', ') || '—'
+                    })()}
                   </td>
                   {/* Status + Ship Method stacked */}
                   <td className="px-3 py-2.5 whitespace-nowrap">
