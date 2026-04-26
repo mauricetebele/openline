@@ -52,7 +52,7 @@ Our system has detected that the device associated with your order is still link
 
 For security and privacy reasons, we are unable to process a refund for any device that remains Apple ID locked.
 
-To avoid the processing of your return, please read the following:
+To avoid delay in the processing of your return, please read the following:
 
 Before returning your device, please ensure that "Find My iPhone" is turned off and the Apple ID is removed.
 
