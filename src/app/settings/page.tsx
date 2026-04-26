@@ -1884,7 +1884,7 @@ interface ManagedUser {
   role: string
   createdAt: string
   companyName: string | null
-  _count?: { clientLocationAccess: number }
+  _count?: { clientLocationAccess: number; visibleUsers: number }
 }
 
 function UsersSection() {
@@ -1910,6 +1910,13 @@ function UsersSection() {
   const [selectedLocationIds, setSelectedLocationIds] = useState<Set<string>>(new Set())
   const [locationSaving, setLocationSaving] = useState(false)
   const [locationLoading, setLocationLoading] = useState(false)
+
+  // Visibility modal state (Resolution Provider → visible users)
+  const [visibilityModalUserId, setVisibilityModalUserId] = useState<string | null>(null)
+  const [allUsersForVisibility, setAllUsersForVisibility] = useState<{ id: string; name: string; email: string; role: string }[]>([])
+  const [selectedVisibleIds, setSelectedVisibleIds] = useState<Set<string>>(new Set())
+  const [visibilitySaving, setVisibilitySaving] = useState(false)
+  const [visibilityLoading, setVisibilityLoading] = useState(false)
 
   // Notes modal state
   const [notesModalUserId, setNotesModalUserId] = useState<string | null>(null)
@@ -2020,6 +2027,50 @@ function UsersSection() {
       toast.error((err as Error).message)
     } finally {
       setLocationSaving(false)
+    }
+  }
+
+  async function openVisibilityModal(userId: string) {
+    setVisibilityModalUserId(userId)
+    setVisibilityLoading(true)
+    try {
+      const [usersRes, visRes] = await Promise.all([
+        fetch('/api/admin/users'),
+        fetch(`/api/admin/users/tag-visibility?userId=${userId}`),
+      ])
+      if (usersRes.ok) {
+        const json = await usersRes.json()
+        // Show all non-RESOLUTION_PROVIDER users as options
+        setAllUsersForVisibility(
+          (json.data ?? []).filter((u: { id: string; role: string }) => u.role !== 'RESOLUTION_PROVIDER' && u.id !== userId)
+        )
+      }
+      if (visRes.ok) {
+        const json = await visRes.json()
+        setSelectedVisibleIds(new Set(json.data ?? []))
+      }
+    } finally {
+      setVisibilityLoading(false)
+    }
+  }
+
+  async function saveVisibility() {
+    if (!visibilityModalUserId) return
+    setVisibilitySaving(true)
+    try {
+      const res = await fetch('/api/admin/users/tag-visibility', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: visibilityModalUserId, visibleUserIds: Array.from(selectedVisibleIds) }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Visible users updated')
+      setVisibilityModalUserId(null)
+      fetchUsers()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setVisibilitySaving(false)
     }
   }
 
@@ -2195,6 +2246,14 @@ function UsersSection() {
                   </button>
                 </>
               )}
+              {u.role === 'RESOLUTION_PROVIDER' && (
+                <button
+                  onClick={() => openVisibilityModal(u.id)}
+                  className="px-2 py-1 rounded text-xs font-medium bg-teal-50 text-teal-700 hover:bg-teal-100 transition-colors"
+                >
+                  Visible Users ({u._count?.visibleUsers ?? 0})
+                </button>
+              )}
               <select
                 value={u.role}
                 onChange={e => handleChangeRole(u, e.target.value)}
@@ -2287,6 +2346,58 @@ function UsersSection() {
                 <button onClick={() => setLocationModalUserId(null)} className="btn btn-secondary text-xs">Cancel</button>
                 <button onClick={saveLocationAccess} disabled={locationSaving} className="btn btn-primary text-xs">
                   {locationSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Visible Users Modal (Resolution Provider) */}
+      {visibilityModalUserId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setVisibilityModalUserId(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b flex items-center justify-between">
+              <p className="font-semibold text-sm">Manage Visible Users</p>
+              <button onClick={() => setVisibilityModalUserId(null)} className="text-gray-400 hover:text-gray-600">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {visibilityLoading ? (
+                <p className="text-sm text-gray-500">Loading users...</p>
+              ) : allUsersForVisibility.length === 0 ? (
+                <p className="text-sm text-gray-400">No users available.</p>
+              ) : (
+                <div className="space-y-1">
+                  {allUsersForVisibility.map(u => (
+                    <label key={u.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedVisibleIds.has(u.id)}
+                        onChange={() => {
+                          setSelectedVisibleIds(prev => {
+                            const next = new Set(prev)
+                            if (next.has(u.id)) next.delete(u.id)
+                            else next.add(u.id)
+                            return next
+                          })
+                        }}
+                        className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                      />
+                      <span className="text-sm text-gray-700">{u.name}</span>
+                      <span className="text-xs text-gray-400">{u.email}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t flex items-center justify-between">
+              <p className="text-xs text-gray-400">{selectedVisibleIds.size} selected</p>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setVisibilityModalUserId(null)} className="btn btn-secondary text-xs">Cancel</button>
+                <button onClick={saveVisibility} disabled={visibilitySaving} className="btn btn-primary text-xs">
+                  {visibilitySaving ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </div>

@@ -38,6 +38,9 @@ model User {
   caseTaggedUsers CaseTaggedUser[]
   caseMessages    CaseMessage[]
 
+  visibleUsers       ResolutionProviderVisibility[] @relation("ResProviderVisibility")
+  visibleToProviders ResolutionProviderVisibility[] @relation("ResProviderVisibleTo")
+
   @@map("users")
 }
 
@@ -2266,4 +2269,15 @@ model CaseMessage {
 
   @@index([caseId])
   @@map("case_messages")
+}
+
+model ResolutionProviderVisibility {
+  id                   String @id @default(cuid())
+  resolutionProviderId String
+  resolutionProvider   User   @relation("ResProviderVisibility", fields: [resolutionProviderId], references: [id], onDelete: Cascade)
+  visibleUserId        String
+  visibleUser          User   @relation("ResProviderVisibleTo", fields: [visibleUserId], references: [id], onDelete: Cascade)
+
+  @@unique([resolutionProviderId, visibleUserId])
+  @@map("resolution_provider_visibility")
 }
