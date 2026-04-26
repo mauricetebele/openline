@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
   if (password.length < 6)
     return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
 
-  const validRoles = ['ADMIN', 'REVIEWER', 'CLIENT']
+  const validRoles = ['ADMIN', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER']
   const finalRole = validRoles.includes(role ?? '') ? role! : 'REVIEWER'
 
   // Check email uniqueness in our DB
@@ -129,7 +129,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'userId is required' }, { status: 400 })
 
   const data: Record<string, string | null> = {}
-  if (role && ['ADMIN', 'REVIEWER', 'CLIENT'].includes(role)) data.role = role
+  if (role && ['ADMIN', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER'].includes(role)) data.role = role
   if (name) data.name = name
   if (companyName !== undefined) data.companyName = companyName ?? null
 

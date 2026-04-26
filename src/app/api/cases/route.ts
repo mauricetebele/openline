@@ -14,20 +14,34 @@ export async function GET(req: NextRequest) {
   const search = url.searchParams.get('search')?.trim() || ''
   const status = url.searchParams.get('status') || 'all'
 
-  const where: Record<string, unknown> = {}
+  const conditions: Record<string, unknown>[] = []
 
   if (status === 'UNRESOLVED' || status === 'RESOLVED') {
-    where.status = status
+    conditions.push({ status })
   }
 
   if (search) {
     const num = parseInt(search, 10)
-    where.OR = [
-      { title: { contains: search, mode: 'insensitive' } },
-      { description: { contains: search, mode: 'insensitive' } },
-      ...(Number.isFinite(num) ? [{ caseNumber: num }] : []),
-    ]
+    conditions.push({
+      OR: [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+        ...(Number.isFinite(num) ? [{ caseNumber: num }] : []),
+      ],
+    })
   }
+
+  // RESOLUTION_PROVIDER can only see cases they created or are tagged in
+  if (user.role === 'RESOLUTION_PROVIDER') {
+    conditions.push({
+      OR: [
+        { createdById: user.dbId },
+        { taggedUsers: { some: { userId: user.dbId } } },
+      ],
+    })
+  }
+
+  const where = conditions.length > 0 ? { AND: conditions } : {}
 
   const cases = await prisma.case.findMany({
     where,

@@ -1901,7 +1901,7 @@ function UsersSection() {
   const [formEmail, setFormEmail] = useState('')
   const [formName, setFormName] = useState('')
   const [formPassword, setFormPassword] = useState('')
-  const [formRole, setFormRole] = useState<'REVIEWER' | 'ADMIN' | 'CLIENT'>('REVIEWER')
+  const [formRole, setFormRole] = useState<'REVIEWER' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER'>('REVIEWER')
   const [formCompanyName, setFormCompanyName] = useState('')
 
   // Location access modal state
@@ -2111,12 +2111,13 @@ function UsersSection() {
               />
               <select
                 value={formRole}
-                onChange={e => setFormRole(e.target.value as 'REVIEWER' | 'ADMIN' | 'CLIENT')}
+                onChange={e => setFormRole(e.target.value as 'REVIEWER' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER')}
                 className="input"
               >
                 <option value="REVIEWER">Reviewer</option>
                 <option value="ADMIN">Admin</option>
                 <option value="CLIENT">Client</option>
+                <option value="RESOLUTION_PROVIDER">Resolution Provider</option>
               </select>
               {formRole === 'CLIENT' && (
                 <input
@@ -2203,12 +2204,15 @@ function UsersSection() {
                     ? 'bg-amazon-blue/10 text-amazon-blue'
                     : u.role === 'CLIENT'
                       ? 'bg-purple-100 text-purple-700'
-                      : 'bg-gray-100 text-gray-600'
+                      : u.role === 'RESOLUTION_PROVIDER'
+                        ? 'bg-teal-100 text-teal-700'
+                        : 'bg-gray-100 text-gray-600'
                 }`}
               >
                 <option value="REVIEWER">Reviewer</option>
                 <option value="ADMIN">Admin</option>
                 <option value="CLIENT">Client</option>
+                <option value="RESOLUTION_PROVIDER">Resolution Provider</option>
               </select>
               <button
                 onClick={() => handleDelete(u)}

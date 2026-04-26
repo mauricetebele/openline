@@ -147,7 +147,7 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
   useEffect(() => { titleRef.current?.focus() }, [])
 
   useEffect(() => {
-    fetch('/api/admin/users')
+    fetch('/api/cases/users')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (d?.data) setAllUsers(d.data.map((u: UserOption) => ({ id: u.id, name: u.name, email: u.email })))
@@ -330,7 +330,7 @@ function AddUsersModal({ existingUserIds, onClose, onAdd, saving }: AddUsersModa
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    fetch('/api/admin/users')
+    fetch('/api/cases/users')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (d?.data) setAllUsers(d.data.filter((u: UserOption) => !existingUserIds.has(u.id)))

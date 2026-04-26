@@ -314,6 +314,7 @@ enum UserRole {
   ADMIN
   REVIEWER
   CLIENT
+  RESOLUTION_PROVIDER
 }
 
 enum FulfillmentType {

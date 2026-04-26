@@ -27,6 +27,13 @@ export async function GET(
 
   if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // RESOLUTION_PROVIDER can only access cases they created or are tagged in
+  if (user.role === 'RESOLUTION_PROVIDER') {
+    const isInvolved = c.createdBy.id === user.dbId ||
+      c.taggedUsers.some(tu => tu.user.id === user.dbId)
+    if (!isInvolved) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
   return NextResponse.json(c)
 }
 

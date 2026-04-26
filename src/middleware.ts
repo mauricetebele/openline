@@ -53,6 +53,14 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/client/inventory', req.url))
   }
 
+  // RESOLUTION_PROVIDER role routing
+  if (role === 'RESOLUTION_PROVIDER') {
+    if (pathname.startsWith('/cases') || pathname.startsWith('/api/cases/') || pathname.startsWith('/api/auth/')) {
+      return NextResponse.next()
+    }
+    return NextResponse.redirect(new URL('/cases', req.url))
+  }
+
   // Internal users cannot access /client/* pages
   if (pathname.startsWith('/client')) {
     return NextResponse.redirect(new URL('/inventory', req.url))
