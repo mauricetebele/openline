@@ -2040,9 +2040,9 @@ function UsersSection() {
       ])
       if (usersRes.ok) {
         const json = await usersRes.json()
-        // Show all non-RESOLUTION_PROVIDER users as options
+        // Show all users except the provider themselves
         setAllUsersForVisibility(
-          (json.data ?? []).filter((u: { id: string; role: string }) => u.role !== 'RESOLUTION_PROVIDER' && u.id !== userId)
+          (json.data ?? []).filter((u: { id: string }) => u.id !== userId)
         )
       }
       if (visRes.ok) {
