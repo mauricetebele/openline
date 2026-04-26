@@ -876,7 +876,16 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
         }))
         if (immediate) {
           playTone(data.valid)
-          if (!data.valid) {
+          if (data.valid) {
+            // Auto-focus the next empty serial input
+            setTimeout(() => {
+              const all = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-serial-key]'))
+              const curIdx = all.findIndex(el => el.dataset.serialKey === key)
+              for (let j = curIdx + 1; j < all.length; j++) {
+                if (!all[j].value.trim()) { all[j].focus(); break }
+              }
+            }, 50)
+          } else {
             // Show error briefly, then clear so user can scan another
             setTimeout(() => {
               setSerialInputs(prev => ({ ...prev, [key]: { value: '', valid: null, message: '', checking: false } }))
@@ -1030,6 +1039,7 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
                             <span className="text-xs text-gray-400 w-4 shrink-0">#{i + 1}</span>
                             <input
                               type="text"
+                              data-serial-key={key}
                               placeholder="Scan or enter serial…"
                               value={state.value}
                               onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '', false, item.gradeId)}
@@ -1634,6 +1644,7 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
                             <span className="text-xs text-gray-400 w-4 shrink-0">#{i + 1}</span>
                             <input
                               type="text"
+                              data-serial-key={key}
                               placeholder="Scan or enter serial…"
                               value={state.value}
                               onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '', false, item.gradeId)}
@@ -1948,6 +1959,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
                             <span className="text-xs text-gray-400 w-4 shrink-0">#{i + 1}</span>
                             <input
                               type="text"
+                              data-serial-key={key}
                               placeholder="Scan or enter serial…"
                               value={state.value}
                               onChange={e => validateSerial(key, e.target.value, item.sellerSku ?? '', false, item.gradeId)}
