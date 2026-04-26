@@ -79,3 +79,20 @@ export async function PATCH(
 
   return NextResponse.json(updated)
 }
+
+// DELETE /api/cases/[id] — admin-only case deletion
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (user.role !== 'ADMIN') return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+
+  const existing = await prisma.case.findUnique({ where: { id: params.id } })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  await prisma.case.delete({ where: { id: params.id } })
+
+  return NextResponse.json({ success: true })
+}

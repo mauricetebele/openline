@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { FolderOpen, Plus, MessageSquare, X, Send, Search, CheckCircle2, UserPlus } from 'lucide-react'
+import { FolderOpen, Plus, MessageSquare, X, Send, Search, CheckCircle2, UserPlus, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAuth } from '@/context/AuthContext'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -391,10 +391,12 @@ interface DetailPanelProps {
   caseDetail: CaseDetail
   onClose: () => void
   onUpdated: (updated: CaseDetail) => void
+  onDeleted: () => void
   currentUserId: string
+  currentUserRole: string
 }
 
-function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPanelProps) {
+function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId, currentUserRole }: DetailPanelProps) {
   const [compose, setCompose] = useState('')
   const [messages, setMessages] = useState<CaseMessageItem[]>(caseDetail.messages)
   const [sendingMsg, setSendingMsg] = useState(false)
@@ -402,6 +404,7 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
   const [resolving, setResolving] = useState(false)
   const [showAddUsers, setShowAddUsers] = useState(false)
   const [addingUsers, setAddingUsers] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
   const composeRef = useRef<HTMLTextAreaElement>(null)
 
@@ -572,6 +575,21 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
     }
   }
 
+  async function handleDeleteCase() {
+    if (!confirm(`Delete Case #${caseDetail.caseNumber}? This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/cases/${caseDetail.id}`, { method: 'DELETE' })
+      if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed to delete'); return }
+      toast.success('Case deleted')
+      onDeleted()
+    } catch {
+      toast.error('Failed to delete case')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   async function handleAddUsers(userIds: string[]) {
     setAddingUsers(true)
     try {
@@ -611,6 +629,16 @@ function DetailPanel({ caseDetail, onClose, onUpdated, currentUserId }: DetailPa
               >
                 <CheckCircle2 size={14} />
                 Resolve
+              </button>
+            )}
+            {currentUserRole === 'ADMIN' && (
+              <button
+                onClick={handleDeleteCase}
+                disabled={deleting}
+                className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 p-1 transition-colors disabled:opacity-50"
+                title="Delete case"
+              >
+                <Trash2 size={16} />
               </button>
             )}
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1"><X size={18} /></button>
@@ -963,7 +991,9 @@ export default function CaseManager() {
           caseDetail={detail}
           onClose={handleClose}
           onUpdated={handleUpdated}
+          onDeleted={() => { setDetail(null); loadCases() }}
           currentUserId={user.dbId}
+          currentUserRole={user.role}
         />
       )}
     </div>
