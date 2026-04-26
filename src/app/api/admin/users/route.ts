@@ -25,11 +25,34 @@ async function firebaseCreateUser(email: string, password: string, displayName: 
   const data = await res.json()
   if (!res.ok) {
     const code = data.error?.message ?? 'UNKNOWN_ERROR'
-    if (code.includes('EMAIL_EXISTS')) throw new Error('A Firebase account with this email already exists')
+    if (code.includes('EMAIL_EXISTS')) {
+      // Firebase user exists but DB record was deleted — delete and recreate
+      const uid = await firebaseGetUidByEmail(email)
+      if (uid) {
+        await firebaseDeleteUserByAdmin(uid)
+        return firebaseCreateUser(email, password, displayName)
+      }
+      throw new Error('A Firebase account with this email already exists')
+    }
     if (code.includes('WEAK_PASSWORD')) throw new Error('Password is too weak')
     throw new Error(code)
   }
   return data.localId // Firebase UID
+}
+
+async function firebaseGetUidByEmail(email: string): Promise<string | null> {
+  const { adminAuth } = await import('@/lib/firebase-admin')
+  try {
+    const user = await adminAuth.getUserByEmail(email)
+    return user.uid
+  } catch {
+    return null
+  }
+}
+
+async function firebaseDeleteUserByAdmin(uid: string): Promise<void> {
+  const { adminAuth } = await import('@/lib/firebase-admin')
+  await adminAuth.deleteUser(uid)
 }
 
 async function firebaseDeleteUser(idToken: string): Promise<void> {
@@ -97,7 +120,7 @@ export async function POST(req: NextRequest) {
         email,
         name,
         firebaseUid,
-        role: finalRole as 'ADMIN' | 'REVIEWER' | 'CLIENT',
+        role: finalRole as 'ADMIN' | 'REVIEWER' | 'CLIENT' | 'RESOLUTION_PROVIDER',
         ...(companyName ? { companyName } : {}),
       },
       select: { id: true, name: true, email: true, role: true, createdAt: true, companyName: true },
