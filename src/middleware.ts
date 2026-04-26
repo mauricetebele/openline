@@ -55,7 +55,7 @@ export function middleware(req: NextRequest) {
 
   // RESOLUTION_PROVIDER role routing
   if (role === 'RESOLUTION_PROVIDER') {
-    if (pathname.startsWith('/cases') || pathname.startsWith('/api/cases/') || pathname.startsWith('/api/auth/')) {
+    if (pathname.startsWith('/cases') || pathname === '/api/cases' || pathname.startsWith('/api/cases/') || pathname.startsWith('/api/auth/')) {
       return NextResponse.next()
     }
     return NextResponse.redirect(new URL('/cases', req.url))
