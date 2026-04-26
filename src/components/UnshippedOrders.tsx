@@ -827,6 +827,9 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
 
   // serialInputs: Record<"orderItemId-index", SerialState>
   const [serialInputs, setSerialInputs] = useState<Record<string, SerialState>>({})
+  const serialInputsRef = useRef<Record<string, SerialState>>({})
+  // Keep ref in sync with state
+  useEffect(() => { serialInputsRef.current = serialInputs }, [serialInputs])
   const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   const [submitting, setSubmitting] = useState(false)
@@ -858,6 +861,21 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
   const validateSerial = useCallback((key: string, sn: string, sku: string, immediate = false, gradeId?: string | null) => {
     if (!sn.trim()) {
       setSerialInputs(prev => ({ ...prev, [key]: { ...prev[key], value: sn, valid: null, message: '', checking: false } }))
+      return
+    }
+    // Check for duplicate serial across other fields
+    const trimmed = sn.trim().toUpperCase()
+    const isDuplicate = Object.entries(serialInputsRef.current).some(
+      ([k, s]) => k !== key && s.value.trim().toUpperCase() === trimmed && s.valid !== false
+    )
+    if (isDuplicate) {
+      if (immediate) playTone(false)
+      setSerialInputs(prev => ({ ...prev, [key]: { value: sn, valid: false, message: 'Duplicate serial detected', checking: false } }))
+      if (immediate) {
+        setTimeout(() => {
+          setSerialInputs(prev => ({ ...prev, [key]: { value: '', valid: null, message: '', checking: false } }))
+        }, 1500)
+      }
       return
     }
     // Mark as checking
