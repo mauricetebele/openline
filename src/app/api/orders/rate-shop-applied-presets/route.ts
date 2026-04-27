@@ -307,8 +307,12 @@ export async function POST(req: NextRequest) {
 
               const v2Result = await client.getRatesV2(v2Payload)
               const allRates = v2Result.rate_response?.rates ?? []
+              // Filter out One Rate services when package dimensions exceed One Rate limits
+              // FedEx One Rate max: ~16x15x12 (Extra Large Box). If any dim > 16", One Rate won't fit.
+              const maxDim = Math.max(preset.dimLength ?? 0, preset.dimWidth ?? 0, preset.dimHeight ?? 0)
               const validRates = allRates
                 .filter(r => r.validation_status !== 'invalid')
+                .filter(r => !(maxDim > 16 && /one rate/i.test(r.service_type || r.service_code)))
                 .sort((a, b) =>
                   (a.shipping_amount.amount + a.other_amount.amount) -
                   (b.shipping_amount.amount + b.other_amount.amount)

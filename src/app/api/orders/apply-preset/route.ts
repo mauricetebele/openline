@@ -301,8 +301,12 @@ export async function POST(req: NextRequest) {
               // Only exclude rates explicitly marked invalid — Amazon Buy Shipping rates often
               // carry address warning messages even though the rate is purchasable.
               const allRates = v2Result.rate_response?.rates ?? []
+              // Filter out One Rate services when package dimensions exceed One Rate limits
+              // FedEx One Rate max: ~16x15x12 (Extra Large Box). If any dim > 16", One Rate won't fit.
+              const maxDim = Math.max(preset.dimLength ?? 0, preset.dimWidth ?? 0, preset.dimHeight ?? 0)
               const v2Rates  = allRates
                 .filter(r => r.validation_status !== 'invalid')
+                .filter(r => !(maxDim > 16 && /one rate/i.test(r.service_type || r.service_code)))
 
               console.log('[apply-preset] order=%s v2 rates total=%d valid=%d', order.amazonOrderId, allRates.length, v2Rates.length)
 
