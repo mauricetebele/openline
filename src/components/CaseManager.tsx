@@ -842,7 +842,12 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
               )}
               {mktCaseIds.map(m => (
                 <div key={m.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                  <span className="text-xs font-mono text-gray-800 dark:text-gray-200 flex-1 min-w-0 truncate">{m.id}</span>
+                  <a
+                    href={`https://sellercentral.amazon.com/cu/case-dashboard/view-case?ref=sc_cd_lobby_vc_v3&ie=UTF&caseID=${m.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-mono text-amazon-blue hover:underline flex-1 min-w-0 truncate"
+                  >{m.id}</a>
                   <button
                     type="button"
                     onClick={() => handleToggleMktStatus(m.id, 'AWAITING_RESPONSE')}
