@@ -50,11 +50,10 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Eligible: no rate error AND (has V2 rate ID OR has V1 carrier + preset)
+  // Eligible: no rate error AND has a captured rate (V2 rate ID or carrier from any rate-shop)
   const eligible = candidates.filter(o =>
     !o.presetRateError &&
-    (o.presetRateId != null ||
-      (o.presetRateCarrier != null && o.appliedPresetId != null)),
+    (o.presetRateId != null || o.presetRateCarrier != null),
   )
 
   if (eligible.length === 0) {
