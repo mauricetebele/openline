@@ -14,7 +14,7 @@ import {
   calculateGroupQuantities,
 } from '@/app/api/marketplace-skus/push-qty/route'
 import type { BulkQuantities } from '@/app/api/marketplace-skus/push-qty/route'
-import { updateListingQuantity as updateAmazonQty } from '@/lib/amazon/listings'
+import { submitInventoryFeed } from '@/lib/amazon/listings'
 
 function pgKey(productId: string, gradeId: string | null | undefined): string {
   return `${productId}::${gradeId ?? 'NULL'}`
@@ -105,29 +105,48 @@ export function pushQtyForProducts(productIds: string[]): void {
       // Push each MSKU with its split quantity
       const { bmClient, bmListingsCache } = await getBmContext(filtered)
 
-      for (const msku of filtered) {
+      // Batch Amazon updates into a single feed
+      const amazonMskus = filtered.filter(m => m.marketplace === 'amazon')
+      const bmMskus = filtered.filter(m => m.marketplace === 'backmarket')
+
+      if (amazonMskus.length > 0) {
+        const accountId = amazonMskus[0].accountId ?? (await prisma.amazonAccount.findFirst({ where: { isActive: true } }))?.id
+        if (accountId) {
+          try {
+            const feedUpdates = amazonMskus.map(m => ({ sku: m.sellerSku, quantity: qtyMap.get(m.id) ?? 0 }))
+            await submitInventoryFeed(accountId, feedUpdates)
+            for (const msku of amazonMskus) {
+              const finalQty = qtyMap.get(msku.id) ?? 0
+              await prisma.productGradeMarketplaceSku.update({
+                where: { id: msku.id },
+                data: { lastPushedQty: finalQty, lastPushedAt: new Date() },
+              }).catch(() => {})
+              await prisma.sellerListing.updateMany({
+                where: { sku: msku.sellerSku },
+                data: { quantity: finalQty, updatedAt: new Date() },
+              }).catch(() => {})
+              console.log(`[pushQtyForProducts] Pushed ${msku.sellerSku} → ${finalQty}`)
+            }
+          } catch (err) {
+            console.error('[pushQtyForProducts] Feed submission failed:', err instanceof Error ? err.message : err)
+          }
+        }
+      }
+
+      for (const msku of bmMskus) {
         const finalQty = qtyMap.get(msku.id) ?? 0
         try {
-          if (msku.marketplace === 'amazon') {
-            const accountId = msku.accountId ?? (await prisma.amazonAccount.findFirst({ where: { isActive: true } }))?.id
-            if (!accountId) throw new Error('No active Amazon account found')
-            await updateAmazonQty(accountId, msku.sellerSku, finalQty)
-          } else if (msku.marketplace === 'backmarket') {
-            if (!bmClient || !bmListingsCache) throw new Error('No active Back Market credentials')
-            const listingId = bmListingsCache.get(msku.sellerSku)
-            if (!listingId) throw new Error(`BM listing not found for SKU ${msku.sellerSku}`)
-            await bmClient.updateListingQuantity(listingId, finalQty)
-          }
+          if (!bmClient || !bmListingsCache) throw new Error('No active Back Market credentials')
+          const listingId = bmListingsCache.get(msku.sellerSku)
+          if (!listingId) throw new Error(`BM listing not found for SKU ${msku.sellerSku}`)
+          await bmClient.updateListingQuantity(listingId, finalQty)
           await prisma.productGradeMarketplaceSku.update({
             where: { id: msku.id },
             data: { lastPushedQty: finalQty, lastPushedAt: new Date() },
           }).catch(() => {})
           console.log(`[pushQtyForProducts] Pushed ${msku.sellerSku} → ${finalQty}`)
         } catch (err) {
-          console.error(
-            `[pushQtyForProducts] Failed for ${msku.sellerSku}:`,
-            err instanceof Error ? err.message : err,
-          )
+          console.error(`[pushQtyForProducts] Failed for ${msku.sellerSku}:`, err instanceof Error ? err.message : err)
         }
       }
     } catch (err) {
