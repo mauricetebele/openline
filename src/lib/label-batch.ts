@@ -271,12 +271,13 @@ export async function runLabelBatch(batchId: string): Promise<void> {
 
       } else {
         // ── V1 path: direct createLabel with preset parameters ───────────────
-        if (!order.presetRateCarrier) {
-          throw new Error('No carrier captured on order — apply a preset first')
-        }
         const preset = order.appliedPreset
         if (!preset) {
           throw new Error('No applied preset found on order — re-apply preset before batching')
+        }
+        const v1Carrier = order.presetRateCarrier || preset.carrierCode
+        if (!v1Carrier) {
+          throw new Error('No carrier captured on order — apply a preset first')
         }
         if (!preset.serviceCode) {
           throw new Error(
@@ -301,7 +302,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
             : { units: 'inches', length: 1, width: 1, height: 1 }
 
         const labelPayload: SSLabelPayload = {
-          carrierCode:  order.presetRateCarrier,
+          carrierCode:  v1Carrier,
           serviceCode:  preset.serviceCode,
           packageCode:  preset.packageCode ?? undefined,
           confirmation: (preset.confirmation as SSLabelPayload['confirmation']) ?? undefined,
