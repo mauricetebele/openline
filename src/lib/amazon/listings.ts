@@ -853,22 +853,22 @@ export async function updateListingQuantity(
   const encodedSku = encodeURIComponent(sku)
 
   let productType = cachedProductType
-  let existingFA: Record<string, unknown> = {}
 
   if (!productType) {
-    // GET listing to determine productType and existing fulfillment_availability
+    // GET listing to determine productType
     const listingItem = await client.get<ListingItemResponse>(
       `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
-      { marketplaceIds: account.marketplaceId, includedData: 'summaries,attributes' },
+      { marketplaceIds: account.marketplaceId, includedData: 'summaries' },
     )
     productType =
       listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
       ?? listingItem.summaries?.[0]?.productType
       ?? 'PRODUCT'
-    existingFA = (listingItem.attributes?.fulfillment_availability as
-      Array<Record<string, unknown>> | undefined)?.[0] ?? {}
   }
 
+  // Send only the required fields — spreading existingFA can include read-only
+  // properties (marketplace_id, is_two_day_eligible, etc.) that cause Amazon to
+  // silently drop the update even when it returns ACCEPTED.
   const patchResult = await client.patch<ListingsPatchResponse>(
     `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
     {
@@ -878,7 +878,6 @@ export async function updateListingQuantity(
           op: 'replace',
           path: '/attributes/fulfillment_availability',
           value: [{
-            ...existingFA,
             fulfillment_channel_code: 'DEFAULT',
             quantity,
           }],
@@ -894,6 +893,12 @@ export async function updateListingQuantity(
       .map((i) => `${i.code}: ${i.message}`)
       .join('; ')
     throw new Error(`Amazon rejected qty update (INVALID) — ${errors ?? 'no details'} — productType: ${productType}`)
+  }
+
+  // Log any warnings that might explain silent drops
+  const warnings = patchResult.issues?.filter((i) => i.severity === 'WARNING')
+  if (warnings?.length) {
+    console.warn(`[updateListingQuantity] SKU=${sku} WARNINGS:`, warnings.map(w => `${w.code}: ${w.message}`).join('; '))
   }
 
   console.log(`[updateListingQuantity] SKU=${sku} qty=${quantity} productType=${productType} status=${patchResult.status}`)
