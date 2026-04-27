@@ -37,7 +37,7 @@ export async function GET(
   return NextResponse.json(c)
 }
 
-// PATCH /api/cases/[id] — update case (title/description)
+// PATCH /api/cases/[id] — update case (title/description by creator; marketplaceCaseIds by any participant)
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } },
@@ -47,17 +47,32 @@ export async function PATCH(
 
   const existing = await prisma.case.findUnique({
     where: { id: params.id },
-    select: { createdById: true },
+    select: { createdById: true, taggedUsers: { select: { userId: true } } },
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (existing.createdById !== user.dbId) {
-    return NextResponse.json({ error: 'Only the creator can edit this case' }, { status: 403 })
+
+  const isCreator = existing.createdById === user.dbId
+  const isTagged = existing.taggedUsers.some(tu => tu.userId === user.dbId)
+  if (!isCreator && !isTagged) {
+    return NextResponse.json({ error: 'You are not part of this case' }, { status: 403 })
   }
 
   const body = await req.json()
   const data: Record<string, unknown> = {}
-  if (body.title !== undefined) data.title = body.title?.trim() || undefined
-  if (body.description !== undefined) data.description = body.description?.trim() || null
+
+  // Title/description — creator only
+  if (body.title !== undefined || body.description !== undefined) {
+    if (!isCreator) {
+      return NextResponse.json({ error: 'Only the creator can edit title/description' }, { status: 403 })
+    }
+    if (body.title !== undefined) data.title = body.title?.trim() || undefined
+    if (body.description !== undefined) data.description = body.description?.trim() || null
+  }
+
+  // Marketplace case IDs — any participant
+  if (body.marketplaceCaseIds !== undefined) {
+    data.marketplaceCaseIds = Array.isArray(body.marketplaceCaseIds) ? body.marketplaceCaseIds : []
+  }
 
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })

@@ -50,6 +50,7 @@ interface CaseDetail extends CaseSummary {
   resolvedAt: string | null
   resolvedBy: { id: string; name: string } | null
   resolutionNote: string | null
+  marketplaceCaseIds: string[] | null
   updatedAt: string
   messages: CaseMessageItem[]
 }
@@ -425,12 +426,16 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
   const [addingUsers, setAddingUsers] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [mktCaseIds, setMktCaseIds] = useState<string[]>(caseDetail.marketplaceCaseIds ?? [])
+  const [mktInput, setMktInput] = useState('')
+  const [savingMktIds, setSavingMktIds] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
   const composeRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Sync messages from prop when caseDetail changes (e.g. resolve updates the full detail)
   useEffect(() => { setMessages(caseDetail.messages) }, [caseDetail.messages])
+  useEffect(() => { setMktCaseIds(caseDetail.marketplaceCaseIds ?? []) }, [caseDetail.marketplaceCaseIds])
 
   // @mention autocomplete state
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -674,6 +679,37 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
     }
   }
 
+  async function saveMktCaseIds(ids: string[]) {
+    setSavingMktIds(true)
+    try {
+      const res = await fetch(`/api/cases/${caseDetail.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ marketplaceCaseIds: ids }),
+      })
+      if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed'); return }
+      const updated: CaseDetail = await res.json()
+      onUpdated(updated)
+    } finally {
+      setSavingMktIds(false)
+    }
+  }
+
+  function handleAddMktId() {
+    const val = mktInput.trim()
+    if (!val || mktCaseIds.includes(val)) { setMktInput(''); return }
+    const next = [...mktCaseIds, val]
+    setMktCaseIds(next)
+    setMktInput('')
+    saveMktCaseIds(next)
+  }
+
+  function handleRemoveMktId(id: string) {
+    const next = mktCaseIds.filter(v => v !== id)
+    setMktCaseIds(next)
+    saveMktCaseIds(next)
+  }
+
   return (
     <div className="fixed inset-0 z-40 flex">
       <div className="flex-1 bg-black/30" onClick={onClose} />
@@ -769,6 +805,46 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
               {caseDetail.taggedUsers.length === 0 && (
                 <p className="text-xs text-gray-400 italic">No tagged users</p>
               )}
+            </div>
+          </div>
+
+          {/* Marketplace Case IDs */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Marketplace Case IDs</label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {mktCaseIds.length === 0 && !savingMktIds && (
+                <p className="text-xs text-gray-400 italic">None added</p>
+              )}
+              {mktCaseIds.map(id => (
+                <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-xs font-mono text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                  {id}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveMktId(id)}
+                    className="text-blue-400 hover:text-red-500 transition-colors"
+                  >
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+              {savingMktIds && <span className="text-[10px] text-gray-400 self-center ml-1">Saving…</span>}
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={mktInput}
+                onChange={e => setMktInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddMktId() } }}
+                placeholder="Add case ID…"
+                className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amazon-blue font-mono"
+              />
+              <button
+                type="button"
+                onClick={handleAddMktId}
+                disabled={!mktInput.trim() || savingMktIds}
+                className="px-3 py-1.5 text-xs bg-amazon-blue text-white rounded-lg hover:bg-amazon-blue/90 disabled:opacity-50 transition-colors"
+              >
+                Add
+              </button>
             </div>
           </div>
 

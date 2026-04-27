@@ -2227,21 +2227,22 @@ enum CaseStatus {
 }
 
 model Case {
-  id              String       @id @default(cuid())
-  caseNumber      Int          @unique @default(autoincrement())
-  title           String
-  description     String?      @db.Text
-  status          CaseStatus   @default(UNRESOLVED)
-  resolvedAt      DateTime?
-  resolvedById    String?
-  resolvedBy      User?        @relation("CaseResolvedBy", fields: [resolvedById], references: [id])
-  resolutionNote  String?      @db.Text
-  createdById     String
-  createdBy       User         @relation("CaseCreatedBy", fields: [createdById], references: [id])
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  taggedUsers     CaseTaggedUser[]
-  messages        CaseMessage[]
+  id                   String       @id @default(cuid())
+  caseNumber           Int          @unique @default(autoincrement())
+  title                String
+  description          String?      @db.Text
+  status               CaseStatus   @default(UNRESOLVED)
+  resolvedAt           DateTime?
+  resolvedById         String?
+  resolvedBy           User?        @relation("CaseResolvedBy", fields: [resolvedById], references: [id])
+  resolutionNote       String?      @db.Text
+  marketplaceCaseIds   Json?
+  createdById          String
+  createdBy            User         @relation("CaseCreatedBy", fields: [createdById], references: [id])
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  taggedUsers          CaseTaggedUser[]
+  messages             CaseMessage[]
 
   @@index([status])
   @@map("cases")
