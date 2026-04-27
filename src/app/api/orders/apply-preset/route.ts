@@ -423,7 +423,7 @@ export async function POST(req: NextRequest) {
               }
 
               rateAmount  = match.shipmentCost + match.otherCost
-              rateCarrier = match.carrierCode
+              rateCarrier = match.carrierCode || preset.carrierCode
               rateService = match.serviceName
               rateId      = match.rate_id ?? null
             }

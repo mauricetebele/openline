@@ -45,15 +45,16 @@ export async function POST(req: NextRequest) {
       id:               true,
       presetRateId:     true,
       presetRateCarrier: true,
+      presetRateAmount: true,
       presetRateError:  true,
       appliedPresetId:  true,
     },
   })
 
-  // Eligible: no rate error AND has a captured rate (V2 rate ID or carrier from any rate-shop)
+  // Eligible: no rate error AND has a captured rate (V2 rate ID, carrier, or amount)
   const eligible = candidates.filter(o =>
     !o.presetRateError &&
-    (o.presetRateId != null || o.presetRateCarrier != null),
+    (o.presetRateId != null || o.presetRateCarrier != null || o.presetRateAmount != null),
   )
 
   if (eligible.length === 0) {

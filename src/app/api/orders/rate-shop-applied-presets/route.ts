@@ -355,7 +355,7 @@ export async function POST(req: NextRequest) {
                   const hasDims = !!(preset.dimLength && preset.dimWidth && preset.dimHeight)
                   for (const r of rates) {
                     if (hasDims && /flat rate|envelope/i.test(r.serviceName)) continue
-                    allV1Rates.push(r)
+                    allV1Rates.push({ ...r, carrierCode: r.carrierCode || c.code })
                   }
                 } catch (e) {
                   console.warn('[rate-shop-applied] V1 carrier %s error: %s', c.code, e instanceof Error ? e.message : String(e))

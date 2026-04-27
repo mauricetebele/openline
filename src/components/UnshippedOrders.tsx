@@ -5930,7 +5930,7 @@ export default function UnshippedOrders() {
     () => Array.from(selectedOrderIds).filter(id => {
       const o = orders.find(x => x.id === id)
       if (!o || o.presetRateError) return false
-      if (!(o.presetRateId || o.presetRateCarrier)) return false
+      if (!(o.presetRateId || o.presetRateCarrier || o.presetRateAmount)) return false
       // Exclude serialized orders — they must use Manual Ship
       const totalSerializable = o.items.filter(i => i.isSerializable).reduce((s, i) => s + i.quantityOrdered, 0)
       const assigned = o.serialAssignments?.length ?? 0
