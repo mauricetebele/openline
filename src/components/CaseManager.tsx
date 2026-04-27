@@ -422,6 +422,16 @@ interface DetailPanelProps {
   currentUserRole: string
 }
 
+// Normalize marketplace case IDs — handles legacy plain strings and new object format
+function normalizeMktCaseIds(raw: unknown): MktCaseId[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map(item => {
+    if (typeof item === 'string') return { id: item, status: null as MktCaseIdStatus }
+    if (item && typeof item === 'object' && typeof item.id === 'string') return item as MktCaseId
+    return null
+  }).filter((x): x is MktCaseId => x !== null)
+}
+
 function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId, currentUserRole }: DetailPanelProps) {
   const [compose, setCompose] = useState('')
   const [messages, setMessages] = useState<CaseMessageItem[]>(caseDetail.messages)
@@ -433,7 +443,7 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
   const [addingUsers, setAddingUsers] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
-  const [mktCaseIds, setMktCaseIds] = useState<MktCaseId[]>(caseDetail.marketplaceCaseIds ?? [])
+  const [mktCaseIds, setMktCaseIds] = useState<MktCaseId[]>(normalizeMktCaseIds(caseDetail.marketplaceCaseIds))
   const [mktInput, setMktInput] = useState('')
   const [savingMktIds, setSavingMktIds] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
@@ -442,7 +452,7 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
 
   // Sync messages from prop when caseDetail changes (e.g. resolve updates the full detail)
   useEffect(() => { setMessages(caseDetail.messages) }, [caseDetail.messages])
-  useEffect(() => { setMktCaseIds(caseDetail.marketplaceCaseIds ?? []) }, [caseDetail.marketplaceCaseIds])
+  useEffect(() => { setMktCaseIds(normalizeMktCaseIds(caseDetail.marketplaceCaseIds)) }, [caseDetail.marketplaceCaseIds])
 
   // @mention autocomplete state
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
