@@ -29,20 +29,25 @@ export async function POST(
   }
 
   const body = await req.json()
-  const { body: messageBody, mentionedUserIds } = body as {
+  const { body: messageBody, mentionedUserIds, attachments } = body as {
     body?: string
     mentionedUserIds?: string[]
+    attachments?: { url: string; filename: string; contentType: string; size: number }[]
   }
 
-  if (!messageBody?.trim()) {
-    return NextResponse.json({ error: 'Message body is required' }, { status: 400 })
+  const hasText = !!messageBody?.trim()
+  const hasAttachments = Array.isArray(attachments) && attachments.length > 0
+
+  if (!hasText && !hasAttachments) {
+    return NextResponse.json({ error: 'Message body or attachments required' }, { status: 400 })
   }
 
   const message = await prisma.caseMessage.create({
     data: {
       caseId: params.id,
       authorId: user.dbId,
-      body: messageBody.trim(),
+      body: messageBody?.trim() ?? '',
+      ...(hasAttachments ? { attachments } : {}),
     },
     include: { author: { select: { id: true, name: true } } },
   })
@@ -69,10 +74,10 @@ export async function POST(
   const regularRecipients = allRecipients.filter(r => !mentionedSet.has(r.userId))
 
   if (attentionRecipients.length > 0) {
-    sendCaseAttentionNotification(caseInfo, messageBody.trim(), user.name, attentionRecipients)
+    sendCaseAttentionNotification(caseInfo, messageBody?.trim() ?? '', user.name, attentionRecipients)
   }
   if (regularRecipients.length > 0) {
-    sendCaseMessageNotification(caseInfo, messageBody.trim(), user.name, regularRecipients)
+    sendCaseMessageNotification(caseInfo, messageBody?.trim() ?? '', user.name, regularRecipients)
   }
 
   return NextResponse.json(message, { status: 201 })

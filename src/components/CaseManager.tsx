@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { FolderOpen, Plus, MessageSquare, X, Send, Search, CheckCircle2, UserPlus, Trash2 } from 'lucide-react'
+import { FolderOpen, Plus, MessageSquare, X, Send, Search, CheckCircle2, UserPlus, Trash2, Paperclip, Download, FileText } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAuth } from '@/context/AuthContext'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -29,12 +29,20 @@ interface CaseSummary {
   _count: { messages: number }
 }
 
+interface Attachment {
+  url: string
+  filename: string
+  contentType: string
+  size: number
+}
+
 interface CaseMessageItem {
   id: string
   caseId: string
   authorId: string
   author: { id: string; name: string }
   body: string
+  attachments?: Attachment[] | null
   createdAt: string
 }
 
@@ -73,6 +81,16 @@ function relativeTime(iso: string) {
   if (hrs < 24) return `${hrs}h ago`
   const days = Math.floor(hrs / 24)
   return `${days}d ago`
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function isImage(contentType: string) {
+  return contentType.startsWith('image/')
 }
 
 function AvatarInitial({ name }: { name: string }) {
@@ -400,13 +418,16 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
   const [compose, setCompose] = useState('')
   const [messages, setMessages] = useState<CaseMessageItem[]>(caseDetail.messages)
   const [sendingMsg, setSendingMsg] = useState(false)
+  const [sendStatus, setSendStatus] = useState<'idle' | 'uploading' | 'sending'>('idle')
   const [showResolve, setShowResolve] = useState(false)
   const [resolving, setResolving] = useState(false)
   const [showAddUsers, setShowAddUsers] = useState(false)
   const [addingUsers, setAddingUsers] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const threadRef = useRef<HTMLDivElement>(null)
   const composeRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Sync messages from prop when caseDetail changes (e.g. resolve updates the full detail)
   useEffect(() => { setMessages(caseDetail.messages) }, [caseDetail.messages])
@@ -500,30 +521,75 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
     setMentionQuery(null)
   }
 
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    setPendingFiles(prev => {
+      const combined = [...prev, ...files]
+      return combined.slice(0, 5) // max 5
+    })
+    e.target.value = '' // reset so same file can be re-selected
+  }
+
+  function removePendingFile(index: number) {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
   async function handleSendMessage() {
-    if (!compose.trim()) return
+    const hasText = !!compose.trim()
+    const hasFiles = pendingFiles.length > 0
+    if (!hasText && !hasFiles) return
+
     setSendingMsg(true)
     setMentionQuery(null)
+
     try {
+      // Upload pending files
+      let attachments: Attachment[] = []
+      if (hasFiles) {
+        setSendStatus('uploading')
+        const uploads = await Promise.all(
+          pendingFiles.map(async (file) => {
+            const fd = new FormData()
+            fd.append('file', file)
+            const res = await fetch('/api/cases/upload', { method: 'POST', body: fd })
+            if (!res.ok) {
+              const d = await res.json()
+              throw new Error(d.error || `Failed to upload ${file.name}`)
+            }
+            return res.json() as Promise<Attachment>
+          }),
+        )
+        attachments = uploads
+      }
+
+      setSendStatus('sending')
       const { body: finalBody, mentionedUserIds } = buildMessageBody(compose.trim())
       const res = await fetch(`/api/cases/${caseDetail.id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: finalBody, mentionedUserIds }),
+        body: JSON.stringify({
+          body: finalBody,
+          mentionedUserIds,
+          ...(attachments.length > 0 ? { attachments } : {}),
+        }),
       })
       if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed'); return }
       const newMsg: CaseMessageItem = await res.json()
       const updatedMessages = [...messages, newMsg]
       setMessages(updatedMessages)
       setCompose('')
+      setPendingFiles([])
       mentionMapRef.current.clear()
       onUpdated({
         ...caseDetail,
         messages: updatedMessages,
         _count: { messages: updatedMessages.length },
       })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send')
     } finally {
       setSendingMsg(false)
+      setSendStatus('idle')
     }
   }
 
@@ -721,6 +787,7 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
               )}
               {messages.map(m => {
                 const msgHasMentions = hasMentions(m.body)
+                const atts = (m.attachments ?? []) as Attachment[]
                 return (
                   <div key={m.id} className={clsx('flex gap-3', msgHasMentions && 'bg-red-50/60 dark:bg-red-900/10 -mx-2 px-2 py-1.5 rounded-lg border-l-2 border-red-400')}>
                     <AvatarInitial name={m.author.name} />
@@ -732,7 +799,45 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
                           <span className="text-[10px] font-semibold text-red-500 dark:text-red-400">Attention Requested</span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5 whitespace-pre-wrap break-words">{renderMessageBody(m.body)}</p>
+                      {m.body && (
+                        <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5 whitespace-pre-wrap break-words">{renderMessageBody(m.body)}</p>
+                      )}
+                      {atts.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {atts.map((att, i) =>
+                            isImage(att.contentType) ? (
+                              <a
+                                key={i}
+                                href={att.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="group relative block w-32 h-24 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-700"
+                              >
+                                <img src={att.url} alt={att.filename} className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                                  <Download size={18} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </div>
+                                <span className="absolute bottom-0 left-0 right-0 px-1.5 py-0.5 bg-black/50 text-white text-[10px] truncate">{att.filename}</span>
+                              </a>
+                            ) : (
+                              <a
+                                key={i}
+                                href={att.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors max-w-[220px]"
+                              >
+                                <FileText size={16} className="text-gray-400 shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{att.filename}</p>
+                                  <p className="text-[10px] text-gray-400">{formatFileSize(att.size)}</p>
+                                </div>
+                                <Download size={14} className="text-gray-400 shrink-0" />
+                              </a>
+                            ),
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
@@ -771,14 +876,59 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
                 placeholder="Write a message… Type @ to mention (Cmd+Enter to send)"
                 className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none resize-none rounded-t-lg"
               />
-              <div className="flex justify-end px-3 py-2 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg">
+
+              {/* Pending files preview strip */}
+              {pendingFiles.length > 0 && (
+                <div className="flex flex-wrap gap-2 px-3 py-2 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700">
+                  {pendingFiles.map((file, idx) => (
+                    <div key={idx} className="relative group flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-700 dark:text-gray-300">
+                      {file.type.startsWith('image/') ? (
+                        <img
+                          src={URL.createObjectURL(file)}
+                          alt={file.name}
+                          className="w-8 h-8 rounded object-cover"
+                        />
+                      ) : (
+                        <FileText size={14} className="text-gray-400 shrink-0" />
+                      )}
+                      <span className="max-w-[100px] truncate">{file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removePendingFile(idx)}
+                        className="ml-0.5 text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={pendingFiles.length >= 5 || sendingMsg}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-30 transition-colors"
+                  title={pendingFiles.length >= 5 ? 'Max 5 files' : 'Attach files'}
+                >
+                  <Paperclip size={16} />
+                </button>
                 <button
                   onClick={handleSendMessage}
-                  disabled={sendingMsg || !compose.trim()}
+                  disabled={sendingMsg || (!compose.trim() && pendingFiles.length === 0)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-amazon-blue text-white text-xs rounded-lg hover:bg-amazon-blue/90 disabled:opacity-50 transition-colors"
                 >
                   <Send size={12} />
-                  {sendingMsg ? 'Sending…' : 'Send'}
+                  {sendStatus === 'uploading' ? 'Uploading…' : sendStatus === 'sending' ? 'Sending…' : 'Send'}
                 </button>
               </div>
             </div>

@@ -2259,13 +2259,14 @@ model CaseTaggedUser {
 }
 
 model CaseMessage {
-  id        String   @id @default(cuid())
-  caseId    String
-  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id])
-  body      String   @db.Text
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+  body        String   @db.Text
+  attachments Json?
+  createdAt   DateTime @default(now())
 
   @@index([caseId])
   @@map("case_messages")
