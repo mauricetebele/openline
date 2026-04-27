@@ -838,10 +838,9 @@ ${messages}
 }
 
 /**
- * Update a single listing's quantity via Listings Items API PUT.
- * Uses LISTING_OFFER_ONLY mode with explicit marketplace_id to reliably
- * push through Amazon's inventory system (PATCH silently drops for many
- * product types even when returning ACCEPTED).
+ * Update a single listing's quantity via Listings Items API PATCH.
+ * Includes explicit marketplace_id in the value to ensure the update
+ * propagates through Amazon's inventory system.
  *
  * Accepts an optional cached productType to skip the GET call.
  * Returns the productType used (for caching by the caller).
@@ -857,57 +856,51 @@ export async function updateListingQuantity(
   const encodedSku = encodeURIComponent(sku)
 
   let productType = cachedProductType
-  let asin: string | undefined
-  let conditionType: string | undefined
 
   if (!productType) {
     const listingItem = await client.get<ListingItemResponse>(
       `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
       { marketplaceIds: account.marketplaceId, includedData: 'summaries' },
     )
-    const summary = listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)
-      ?? listingItem.summaries?.[0]
-    productType = summary?.productType ?? 'PRODUCT'
-    asin = summary?.asin
-    conditionType = summary?.conditionType
+    productType =
+      listingItem.summaries?.find((s) => s.marketplaceId === account.marketplaceId)?.productType
+      ?? listingItem.summaries?.[0]?.productType
+      ?? 'PRODUCT'
   }
 
-  // Use PUT with LISTING_OFFER_ONLY — this reliably updates the actual
-  // inventory count, unlike PATCH which can silently drop the update.
-  const attributes: Record<string, unknown[]> = {
-    fulfillment_availability: [{
-      fulfillment_channel_code: 'DEFAULT',
-      quantity,
-      marketplace_id: account.marketplaceId,
-    }],
-  }
-  if (asin) {
-    attributes.merchant_suggested_asin = [{ value: asin, marketplace_id: account.marketplaceId }]
-  }
-  if (conditionType) {
-    attributes.condition_type = [{ value: conditionType, marketplace_id: account.marketplaceId }]
-  }
-
-  const putResult = await client.put<ListingsPatchResponse>(
+  const patchResult = await client.patch<ListingsPatchResponse>(
     `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
-    { productType, requirements: 'LISTING_OFFER_ONLY', attributes },
+    {
+      productType,
+      patches: [
+        {
+          op: 'replace',
+          path: '/attributes/fulfillment_availability',
+          value: [{
+            fulfillment_channel_code: 'DEFAULT',
+            quantity,
+            marketplace_id: account.marketplaceId,
+          }],
+        },
+      ],
+    },
     { marketplaceIds: account.marketplaceId },
   )
 
-  if (putResult.status === 'INVALID') {
-    const errors = putResult.issues
+  if (patchResult.status === 'INVALID') {
+    const errors = patchResult.issues
       ?.filter((i) => i.severity === 'ERROR')
       .map((i) => `${i.code}: ${i.message}`)
       .join('; ')
     throw new Error(`Amazon rejected qty update (INVALID) — ${errors ?? 'no details'} — productType: ${productType}`)
   }
 
-  const warnings = putResult.issues?.filter((i) => i.severity === 'WARNING')
+  const warnings = patchResult.issues?.filter((i) => i.severity === 'WARNING')
   if (warnings?.length) {
     console.warn(`[updateListingQuantity] SKU=${sku} WARNINGS:`, warnings.map(w => `${w.code}: ${w.message}`).join('; '))
   }
 
-  console.log(`[updateListingQuantity] SKU=${sku} qty=${quantity} productType=${productType} status=${putResult.status}`)
+  console.log(`[updateListingQuantity] SKU=${sku} qty=${quantity} productType=${productType} status=${patchResult.status}`)
 
   // Mirror new quantity + cache productType in DB.
   await prisma.sellerListing.updateMany({
