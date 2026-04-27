@@ -287,11 +287,13 @@ export async function POST(req: NextRequest) {
                     country_code:                  toCountry,
                     address_residential_indicator: 'unknown',
                   },
+                  ...('insuranceProvider' in preset && preset.insuranceProvider ? { insurance_provider: preset.insuranceProvider as 'parcelguard' | 'carrier' } : {}),
                   packages: [{
                     weight: { unit: wtUnit, value: preset.weightValue },
                     ...(preset.dimLength && preset.dimWidth && preset.dimHeight
                       ? { dimensions: { unit: dimUnit, length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight } }
                       : {}),
+                    ...('insuredValue' in preset && preset.insuredValue ? { insured_value: { amount: preset.insuredValue as number, currency: 'usd' } } : {}),
                   }],
                   order_source_code: 'amazon',
                   items: order.items.map(item => ({
@@ -340,6 +342,7 @@ export async function POST(req: NextRequest) {
                 try {
                   const rates = await client.getRates({
                     carrierCode:    c.code,
+                    packageCode:    preset.packageCode ?? undefined,
                     fromPostalCode,
                     fromCity:       from.city,
                     fromState:      from.state,
@@ -353,8 +356,9 @@ export async function POST(req: NextRequest) {
                       : {}),
                   } as SSRatesPayload)
                   const hasDims = !!(preset.dimLength && preset.dimWidth && preset.dimHeight)
+                  const isFlatRatePkg = preset.packageCode && /flat_rate|envelope|regional_rate/i.test(preset.packageCode)
                   for (const r of rates) {
-                    if (hasDims && /flat rate|envelope/i.test(r.serviceName)) continue
+                    if (hasDims && !isFlatRatePkg && /flat rate|envelope/i.test(r.serviceName)) continue
                     allV1Rates.push({ ...r, carrierCode: r.carrierCode || c.code })
                   }
                 } catch (e) {

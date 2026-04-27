@@ -3375,6 +3375,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   const [fromZip, setFromZip]       = useState<string>('')
   const [confirmation, setConfirmation] = useState<string>('none')
   const [fedexPkg, setFedexPkg] = useState<string>('none')
+  const [uspsPkg, setUspsPkg] = useState<string>('none')
   const [labelShipDate, setLabelShipDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [upsAccounts, setUpsAccounts] = useState<{ id: string; nickname: string; isDefault: boolean; maskedAccountNumber?: string | null }[]>([])
   const [selectedUpsAccountId, setSelectedUpsAccountId] = useState<string>('')
@@ -3514,6 +3515,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
           dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
           confirmation, residential: true,
           ...(fedexPkg !== 'none' ? { fedexPackaging: fedexPkg } : {}),
+          ...(uspsPkg !== 'none' ? { packageCode: uspsPkg } : {}),
           ...(selectedUpsAccountId ? { upsCredentialId: selectedUpsAccountId } : {}),
           amazonOrderId: order.amazonOrderId,
           orderSource: order.orderSource ?? 'amazon',
@@ -3631,7 +3633,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
         : await apiPost<{ trackingNumber: string; labelData: string; labelFormat: string; shipmentCost?: number }>(
             '/api/shipstation/label-for-order', {
               orderId: lookup.ssOrderId, carrierCode: rate.carrierCode, serviceCode: rate.serviceCode,
-              packageCode: 'package', confirmation, shipDate: labelShipDate,
+              packageCode: uspsPkg !== 'none' ? uspsPkg : 'package', confirmation, shipDate: labelShipDate,
               weight: { value: weight.value, units: weight.unit },
               dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
               testLabel: testMode,
@@ -3743,6 +3745,8 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
             <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Package</h3>
             {fedexPkg !== 'none' ? (
               <p className="text-xs text-purple-600 mb-2">Dimensions provided by FedEx packaging ({fedexPkg.replace(/FEDEX_/,'').replace(/_/g,' ')})</p>
+            ) : uspsPkg !== 'none' ? (
+              <p className="text-xs text-blue-600 mb-2">USPS packaging: {uspsPkg.replace(/_/g, ' ')}</p>
             ) : (
             <div className="flex gap-2 mb-2">
               {(['length', 'width', 'height'] as const).map(dim => (
@@ -3791,6 +3795,22 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
                 <label className="text-xs font-medium text-gray-600">Confirmation</label>
                 <select value={confirmation} onChange={e => { setConfirmation(e.target.value); setRates(null) }} className="h-8 rounded border border-gray-300 px-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF9900]">
                   <option value="none">None</option><option value="delivery">Delivery</option><option value="signature">Signature</option><option value="adult_signature">Adult Signature</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1 shrink-0">
+                <label className="text-xs font-medium text-gray-600">USPS Packaging</label>
+                <select value={uspsPkg} onChange={e => { setUspsPkg(e.target.value); setRates(null) }} className="h-8 rounded border border-gray-300 px-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF9900]">
+                  <option value="none">None (package)</option>
+                  <option value="flat_rate_envelope">Flat Rate Envelope</option>
+                  <option value="padded_flat_rate_envelope">Padded Flat Rate Envelope</option>
+                  <option value="legal_flat_rate_envelope">Legal Flat Rate Envelope</option>
+                  <option value="small_flat_rate_box">Small Flat Rate Box</option>
+                  <option value="medium_flat_rate_box">Medium Flat Rate Box</option>
+                  <option value="large_flat_rate_box">Large Flat Rate Box</option>
+                  <option value="regional_rate_box_a">Regional Rate Box A</option>
+                  <option value="regional_rate_box_b">Regional Rate Box B</option>
+                  <option value="large_envelope_or_flat">Large Envelope / Flat</option>
+                  <option value="thick_envelope">Thick Envelope</option>
                 </select>
               </div>
               {order.orderSource === 'backmarket' && (
@@ -4033,7 +4053,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
 interface ShippingPreset {
   id: string; name: string; carrierCode: string; serviceCode: string | null; packageCode: string | null
   weightValue: number; weightUnit: string; dimLength: number | null; dimWidth: number | null; dimHeight: number | null
-  dimUnit: string; confirmation: string | null; isDefault: boolean
+  dimUnit: string; confirmation: string | null; insuredValue: number | null; insuranceProvider: string | null; isDefault: boolean
 }
 
 interface PackagePreset {
@@ -4074,7 +4094,7 @@ function PresetManagementModal({ onClose, onChange }: {
   const blankPreset: Omit<ShippingPreset, 'id'> = {
     name: '', carrierCode: '', serviceCode: null, packageCode: null,
     weightValue: 16, weightUnit: 'ounces', dimLength: null, dimWidth: null, dimHeight: null,
-    dimUnit: 'inches', confirmation: null, isDefault: false,
+    dimUnit: 'inches', confirmation: null, insuredValue: null, insuranceProvider: null, isDefault: false,
   }
   const [form, setForm] = useState<Omit<ShippingPreset, 'id'>>(blankPreset)
 
@@ -4164,7 +4184,8 @@ function PresetManagementModal({ onClose, onChange }: {
   function startEdit(p: ShippingPreset) {
     setForm({ name: p.name, carrierCode: p.carrierCode, serviceCode: p.serviceCode, packageCode: p.packageCode,
       weightValue: p.weightValue, weightUnit: p.weightUnit, dimLength: p.dimLength, dimWidth: p.dimWidth,
-      dimHeight: p.dimHeight, dimUnit: p.dimUnit, confirmation: p.confirmation, isDefault: p.isDefault })
+      dimHeight: p.dimHeight, dimUnit: p.dimUnit, confirmation: p.confirmation,
+      insuredValue: p.insuredValue, insuranceProvider: p.insuranceProvider, isDefault: p.isDefault })
     setEditing(p); setCreating(false); setErr(null)
   }
 
@@ -4294,6 +4315,24 @@ function PresetManagementModal({ onClose, onChange }: {
                     {CONF_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
+                {/* Insurance */}
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-600 mb-1">Insurance</label>
+                  <select value={form.insuranceProvider ?? ''} onChange={e => { const v = e.target.value || null; setForm(f => ({ ...f, insuranceProvider: v, insuredValue: v ? f.insuredValue : null })) }}
+                    className="w-full h-7 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue">
+                    <option value="">None</option>
+                    <option value="parcelguard">ParcelGuard</option>
+                    <option value="carrier">Carrier</option>
+                  </select>
+                </div>
+                {form.insuranceProvider && (
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-600 mb-1">Declared Value ($)</label>
+                  <input type="number" min={0.01} step={0.01} value={form.insuredValue ?? ''} placeholder="0.00"
+                    onChange={e => setForm(f => ({ ...f, insuredValue: e.target.value ? parseFloat(e.target.value) : null }))}
+                    className="w-full h-7 rounded border border-gray-300 px-2 text-xs focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
+                </div>
+                )}
                 {/* Weight */}
                 <div>
                   <label className="block text-[10px] font-medium text-gray-600 mb-1">Weight <span className="text-red-500">*</span></label>

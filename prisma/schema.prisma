@@ -615,6 +615,7 @@ model OrderLabel {
   labelData      String   @db.Text // base64-encoded PDF/PNG
   labelFormat    String   @default("pdf")
   shipmentCost   Decimal? @db.Decimal(12, 2)
+  insuranceCost  Decimal? @db.Decimal(12, 2)
   carrier        String?
   serviceCode    String?
   isTest         Boolean  @default(false)
@@ -780,10 +781,12 @@ model ShippingPreset {
   dimWidth     Float?
   dimHeight    Float?
   dimUnit      String   @default("inches")
-  confirmation String?
-  isDefault    Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  confirmation      String?
+  insuredValue      Float?    // declared value in USD (e.g. 150.00)
+  insuranceProvider String?   // 'parcelguard' | 'carrier' | null (null = none)
+  isDefault         Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   orders Order[]
 

@@ -279,11 +279,13 @@ export async function POST(req: NextRequest) {
                     country_code:                  toCountry,
                     address_residential_indicator: 'unknown',
                   },
+                  ...(preset.insuranceProvider ? { insurance_provider: preset.insuranceProvider as 'parcelguard' | 'carrier' } : {}),
                   packages: [{
                     weight: { unit: wtUnit, value: preset.weightValue },
                     ...(preset.dimLength && preset.dimWidth && preset.dimHeight
                       ? { dimensions: { unit: dimUnit, length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight } }
                       : {}),
+                    ...(preset.insuredValue ? { insured_value: { amount: preset.insuredValue, currency: 'usd' } } : {}),
                   }],
                   order_source_code: 'amazon',
                   items: order.items.map(item => ({
@@ -340,6 +342,7 @@ export async function POST(req: NextRequest) {
                 try {
                   const rates = await client.getRates({
                     carrierCode:    c.code,
+                    packageCode:    preset.packageCode ?? undefined,
                     fromPostalCode,
                     fromCity:       from.city,
                     fromState:      from.state,
@@ -356,8 +359,9 @@ export async function POST(req: NextRequest) {
                       : {}),
                   })
                   const hasDims = !!(preset.dimLength && preset.dimWidth && preset.dimHeight)
+                  const isFlatRatePkg = preset.packageCode && /flat_rate|envelope|regional_rate/i.test(preset.packageCode)
                   for (const r of rates) {
-                    if (hasDims && /flat rate|envelope/i.test(r.serviceName)) continue
+                    if (hasDims && !isFlatRatePkg && /flat rate|envelope/i.test(r.serviceName)) continue
                     allV1Rates.push(r)
                   }
                 } catch (e) {
@@ -399,7 +403,8 @@ export async function POST(req: NextRequest) {
 
               const v1RatesRaw = await client.getRates(v1Payload)
               const hasDimsV1 = !!(preset.dimLength && preset.dimWidth && preset.dimHeight)
-              const v1Rates = hasDimsV1 ? v1RatesRaw.filter(r => !/flat rate|envelope/i.test(r.serviceName)) : v1RatesRaw
+              const isFlatRatePkgV1 = preset.packageCode && /flat_rate|envelope|regional_rate/i.test(preset.packageCode)
+              const v1Rates = (hasDimsV1 && !isFlatRatePkgV1) ? v1RatesRaw.filter(r => !/flat rate|envelope/i.test(r.serviceName)) : v1RatesRaw
               console.log('[apply-preset] order=%s v1 rates=%d (raw=%d) serviceCodes=%s',
                 order.amazonOrderId, v1Rates.length, v1RatesRaw.length,
                 v1Rates.map(r => r.serviceCode).join(', ') || 'none')

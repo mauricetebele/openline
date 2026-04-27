@@ -79,6 +79,7 @@ export interface SSLabelPayload {
   shipTo: SSAddress
   orderNumber?: string
   testLabel?: boolean
+  insuranceOptions?: { provider: string; insureShipment: boolean; insuredValue: number }
 }
 
 /** Used by POST /orders/createlabelfororder — creates a label tied to an existing SS order */
@@ -180,9 +181,11 @@ export interface V2RatesRequest {
     warehouse_id?: string         // Use instead of ship_from to get full carrier coverage (e.g. UPS via Amazon Buy Shipping)
     ship_to: V2Address
     ship_from?: V2Address
+    insurance_provider?: 'parcelguard' | 'carrier' | 'none'
     packages: {
       weight: { value: number; unit: 'ounce' | 'pound' | 'gram' | 'kilogram' }
       dimensions?: { length: number; width: number; height: number; unit: 'inch' | 'centimeter' }
+      insured_value?: { amount: number; currency: string }
     }[]
     order_source_code?: string
     items?: {

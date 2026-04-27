@@ -129,6 +129,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
       let labelData: string
       let labelFormat: string
       let shipmentCost: number | undefined
+      let insuranceCost: number | undefined
       let carrier: string | undefined
       let serviceCode: string | undefined
       let ssShipmentId: string | undefined
@@ -334,6 +335,13 @@ export async function runLabelBatch(batchId: string): Promise<void> {
           },
           orderNumber: order.amazonOrderId,
           testLabel:   batch.isTest,
+          ...(preset.insuredValue ? {
+            insuranceOptions: {
+              provider: preset.insuranceProvider ?? 'parcelguard',
+              insureShipment: true,
+              insuredValue: preset.insuredValue,
+            },
+          } : {}),
         }
 
         const label = await ssClient.createLabel(labelPayload)
@@ -341,6 +349,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
         labelData      = label.labelData
         labelFormat    = label.labelFormat
         shipmentCost   = label.shipmentCost
+        insuranceCost  = label.insuranceCost
         carrier        = preset.carrierCode
         serviceCode    = preset.serviceCode
         ssShipmentId   = label.shipmentId ? String(label.shipmentId) : undefined
@@ -354,21 +363,23 @@ export async function runLabelBatch(batchId: string): Promise<void> {
           trackingNumber,
           labelData,
           labelFormat,
-          shipmentCost:   shipmentCost ?? null,
-          carrier:        carrier      ?? null,
-          serviceCode:    serviceCode  ?? null,
+          shipmentCost:   shipmentCost   ?? null,
+          insuranceCost:  insuranceCost  ?? null,
+          carrier:        carrier        ?? null,
+          serviceCode:    serviceCode    ?? null,
           isTest:         batch.isTest,
-          ssShipmentId:   ssShipmentId ?? null,
+          ssShipmentId:   ssShipmentId   ?? null,
         },
         update: {
           trackingNumber,
           labelData,
           labelFormat,
-          shipmentCost:   shipmentCost ?? null,
-          carrier:        carrier      ?? null,
-          serviceCode:    serviceCode  ?? null,
+          shipmentCost:   shipmentCost   ?? null,
+          insuranceCost:  insuranceCost  ?? null,
+          carrier:        carrier        ?? null,
+          serviceCode:    serviceCode    ?? null,
           isTest:         batch.isTest,
-          ssShipmentId:   ssShipmentId ?? null,
+          ssShipmentId:   ssShipmentId   ?? null,
           createdAt:      new Date(),
         },
       })

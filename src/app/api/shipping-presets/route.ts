@@ -21,8 +21,10 @@ const presetSchema = z.object({
   dimWidth:     z.number().positive().optional().nullable(),
   dimHeight:    z.number().positive().optional().nullable(),
   dimUnit:      z.enum(['inches', 'centimeters']).default('inches'),
-  confirmation: z.enum(['none', 'delivery', 'signature', 'adult_signature']).optional().nullable(),
-  isDefault:    z.boolean().default(false),
+  confirmation:      z.enum(['none', 'delivery', 'signature', 'adult_signature']).optional().nullable(),
+  insuredValue:      z.number().positive().optional().nullable(),
+  insuranceProvider: z.enum(['parcelguard', 'carrier']).optional().nullable(),
+  isDefault:         z.boolean().default(false),
 })
 
 export async function GET() {

@@ -42,6 +42,7 @@ interface RateShopPayload {
   orderSource?: string  // 'amazon' | 'backmarket' — controls which carriers to query
   shipDate?: string     // YYYY-MM-DD — future ship date for rate shopping
   fedexPackaging?: string // FedEx One Rate packaging type, e.g. 'FEDEX_PAK'
+  packageCode?: string    // USPS/carrier package code, e.g. 'flat_rate_envelope'
   upsCredentialId?: string // specific UPS account to use for UPS Direct rates
 }
 
@@ -286,13 +287,16 @@ export async function POST(req: NextRequest) {
         dimensions:     { units: body.dimensions.units, length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height },
         confirmation:   (body.confirmation ?? 'none') as 'none' | 'delivery' | 'signature' | 'adult_signature',
         residential:    body.residential,
+        ...(body.packageCode ? { packageCode: body.packageCode } : {}),
       }
 
       try {
         const v1Rates = await client.getRates(v1Payload)
         const hasDims = body.dimensions.length > 0 && body.dimensions.width > 0 && body.dimensions.height > 0
+        // Don't filter out flat rate/envelope services when a flat rate package code is explicitly selected
+        const isFlatRatePkg = body.packageCode && /flat_rate|envelope|regional_rate/i.test(body.packageCode)
         for (const r of v1Rates) {
-          if (hasDims && /flat rate|envelope/i.test(r.serviceName)) continue
+          if (hasDims && !isFlatRatePkg && /flat rate|envelope/i.test(r.serviceName)) continue
           // V1 getrates doesn't return carrierCode in each rate — inject it from the carrier being queried
           allRates.push({ ...r, carrierCode: r.carrierCode || carrier.code, carrierName })
         }
