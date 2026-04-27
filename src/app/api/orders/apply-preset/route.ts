@@ -314,8 +314,8 @@ export async function POST(req: NextRequest) {
               // defines package dimensions/weight but Amazon offers multiple
               // services (UPS Ground, USPS, etc.) and we want the cheapest.
               const sorted = v2Rates.sort((a, b) =>
-                (a.shipping_amount.amount + a.other_amount.amount) -
-                (b.shipping_amount.amount + b.other_amount.amount)
+                (a.shipping_amount.amount + (a.insurance_amount?.amount ?? 0) + a.other_amount.amount) -
+                (b.shipping_amount.amount + (b.insurance_amount?.amount ?? 0) + b.other_amount.amount)
               )
               const match = sorted[0]
 
@@ -324,7 +324,7 @@ export async function POST(req: NextRequest) {
                 throw new Error(`No valid Amazon rates returned (${allRates.length} total: ${statuses || 'none'})`)
               }
 
-              rateAmount  = match.shipping_amount.amount + match.other_amount.amount
+              rateAmount  = match.shipping_amount.amount + (match.insurance_amount?.amount ?? 0) + match.other_amount.amount
               rateCarrier = match.carrier_friendly_name || match.carrier_code
               rateService = match.service_type || match.service_code
               rateId      = match.rate_id

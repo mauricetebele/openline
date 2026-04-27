@@ -219,8 +219,8 @@ export async function POST(req: NextRequest) {
               const validRates = allRates
                 .filter(r => r.validation_status !== 'invalid')
                 .sort((a, b) =>
-                  (a.shipping_amount.amount + a.other_amount.amount) -
-                  (b.shipping_amount.amount + b.other_amount.amount)
+                  (a.shipping_amount.amount + (a.insurance_amount?.amount ?? 0) + a.other_amount.amount) -
+                  (b.shipping_amount.amount + (b.insurance_amount?.amount ?? 0) + b.other_amount.amount)
                 )
 
               console.log('[apply-package-preset] order=%s v2 rates total=%d valid=%d',
@@ -232,7 +232,7 @@ export async function POST(req: NextRequest) {
                 throw new Error(`No valid rates returned (${allRates.length} total: ${statuses || 'none'})`)
               }
 
-              rateAmount  = cheapest.shipping_amount.amount + cheapest.other_amount.amount
+              rateAmount  = cheapest.shipping_amount.amount + (cheapest.insurance_amount?.amount ?? 0) + cheapest.other_amount.amount
               rateCarrier = cheapest.carrier_friendly_name || cheapest.carrier_code
               rateService = cheapest.service_type || cheapest.service_code
               rateId      = cheapest.rate_id

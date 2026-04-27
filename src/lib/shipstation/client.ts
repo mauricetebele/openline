@@ -165,6 +165,7 @@ export interface V2Rate {
   service_type: string
   carrier_friendly_name?: string
   shipping_amount: { amount: number; currency: string }
+  insurance_amount?: { amount: number; currency: string }
   other_amount: { amount: number; currency: string }
   estimated_delivery_date?: string | null
   carrier_delivery_days?: number | null
