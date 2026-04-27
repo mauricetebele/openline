@@ -46,11 +46,18 @@ interface CaseMessageItem {
   createdAt: string
 }
 
+type MktCaseIdStatus = 'AWAITING_RESPONSE' | 'DEAD' | null
+
+interface MktCaseId {
+  id: string
+  status: MktCaseIdStatus
+}
+
 interface CaseDetail extends CaseSummary {
   resolvedAt: string | null
   resolvedBy: { id: string; name: string } | null
   resolutionNote: string | null
-  marketplaceCaseIds: string[] | null
+  marketplaceCaseIds: MktCaseId[] | null
   updatedAt: string
   messages: CaseMessageItem[]
 }
@@ -426,7 +433,7 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
   const [addingUsers, setAddingUsers] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
-  const [mktCaseIds, setMktCaseIds] = useState<string[]>(caseDetail.marketplaceCaseIds ?? [])
+  const [mktCaseIds, setMktCaseIds] = useState<MktCaseId[]>(caseDetail.marketplaceCaseIds ?? [])
   const [mktInput, setMktInput] = useState('')
   const [savingMktIds, setSavingMktIds] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
@@ -679,7 +686,7 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
     }
   }
 
-  async function saveMktCaseIds(ids: string[]) {
+  async function saveMktCaseIds(ids: MktCaseId[]) {
     setSavingMktIds(true)
     try {
       const res = await fetch(`/api/cases/${caseDetail.id}`, {
@@ -697,15 +704,23 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
 
   function handleAddMktId() {
     const val = mktInput.trim()
-    if (!val || mktCaseIds.includes(val)) { setMktInput(''); return }
-    const next = [...mktCaseIds, val]
+    if (!val || mktCaseIds.some(m => m.id === val)) { setMktInput(''); return }
+    const next = [...mktCaseIds, { id: val, status: null as MktCaseIdStatus }]
     setMktCaseIds(next)
     setMktInput('')
     saveMktCaseIds(next)
   }
 
   function handleRemoveMktId(id: string) {
-    const next = mktCaseIds.filter(v => v !== id)
+    const next = mktCaseIds.filter(m => m.id !== id)
+    setMktCaseIds(next)
+    saveMktCaseIds(next)
+  }
+
+  function handleToggleMktStatus(id: string, newStatus: MktCaseIdStatus) {
+    const next = mktCaseIds.map(m =>
+      m.id === id ? { ...m, status: m.status === newStatus ? null : newStatus } : m,
+    )
     setMktCaseIds(next)
     saveMktCaseIds(next)
   }
@@ -811,23 +826,47 @@ function DetailPanel({ caseDetail, onClose, onUpdated, onDeleted, currentUserId,
           {/* Marketplace Case IDs */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Marketplace Case IDs</label>
-            <div className="flex flex-wrap gap-1.5 mb-2">
+            <div className="space-y-1.5 mb-2">
               {mktCaseIds.length === 0 && !savingMktIds && (
                 <p className="text-xs text-gray-400 italic">None added</p>
               )}
-              {mktCaseIds.map(id => (
-                <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-xs font-mono text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                  {id}
+              {mktCaseIds.map(m => (
+                <div key={m.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                  <span className="text-xs font-mono text-gray-800 dark:text-gray-200 flex-1 min-w-0 truncate">{m.id}</span>
                   <button
                     type="button"
-                    onClick={() => handleRemoveMktId(id)}
-                    className="text-blue-400 hover:text-red-500 transition-colors"
+                    onClick={() => handleToggleMktStatus(m.id, 'AWAITING_RESPONSE')}
+                    className={clsx(
+                      'px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors',
+                      m.status === 'AWAITING_RESPONSE'
+                        ? 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700'
+                        : 'bg-white dark:bg-gray-700 text-gray-400 border-gray-200 dark:border-gray-600 hover:border-amber-300 hover:text-amber-600',
+                    )}
                   >
-                    <X size={10} />
+                    Awaiting Response
                   </button>
-                </span>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleMktStatus(m.id, 'DEAD')}
+                    className={clsx(
+                      'px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors',
+                      m.status === 'DEAD'
+                        ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700'
+                        : 'bg-white dark:bg-gray-700 text-gray-400 border-gray-200 dark:border-gray-600 hover:border-red-300 hover:text-red-600',
+                    )}
+                  >
+                    Dead
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveMktId(m.id)}
+                    className="text-gray-300 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 transition-colors ml-0.5"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
               ))}
-              {savingMktIds && <span className="text-[10px] text-gray-400 self-center ml-1">Saving…</span>}
+              {savingMktIds && <span className="text-[10px] text-gray-400 ml-1">Saving…</span>}
             </div>
             <div className="flex gap-2">
               <input
