@@ -1699,7 +1699,7 @@ export default function VendorRMAManager() {
                   <td className="px-4 py-3 text-sm text-gray-600 text-center">{rma.items.reduce((s, i) => s + i.quantity, 0)}</td>
                   <td className="px-4 py-3 text-sm text-center">
                     {totalSerials > 0 ? (
-                      <span className={clsx('inline-flex items-center gap-1.5 text-xs font-medium border rounded-full px-2.5 py-1', scannedCount === totalSerials ? 'text-green-600 border-green-300 bg-green-50' : 'text-gray-500 border-gray-200 bg-gray-50')}>
+                      <span className={clsx('inline-flex items-center justify-center gap-1.5 text-xs font-medium border rounded-full w-36 py-1', scannedCount === totalSerials ? 'text-green-600 border-green-300 bg-green-50' : 'text-gray-500 border-gray-200 bg-gray-50')}>
                         {scannedCount}/{totalSerials}
                         {scannedCount === totalSerials && (
                           <span className="inline-flex items-center gap-0.5 bg-green-100 text-green-700 px-1 py-0.5 rounded-full">
@@ -1730,7 +1730,7 @@ export default function VendorRMAManager() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={clsx('px-2.5 py-1 rounded-full text-xs font-medium', STATUS_COLOR[rma.status])}>
+                    <span className={clsx('inline-flex items-center justify-center w-36 py-1 rounded-full text-xs font-medium', STATUS_COLOR[rma.status])}>
                       {STATUS_LABEL[rma.status]}
                     </span>
                   </td>
