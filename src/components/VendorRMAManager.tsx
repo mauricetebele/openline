@@ -1694,7 +1694,7 @@ export default function VendorRMAManager() {
                   className="hover:bg-gray-50 cursor-pointer transition-colors"
                 >
                   <td className="px-4 py-3 font-mono text-sm text-amazon-orange font-semibold">{rma.rmaNumber}</td>
-                  <td className="px-4 py-3 text-sm text-gray-900">V-{rma.vendor.vendorNumber} — {rma.vendor.name}</td>
+                  <td className="px-4 py-3 text-sm text-gray-900">{rma.vendor.name}</td>
                   <td className="px-4 py-3 text-xs font-mono text-gray-600">{rma.vendorApprovalNumber || '—'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 text-center">{rma.items.reduce((s, i) => s + i.quantity, 0)}</td>
                   <td className="px-4 py-3 text-sm text-center">
