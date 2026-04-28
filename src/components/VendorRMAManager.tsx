@@ -996,6 +996,8 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
       setRma(data)
       onUpdated(data)
       setApprovalEdit(data.vendorApprovalNumber ?? '')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Request failed — please try again')
     } finally {
       setSaving(false)
       setShowApprovalModal(false)

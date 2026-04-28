@@ -47,58 +47,79 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // ── When shipping: mark serials as RETURNED and decrement inventory ──
   if (newStatus === 'SHIPPED_AWAITING_CREDIT') {
+    const allSerials = rma.items.flatMap((item) =>
+      item.serials.map((s) => ({ ...s, productId: item.productId }))
+    )
+    const serialNumbers = allSerials.map(s => s.serialNumber)
+    const productIds = [...new Set(allSerials.map(s => s.productId))]
+
+    // Batch-fetch all inventory serials in one query instead of N queries
+    const invSerials = serialNumbers.length > 0
+      ? await prisma.inventorySerial.findMany({
+          where: { serialNumber: { in: serialNumbers }, productId: { in: productIds } },
+          select: { id: true, serialNumber: true, productId: true, locationId: true, gradeId: true },
+        })
+      : []
+
+    // Build lookup: serialNumber+productId → inventorySerial
+    const invMap = new Map<string, typeof invSerials[number]>()
+    for (const inv of invSerials) invMap.set(`${inv.serialNumber}::${inv.productId}`, inv)
+
+    // Aggregate inventory decrements: (productId, locationId, gradeId) → count
+    const decrements = new Map<string, { productId: string; locationId: string; gradeId: string | null; count: number }>()
+    const matchedSerials: { rmaSerial: typeof allSerials[number]; inv: typeof invSerials[number] }[] = []
+
+    for (const s of allSerials) {
+      const inv = invMap.get(`${s.serialNumber}::${s.productId}`)
+      if (!inv) continue
+      matchedSerials.push({ rmaSerial: s, inv })
+      const key = `${s.productId}::${inv.locationId}::${inv.gradeId ?? ''}`
+      const existing = decrements.get(key)
+      if (existing) existing.count++
+      else decrements.set(key, { productId: s.productId, locationId: inv.locationId, gradeId: inv.gradeId, count: 1 })
+    }
+
+    const carrierTrimmed = carrier.trim()
+    const trackingTrimmed = trackingNumber.trim()
+    const historyNote = `Vendor RMA ${rma.rmaNumber} shipped — ${carrierTrimmed} ${trackingTrimmed}`
+
     await prisma.$transaction(async (tx) => {
-      // Update the RMA status
+      // 1. Update RMA status
       await tx.vendorRMA.update({
         where: { id: params.id },
-        data: {
-          status: newStatus,
-          carrier: carrier.trim(),
-          trackingNumber: trackingNumber.trim(),
-        },
+        data: { status: newStatus, carrier: carrierTrimmed, trackingNumber: trackingTrimmed },
       })
 
-      const allSerials = rma.items.flatMap((item) =>
-        item.serials.map((s) => ({ ...s, productId: item.productId }))
-      )
-
-      for (const s of allSerials) {
-        // Find the matching inventory serial
-        const invSerial = await tx.inventorySerial.findFirst({
-          where: { serialNumber: s.serialNumber, productId: s.productId },
-          select: { id: true, locationId: true, gradeId: true },
-        })
-        if (!invSerial) continue
-
-        // Mark as RETURNED
-        await tx.inventorySerial.update({
-          where: { id: invSerial.id },
+      // 2. Bulk mark matched serials as OUT_OF_STOCK
+      if (matchedSerials.length > 0) {
+        await tx.inventorySerial.updateMany({
+          where: { id: { in: matchedSerials.map(m => m.inv.id) } },
           data: { status: 'OUT_OF_STOCK' },
-        })
-
-        // Decrement inventory qty
-        await tx.inventoryItem.updateMany({
-          where: {
-            productId: s.productId,
-            locationId: invSerial.locationId,
-            gradeId: invSerial.gradeId ?? null,
-          },
-          data: { qty: { decrement: 1 } },
-        })
-
-        // Create serial history entry
-        await tx.serialHistory.create({
-          data: {
-            inventorySerialId: invSerial.id,
-            eventType: 'VENDOR_RMA_SHIPPED',
-            locationId: invSerial.locationId,
-            userId: user.dbId,
-            notes: `Vendor RMA ${rma.rmaNumber} shipped — ${carrier.trim()} ${trackingNumber.trim()}`,
-          },
         })
       }
 
-      // Also decrement qty for non-serializable items (no serials assigned)
+      // 3. Batch decrement inventory (one query per unique product/location/grade combo)
+      for (const dec of decrements.values()) {
+        await tx.inventoryItem.updateMany({
+          where: { productId: dec.productId, locationId: dec.locationId, gradeId: dec.gradeId },
+          data: { qty: { decrement: dec.count } },
+        })
+      }
+
+      // 4. Bulk create serial history entries
+      if (matchedSerials.length > 0) {
+        await tx.serialHistory.createMany({
+          data: matchedSerials.map(m => ({
+            inventorySerialId: m.inv.id,
+            eventType: 'VENDOR_RMA_SHIPPED',
+            locationId: m.inv.locationId,
+            userId: user.dbId,
+            notes: historyNote,
+          })),
+        })
+      }
+
+      // 5. Decrement qty for non-serializable items
       for (const item of rma.items) {
         if (item.serials.length === 0 && item.quantity > 0) {
           await tx.inventoryItem.updateMany({
