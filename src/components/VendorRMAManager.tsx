@@ -1671,16 +1671,16 @@ export default function VendorRMAManager() {
         <table className="w-full text-left">
           <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
             <tr>
-              {['RMA #', 'Vendor', 'Units', 'Scanned Out', 'Total Cost', 'Status', 'Created', ''].map(h => (
+              {['RMA #', 'Vendor', 'Approval #', 'Units', 'Scanned Out', 'Total Cost', 'Status', 'Created', ''].map(h => (
                 <th key={h} className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-400">Loading…</td></tr>
             ) : rmas.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
+              <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-gray-400">
                 {search || statusFilter !== 'ALL' ? 'No returns match your filter.' : 'No vendor returns yet — click "New Return" to get started.'}
               </td></tr>
             ) : rmas.map(rma => {
@@ -1695,6 +1695,7 @@ export default function VendorRMAManager() {
                 >
                   <td className="px-4 py-3 font-mono text-sm text-amazon-orange font-semibold">{rma.rmaNumber}</td>
                   <td className="px-4 py-3 text-sm text-gray-900">V-{rma.vendor.vendorNumber} — {rma.vendor.name}</td>
+                  <td className="px-4 py-3 text-xs font-mono text-gray-600">{rma.vendorApprovalNumber || '—'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 text-center">{rma.items.reduce((s, i) => s + i.quantity, 0)}</td>
                   <td className="px-4 py-3 text-sm text-center">
                     {totalSerials > 0 ? (
