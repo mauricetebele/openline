@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanLine, Search, CheckCircle2, Download, Loader2, ExternalLink } from 'lucide-react'
+import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanLine, Search, CheckCircle2, Download, Loader2, ExternalLink, Barcode, Check } from 'lucide-react'
 import { clsx } from 'clsx'
 import { trackingUrl } from '@/lib/tracking-utils'
 
@@ -1703,7 +1703,7 @@ export default function VendorRMAManager() {
                         {scannedCount}/{totalSerials}
                         {scannedCount === totalSerials && (
                           <span className="inline-flex items-center gap-0.5 bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">
-                            <ScanLine size={11} /><CheckCircle2 size={10} />
+                            <Barcode size={13} /><Check size={12} strokeWidth={3} />
                           </span>
                         )}
                       </span>
