@@ -1671,16 +1671,16 @@ export default function VendorRMAManager() {
         <table className="w-full text-left">
           <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
             <tr>
-              {['RMA #', 'Vendor', 'Approval #', 'Units', 'Scanned Out', 'Total Cost', 'Status', 'Created', ''].map(h => (
+              {['RMA #', 'Vendor', 'Approval #', 'Units', 'Scanned Out', 'Total Cost', 'Tracking', 'Status', 'Created', ''].map(h => (
                 <th key={h} className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-400">Loading…</td></tr>
             ) : rmas.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-gray-400">
+              <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-gray-400">
                 {search || statusFilter !== 'ALL' ? 'No returns match your filter.' : 'No vendor returns yet — click "New Return" to get started.'}
               </td></tr>
             ) : rmas.map(rma => {
@@ -1712,6 +1712,23 @@ export default function VendorRMAManager() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">{totalCost > 0 ? `$${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</td>
+                  <td className="px-4 py-3">
+                    {rma.trackingNumber ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-mono text-gray-700">{rma.trackingNumber}</span>
+                        {rma.carrierStatus && (
+                          <span className={clsx('text-[10px] font-medium', rma.carrierStatus === 'Delivered' ? 'text-green-600' : rma.carrierStatus === 'In Transit' ? 'text-blue-600' : 'text-gray-500')}>
+                            {rma.carrier ? `${rma.carrier} · ` : ''}{rma.carrierStatus}
+                          </span>
+                        )}
+                        {!rma.carrierStatus && rma.carrier && (
+                          <span className="text-[10px] text-gray-400">{rma.carrier}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-300">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={clsx('px-2 py-0.5 rounded-full text-xs font-medium', STATUS_COLOR[rma.status])}>
                       {STATUS_LABEL[rma.status]}
