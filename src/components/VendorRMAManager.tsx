@@ -1699,10 +1699,10 @@ export default function VendorRMAManager() {
                   <td className="px-4 py-3 text-sm text-gray-600 text-center">{rma.items.reduce((s, i) => s + i.quantity, 0)}</td>
                   <td className="px-4 py-3 text-sm text-center">
                     {totalSerials > 0 ? (
-                      <span className={clsx('inline-flex items-center gap-1 text-xs font-medium', scannedCount === totalSerials ? 'text-green-600' : 'text-gray-500')}>
+                      <span className={clsx('inline-flex items-center gap-1.5 text-xs font-medium border rounded-lg px-2 py-1', scannedCount === totalSerials ? 'text-green-600 border-green-300 bg-green-50' : 'text-gray-500 border-gray-200 bg-gray-50')}>
                         {scannedCount}/{totalSerials}
                         {scannedCount === totalSerials && (
-                          <span className="inline-flex items-center gap-0.5 bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">
+                          <span className="inline-flex items-center gap-0.5 bg-green-100 text-green-700 px-1 py-0.5 rounded-full">
                             <Barcode size={13} /><Check size={12} strokeWidth={3} />
                           </span>
                         )}
