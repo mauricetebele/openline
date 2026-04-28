@@ -1706,7 +1706,7 @@ export default function VendorRMAManager() {
                       <span className="text-xs text-gray-300">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{totalCost > 0 ? `$${totalCost.toFixed(2)}` : '—'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{totalCost > 0 ? `$${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</td>
                   <td className="px-4 py-3">
                     <span className={clsx('px-2 py-0.5 rounded-full text-xs font-medium', STATUS_COLOR[rma.status])}>
                       {STATUS_LABEL[rma.status]}
