@@ -1691,7 +1691,7 @@ export default function VendorRMAManager() {
                 <tr
                   key={rma.id}
                   onClick={() => openDetail(rma)}
-                  className="hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="hover:bg-gray-50 cursor-pointer transition-colors border-b border-gray-200"
                 >
                   <td className="px-4 py-3 font-mono text-sm text-amazon-orange font-semibold">{rma.rmaNumber}</td>
                   <td className="px-4 py-3 text-sm text-gray-900">{rma.vendor.name}</td>
