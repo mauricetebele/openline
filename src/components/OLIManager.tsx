@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Brain, Plus, Search, X, Trash2, Edit2, ToggleLeft, ToggleRight,
-  AlertCircle, Check, Tags, RefreshCw,
+  AlertCircle, Check, Tags, RefreshCw, ChevronUp, ChevronDown,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -456,6 +456,9 @@ export default function OLIManager() {
   const [editDesc, setEditDesc] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [sortCol, setSortCol] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [gridSearch, setGridSearch] = useState('')
   const [syncProgress, setSyncProgress] = useState<{
     phase: string
     current: number
@@ -618,6 +621,64 @@ export default function OLIManager() {
   const filtered = search.trim()
     ? strategies.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()))
     : strategies
+
+  // Sort + filter assignments
+  function toggleSort(col: string) {
+    if (sortCol === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortCol(col)
+      setSortDir('asc')
+    }
+  }
+
+  function getSortValue(a: MskuAssignment, col: string): string | number {
+    switch (col) {
+      case 'status': return a.listingStatus === 'BUYABLE' ? 0 : 1
+      case 'sellerSku': return a.msku.sellerSku.toLowerCase()
+      case 'asin': return (a.asin ?? '').toLowerCase()
+      case 'product': return a.msku.product.sku.toLowerCase()
+      case 'description': return a.msku.product.description.toLowerCase()
+      case 'grade': return (a.msku.grade?.grade ?? '').toLowerCase()
+      case 'price': return a.currentPrice ?? -1
+      case 'buyBox': return a.buyBoxPrice ?? -1
+      case 'bbWinner': return (a.buyBoxWinner ?? '').toLowerCase()
+      case 'activeQty': return a.activeQty
+      case 'fgQty': return a.fgQty
+      default: return 0
+    }
+  }
+
+  const sortedAssignments = (() => {
+    if (!detail) return []
+    let items = [...detail.mskuAssignments]
+
+    // Filter by grid search
+    if (gridSearch.trim()) {
+      const q = gridSearch.toLowerCase()
+      items = items.filter((a) =>
+        a.msku.sellerSku.toLowerCase().includes(q) ||
+        (a.asin ?? '').toLowerCase().includes(q) ||
+        a.msku.product.sku.toLowerCase().includes(q) ||
+        a.msku.product.description.toLowerCase().includes(q) ||
+        (a.msku.grade?.grade ?? '').toLowerCase().includes(q) ||
+        (a.buyBoxWinner ?? '').toLowerCase().includes(q)
+      )
+    }
+
+    // Sort
+    if (sortCol) {
+      items.sort((a, b) => {
+        const va = getSortValue(a, sortCol)
+        const vb = getSortValue(b, sortCol)
+        if (va < vb) return sortDir === 'asc' ? -1 : 1
+        if (va > vb) return sortDir === 'asc' ? 1 : -1
+        return 0
+      })
+    }
+
+    return items
+  })()
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -837,6 +898,20 @@ export default function OLIManager() {
 
             {/* Assigned SKUs Grid — full width */}
             <div className="flex-1 overflow-auto px-6 py-4">
+              {detail.mskuAssignments.length > 0 && (
+                <div className="mb-3">
+                  <div className="relative w-64">
+                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={gridSearch}
+                      onChange={(e) => setGridSearch(e.target.value)}
+                      placeholder="Filter SKUs..."
+                      className="w-full h-8 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white pl-8 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                    />
+                  </div>
+                </div>
+              )}
               {detail.mskuAssignments.length === 0 ? (
                 <div className="py-16 text-center border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
                   <Tags size={28} className="mx-auto text-gray-200 dark:text-gray-600 mb-2" />
@@ -853,22 +928,43 @@ export default function OLIManager() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                        <th className="px-2 py-2 w-8 text-center text-[10px] font-semibold text-gray-500 uppercase tracking-wide"></th>
-                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
-                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">ASIN</th>
-                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Product</th>
-                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Description</th>
-                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
-                        <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Price</th>
-                        <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Buy Box</th>
-                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">BB Winner</th>
-                        <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Active QTY</th>
-                        <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">FG QTY</th>
+                        {[
+                          { key: 'status', label: '', align: 'center', w: 'w-8' },
+                          { key: 'sellerSku', label: 'Seller SKU', align: 'left' },
+                          { key: 'asin', label: 'ASIN', align: 'left' },
+                          { key: 'product', label: 'Product', align: 'left' },
+                          { key: 'description', label: 'Description', align: 'left' },
+                          { key: 'grade', label: 'Grade', align: 'left' },
+                          { key: 'price', label: 'Price', align: 'right' },
+                          { key: 'buyBox', label: 'Buy Box', align: 'right' },
+                          { key: 'bbWinner', label: 'BB Winner', align: 'left' },
+                          { key: 'activeQty', label: 'Active QTY', align: 'right' },
+                          { key: 'fgQty', label: 'FG QTY', align: 'right' },
+                        ].map((col) => (
+                          <th
+                            key={col.key}
+                            onClick={() => toggleSort(col.key)}
+                            className={clsx(
+                              'px-3 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 transition-colors',
+                              col.w,
+                              col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left',
+                            )}
+                          >
+                            <span className="inline-flex items-center gap-0.5">
+                              {col.label}
+                              {sortCol === col.key && (
+                                sortDir === 'asc'
+                                  ? <ChevronUp size={10} className="text-amazon-blue" />
+                                  : <ChevronDown size={10} className="text-amazon-blue" />
+                              )}
+                            </span>
+                          </th>
+                        ))}
                         <th className="px-3 py-2 w-8"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                      {detail.mskuAssignments.map((a) => (
+                      {sortedAssignments.map((a) => (
                         <tr key={a.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 group">
                           <td className="px-2 py-2 text-center">
                             <span
