@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Brain, Plus, Search, X, Trash2, Edit2, ToggleLeft, ToggleRight,
-  AlertCircle, Check, Tags,
+  AlertCircle, Check, Tags, RefreshCw,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -46,6 +46,7 @@ interface MskuAssignment {
 }
 
 interface StrategyDetail extends Omit<Strategy, '_count'> {
+  lastSyncedAt: string | null
   mskuAssignments: MskuAssignment[]
 }
 
@@ -454,8 +455,7 @@ export default function OLIManager() {
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(false)
-  const [buyBoxData, setBuyBoxData] = useState<Record<string, { buyBoxPrice: number | null; buyBoxWinner: string | null }>>({})
-  const [buyBoxLoading, setBuyBoxLoading] = useState(false)
+  const [syncing, setSyncing] = useState(false)
 
   // Load strategies
   const loadStrategies = useCallback(async () => {
@@ -471,48 +471,43 @@ export default function OLIManager() {
 
   useEffect(() => { loadStrategies() }, [loadStrategies])
 
-  // Fetch buy box data separately (live SP-API, slow due to rate limits)
-  const loadBuyBox = useCallback(async (id: string) => {
-    setBuyBoxLoading(true)
-    try {
-      const data = await apiFetch<Record<string, { buyBoxPrice: number | null; buyBoxWinner: string | null }>>(`/api/oli/strategies/${id}/buybox`)
-      setBuyBoxData(data)
-    } catch {
-      // Buy box failure is non-fatal — grid still shows other data
-    } finally {
-      setBuyBoxLoading(false)
-    }
-  }, [])
-
-  // Load detail when selected (silent=true skips loading spinner for background refreshes)
+  // Load detail from OLI's own cache
   const loadDetail = useCallback(async (id: string, silent = false) => {
-    if (!silent) {
-      setDetailLoading(true)
-      setBuyBoxData({})
-    }
+    if (!silent) setDetailLoading(true)
     try {
       const d = await apiFetch<StrategyDetail>(`/api/oli/strategies/${id}`)
       setDetail(d)
-      // Fire buy box fetch in background after detail renders
-      loadBuyBox(id)
     } catch {
       if (!silent) setDetail(null)
     } finally {
       if (!silent) setDetailLoading(false)
     }
-  }, [loadBuyBox])
+  }, [])
+
+  // Trigger OLI sync then reload detail
+  const triggerSync = useCallback(async () => {
+    setSyncing(true)
+    try {
+      await fetch('/api/oli/sync', { method: 'POST' })
+      if (selectedId) await loadDetail(selectedId, true)
+    } catch {
+      // sync failure is non-fatal
+    } finally {
+      setSyncing(false)
+    }
+  }, [selectedId, loadDetail])
 
   useEffect(() => {
     if (selectedId) loadDetail(selectedId)
-    else { setDetail(null); setBuyBoxData({}) }
+    else setDetail(null)
   }, [selectedId, loadDetail])
 
-  // Auto-refresh detail every 20 minutes
+  // Auto-sync every 20 minutes
   useEffect(() => {
     if (!selectedId) return
-    const interval = setInterval(() => loadDetail(selectedId, true), 20 * 60_000)
+    const interval = setInterval(() => triggerSync(), 20 * 60_000)
     return () => clearInterval(interval)
-  }, [selectedId, loadDetail])
+  }, [selectedId, triggerSync])
 
   // Toggle active
   async function handleToggleActive() {
@@ -744,6 +739,25 @@ export default function OLIManager() {
                       <Trash2 size={15} />
                     </button>
                     <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+                    {detail.lastSyncedAt && (
+                      <span className="text-[10px] text-gray-400 mr-1">
+                        Synced {(() => {
+                          const mins = Math.round((Date.now() - new Date(detail.lastSyncedAt).getTime()) / 60_000)
+                          if (mins < 1) return 'just now'
+                          if (mins < 60) return `${mins}m ago`
+                          return `${Math.round(mins / 60)}h ago`
+                        })()}
+                      </span>
+                    )}
+                    <button
+                      onClick={triggerSync}
+                      disabled={syncing}
+                      title="Sync from Amazon"
+                      className="h-8 px-2.5 rounded-md border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
+                      {syncing ? 'Syncing...' : 'Sync'}
+                    </button>
                     <button
                       onClick={() => setShowAssign(true)}
                       className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium hover:bg-blue-700 flex items-center gap-1.5"
@@ -818,20 +832,10 @@ export default function OLIManager() {
                             {a.currentPrice != null ? `$${a.currentPrice.toFixed(2)}` : <span className="text-gray-300 dark:text-gray-600">—</span>}
                           </td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                            {buyBoxLoading && !buyBoxData[a.msku.sellerSku] ? (
-                              <span className="text-gray-300 dark:text-gray-600 animate-pulse">...</span>
-                            ) : (buyBoxData[a.msku.sellerSku]?.buyBoxPrice ?? a.buyBoxPrice) != null ? (
-                              `$${((buyBoxData[a.msku.sellerSku]?.buyBoxPrice ?? a.buyBoxPrice)!).toFixed(2)}`
-                            ) : (
-                              <span className="text-gray-300 dark:text-gray-600">—</span>
-                            )}
+                            {a.buyBoxPrice != null ? `$${a.buyBoxPrice.toFixed(2)}` : <span className="text-gray-300 dark:text-gray-600">—</span>}
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate">
-                            {buyBoxLoading && !buyBoxData[a.msku.sellerSku] ? (
-                              <span className="text-gray-300 dark:text-gray-600 animate-pulse">...</span>
-                            ) : (
-                              (buyBoxData[a.msku.sellerSku]?.buyBoxWinner ?? a.buyBoxWinner) ?? <span className="text-gray-300 dark:text-gray-600">—</span>
-                            )}
+                            {a.buyBoxWinner ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
                           </td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.activeQty}</td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.fgQty}</td>

@@ -32,42 +32,21 @@ export async function GET(
     return NextResponse.json({ error: 'Strategy not found' }, { status: 404 })
   }
 
-  // Enrich with active marketplace qty, price, and finished-goods inventory
+  // Enrich with OLI's own cached data (synced via /api/oli/sync)
   const sellerSkus = strategy.mskuAssignments.map((a) => a.msku.sellerSku)
   const productGradeKeys = strategy.mskuAssignments.map((a) => ({
     productId: a.msku.product.id,
     gradeId: a.msku.grade?.id ?? null,
   }))
 
-  // Active qty + price + ASIN from SellerListing
-  const listings = sellerSkus.length > 0
-    ? await prisma.sellerListing.findMany({
-        where: { sku: { in: sellerSkus } },
-        select: { sku: true, quantity: true, price: true, asin: true, accountId: true, listingStatus: true },
+  // Read from OLI's own cache table
+  const cached = sellerSkus.length > 0
+    ? await prisma.oliSkuCache.findMany({
+        where: { sellerSku: { in: sellerSkus } },
       })
     : []
 
-  const activeQtyMap = new Map<string, number>()
-  const priceMap = new Map<string, number>()
-  const asinMap = new Map<string, string>()
-  const accountIdMap = new Map<string, string>()
-  const listingStatusMap = new Map<string, string>()
-  for (const l of listings) {
-    activeQtyMap.set(l.sku, (activeQtyMap.get(l.sku) ?? 0) + l.quantity)
-    if (l.price != null && !priceMap.has(l.sku)) {
-      priceMap.set(l.sku, Number(l.price))
-    }
-    if (l.asin && !asinMap.has(l.sku)) {
-      asinMap.set(l.sku, l.asin)
-      accountIdMap.set(l.sku, l.accountId)
-    }
-    if (l.listingStatus && !listingStatusMap.has(l.sku)) {
-      listingStatusMap.set(l.sku, l.listingStatus)
-    }
-  }
-
-  // Buy Box data is fetched separately via /api/oli/strategies/[id]/buybox
-  // to avoid blocking the main response (SP-API rate limit: 2.1s per ASIN)
+  const cacheMap = new Map(cached.map((c) => [c.sellerSku, c]))
 
   // FG available qty = on-hand - pending MFN orders - wholesale soft reservations
   const uniquePgKeys = Array.from(
@@ -137,23 +116,31 @@ export async function GET(
     wholesaleMap.set(`${g.productId}|${g.gradeId ?? ''}`, g._sum.qtyReserved ?? 0)
   }
 
+  // Find the oldest sync timestamp for display
+  const syncTimes = cached.map((c) => c.lastSyncedAt.getTime()).filter(Boolean)
+  const lastSyncedAt = syncTimes.length > 0
+    ? new Date(Math.min(...syncTimes)).toISOString()
+    : null
+
   // Build enriched response
   const enriched = {
     ...strategy,
+    lastSyncedAt,
     mskuAssignments: strategy.mskuAssignments.map((a) => {
       const pgKey = `${a.msku.product.id}|${a.msku.grade?.id ?? ''}`
       const onHand = fgOnHandMap.get(pgKey) ?? 0
       const pending = pendingMap.get(a.msku.sellerSku) ?? 0
       const wholesale = wholesaleMap.get(pgKey) ?? 0
+      const c = cacheMap.get(a.msku.sellerSku)
       return {
         ...a,
-        asin: asinMap.get(a.msku.sellerSku) ?? null,
-        listingStatus: listingStatusMap.get(a.msku.sellerSku) ?? null,
-        activeQty: activeQtyMap.get(a.msku.sellerSku) ?? 0,
-        currentPrice: priceMap.get(a.msku.sellerSku) ?? null,
+        asin: c?.asin ?? null,
+        listingStatus: c?.listingStatus ?? null,
+        activeQty: c?.activeQty ?? 0,
+        currentPrice: c?.price != null ? Number(c.price) : null,
         fgQty: Math.max(0, onHand - pending - wholesale),
-        buyBoxPrice: null,
-        buyBoxWinner: null,
+        buyBoxPrice: c?.buyBoxPrice != null ? Number(c.buyBoxPrice) : null,
+        buyBoxWinner: c?.buyBoxWinner ?? null,
       }
     }),
   }

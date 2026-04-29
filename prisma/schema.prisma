@@ -2314,3 +2314,15 @@ model PricingStrategyMsku {
   @@index([mskuId])
   @@map("pricing_strategy_mskus")
 }
+
+model OliSkuCache {
+  sellerSku     String   @id
+  asin          String?
+  listingStatus String?
+  price         Decimal? @db.Decimal(10, 2)
+  activeQty     Int      @default(0)
+  buyBoxPrice   Decimal? @db.Decimal(10, 2)
+  buyBoxWinner  String?
+  lastSyncedAt  DateTime @default(now())
+  @@map("oli_sku_cache")
+}
