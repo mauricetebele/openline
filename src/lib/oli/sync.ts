@@ -57,10 +57,17 @@ interface ListingPurchasableOffer {
   }>
 }
 
+interface ListingIssue {
+  code?: string
+  message?: string
+  severity?: string // ERROR, WARNING
+}
+
 interface ListingItemResponse {
   sku?: string
   summaries?: ListingSummary[]
   offers?: ListingOffer[]
+  issues?: ListingIssue[]
   attributes?: {
     fulfillment_availability?: ListingFulfillment[]
     purchasable_offer?: ListingPurchasableOffer[]
@@ -127,14 +134,30 @@ export async function syncOliListings(onProgress?: OnProgress): Promise<{
         `/listings/2021-08-01/items/${account.sellerId}/${encodeURIComponent(sku)}`,
         {
           marketplaceIds: account.marketplaceId,
-          includedData: 'summaries,attributes,offers',
+          includedData: 'summaries,attributes,offers,issues',
         },
       )
 
       const summary = response.summaries?.[0]
       const asin = summary?.asin ?? null
       const statusArr = summary?.status ?? []
-      const listingStatus = statusArr.includes('Active') ? 'Active' : (statusArr[0] ?? null)
+
+      // Determine listing status:
+      // - BUYABLE = active and purchasable
+      // - Check issues for CLOSED/BLOCKED/suppressed
+      // - Fall back to raw status array
+      let listingStatus: string | null
+      if (statusArr.includes('BUYABLE')) {
+        listingStatus = 'BUYABLE'
+      } else {
+        // Check for blocking issues
+        const blockingIssues = (response.issues ?? []).filter((i) => i.severity === 'ERROR')
+        if (blockingIssues.length > 0) {
+          listingStatus = 'BLOCKED'
+        } else {
+          listingStatus = statusArr[0] ?? null
+        }
+      }
 
       let price: number | null = null
       const offerPrice = response.offers?.[0]?.price?.Amount
