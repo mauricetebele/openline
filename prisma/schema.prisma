@@ -956,6 +956,7 @@ model ProductGradeMarketplaceSku {
 
   marketplaceListing MarketplaceListing?
   fbaShipmentItems   FbaShipmentItem[]
+  pricingStrategyAssignments PricingStrategyMsku[]
 
   @@unique([sellerSku, marketplace, accountId])
   @@map("product_grade_marketplace_skus")
@@ -2285,4 +2286,31 @@ model ResolutionProviderVisibility {
 
   @@unique([resolutionProviderId, visibleUserId])
   @@map("resolution_provider_visibility")
+}
+
+// ─── OLI: Pricing Strategies ─────────────────────────────────────────────────
+
+model PricingStrategy {
+  id          String    @id @default(cuid())
+  name        String
+  marketplace String    // "amazon" | "backmarket"
+  description String?   @db.Text
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  mskuAssignments PricingStrategyMsku[]
+  @@map("pricing_strategies")
+}
+
+model PricingStrategyMsku {
+  id         String   @id @default(cuid())
+  strategyId String
+  strategy   PricingStrategy            @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  mskuId     String
+  msku       ProductGradeMarketplaceSku @relation(fields: [mskuId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  @@unique([strategyId, mskuId])
+  @@index([strategyId])
+  @@index([mskuId])
+  @@map("pricing_strategy_mskus")
 }

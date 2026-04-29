@@ -9,7 +9,7 @@ import {
   LayoutGrid, RefreshCcw, PackageMinus, Barcode, List, ListTodo,
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
-  Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen,
+  Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -103,7 +103,8 @@ const NAV: NavItem[] = [
       { href: '/wholesale/customers?new=1', label: 'Add a Customer', icon: Plus },
     ],
   },
-{ href: '/cases',            label: 'Resolution Center', icon: FolderOpen },
+  { href: '/oli',              label: 'OLI',               icon: Brain },
+  { href: '/cases',            label: 'Resolution Center', icon: FolderOpen },
   { href: '/serial-search',    label: 'Serial Search',    icon: Barcode },
   {
     group: true,
