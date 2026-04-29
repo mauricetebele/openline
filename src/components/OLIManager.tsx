@@ -456,6 +456,12 @@ export default function OLIManager() {
   const [editDesc, setEditDesc] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<{
+    phase: string
+    current: number
+    total: number
+    label: string
+  } | null>(null)
 
   // Load strategies
   const loadStrategies = useCallback(async () => {
@@ -484,23 +490,49 @@ export default function OLIManager() {
     }
   }, [])
 
-  // Trigger OLI sync: Phase 1 (listings) → refresh grid → Phase 2 (buy box) in background
+  // Trigger OLI sync with streaming progress
   const triggerSync = useCallback(async () => {
     setSyncing(true)
+    setSyncProgress(null)
+    let listingsDone = false
     try {
-      // Phase 1: listings (fast — 5 req/s)
-      await fetch('/api/oli/sync?phase=listings', { method: 'POST' })
-      // Refresh grid immediately with listing data
-      if (selectedId) await loadDetail(selectedId, true)
+      const res = await fetch('/api/oli/sync', { method: 'POST' })
+      const reader = res.body?.getReader()
+      if (!reader) return
 
-      // Phase 2: buy box (slow — 0.5 req/s) — fire in background
-      fetch('/api/oli/sync?phase=buybox', { method: 'POST' })
-        .then(() => { if (selectedId) loadDetail(selectedId, true) })
-        .catch(() => {})
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.trim()) continue
+          try {
+            const p = JSON.parse(line) as { phase: string; current: number; total: number; label: string; done?: boolean }
+            setSyncProgress(p)
+
+            // When listings phase completes, refresh grid immediately
+            if (p.phase === 'listings' && p.done && !listingsDone) {
+              listingsDone = true
+              if (selectedId) loadDetail(selectedId, true)
+            }
+          } catch { /* skip malformed lines */ }
+        }
+      }
+
+      // Final refresh after buy box completes
+      if (selectedId) await loadDetail(selectedId, true)
     } catch {
       // sync failure is non-fatal
     } finally {
       setSyncing(false)
+      setSyncProgress(null)
     }
   }, [selectedId, loadDetail])
 
@@ -746,25 +778,52 @@ export default function OLIManager() {
                       <Trash2 size={15} />
                     </button>
                     <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
-                    {detail.lastSyncedAt && (
-                      <span className="text-[10px] text-gray-400 mr-1">
-                        Synced {(() => {
-                          const mins = Math.round((Date.now() - new Date(detail.lastSyncedAt).getTime()) / 60_000)
-                          if (mins < 1) return 'just now'
-                          if (mins < 60) return `${mins}m ago`
-                          return `${Math.round(mins / 60)}h ago`
-                        })()}
-                      </span>
+                    {syncing && syncProgress ? (
+                      <div className="flex items-center gap-2 min-w-[200px]">
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">
+                              {syncProgress.phase === 'listings' ? 'Syncing listings' : 'Syncing buy box'}
+                            </span>
+                            <span className="text-[10px] text-gray-400">
+                              {syncProgress.current}/{syncProgress.total}
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-amazon-blue rounded-full transition-all duration-300"
+                              style={{ width: `${syncProgress.total > 0 ? (syncProgress.current / syncProgress.total) * 100 : 0}%` }}
+                            />
+                          </div>
+                          <p className="text-[9px] text-gray-400 mt-0.5 truncate max-w-[180px]">
+                            {syncProgress.label}
+                          </p>
+                        </div>
+                        <RefreshCw size={13} className="animate-spin text-amazon-blue shrink-0" />
+                      </div>
+                    ) : (
+                      <>
+                        {detail.lastSyncedAt && (
+                          <span className="text-[10px] text-gray-400 mr-1">
+                            Synced {(() => {
+                              const mins = Math.round((Date.now() - new Date(detail.lastSyncedAt).getTime()) / 60_000)
+                              if (mins < 1) return 'just now'
+                              if (mins < 60) return `${mins}m ago`
+                              return `${Math.round(mins / 60)}h ago`
+                            })()}
+                          </span>
+                        )}
+                        <button
+                          onClick={triggerSync}
+                          disabled={syncing}
+                          title="Sync from Amazon"
+                          className="h-8 px-2.5 rounded-md border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          <RefreshCw size={13} />
+                          Sync
+                        </button>
+                      </>
                     )}
-                    <button
-                      onClick={triggerSync}
-                      disabled={syncing}
-                      title="Sync from Amazon"
-                      className="h-8 px-2.5 rounded-md border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-1.5 disabled:opacity-50"
-                    >
-                      <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
-                      {syncing ? 'Syncing...' : 'Sync'}
-                    </button>
                     <button
                       onClick={() => setShowAssign(true)}
                       className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium hover:bg-blue-700 flex items-center gap-1.5"

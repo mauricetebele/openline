@@ -5,8 +5,7 @@
  * This is OLI's own sync — does NOT rely on the existing catalog sync
  * or CompetitiveOffer table. Data is cached in the `oli_sku_cache` table.
  *
- * Split into two independent phases so the UI can show Phase 1 results
- * immediately while Phase 2 continues in the background:
+ * Two phases with progress callbacks for streaming UI updates:
  *   Phase 1: Listings Items API  — status, ASIN, price, qty  (5 req/s)
  *   Phase 2: Pricing Offers API  — buy box price + winner     (0.5 req/s)
  */
@@ -19,6 +18,18 @@ const BUYBOX_DELAY_MS = 2_100  // 0.5 req/s
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
 }
+
+// ─── Progress callback type ────────────────────────────────────────────────
+
+export interface SyncProgress {
+  phase: 'listings' | 'buybox'
+  current: number
+  total: number
+  label: string  // SKU or ASIN being processed
+  done?: boolean
+}
+
+export type OnProgress = (p: SyncProgress) => void
 
 // ─── SP-API response types ─────────────────────────────────────────────────
 
@@ -86,12 +97,15 @@ async function getAmazonSkus(): Promise<string[]> {
 
 // ─── Phase 1: Listings (status, ASIN, price, qty) ──────────────────────────
 
-export async function syncOliListings(): Promise<{
+export async function syncOliListings(onProgress?: OnProgress): Promise<{
   synced: number
   errors: number
 }> {
   const amazonSkus = await getAmazonSkus()
-  if (amazonSkus.length === 0) return { synced: 0, errors: 0 }
+  if (amazonSkus.length === 0) {
+    onProgress?.({ phase: 'listings', current: 0, total: 0, label: '', done: true })
+    return { synced: 0, errors: 0 }
+  }
 
   const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
   if (!account) return { synced: 0, errors: 0 }
@@ -100,11 +114,13 @@ export async function syncOliListings(): Promise<{
   let errors = 0
   let synced = 0
   const now = new Date()
+  const total = amazonSkus.length
 
-  console.log(`[OLI Sync] Phase 1 — syncing ${amazonSkus.length} listings`)
+  console.log(`[OLI Sync] Phase 1 — syncing ${total} listings`)
 
   for (let i = 0; i < amazonSkus.length; i++) {
     const sku = amazonSkus[i]
+    onProgress?.({ phase: 'listings', current: i + 1, total, label: sku })
 
     try {
       const response = await client.get<ListingItemResponse>(
@@ -120,7 +136,6 @@ export async function syncOliListings(): Promise<{
       const statusArr = summary?.status ?? []
       const listingStatus = statusArr.includes('Active') ? 'Active' : (statusArr[0] ?? null)
 
-      // Price: try offers first, then attributes
       let price: number | null = null
       const offerPrice = response.offers?.[0]?.price?.Amount
       if (offerPrice != null) {
@@ -130,7 +145,6 @@ export async function syncOliListings(): Promise<{
         if (attrPrice != null) price = attrPrice
       }
 
-      // Quantity from attributes
       const qty = response.attributes?.fulfillment_availability?.[0]?.quantity ?? 0
 
       await prisma.oliSkuCache.upsert({
@@ -148,13 +162,14 @@ export async function syncOliListings(): Promise<{
     if (i < amazonSkus.length - 1) await sleep(LISTING_DELAY_MS)
   }
 
+  onProgress?.({ phase: 'listings', current: total, total, label: '', done: true })
   console.log(`[OLI Sync] Phase 1 done — ${synced} listings, ${errors} errors`)
   return { synced, errors }
 }
 
 // ─── Phase 2: Buy Box (price + winner) ─────────────────────────────────────
 
-export async function syncOliBuyBox(): Promise<{
+export async function syncOliBuyBox(onProgress?: OnProgress): Promise<{
   synced: number
   errors: number
 }> {
@@ -166,7 +181,6 @@ export async function syncOliBuyBox(): Promise<{
 
   const client = new SpApiClient(account.id)
 
-  // Build ASIN → sellerSku[] map from cache
   const cacheRows = await prisma.oliSkuCache.findMany({
     where: { sellerSku: { in: amazonSkus }, asin: { not: null } },
     select: { sellerSku: true, asin: true },
@@ -181,18 +195,23 @@ export async function syncOliBuyBox(): Promise<{
   }
 
   const uniqueAsins = [...asinToSkus.keys()]
-  if (uniqueAsins.length === 0) return { synced: 0, errors: 0 }
+  if (uniqueAsins.length === 0) {
+    onProgress?.({ phase: 'buybox', current: 0, total: 0, label: '', done: true })
+    return { synced: 0, errors: 0 }
+  }
 
   let errors = 0
   let synced = 0
+  const total = uniqueAsins.length
 
-  console.log(`[OLI Sync] Phase 2 — syncing ${uniqueAsins.length} buy boxes`)
+  console.log(`[OLI Sync] Phase 2 — syncing ${total} buy boxes`)
 
   const sellerIdsToResolve = new Set<string>()
   const asinBuyBox = new Map<string, { price: number | null; sellerId: string | null }>()
 
   for (let i = 0; i < uniqueAsins.length; i++) {
     const asin = uniqueAsins[i]
+    onProgress?.({ phase: 'buybox', current: i + 1, total, label: asin })
 
     try {
       const response = await client.get<BuyBoxResponse>(
@@ -251,6 +270,7 @@ export async function syncOliBuyBox(): Promise<{
     }
   }
 
+  onProgress?.({ phase: 'buybox', current: total, total, label: '', done: true })
   console.log(`[OLI Sync] Phase 2 done — ${synced} buy boxes, ${errors} errors`)
   return { synced, errors }
 }
