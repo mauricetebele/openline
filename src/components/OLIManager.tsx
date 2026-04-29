@@ -29,9 +29,12 @@ interface MskuAssignment {
   id: string
   mskuId: string
   createdAt: string
+  asin: string | null
   activeQty: number
   currentPrice: number | null
   fgQty: number
+  buyBoxPrice: number | null
+  buyBoxWinner: string | null
   msku: {
     id: string
     sellerSku: string
@@ -746,46 +749,56 @@ export default function OLIManager() {
                 </div>
               ) : (
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product SKU</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Price</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Active QTY</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">FG QTY</th>
-                        <th className="px-4 py-3 w-10"></th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">ASIN</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Product</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Description</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Price</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Buy Box</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">BB Winner</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Active QTY</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide">FG QTY</th>
+                        <th className="px-3 py-2 w-8"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                       {detail.mskuAssignments.map((a) => (
                         <tr key={a.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 group">
-                          <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{a.msku.sellerSku}</td>
-                          <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{a.msku.product.sku}</td>
-                          <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{a.msku.product.description}</td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-2 text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">{a.msku.sellerSku}</td>
+                          <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{a.asin ?? <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
+                          <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{a.msku.product.sku}</td>
+                          <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-[180px] truncate">{a.msku.product.description}</td>
+                          <td className="px-3 py-2">
                             {a.msku.grade ? (
-                              <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
+                              <span className="text-[9px] font-semibold uppercase px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
                                 {a.msku.grade.grade}
                               </span>
                             ) : (
-                              <span className="text-gray-300 dark:text-gray-600">—</span>
+                              <span className="text-gray-300 dark:text-gray-600 text-xs">—</span>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">
+                          <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">
                             {a.currentPrice != null ? `$${a.currentPrice.toFixed(2)}` : <span className="text-gray-300 dark:text-gray-600">—</span>}
                           </td>
-                          <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{a.activeQty}</td>
-                          <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{a.fgQty}</td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                            {a.buyBoxPrice != null ? `$${a.buyBoxPrice.toFixed(2)}` : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate">
+                            {a.buyBoxWinner ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.activeQty}</td>
+                          <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.fgQty}</td>
+                          <td className="px-3 py-2">
                             <button
                               onClick={() => handleRemoveSku(a.mskuId)}
-                              className="p-1.5 rounded text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-1 rounded text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
                               title="Remove SKU"
                             >
-                              <X size={13} />
+                              <X size={12} />
                             </button>
                           </td>
                         </tr>

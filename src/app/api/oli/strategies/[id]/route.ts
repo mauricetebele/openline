@@ -39,20 +39,64 @@ export async function GET(
     gradeId: a.msku.grade?.id ?? null,
   }))
 
-  // Active qty + price from SellerListing (sum qty across accounts, take first non-null price)
+  // Active qty + price + ASIN from SellerListing
   const listings = sellerSkus.length > 0
     ? await prisma.sellerListing.findMany({
         where: { sku: { in: sellerSkus } },
-        select: { sku: true, quantity: true, price: true },
+        select: { sku: true, quantity: true, price: true, asin: true, accountId: true },
       })
     : []
 
   const activeQtyMap = new Map<string, number>()
   const priceMap = new Map<string, number>()
+  const asinMap = new Map<string, string>()
+  const accountIdMap = new Map<string, string>()
   for (const l of listings) {
     activeQtyMap.set(l.sku, (activeQtyMap.get(l.sku) ?? 0) + l.quantity)
     if (l.price != null && !priceMap.has(l.sku)) {
       priceMap.set(l.sku, Number(l.price))
+    }
+    if (l.asin && !asinMap.has(l.sku)) {
+      asinMap.set(l.sku, l.asin)
+      accountIdMap.set(l.sku, l.accountId)
+    }
+  }
+
+  // Buy Box data from CompetitiveOffer (cached, synced every 6h)
+  const asinAccountPairs = Array.from(asinMap.entries()).map(([sku, asin]) => ({
+    sku,
+    asin,
+    accountId: accountIdMap.get(sku)!,
+  }))
+
+  const buyBoxMap = new Map<string, { price: number; sellerName: string | null }>()
+  if (asinAccountPairs.length > 0) {
+    const asins = Array.from(new Set(asinAccountPairs.map((p) => p.asin)))
+    const offers = await prisma.competitiveOffer.findMany({
+      where: { asin: { in: asins }, isBuyBoxWinner: true },
+      select: { asin: true, landedPrice: true, sellerId: true },
+    })
+
+    // Resolve seller names
+    const sellerIds = Array.from(new Set(offers.map((o) => o.sellerId)))
+    const profiles = sellerIds.length > 0
+      ? await prisma.sellerProfile.findMany({
+          where: { sellerId: { in: sellerIds } },
+          select: { sellerId: true, name: true },
+        })
+      : []
+    const sellerNameMap = new Map(profiles.map((p) => [p.sellerId, p.name]))
+
+    for (const o of offers) {
+      // Map ASIN back to sellerSku(s)
+      for (const pair of asinAccountPairs) {
+        if (pair.asin === o.asin) {
+          buyBoxMap.set(pair.sku, {
+            price: Number(o.landedPrice),
+            sellerName: sellerNameMap.get(o.sellerId) ?? o.sellerId,
+          })
+        }
+      }
     }
   }
 
@@ -132,11 +176,15 @@ export async function GET(
       const onHand = fgOnHandMap.get(pgKey) ?? 0
       const pending = pendingMap.get(a.msku.sellerSku) ?? 0
       const wholesale = wholesaleMap.get(pgKey) ?? 0
+      const bb = buyBoxMap.get(a.msku.sellerSku)
       return {
         ...a,
+        asin: asinMap.get(a.msku.sellerSku) ?? null,
         activeQty: activeQtyMap.get(a.msku.sellerSku) ?? 0,
         currentPrice: priceMap.get(a.msku.sellerSku) ?? null,
         fgQty: Math.max(0, onHand - pending - wholesale),
+        buyBoxPrice: bb?.price ?? null,
+        buyBoxWinner: bb?.sellerName ?? null,
       }
     }),
   }
