@@ -465,22 +465,29 @@ export default function OLIManager() {
 
   useEffect(() => { loadStrategies() }, [loadStrategies])
 
-  // Load detail when selected
-  const loadDetail = useCallback(async (id: string) => {
-    setDetailLoading(true)
+  // Load detail when selected (silent=true skips loading spinner for background refreshes)
+  const loadDetail = useCallback(async (id: string, silent = false) => {
+    if (!silent) setDetailLoading(true)
     try {
       const d = await apiFetch<StrategyDetail>(`/api/oli/strategies/${id}`)
       setDetail(d)
     } catch {
-      setDetail(null)
+      if (!silent) setDetail(null)
     } finally {
-      setDetailLoading(false)
+      if (!silent) setDetailLoading(false)
     }
   }, [])
 
   useEffect(() => {
     if (selectedId) loadDetail(selectedId)
     else setDetail(null)
+  }, [selectedId, loadDetail])
+
+  // Auto-refresh detail every 20 minutes
+  useEffect(() => {
+    if (!selectedId) return
+    const interval = setInterval(() => loadDetail(selectedId, true), 20 * 60_000)
+    return () => clearInterval(interval)
   }, [selectedId, loadDetail])
 
   // Toggle active
