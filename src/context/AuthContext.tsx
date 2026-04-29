@@ -13,6 +13,8 @@ export interface AuthUser {
   role: string
   dbId: string
   canAccessOli: boolean
+  canViewPurchaseOrders: boolean
+  vendorId: string | null
 }
 
 interface AuthContextValue {

@@ -41,7 +41,10 @@ model User {
   visibleUsers       ResolutionProviderVisibility[] @relation("ResProviderVisibility")
   visibleToProviders ResolutionProviderVisibility[] @relation("ResProviderVisibleTo")
 
-  canAccessOli  Boolean  @default(false)
+  canAccessOli          Boolean  @default(false)
+  canViewPurchaseOrders Boolean  @default(false)
+  vendorId              String?
+  vendor                Vendor?  @relation(fields: [vendorId], references: [id], onDelete: SetNull)
 
   @@map("users")
 }
@@ -320,6 +323,7 @@ enum UserRole {
   REVIEWER
   CLIENT
   RESOLUTION_PROVIDER
+  VENDOR
 }
 
 enum FulfillmentType {
@@ -875,6 +879,7 @@ model Vendor {
   vendorRMAs       VendorRMA[]
   ledgerEntries    VendorLedgerEntry[]
   inventorySerials InventorySerial[]
+  users            User[]
 
   @@map("vendors")
 }

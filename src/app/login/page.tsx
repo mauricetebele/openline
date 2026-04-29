@@ -29,7 +29,8 @@ export default function LoginPage() {
     })
     if (!res.ok) throw new Error('Failed to create session')
     const data = await res.json()
-    const dest = data.role === 'CLIENT' ? '/client/inventory'
+    const dest = data.role === 'VENDOR' ? '/vendor/inventory'
+      : data.role === 'CLIENT' ? '/client/inventory'
       : data.role === 'RESOLUTION_PROVIDER' ? '/cases'
       : '/refunds'
     router.push(dest)

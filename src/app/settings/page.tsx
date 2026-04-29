@@ -1885,6 +1885,8 @@ interface ManagedUser {
   createdAt: string
   companyName: string | null
   canAccessOli: boolean
+  canViewPurchaseOrders: boolean
+  vendorId: string | null
   _count?: { clientLocationAccess: number; visibleUsers: number }
 }
 
@@ -1902,7 +1904,11 @@ function UsersSection() {
   const [formEmail, setFormEmail] = useState('')
   const [formName, setFormName] = useState('')
   const [formPassword, setFormPassword] = useState('')
-  const [formRole, setFormRole] = useState<'REVIEWER' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER'>('REVIEWER')
+  const [formRole, setFormRole] = useState<'REVIEWER' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR'>('REVIEWER')
+
+  // Vendor selector state
+  const [vendors, setVendors] = useState<{ id: string; name: string }[]>([])
+  const [vendorLoading, setVendorLoading] = useState(false)
   const [formCompanyName, setFormCompanyName] = useState('')
 
   // Location access modal state
@@ -1935,6 +1941,10 @@ function UsersSection() {
   }, [])
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
+
+  useEffect(() => {
+    fetch('/api/vendors').then(r => r.ok ? r.json() : { data: [] }).then(json => setVendors(json.data ?? json ?? []))
+  }, [])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -2113,6 +2123,42 @@ function UsersSection() {
     }
   }
 
+  async function handleTogglePOs(u: ManagedUser) {
+    setTogglingId(u.id)
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id, canViewPurchaseOrders: !u.canViewPurchaseOrders }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success(`POs ${u.canViewPurchaseOrders ? 'disabled' : 'enabled'} for ${u.name}`)
+      fetchUsers()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
+  async function handleVendorChange(u: ManagedUser, newVendorId: string | null) {
+    setVendorLoading(true)
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id, vendorId: newVendorId }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success(`Vendor ${newVendorId ? 'assigned' : 'removed'} for ${u.name}`)
+      fetchUsers()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setVendorLoading(false)
+    }
+  }
+
   async function handleRename(u: ManagedUser) {
     const trimmed = editName.trim()
     if (!trimmed || trimmed === u.name) { setEditingId(null); return }
@@ -2181,13 +2227,14 @@ function UsersSection() {
               />
               <select
                 value={formRole}
-                onChange={e => setFormRole(e.target.value as 'REVIEWER' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER')}
+                onChange={e => setFormRole(e.target.value as 'REVIEWER' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR')}
                 className="input"
               >
                 <option value="REVIEWER">Reviewer</option>
                 <option value="ADMIN">Admin</option>
                 <option value="CLIENT">Client</option>
                 <option value="RESOLUTION_PROVIDER">Resolution Provider</option>
+                <option value="VENDOR">Vendor</option>
               </select>
               {formRole === 'CLIENT' && (
                 <input
@@ -2273,6 +2320,49 @@ function UsersSection() {
                   Visible Users ({u._count?.visibleUsers ?? 0})
                 </button>
               )}
+              {u.role === 'VENDOR' && (
+                <>
+                  <select
+                    value={u.vendorId ?? ''}
+                    onChange={e => handleVendorChange(u, e.target.value || null)}
+                    disabled={vendorLoading}
+                    className="px-2 py-1 rounded text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200 cursor-pointer"
+                  >
+                    <option value="">No Vendor</option>
+                    {vendors.map(v => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => openLocationModal(u.id)}
+                    className="px-2 py-1 rounded text-xs font-medium bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors"
+                  >
+                    Locations ({u._count?.clientLocationAccess ?? 0})
+                  </button>
+                  <button
+                    onClick={() => handleToggleOli(u)}
+                    disabled={togglingId === u.id}
+                    className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+                      u.canAccessOli
+                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    }`}
+                  >
+                    {u.canAccessOli ? 'OLI On' : 'OLI Off'}
+                  </button>
+                  <button
+                    onClick={() => handleTogglePOs(u)}
+                    disabled={togglingId === u.id}
+                    className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+                      u.canViewPurchaseOrders
+                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    }`}
+                  >
+                    {u.canViewPurchaseOrders ? 'POs On' : 'POs Off'}
+                  </button>
+                </>
+              )}
               {(u.role === 'ADMIN' || u.role === 'REVIEWER') && (
                 <button
                   onClick={() => handleToggleOli(u)}
@@ -2297,13 +2387,16 @@ function UsersSection() {
                       ? 'bg-purple-100 text-purple-700'
                       : u.role === 'RESOLUTION_PROVIDER'
                         ? 'bg-teal-100 text-teal-700'
-                        : 'bg-gray-100 text-gray-600'
+                        : u.role === 'VENDOR'
+                          ? 'bg-orange-100 text-orange-700'
+                          : 'bg-gray-100 text-gray-600'
                 }`}
               >
                 <option value="REVIEWER">Reviewer</option>
                 <option value="ADMIN">Admin</option>
                 <option value="CLIENT">Client</option>
                 <option value="RESOLUTION_PROVIDER">Resolution Provider</option>
+                <option value="VENDOR">Vendor</option>
               </select>
               <button
                 onClick={() => handleDelete(u)}

@@ -21,9 +21,11 @@ export interface AuthUser {
   uid: string
   email: string
   dbId: string       // our internal User.id
-  role: string       // ADMIN | REVIEWER
+  role: string       // ADMIN | REVIEWER | CLIENT | RESOLUTION_PROVIDER | VENDOR
   name: string
   canAccessOli: boolean
+  canViewPurchaseOrders: boolean
+  vendorId: string | null
 }
 
 async function resolveDbUser(decoded: { uid: string; email: string; name: string }): Promise<AuthUser | null> {
@@ -49,6 +51,8 @@ async function resolveDbUser(decoded: { uid: string; email: string; name: string
     role: user.role,
     name: user.name,
     canAccessOli: user.canAccessOli,
+    canViewPurchaseOrders: user.canViewPurchaseOrders,
+    vendorId: user.vendorId ?? null,
   }
 }
 

@@ -53,6 +53,15 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/client/inventory', req.url))
   }
 
+  // VENDOR role routing
+  if (role === 'VENDOR') {
+    if (pathname.startsWith('/vendor') || pathname.startsWith('/api/vendor/') || pathname.startsWith('/api/auth/')
+        || pathname.startsWith('/api/oli/')) {
+      return NextResponse.next()
+    }
+    return NextResponse.redirect(new URL('/vendor/inventory', req.url))
+  }
+
   // RESOLUTION_PROVIDER role routing
   if (role === 'RESOLUTION_PROVIDER') {
     if (pathname.startsWith('/cases') || pathname === '/api/cases' || pathname.startsWith('/api/cases/') || pathname.startsWith('/api/auth/')) {
@@ -61,8 +70,11 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/cases', req.url))
   }
 
-  // Internal users cannot access /client/* pages
+  // Internal users cannot access /client/* or /vendor/* pages
   if (pathname.startsWith('/client')) {
+    return NextResponse.redirect(new URL('/inventory', req.url))
+  }
+  if (pathname.startsWith('/vendor')) {
     return NextResponse.redirect(new URL('/inventory', req.url))
   }
 

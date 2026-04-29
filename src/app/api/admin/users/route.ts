@@ -72,6 +72,7 @@ export async function GET() {
   const users = await prisma.user.findMany({
     select: {
       id: true, name: true, email: true, role: true, createdAt: true, companyName: true, canAccessOli: true,
+      canViewPurchaseOrders: true, vendorId: true,
       _count: { select: { clientLocationAccess: true, visibleUsers: true } },
     },
     orderBy: { name: 'asc' },
@@ -102,7 +103,7 @@ export async function POST(req: NextRequest) {
   if (password.length < 6)
     return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
 
-  const validRoles = ['ADMIN', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER']
+  const validRoles = ['ADMIN', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER', 'VENDOR']
   const finalRole = validRoles.includes(role ?? '') ? role! : 'REVIEWER'
 
   // Check email uniqueness in our DB
@@ -120,7 +121,7 @@ export async function POST(req: NextRequest) {
         email,
         name,
         firebaseUid,
-        role: finalRole as 'ADMIN' | 'REVIEWER' | 'CLIENT' | 'RESOLUTION_PROVIDER',
+        role: finalRole as 'ADMIN' | 'REVIEWER' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR',
         ...(companyName ? { companyName } : {}),
       },
       select: { id: true, name: true, email: true, role: true, createdAt: true, companyName: true },
@@ -141,22 +142,26 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { userId, role, name, companyName, canAccessOli } = body as {
+  const { userId, role, name, companyName, canAccessOli, canViewPurchaseOrders, vendorId } = body as {
     userId?: string
     role?: string
     name?: string
     companyName?: string | null
     canAccessOli?: boolean
+    canViewPurchaseOrders?: boolean
+    vendorId?: string | null
   }
 
   if (!userId)
     return NextResponse.json({ error: 'userId is required' }, { status: 400 })
 
   const data: Record<string, string | boolean | null> = {}
-  if (role && ['ADMIN', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER'].includes(role)) data.role = role
+  if (role && ['ADMIN', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER', 'VENDOR'].includes(role)) data.role = role
   if (name) data.name = name
   if (companyName !== undefined) data.companyName = companyName ?? null
   if (typeof canAccessOli === 'boolean') data.canAccessOli = canAccessOli
+  if (typeof canViewPurchaseOrders === 'boolean') data.canViewPurchaseOrders = canViewPurchaseOrders
+  if (vendorId !== undefined) data.vendorId = vendorId ?? null
 
   if (Object.keys(data).length === 0)
     return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
@@ -165,7 +170,7 @@ export async function PATCH(req: NextRequest) {
     const updated = await prisma.user.update({
       where: { id: userId },
       data,
-      select: { id: true, name: true, email: true, role: true, createdAt: true, companyName: true, canAccessOli: true },
+      select: { id: true, name: true, email: true, role: true, createdAt: true, companyName: true, canAccessOli: true, canViewPurchaseOrders: true, vendorId: true },
     })
     return NextResponse.json({ data: updated })
   } catch {
