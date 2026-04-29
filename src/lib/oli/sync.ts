@@ -5,9 +5,10 @@
  * This is OLI's own sync — does NOT rely on the existing catalog sync
  * or CompetitiveOffer table. Data is cached in the `oli_sku_cache` table.
  *
- * Two phases:
- *   1. Listings Items API  — status, ASIN, price, qty  (5 req/s → 200ms delay)
- *   2. Pricing Offers API  — buy box price + winner     (0.5 req/s → 2.1s delay)
+ * Split into two independent phases so the UI can show Phase 1 results
+ * immediately while Phase 2 continues in the background:
+ *   Phase 1: Listings Items API  — status, ASIN, price, qty  (5 req/s)
+ *   Phase 2: Pricing Offers API  — buy box price + winner     (0.5 req/s)
  */
 import { prisma } from '@/lib/prisma'
 import { SpApiClient } from '@/lib/amazon/sp-api'
@@ -68,47 +69,39 @@ interface BuyBoxResponse {
   }
 }
 
-// ─── Main sync ──────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-export async function syncOliSkus(): Promise<{
-  listingsSynced: number
-  buyBoxSynced: number
-  errors: number
-}> {
-  // 1. Collect all unique sellerSkus across all strategies
+async function getAmazonSkus(): Promise<string[]> {
   const assignments = await prisma.pricingStrategyMsku.findMany({
     include: { msku: { select: { sellerSku: true, marketplace: true } } },
     distinct: ['mskuId'],
   })
 
-  const amazonSkus = [...new Set(
+  return [...new Set(
     assignments
       .filter((a) => a.msku.marketplace === 'amazon')
       .map((a) => a.msku.sellerSku),
   )]
+}
 
-  if (amazonSkus.length === 0) {
-    console.log('[OLI Sync] No Amazon SKUs in any strategy — skipping')
-    return { listingsSynced: 0, buyBoxSynced: 0, errors: 0 }
-  }
+// ─── Phase 1: Listings (status, ASIN, price, qty) ──────────────────────────
 
-  // 2. Get the active Amazon account
+export async function syncOliListings(): Promise<{
+  synced: number
+  errors: number
+}> {
+  const amazonSkus = await getAmazonSkus()
+  if (amazonSkus.length === 0) return { synced: 0, errors: 0 }
+
   const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
-  if (!account) {
-    console.error('[OLI Sync] No active Amazon account found')
-    return { listingsSynced: 0, buyBoxSynced: 0, errors: 0 }
-  }
+  if (!account) return { synced: 0, errors: 0 }
 
   const client = new SpApiClient(account.id)
   let errors = 0
+  let synced = 0
   const now = new Date()
 
-  console.log(`[OLI Sync] Starting sync for ${amazonSkus.length} SKUs`)
-
-  // ─── Phase 1: Listing data (status, ASIN, price, qty) ──────────────────
-
-  const asinSet = new Set<string>()
-  let listingsSynced = 0
+  console.log(`[OLI Sync] Phase 1 — syncing ${amazonSkus.length} listings`)
 
   for (let i = 0; i < amazonSkus.length; i++) {
     const sku = amazonSkus[i]
@@ -140,48 +133,45 @@ export async function syncOliSkus(): Promise<{
       // Quantity from attributes
       const qty = response.attributes?.fulfillment_availability?.[0]?.quantity ?? 0
 
-      // Upsert into cache
       await prisma.oliSkuCache.upsert({
         where: { sellerSku: sku },
-        create: {
-          sellerSku: sku,
-          asin,
-          listingStatus,
-          price,
-          activeQty: qty,
-          lastSyncedAt: now,
-        },
-        update: {
-          asin,
-          listingStatus,
-          price,
-          activeQty: qty,
-          lastSyncedAt: now,
-        },
+        create: { sellerSku: sku, asin, listingStatus, price, activeQty: qty, lastSyncedAt: now },
+        update: { asin, listingStatus, price, activeQty: qty, lastSyncedAt: now },
       })
 
-      if (asin) asinSet.add(asin)
-      listingsSynced++
+      synced++
     } catch (err) {
       errors++
-      console.error(
-        `[OLI Sync] Listing error for ${sku}:`,
-        err instanceof Error ? err.message : String(err),
-      )
+      console.error(`[OLI Sync] Listing error for ${sku}:`, err instanceof Error ? err.message : String(err))
     }
 
     if (i < amazonSkus.length - 1) await sleep(LISTING_DELAY_MS)
   }
 
-  console.log(`[OLI Sync] Phase 1 done — ${listingsSynced} listings synced, ${errors} errors`)
+  console.log(`[OLI Sync] Phase 1 done — ${synced} listings, ${errors} errors`)
+  return { synced, errors }
+}
 
-  // ─── Phase 2: Buy Box data ─────────────────────────────────────────────
+// ─── Phase 2: Buy Box (price + winner) ─────────────────────────────────────
+
+export async function syncOliBuyBox(): Promise<{
+  synced: number
+  errors: number
+}> {
+  const amazonSkus = await getAmazonSkus()
+  if (amazonSkus.length === 0) return { synced: 0, errors: 0 }
+
+  const account = await prisma.amazonAccount.findFirst({ where: { isActive: true } })
+  if (!account) return { synced: 0, errors: 0 }
+
+  const client = new SpApiClient(account.id)
 
   // Build ASIN → sellerSku[] map from cache
   const cacheRows = await prisma.oliSkuCache.findMany({
     where: { sellerSku: { in: amazonSkus }, asin: { not: null } },
     select: { sellerSku: true, asin: true },
   })
+
   const asinToSkus = new Map<string, string[]>()
   for (const row of cacheRows) {
     if (!row.asin) continue
@@ -190,10 +180,14 @@ export async function syncOliSkus(): Promise<{
     asinToSkus.set(row.asin, skus)
   }
 
-  const uniqueAsins = [...asinSet]
-  let buyBoxSynced = 0
+  const uniqueAsins = [...asinToSkus.keys()]
+  if (uniqueAsins.length === 0) return { synced: 0, errors: 0 }
 
-  // Collect seller IDs for batch name resolution
+  let errors = 0
+  let synced = 0
+
+  console.log(`[OLI Sync] Phase 2 — syncing ${uniqueAsins.length} buy boxes`)
+
   const sellerIdsToResolve = new Set<string>()
   const asinBuyBox = new Map<string, { price: number | null; sellerId: string | null }>()
 
@@ -221,13 +215,10 @@ export async function syncOliSkus(): Promise<{
       } else {
         asinBuyBox.set(asin, { price: null, sellerId: null })
       }
-      buyBoxSynced++
+      synced++
     } catch (err) {
       errors++
-      console.error(
-        `[OLI Sync] BuyBox error for ${asin}:`,
-        err instanceof Error ? err.message : String(err),
-      )
+      console.error(`[OLI Sync] BuyBox error for ${asin}:`, err instanceof Error ? err.message : String(err))
     }
 
     if (i < uniqueAsins.length - 1) await sleep(BUYBOX_DELAY_MS)
@@ -255,17 +246,11 @@ export async function syncOliSkus(): Promise<{
     for (const sku of skus) {
       await prisma.oliSkuCache.update({
         where: { sellerSku: sku },
-        data: {
-          buyBoxPrice: bb.price,
-          buyBoxWinner: winnerName,
-        },
+        data: { buyBoxPrice: bb.price, buyBoxWinner: winnerName },
       })
     }
   }
 
-  console.log(
-    `[OLI Sync] Complete — ${listingsSynced} listings, ${buyBoxSynced} buy boxes, ${errors} errors`,
-  )
-
-  return { listingsSynced, buyBoxSynced, errors }
+  console.log(`[OLI Sync] Phase 2 done — ${synced} buy boxes, ${errors} errors`)
+  return { synced, errors }
 }

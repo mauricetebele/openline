@@ -484,12 +484,19 @@ export default function OLIManager() {
     }
   }, [])
 
-  // Trigger OLI sync then reload detail
+  // Trigger OLI sync: Phase 1 (listings) → refresh grid → Phase 2 (buy box) in background
   const triggerSync = useCallback(async () => {
     setSyncing(true)
     try {
-      await fetch('/api/oli/sync', { method: 'POST' })
+      // Phase 1: listings (fast — 5 req/s)
+      await fetch('/api/oli/sync?phase=listings', { method: 'POST' })
+      // Refresh grid immediately with listing data
       if (selectedId) await loadDetail(selectedId, true)
+
+      // Phase 2: buy box (slow — 0.5 req/s) — fire in background
+      fetch('/api/oli/sync?phase=buybox', { method: 'POST' })
+        .then(() => { if (selectedId) loadDetail(selectedId, true) })
+        .catch(() => {})
     } catch {
       // sync failure is non-fatal
     } finally {
