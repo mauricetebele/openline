@@ -1730,7 +1730,7 @@ export default function VendorRMAManager() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={clsx('inline-flex items-center justify-center w-36 py-1 rounded-full text-xs font-medium', STATUS_COLOR[rma.status])}>
+                    <span className={clsx('inline-flex items-center justify-center w-48 py-1 rounded-full text-xs font-medium whitespace-nowrap', STATUS_COLOR[rma.status])}>
                       {STATUS_LABEL[rma.status]}
                     </span>
                   </td>
