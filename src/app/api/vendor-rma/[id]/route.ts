@@ -77,7 +77,13 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       ...(notes !== undefined && { notes: notes?.trim() || null }),
       ...(vendorApprovalNumber !== undefined && { vendorApprovalNumber: vendorApprovalNumber?.trim() || null }),
       ...(carrier !== undefined && { carrier: carrier?.trim() || null }),
-      ...(trackingNumber !== undefined && { trackingNumber: trackingNumber?.trim() || null }),
+      ...(trackingNumber !== undefined && {
+        trackingNumber: trackingNumber?.trim() || null,
+        carrierStatus: null,
+        deliveredAt: null,
+        estimatedDelivery: null,
+        trackingUpdatedAt: null,
+      }),
     },
     include: {
       vendor: { select: { id: true, vendorNumber: true, name: true } },
