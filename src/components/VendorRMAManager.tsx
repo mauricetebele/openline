@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanLine, Search, CheckCircle2, Download, Loader2, ExternalLink, Barcode, Check } from 'lucide-react'
+import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanLine, Search, CheckCircle2, Download, Loader2, ExternalLink, Barcode, Check, Pencil } from 'lucide-react'
 import { clsx } from 'clsx'
 import { trackingUrl } from '@/lib/tracking-utils'
 
@@ -651,6 +651,9 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
   const [notes, setNotes] = useState(initial.notes ?? '')
   const [approvalEdit, setApprovalEdit] = useState(initial.vendorApprovalNumber ?? '')
   const [editingApproval, setEditingApproval] = useState(false)
+  const [editingShipping, setEditingShipping] = useState(false)
+  const [editCarrier, setEditCarrier] = useState(initial.carrier ?? '')
+  const [editTracking, setEditTracking] = useState(initial.trackingNumber ?? '')
 
   // Status modals
   const [showApprovalModal, setShowApprovalModal] = useState(false)
@@ -982,6 +985,17 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
     setSaving(false)
   }
 
+  async function saveShipping() {
+    setSaving(true)
+    const res = await fetch(`/api/vendor-rma/${rma.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ carrier: editCarrier, trackingNumber: editTracking }),
+    })
+    if (res.ok) { const d = await res.json(); setRma(d); onUpdated(d); setEditingShipping(false); setEditCarrier(d.carrier ?? ''); setEditTracking(d.trackingNumber ?? '') }
+    setSaving(false)
+  }
+
   async function handleStatusChange(newStatus: RMAStatus, extra?: Record<string, string>) {
     setSaving(true)
     setErr(null)
@@ -1148,23 +1162,60 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
       {/* Shipping Info */}
       {(rma.status === 'SHIPPED_AWAITING_CREDIT' || rma.status === 'CREDIT_RECEIVED') && (
         <div className="mb-5">
-          <div className="grid grid-cols-2 gap-4 mb-2">
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Truck size={11} />Carrier</p>
-              <p className="text-sm text-gray-900">{rma.carrier || '—'}</p>
+          {editingShipping ? (
+            <div className="grid grid-cols-2 gap-4 mb-2">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Truck size={11} />Carrier</p>
+                <input
+                  type="text"
+                  className="input text-sm py-1.5 px-2 w-full"
+                  value={editCarrier}
+                  onChange={e => setEditCarrier(e.target.value)}
+                  placeholder="UPS, FedEx, etc."
+                  onKeyDown={e => { if (e.key === 'Enter') saveShipping(); if (e.key === 'Escape') setEditingShipping(false) }}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Tag size={11} />Tracking #</p>
+                <input
+                  type="text"
+                  className="input text-sm py-1.5 px-2 w-full font-mono"
+                  value={editTracking}
+                  onChange={e => setEditTracking(e.target.value)}
+                  placeholder="1Z..."
+                  onKeyDown={e => { if (e.key === 'Enter') saveShipping(); if (e.key === 'Escape') setEditingShipping(false) }}
+                />
+              </div>
+              <div className="col-span-2 flex items-center gap-2">
+                <button onClick={saveShipping} disabled={saving} className="text-xs bg-amazon-blue text-white px-2 py-1.5 rounded-lg disabled:opacity-50">Save</button>
+                <button onClick={() => { setEditingShipping(false); setEditCarrier(rma.carrier ?? ''); setEditTracking(rma.trackingNumber ?? '') }} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Tag size={11} />Tracking #</p>
-              {rma.trackingNumber ? (
-                <a href={trackingUrl(rma.trackingNumber)} target="_blank" rel="noopener noreferrer"
-                  className="text-sm font-mono text-blue-600 hover:underline inline-flex items-center gap-1">
-                  {rma.trackingNumber} <ExternalLink size={10} />
-                </a>
-              ) : (
-                <p className="text-sm font-mono text-gray-900">—</p>
-              )}
+          ) : (
+            <div className="grid grid-cols-2 gap-4 mb-2">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Truck size={11} />Carrier</p>
+                <p className="text-sm text-gray-900">{rma.carrier || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
+                  <Tag size={11} />Tracking #
+                  <button onClick={() => setEditingShipping(true)} className="ml-1 text-gray-400 hover:text-gray-600 transition-colors" title="Edit shipping info">
+                    <Pencil size={11} />
+                  </button>
+                </p>
+                {rma.trackingNumber ? (
+                  <a href={trackingUrl(rma.trackingNumber)} target="_blank" rel="noopener noreferrer"
+                    className="text-sm font-mono text-blue-600 hover:underline inline-flex items-center gap-1">
+                    {rma.trackingNumber} <ExternalLink size={10} />
+                  </a>
+                ) : (
+                  <p className="text-sm font-mono text-gray-900">—</p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Live tracking status */}
           {rma.trackingNumber && (
