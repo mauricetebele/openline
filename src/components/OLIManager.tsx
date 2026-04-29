@@ -38,6 +38,7 @@ interface MskuAssignment {
   fgQty: number
   buyBoxPrice: number | null
   buyBoxWinner: string | null
+  unitsSoldPerDay: number | null
   msku: {
     id: string
     sellerSku: string
@@ -665,6 +666,7 @@ export default function OLIManager() {
       case 'buyBox': return a.buyBoxPrice ?? -1
       case 'bbWinner': return (a.buyBoxWinner ?? '').toLowerCase()
       case 'activeFor': return activeDaysNum(a.activeSince)
+      case 'velocity': return a.unitsSoldPerDay ?? -1
       case 'activeQty': return a.activeQty
       case 'fgQty': return a.fgQty
       default: return 0
@@ -961,6 +963,7 @@ export default function OLIManager() {
                           { key: 'buyBox', label: 'Buy Box', align: 'right' },
                           { key: 'bbWinner', label: 'BB Winner', align: 'left' },
                           { key: 'activeFor', label: 'Active For', align: 'right' },
+                          { key: 'velocity', label: 'Sold/Day', align: 'right' },
                           { key: 'activeQty', label: 'Active QTY', align: 'right' },
                           { key: 'fgQty', label: 'FG QTY', align: 'right' },
                         ].map((col) => (
@@ -1030,6 +1033,9 @@ export default function OLIManager() {
                           </td>
                           <td className="px-3 py-2 text-right text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap" title={a.activeSince ? new Date(a.activeSince).toLocaleDateString() : 'Inactive'}>
                             {a.activeSince ? formatActiveDuration(a.activeSince) : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                            {a.unitsSoldPerDay != null ? a.unitsSoldPerDay.toFixed(2) : <span className="text-gray-300 dark:text-gray-600">—</span>}
                           </td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.activeQty}</td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.fgQty}</td>
