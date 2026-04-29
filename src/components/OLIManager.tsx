@@ -454,6 +454,8 @@ export default function OLIManager() {
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [buyBoxData, setBuyBoxData] = useState<Record<string, { buyBoxPrice: number | null; buyBoxWinner: string | null }>>({})
+  const [buyBoxLoading, setBuyBoxLoading] = useState(false)
 
   // Load strategies
   const loadStrategies = useCallback(async () => {
@@ -469,22 +471,40 @@ export default function OLIManager() {
 
   useEffect(() => { loadStrategies() }, [loadStrategies])
 
+  // Fetch buy box data separately (live SP-API, slow due to rate limits)
+  const loadBuyBox = useCallback(async (id: string) => {
+    setBuyBoxLoading(true)
+    try {
+      const data = await apiFetch<Record<string, { buyBoxPrice: number | null; buyBoxWinner: string | null }>>(`/api/oli/strategies/${id}/buybox`)
+      setBuyBoxData(data)
+    } catch {
+      // Buy box failure is non-fatal — grid still shows other data
+    } finally {
+      setBuyBoxLoading(false)
+    }
+  }, [])
+
   // Load detail when selected (silent=true skips loading spinner for background refreshes)
   const loadDetail = useCallback(async (id: string, silent = false) => {
-    if (!silent) setDetailLoading(true)
+    if (!silent) {
+      setDetailLoading(true)
+      setBuyBoxData({})
+    }
     try {
       const d = await apiFetch<StrategyDetail>(`/api/oli/strategies/${id}`)
       setDetail(d)
+      // Fire buy box fetch in background after detail renders
+      loadBuyBox(id)
     } catch {
       if (!silent) setDetail(null)
     } finally {
       if (!silent) setDetailLoading(false)
     }
-  }, [])
+  }, [loadBuyBox])
 
   useEffect(() => {
     if (selectedId) loadDetail(selectedId)
-    else setDetail(null)
+    else { setDetail(null); setBuyBoxData({}) }
   }, [selectedId, loadDetail])
 
   // Auto-refresh detail every 20 minutes
@@ -798,10 +818,20 @@ export default function OLIManager() {
                             {a.currentPrice != null ? `$${a.currentPrice.toFixed(2)}` : <span className="text-gray-300 dark:text-gray-600">—</span>}
                           </td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                            {a.buyBoxPrice != null ? `$${a.buyBoxPrice.toFixed(2)}` : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                            {buyBoxLoading && !buyBoxData[a.msku.sellerSku] ? (
+                              <span className="text-gray-300 dark:text-gray-600 animate-pulse">...</span>
+                            ) : (buyBoxData[a.msku.sellerSku]?.buyBoxPrice ?? a.buyBoxPrice) != null ? (
+                              `$${((buyBoxData[a.msku.sellerSku]?.buyBoxPrice ?? a.buyBoxPrice)!).toFixed(2)}`
+                            ) : (
+                              <span className="text-gray-300 dark:text-gray-600">—</span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate">
-                            {a.buyBoxWinner ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
+                            {buyBoxLoading && !buyBoxData[a.msku.sellerSku] ? (
+                              <span className="text-gray-300 dark:text-gray-600 animate-pulse">...</span>
+                            ) : (
+                              (buyBoxData[a.msku.sellerSku]?.buyBoxWinner ?? a.buyBoxWinner) ?? <span className="text-gray-300 dark:text-gray-600">—</span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.activeQty}</td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.fgQty}</td>

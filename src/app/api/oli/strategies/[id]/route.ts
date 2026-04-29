@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { fetchBuyBoxLive } from '@/lib/oli/fetch-buybox'
 
 export const dynamic = 'force-dynamic'
 
@@ -67,40 +66,8 @@ export async function GET(
     }
   }
 
-  // Buy Box data — live from SP-API (OLI's own fetcher)
-  const asinAccountPairs = Array.from(asinMap.entries()).map(([sku, asin]) => ({
-    sku,
-    asin,
-    accountId: accountIdMap.get(sku)!,
-  }))
-
-  const buyBoxMap = new Map<string, { price: number | null; sellerName: string | null }>()
-  if (asinAccountPairs.length > 0) {
-    // Group ASINs by account for batch fetching
-    const asinsByAccount = new Map<string, string[]>()
-    for (const pair of asinAccountPairs) {
-      const existing = asinsByAccount.get(pair.accountId) ?? []
-      existing.push(pair.asin)
-      asinsByAccount.set(pair.accountId, existing)
-    }
-
-    // Fetch live buy box data per account
-    const liveBuyBox = new Map<string, { price: number | null; sellerName: string | null }>()
-    for (const [acctId, asins] of asinsByAccount) {
-      const results = await fetchBuyBoxLive(acctId, asins)
-      for (const [asin, bb] of results) {
-        liveBuyBox.set(asin, { price: bb.price, sellerName: bb.sellerName })
-      }
-    }
-
-    // Map ASIN results back to sellerSku(s)
-    for (const pair of asinAccountPairs) {
-      const bb = liveBuyBox.get(pair.asin)
-      if (bb) {
-        buyBoxMap.set(pair.sku, bb)
-      }
-    }
-  }
+  // Buy Box data is fetched separately via /api/oli/strategies/[id]/buybox
+  // to avoid blocking the main response (SP-API rate limit: 2.1s per ASIN)
 
   // FG available qty = on-hand - pending MFN orders - wholesale soft reservations
   const uniquePgKeys = Array.from(
@@ -178,7 +145,6 @@ export async function GET(
       const onHand = fgOnHandMap.get(pgKey) ?? 0
       const pending = pendingMap.get(a.msku.sellerSku) ?? 0
       const wholesale = wholesaleMap.get(pgKey) ?? 0
-      const bb = buyBoxMap.get(a.msku.sellerSku)
       return {
         ...a,
         asin: asinMap.get(a.msku.sellerSku) ?? null,
@@ -186,8 +152,8 @@ export async function GET(
         activeQty: activeQtyMap.get(a.msku.sellerSku) ?? 0,
         currentPrice: priceMap.get(a.msku.sellerSku) ?? null,
         fgQty: Math.max(0, onHand - pending - wholesale),
-        buyBoxPrice: bb?.price ?? null,
-        buyBoxWinner: bb?.sellerName ?? null,
+        buyBoxPrice: null,
+        buyBoxWinner: null,
       }
     }),
   }
