@@ -24,12 +24,16 @@ export async function POST(
     return NextResponse.json({ error: 'Strategy not found' }, { status: 404 })
   }
 
+  // Remove any existing assignments for these SKUs (a SKU can only belong to one strategy)
+  await prisma.pricingStrategyMsku.deleteMany({
+    where: { mskuId: { in: mskuIds } },
+  })
+
   await prisma.pricingStrategyMsku.createMany({
     data: mskuIds.map((mskuId) => ({
       strategyId: params.id,
       mskuId,
     })),
-    skipDuplicates: true,
   })
 
   return NextResponse.json({ ok: true }, { status: 201 })

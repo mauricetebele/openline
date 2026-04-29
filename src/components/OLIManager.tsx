@@ -251,15 +251,34 @@ function SkuAssignModal({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  // Map of mskuId → strategy name for SKUs assigned to other strategies
+  const [assignedElsewhere, setAssignedElsewhere] = useState<Map<string, string>>(new Map())
 
   useEffect(() => {
     setLoading(true)
-    fetch(`/api/marketplace-skus?marketplace=${marketplace}`)
-      .then((r) => r.json())
-      .then((d) => setSkus(d.data ?? []))
+    Promise.all([
+      fetch(`/api/marketplace-skus?marketplace=${marketplace}`).then((r) => r.json()),
+      fetch('/api/oli/strategies').then((r) => r.json()),
+    ])
+      .then(async ([skuData, stratData]) => {
+        setSkus(skuData.data ?? [])
+        // Load details for each strategy to build the assigned-elsewhere map
+        const strategies: Strategy[] = stratData.data ?? []
+        const otherStrategies = strategies.filter((s) => s.id !== strategyId && s._count.mskuAssignments > 0)
+        const details = await Promise.all(
+          otherStrategies.map((s) => fetch(`/api/oli/strategies/${s.id}`).then((r) => r.json())),
+        )
+        const map = new Map<string, string>()
+        for (const d of details) {
+          for (const a of d.mskuAssignments ?? []) {
+            map.set(a.mskuId, d.name)
+          }
+        }
+        setAssignedElsewhere(map)
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [marketplace])
+  }, [marketplace, strategyId])
 
   const filtered = skus.filter((s) => {
     if (existingMskuIds.has(s.id)) return false
@@ -380,6 +399,11 @@ function SkuAssignModal({
                     <p className="text-xs text-gray-500 truncate">
                       {sku.product.sku} — {sku.product.description}
                     </p>
+                    {assignedElsewhere.has(sku.id) && (
+                      <p className="text-[10px] text-orange-500 mt-0.5">
+                        Currently in: {assignedElsewhere.get(sku.id)} (will be reassigned)
+                      </p>
+                    )}
                   </div>
                 </label>
               ))}
