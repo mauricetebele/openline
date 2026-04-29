@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { fetchBuyBoxLive } from '@/lib/oli/fetch-buybox'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,40 +67,37 @@ export async function GET(
     }
   }
 
-  // Buy Box data from CompetitiveOffer (cached, synced every 6h)
+  // Buy Box data — live from SP-API (OLI's own fetcher)
   const asinAccountPairs = Array.from(asinMap.entries()).map(([sku, asin]) => ({
     sku,
     asin,
     accountId: accountIdMap.get(sku)!,
   }))
 
-  const buyBoxMap = new Map<string, { price: number; sellerName: string | null }>()
+  const buyBoxMap = new Map<string, { price: number | null; sellerName: string | null }>()
   if (asinAccountPairs.length > 0) {
-    const asins = Array.from(new Set(asinAccountPairs.map((p) => p.asin)))
-    const offers = await prisma.competitiveOffer.findMany({
-      where: { asin: { in: asins }, isBuyBoxWinner: true },
-      select: { asin: true, landedPrice: true, sellerId: true },
-    })
+    // Group ASINs by account for batch fetching
+    const asinsByAccount = new Map<string, string[]>()
+    for (const pair of asinAccountPairs) {
+      const existing = asinsByAccount.get(pair.accountId) ?? []
+      existing.push(pair.asin)
+      asinsByAccount.set(pair.accountId, existing)
+    }
 
-    // Resolve seller names
-    const sellerIds = Array.from(new Set(offers.map((o) => o.sellerId)))
-    const profiles = sellerIds.length > 0
-      ? await prisma.sellerProfile.findMany({
-          where: { sellerId: { in: sellerIds } },
-          select: { sellerId: true, name: true },
-        })
-      : []
-    const sellerNameMap = new Map(profiles.map((p) => [p.sellerId, p.name]))
+    // Fetch live buy box data per account
+    const liveBuyBox = new Map<string, { price: number | null; sellerName: string | null }>()
+    for (const [acctId, asins] of asinsByAccount) {
+      const results = await fetchBuyBoxLive(acctId, asins)
+      for (const [asin, bb] of results) {
+        liveBuyBox.set(asin, { price: bb.price, sellerName: bb.sellerName })
+      }
+    }
 
-    for (const o of offers) {
-      // Map ASIN back to sellerSku(s)
-      for (const pair of asinAccountPairs) {
-        if (pair.asin === o.asin) {
-          buyBoxMap.set(pair.sku, {
-            price: Number(o.landedPrice),
-            sellerName: sellerNameMap.get(o.sellerId) ?? o.sellerId,
-          })
-        }
+    // Map ASIN results back to sellerSku(s)
+    for (const pair of asinAccountPairs) {
+      const bb = liveBuyBox.get(pair.asin)
+      if (bb) {
+        buyBoxMap.set(pair.sku, bb)
       }
     }
   }
