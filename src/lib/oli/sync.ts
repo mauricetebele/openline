@@ -199,11 +199,27 @@ export async function syncOliListings(onProgress?: OnProgress): Promise<{
       }
 
       const qty = response.attributes?.fulfillment_availability?.[0]?.quantity ?? 0
+      const isActive = listingStatus === 'BUYABLE'
+
+      // Check existing activeSince to handle transitions
+      const existing = await prisma.oliSkuCache.findUnique({
+        where: { sellerSku: sku },
+        select: { activeSince: true, listingStatus: true },
+      })
+
+      // activeSince logic:
+      // - Became active → set to now
+      // - Still active  → keep existing value
+      // - Not active    → clear to null
+      let activeSince: Date | null = null
+      if (isActive) {
+        activeSince = existing?.activeSince ?? now
+      }
 
       await prisma.oliSkuCache.upsert({
         where: { sellerSku: sku },
-        create: { sellerSku: sku, asin, title, listingStatus, price, activeQty: qty, lastSyncedAt: now },
-        update: { asin, title, listingStatus, price, activeQty: qty, lastSyncedAt: now },
+        create: { sellerSku: sku, asin, title, listingStatus, price, activeQty: qty, activeSince, lastSyncedAt: now },
+        update: { asin, title, listingStatus, price, activeQty: qty, activeSince, lastSyncedAt: now },
       })
 
       synced++

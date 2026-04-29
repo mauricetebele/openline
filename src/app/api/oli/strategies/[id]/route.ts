@@ -137,6 +137,7 @@ export async function GET(
         asin: c?.asin ?? null,
         title: c?.title ?? null,
         listingStatus: c?.listingStatus ?? null,
+        activeSince: c?.activeSince?.toISOString() ?? null,
         activeQty: c?.activeQty ?? 0,
         currentPrice: c?.price != null ? Number(c.price) : null,
         fgQty: Math.max(0, onHand - pending - wholesale),

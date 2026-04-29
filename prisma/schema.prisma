@@ -2316,14 +2316,15 @@ model PricingStrategyMsku {
 }
 
 model OliSkuCache {
-  sellerSku     String   @id
+  sellerSku     String    @id
   asin          String?
-  title         String?  @db.Text
+  title         String?   @db.Text
   listingStatus String?
-  price         Decimal? @db.Decimal(10, 2)
-  activeQty     Int      @default(0)
-  buyBoxPrice   Decimal? @db.Decimal(10, 2)
+  price         Decimal?  @db.Decimal(10, 2)
+  activeQty     Int       @default(0)
+  activeSince   DateTime? // when listing last became BUYABLE (null = inactive)
+  buyBoxPrice   Decimal?  @db.Decimal(10, 2)
   buyBoxWinner  String?
-  lastSyncedAt  DateTime @default(now())
+  lastSyncedAt  DateTime  @default(now())
   @@map("oli_sku_cache")
 }

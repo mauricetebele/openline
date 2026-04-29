@@ -32,6 +32,7 @@ interface MskuAssignment {
   asin: string | null
   title: string | null
   listingStatus: string | null
+  activeSince: string | null
   activeQty: number
   currentPrice: number | null
   fgQty: number
@@ -60,6 +61,25 @@ interface MarketplaceSku {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatActiveDuration(since: string | null): string {
+  if (!since) return ''
+  const ms = Date.now() - new Date(since).getTime()
+  if (ms < 0) return '0m'
+  const mins = Math.floor(ms / 60_000)
+  if (mins < 60) return `${mins}m`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d`
+  const months = Math.floor(days / 30)
+  return `${months}mo`
+}
+
+function activeDaysNum(since: string | null): number {
+  if (!since) return -1
+  return (Date.now() - new Date(since).getTime()) / 86_400_000
+}
 
 async function apiFetch<T>(url: string): Promise<T> {
   const res = await fetch(url)
@@ -644,6 +664,7 @@ export default function OLIManager() {
       case 'price': return a.currentPrice ?? -1
       case 'buyBox': return a.buyBoxPrice ?? -1
       case 'bbWinner': return (a.buyBoxWinner ?? '').toLowerCase()
+      case 'activeFor': return activeDaysNum(a.activeSince)
       case 'activeQty': return a.activeQty
       case 'fgQty': return a.fgQty
       default: return 0
@@ -939,6 +960,7 @@ export default function OLIManager() {
                           { key: 'price', label: 'Price', align: 'right' },
                           { key: 'buyBox', label: 'Buy Box', align: 'right' },
                           { key: 'bbWinner', label: 'BB Winner', align: 'left' },
+                          { key: 'activeFor', label: 'Active For', align: 'right' },
                           { key: 'activeQty', label: 'Active QTY', align: 'right' },
                           { key: 'fgQty', label: 'FG QTY', align: 'right' },
                         ].map((col) => (
@@ -1005,6 +1027,9 @@ export default function OLIManager() {
                             ) : (
                               <span className="text-gray-300 dark:text-gray-600">—</span>
                             )}
+                          </td>
+                          <td className="px-3 py-2 text-right text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap" title={a.activeSince ? new Date(a.activeSince).toLocaleDateString() : 'Inactive'}>
+                            {a.activeSince ? formatActiveDuration(a.activeSince) : <span className="text-gray-300 dark:text-gray-600">—</span>}
                           </td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.activeQty}</td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.fgQty}</td>
