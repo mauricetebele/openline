@@ -884,7 +884,7 @@ export default function OLIManager() {
                           <td className="px-3 py-2 text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">{a.msku.sellerSku}</td>
                           <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{a.asin ?? <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
                           <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{a.msku.product.sku}</td>
-                          <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-[180px] truncate">{a.msku.product.description}</td>
+                          <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">{a.msku.product.description}</td>
                           <td className="px-3 py-2">
                             {a.msku.grade ? (
                               <span className="text-[9px] font-semibold uppercase px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
