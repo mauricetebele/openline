@@ -10,6 +10,7 @@ export async function POST(
 ) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user.canAccessOli) return NextResponse.json({ error: 'OLI access not enabled' }, { status: 403 })
 
   const body = await req.json()
   const { mskuIds } = body as { mskuIds?: string[] }

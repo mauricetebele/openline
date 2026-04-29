@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user.canAccessOli) return NextResponse.json({ error: 'OLI access not enabled' }, { status: 403 })
 
   const search = req.nextUrl.searchParams.get('search')?.trim()
 
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user.canAccessOli) return NextResponse.json({ error: 'OLI access not enabled' }, { status: 403 })
 
   const body = await req.json()
   const { name, marketplace, description } = body as {

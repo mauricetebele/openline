@@ -20,6 +20,7 @@ export const maxDuration = 300
 export async function POST() {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user.canAccessOli) return NextResponse.json({ error: 'OLI access not enabled' }, { status: 403 })
 
   const encoder = new TextEncoder()
 

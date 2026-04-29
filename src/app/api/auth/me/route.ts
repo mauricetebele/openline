@@ -15,5 +15,6 @@ export async function GET() {
     name: user.name,
     role: user.role,
     dbId: user.dbId,
+    canAccessOli: user.canAccessOli,
   })
 }

@@ -1884,6 +1884,7 @@ interface ManagedUser {
   role: string
   createdAt: string
   companyName: string | null
+  canAccessOli: boolean
   _count?: { clientLocationAccess: number; visibleUsers: number }
 }
 
@@ -2094,6 +2095,24 @@ function UsersSection() {
     }
   }
 
+  async function handleToggleOli(u: ManagedUser) {
+    setTogglingId(u.id)
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id, canAccessOli: !u.canAccessOli }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success(`OLI ${u.canAccessOli ? 'disabled' : 'enabled'} for ${u.name}`)
+      fetchUsers()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
   async function handleRename(u: ManagedUser) {
     const trimmed = editName.trim()
     if (!trimmed || trimmed === u.name) { setEditingId(null); return }
@@ -2252,6 +2271,19 @@ function UsersSection() {
                   className="px-2 py-1 rounded text-xs font-medium bg-teal-50 text-teal-700 hover:bg-teal-100 transition-colors"
                 >
                   Visible Users ({u._count?.visibleUsers ?? 0})
+                </button>
+              )}
+              {(u.role === 'ADMIN' || u.role === 'REVIEWER') && (
+                <button
+                  onClick={() => handleToggleOli(u)}
+                  disabled={togglingId === u.id}
+                  className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+                    u.canAccessOli
+                      ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                >
+                  {u.canAccessOli ? 'OLI On' : 'OLI Off'}
                 </button>
               )}
               <select

@@ -71,7 +71,7 @@ export async function GET() {
 
   const users = await prisma.user.findMany({
     select: {
-      id: true, name: true, email: true, role: true, createdAt: true, companyName: true,
+      id: true, name: true, email: true, role: true, createdAt: true, companyName: true, canAccessOli: true,
       _count: { select: { clientLocationAccess: true, visibleUsers: true } },
     },
     orderBy: { name: 'asc' },
@@ -141,20 +141,22 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { userId, role, name, companyName } = body as {
+  const { userId, role, name, companyName, canAccessOli } = body as {
     userId?: string
     role?: string
     name?: string
     companyName?: string | null
+    canAccessOli?: boolean
   }
 
   if (!userId)
     return NextResponse.json({ error: 'userId is required' }, { status: 400 })
 
-  const data: Record<string, string | null> = {}
+  const data: Record<string, string | boolean | null> = {}
   if (role && ['ADMIN', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER'].includes(role)) data.role = role
   if (name) data.name = name
   if (companyName !== undefined) data.companyName = companyName ?? null
+  if (typeof canAccessOli === 'boolean') data.canAccessOli = canAccessOli
 
   if (Object.keys(data).length === 0)
     return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
@@ -163,7 +165,7 @@ export async function PATCH(req: NextRequest) {
     const updated = await prisma.user.update({
       where: { id: userId },
       data,
-      select: { id: true, name: true, email: true, role: true, createdAt: true, companyName: true },
+      select: { id: true, name: true, email: true, role: true, createdAt: true, companyName: true, canAccessOli: true },
     })
     return NextResponse.json({ data: updated })
   } catch {

@@ -12,6 +12,7 @@ export interface AuthUser {
   name: string
   role: string
   dbId: string
+  canAccessOli: boolean
 }
 
 interface AuthContextValue {

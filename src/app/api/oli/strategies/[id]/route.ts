@@ -10,6 +10,7 @@ export async function GET(
 ) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user.canAccessOli) return NextResponse.json({ error: 'OLI access not enabled' }, { status: 403 })
 
   const strategy = await prisma.pricingStrategy.findUnique({
     where: { id: params.id },
@@ -228,6 +229,7 @@ export async function PUT(
 ) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user.canAccessOli) return NextResponse.json({ error: 'OLI access not enabled' }, { status: 403 })
 
   const body = await req.json()
   const { name, description, isActive } = body as {
@@ -260,6 +262,7 @@ export async function DELETE(
 ) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user.canAccessOli) return NextResponse.json({ error: 'OLI access not enabled' }, { status: 403 })
 
   await prisma.pricingStrategy.delete({ where: { id: params.id } })
   return NextResponse.json({ ok: true })

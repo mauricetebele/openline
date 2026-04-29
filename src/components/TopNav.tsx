@@ -306,11 +306,16 @@ export default function TopNav() {
   // Close mobile menu on route change
   useEffect(() => { setMobileOpen(false) }, [pathname])
 
+  // Filter OLI nav item if user doesn't have access
+  const filteredNav = user?.canAccessOli
+    ? NAV
+    : NAV.filter(i => !('href' in i && i.href === '/oli'))
+
   // Separate items before and after the Wholesale divider
-  const dividerIdx = NAV.findIndex(i => 'divider' in i)
-  const mainItems      = dividerIdx === -1 ? NAV : NAV.slice(0, dividerIdx)
-  const divider        = dividerIdx === -1 ? null  : NAV[dividerIdx] as NavDivider
-  const wholesaleItems = dividerIdx === -1 ? []    : NAV.slice(dividerIdx + 1) as NavLeaf[]
+  const dividerIdx = filteredNav.findIndex(i => 'divider' in i)
+  const mainItems      = dividerIdx === -1 ? filteredNav : filteredNav.slice(0, dividerIdx)
+  const divider        = dividerIdx === -1 ? null  : filteredNav[dividerIdx] as NavDivider
+  const wholesaleItems = dividerIdx === -1 ? []    : filteredNav.slice(dividerIdx + 1) as NavLeaf[]
 
   // Split mainItems into two rows for desktop nav
   const ROW1_COUNT = 6 // Products, Marketplace SKUs, Vendors, Returns, Inventory, Fulfillment

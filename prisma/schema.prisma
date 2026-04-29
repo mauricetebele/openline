@@ -41,6 +41,8 @@ model User {
   visibleUsers       ResolutionProviderVisibility[] @relation("ResProviderVisibility")
   visibleToProviders ResolutionProviderVisibility[] @relation("ResProviderVisibleTo")
 
+  canAccessOli  Boolean  @default(false)
+
   @@map("users")
 }
 
