@@ -874,7 +874,7 @@ export default function OLIManager() {
                             <span
                               className={clsx(
                                 'inline-block w-2.5 h-2.5 rounded-full',
-                                a.listingStatus === 'BUYABLE' || (a.listingStatus === 'DISCOVERABLE' && a.activeQty > 0)
+                                a.listingStatus === 'BUYABLE' || a.activeQty >= 1
                                   ? 'bg-green-500'
                                   : 'bg-red-500',
                               )}
