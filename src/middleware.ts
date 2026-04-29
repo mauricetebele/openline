@@ -70,11 +70,11 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/cases', req.url))
   }
 
-  // Internal users cannot access /client/* or /vendor/* pages
+  // Internal users cannot access /client/* or /vendor/* portal pages
   if (pathname.startsWith('/client')) {
     return NextResponse.redirect(new URL('/inventory', req.url))
   }
-  if (pathname.startsWith('/vendor')) {
+  if (pathname.startsWith('/vendor/')) {
     return NextResponse.redirect(new URL('/inventory', req.url))
   }
 
