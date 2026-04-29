@@ -69,12 +69,14 @@ export async function GET(req: NextRequest) {
     }
 
     if (search) {
+      const olmNum = search.toUpperCase().startsWith('OLM-') ? parseInt(search.slice(4), 10) : parseInt(search, 10)
       where.OR = [
         { amazonOrderId: { contains: search, mode: 'insensitive' } },
         { items: { some: { sellerSku: { contains: search, mode: 'insensitive' } } } },
         { items: { some: { title: { contains: search, mode: 'insensitive' } } } },
         { shipTracking: { contains: search, mode: 'insensitive' } },
         { label: { trackingNumber: { contains: search, mode: 'insensitive' } } },
+        ...(Number.isFinite(olmNum) ? [{ olmNumber: olmNum }] : []),
       ]
     }
 
