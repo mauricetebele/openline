@@ -56,13 +56,15 @@ export async function GET(
     }
   }
 
-  // FG qty from InventoryItem grouped by productId+gradeId
+  // FG available qty = on-hand - pending MFN orders - wholesale soft reservations
   const uniquePgKeys = Array.from(
     new Map(
       productGradeKeys.map((k) => [`${k.productId}|${k.gradeId ?? ''}`, k]),
     ).values(),
   )
+  const productIds = Array.from(new Set(productGradeKeys.map((k) => k.productId)))
 
+  // On-hand FG inventory
   const fgGroups = uniquePgKeys.length > 0
     ? await prisma.inventoryItem.groupBy({
         by: ['productId', 'gradeId'],
@@ -77,20 +79,66 @@ export async function GET(
       })
     : []
 
-  const fgMap = new Map<string, number>()
+  const fgOnHandMap = new Map<string, number>()
   for (const g of fgGroups) {
-    fgMap.set(`${g.productId}|${g.gradeId ?? ''}`, g._sum.qty ?? 0)
+    fgOnHandMap.set(`${g.productId}|${g.gradeId ?? ''}`, g._sum.qty ?? 0)
+  }
+
+  // Pending Amazon MFN order qty (not yet reserved in inventory)
+  const pendingMap = new Map<string, number>()
+  if (sellerSkus.length > 0) {
+    const pendingGroups = await prisma.orderItem.groupBy({
+      by: ['sellerSku'],
+      where: {
+        sellerSku: { in: sellerSkus },
+        order: {
+          fulfillmentChannel: 'MFN',
+          orderSource: 'amazon',
+          workflowStatus: 'PENDING',
+        },
+      },
+      _sum: { quantityOrdered: true, quantityShipped: true },
+    })
+    for (const g of pendingGroups) {
+      if (g.sellerSku) {
+        pendingMap.set(g.sellerSku, (g._sum.quantityOrdered ?? 0) - (g._sum.quantityShipped ?? 0))
+      }
+    }
+  }
+
+  // Wholesale soft-reserved qty (PROCESSING orders in FG locations)
+  const whGroups = productIds.length > 0
+    ? await prisma.salesOrderInventoryReservation.groupBy({
+        by: ['productId', 'gradeId'],
+        where: {
+          productId: { in: productIds },
+          location: { isFinishedGoods: true },
+          salesOrder: { fulfillmentStatus: { in: ['PROCESSING'] } },
+        },
+        _sum: { qtyReserved: true },
+      })
+    : []
+
+  const wholesaleMap = new Map<string, number>()
+  for (const g of whGroups) {
+    wholesaleMap.set(`${g.productId}|${g.gradeId ?? ''}`, g._sum.qtyReserved ?? 0)
   }
 
   // Build enriched response
   const enriched = {
     ...strategy,
-    mskuAssignments: strategy.mskuAssignments.map((a) => ({
-      ...a,
-      activeQty: activeQtyMap.get(a.msku.sellerSku) ?? 0,
-      currentPrice: priceMap.get(a.msku.sellerSku) ?? null,
-      fgQty: fgMap.get(`${a.msku.product.id}|${a.msku.grade?.id ?? ''}`) ?? 0,
-    })),
+    mskuAssignments: strategy.mskuAssignments.map((a) => {
+      const pgKey = `${a.msku.product.id}|${a.msku.grade?.id ?? ''}`
+      const onHand = fgOnHandMap.get(pgKey) ?? 0
+      const pending = pendingMap.get(a.msku.sellerSku) ?? 0
+      const wholesale = wholesaleMap.get(pgKey) ?? 0
+      return {
+        ...a,
+        activeQty: activeQtyMap.get(a.msku.sellerSku) ?? 0,
+        currentPrice: priceMap.get(a.msku.sellerSku) ?? null,
+        fgQty: Math.max(0, onHand - pending - wholesale),
+      }
+    }),
   }
 
   return NextResponse.json(enriched)
