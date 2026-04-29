@@ -29,6 +29,9 @@ interface MskuAssignment {
   id: string
   mskuId: string
   createdAt: string
+  activeQty: number
+  currentPrice: number | null
+  fgQty: number
   msku: {
     id: string
     sellerSku: string
@@ -552,14 +555,13 @@ export default function OLIManager() {
     : strategies
 
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <div className="flex flex-col flex-1 overflow-hidden">
       {err && <ErrorBanner message={err} onClose={() => setErr('')} />}
 
-      {/* ─── Left Column: Strategy List ─── */}
-      <div className="w-[380px] border-r border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-gray-900 shrink-0">
-        {/* Toolbar */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
-          <div className="relative flex-1">
+      {/* ─── Top Bar: Strategy selector ─── */}
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shrink-0">
+        <div className="flex items-center gap-2 px-4 py-2.5">
+          <div className="relative w-56 shrink-0">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
@@ -569,6 +571,50 @@ export default function OLIManager() {
               className="w-full h-9 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
             />
           </div>
+
+          {/* Strategy pills */}
+          <div className="flex-1 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
+            {loading ? (
+              <span className="text-xs text-gray-400 px-2">Loading...</span>
+            ) : filtered.length === 0 ? (
+              <span className="text-xs text-gray-400 px-2">
+                {search ? 'No match' : 'No strategies yet'}
+              </span>
+            ) : (
+              filtered.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedId(s.id)}
+                  className={clsx(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0',
+                    selectedId === s.id
+                      ? 'bg-amazon-blue text-white'
+                      : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700',
+                  )}
+                >
+                  {s.name}
+                  <span className={clsx(
+                    'text-[9px] font-bold uppercase px-1 py-0.5 rounded',
+                    selectedId === s.id
+                      ? 'bg-white/20 text-white'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
+                  )}>
+                    {s.marketplace}
+                  </span>
+                  {!s.isActive && (
+                    <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-400">off</span>
+                  )}
+                  <span className={clsx(
+                    'text-[10px]',
+                    selectedId === s.id ? 'text-white/70' : 'text-gray-400',
+                  )}>
+                    ({s._count.mskuAssignments})
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+
           <button
             onClick={() => setShowCreate(true)}
             className="h-9 px-3 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-blue-700 flex items-center gap-1.5 shrink-0"
@@ -576,73 +622,9 @@ export default function OLIManager() {
             <Plus size={14} /> New
           </button>
         </div>
-
-        {/* Strategy cards */}
-        <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <p className="text-sm text-gray-400 text-center py-12">Loading...</p>
-          ) : filtered.length === 0 ? (
-            <div className="py-20 text-center">
-              <Brain size={36} className="mx-auto text-gray-200 dark:text-gray-600 mb-3" />
-              <p className="text-sm font-medium text-gray-400">
-                {search ? 'No strategies match your search' : 'No strategies yet'}
-              </p>
-              {!search && (
-                <button
-                  onClick={() => setShowCreate(true)}
-                  className="mt-3 text-sm text-amazon-blue hover:underline"
-                >
-                  Create your first strategy
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {filtered.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => setSelectedId(s.id)}
-                  className={clsx(
-                    'w-full text-left px-4 py-3 transition-colors',
-                    selectedId === s.id
-                      ? 'bg-blue-50 dark:bg-blue-900/20 border-l-2 border-l-amazon-blue'
-                      : 'hover:bg-gray-50 dark:hover:bg-gray-800 border-l-2 border-l-transparent',
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-gray-900 dark:text-white truncate flex-1">
-                      {s.name}
-                    </span>
-                    <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                      {s.marketplace}
-                    </span>
-                    <span
-                      className={clsx(
-                        'text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded shrink-0',
-                        s.isActive
-                          ? 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-400',
-                      )}
-                    >
-                      {s.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-xs text-gray-500">
-                      {s._count.mskuAssignments} SKU{s._count.mskuAssignments !== 1 ? 's' : ''}
-                    </span>
-                    <span className="text-xs text-gray-400">
-                      {new Date(s.createdAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
-      {/* ─── Right Column: Detail Panel ─── */}
+      {/* ─── Detail Panel: Full width ─── */}
       <div className="flex-1 flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950">
         {!selectedId ? (
           <div className="flex-1 flex items-center justify-center">
@@ -658,9 +640,9 @@ export default function OLIManager() {
         ) : detail ? (
           <>
             {/* Strategy Header */}
-            <div className="px-6 py-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shrink-0">
+            <div className="px-6 py-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shrink-0">
               {editingName ? (
-                <div className="space-y-3">
+                <div className="flex items-center gap-3">
                   <input
                     type="text"
                     value={editName}
@@ -669,43 +651,39 @@ export default function OLIManager() {
                       if (e.key === 'Enter') handleSaveEdit()
                       if (e.key === 'Escape') setEditingName(false)
                     }}
-                    className="w-full h-9 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white px-3 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                    className="h-9 w-64 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white px-3 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amazon-blue"
                     autoFocus
                   />
-                  <textarea
+                  <input
+                    type="text"
                     value={editDesc}
                     onChange={(e) => setEditDesc(e.target.value)}
                     placeholder="Description..."
-                    rows={2}
-                    className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue resize-none"
+                    className="h-9 flex-1 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
                   />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleSaveEdit}
-                      disabled={!editName.trim()}
-                      className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
-                    >
-                      <Check size={12} /> Save
-                    </button>
-                    <button
-                      onClick={() => setEditingName(false)}
-                      className="h-8 px-3 rounded-md border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    >
-                      Cancel
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleSaveEdit}
+                    disabled={!editName.trim()}
+                    className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
+                  >
+                    <Check size={12} /> Save
+                  </button>
+                  <button
+                    onClick={() => setEditingName(false)}
+                    className="h-8 px-3 rounded-md border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    Cancel
+                  </button>
                 </div>
               ) : (
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-bold text-gray-900 dark:text-white">{detail.name}</h2>
-                      <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                        {detail.marketplace}
-                      </span>
-                    </div>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <h2 className="text-base font-bold text-gray-900 dark:text-white">{detail.name}</h2>
+                    <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                      {detail.marketplace}
+                    </span>
                     {detail.description && (
-                      <p className="text-sm text-gray-500 mt-0.5">{detail.description}</p>
+                      <span className="text-sm text-gray-400 truncate">{detail.description}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -734,27 +712,22 @@ export default function OLIManager() {
                     >
                       <Trash2 size={15} />
                     </button>
+                    <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+                    <button
+                      onClick={() => setShowAssign(true)}
+                      className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium hover:bg-blue-700 flex items-center gap-1.5"
+                    >
+                      <Tags size={13} /> Assign SKUs
+                    </button>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Assigned SKUs Section */}
-            <div className="flex-1 overflow-y-auto px-6 py-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                  Assigned SKUs ({detail.mskuAssignments.length})
-                </h3>
-                <button
-                  onClick={() => setShowAssign(true)}
-                  className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium hover:bg-blue-700 flex items-center gap-1.5"
-                >
-                  <Tags size={13} /> Assign SKUs
-                </button>
-              </div>
-
+            {/* Assigned SKUs Grid — full width */}
+            <div className="flex-1 overflow-auto px-6 py-4">
               {detail.mskuAssignments.length === 0 ? (
-                <div className="py-12 text-center border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
+                <div className="py-16 text-center border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
                   <Tags size={28} className="mx-auto text-gray-200 dark:text-gray-600 mb-2" />
                   <p className="text-sm text-gray-400">No SKUs assigned to this strategy</p>
                   <button
@@ -765,15 +738,17 @@ export default function OLIManager() {
                   </button>
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-                  <table className="min-w-full text-sm">
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+                  <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product SKU</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Price</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Active QTY</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">FG QTY</th>
                         <th className="px-4 py-3 w-10"></th>
                       </tr>
                     </thead>
@@ -781,13 +756,8 @@ export default function OLIManager() {
                       {detail.mskuAssignments.map((a) => (
                         <tr key={a.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 group">
                           <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{a.msku.sellerSku}</td>
-                          <td className="px-4 py-3">
-                            <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                              {a.msku.marketplace}
-                            </span>
-                          </td>
                           <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{a.msku.product.sku}</td>
-                          <td className="px-4 py-3 text-gray-600 dark:text-gray-400 max-w-[200px] truncate">{a.msku.product.description}</td>
+                          <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{a.msku.product.description}</td>
                           <td className="px-4 py-3">
                             {a.msku.grade ? (
                               <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
@@ -797,6 +767,11 @@ export default function OLIManager() {
                               <span className="text-gray-300 dark:text-gray-600">—</span>
                             )}
                           </td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">
+                            {a.currentPrice != null ? `$${a.currentPrice.toFixed(2)}` : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{a.activeQty}</td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{a.fgQty}</td>
                           <td className="px-4 py-3">
                             <button
                               onClick={() => handleRemoveSku(a.mskuId)}
