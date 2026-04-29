@@ -326,6 +326,23 @@ function SkuAssignModal({
           </div>
         </div>
 
+        {!loading && filtered.length > 0 && (
+          <div className="flex items-center gap-2 px-5 py-2 border-b dark:border-gray-700 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                const allFilteredIds = filtered.map((s) => s.id)
+                const allSelected = allFilteredIds.every((id) => selected.has(id))
+                setSelected(allSelected ? new Set() : new Set(allFilteredIds))
+              }}
+              className="text-xs font-medium text-amazon-blue hover:underline"
+            >
+              {filtered.every((s) => selected.has(s.id)) ? 'Deselect All' : 'Select All'}
+            </button>
+            <span className="text-xs text-gray-400">({filtered.length} available)</span>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto px-5 py-2">
           {loading ? (
             <p className="text-sm text-gray-400 py-8 text-center">Loading SKUs...</p>
