@@ -30,6 +30,7 @@ interface MskuAssignment {
   mskuId: string
   createdAt: string
   asin: string | null
+  listingStatus: string | null
   activeQty: number
   currentPrice: number | null
   fgQty: number
@@ -752,6 +753,7 @@ export default function OLIManager() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                        <th className="px-2 py-2 w-8 text-center text-[10px] font-semibold text-gray-500 uppercase tracking-wide"></th>
                         <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
                         <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">ASIN</th>
                         <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Product</th>
@@ -768,6 +770,17 @@ export default function OLIManager() {
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                       {detail.mskuAssignments.map((a) => (
                         <tr key={a.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 group">
+                          <td className="px-2 py-2 text-center">
+                            <span
+                              className={clsx(
+                                'inline-block w-2.5 h-2.5 rounded-full',
+                                a.listingStatus === 'Active'
+                                  ? 'bg-green-500'
+                                  : 'bg-red-500',
+                              )}
+                              title={a.listingStatus ?? 'Unknown'}
+                            />
+                          </td>
                           <td className="px-3 py-2 text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">{a.msku.sellerSku}</td>
                           <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{a.asin ?? <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
                           <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{a.msku.product.sku}</td>

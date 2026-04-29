@@ -43,7 +43,7 @@ export async function GET(
   const listings = sellerSkus.length > 0
     ? await prisma.sellerListing.findMany({
         where: { sku: { in: sellerSkus } },
-        select: { sku: true, quantity: true, price: true, asin: true, accountId: true },
+        select: { sku: true, quantity: true, price: true, asin: true, accountId: true, listingStatus: true },
       })
     : []
 
@@ -51,6 +51,7 @@ export async function GET(
   const priceMap = new Map<string, number>()
   const asinMap = new Map<string, string>()
   const accountIdMap = new Map<string, string>()
+  const listingStatusMap = new Map<string, string>()
   for (const l of listings) {
     activeQtyMap.set(l.sku, (activeQtyMap.get(l.sku) ?? 0) + l.quantity)
     if (l.price != null && !priceMap.has(l.sku)) {
@@ -59,6 +60,9 @@ export async function GET(
     if (l.asin && !asinMap.has(l.sku)) {
       asinMap.set(l.sku, l.asin)
       accountIdMap.set(l.sku, l.accountId)
+    }
+    if (l.listingStatus && !listingStatusMap.has(l.sku)) {
+      listingStatusMap.set(l.sku, l.listingStatus)
     }
   }
 
@@ -180,6 +184,7 @@ export async function GET(
       return {
         ...a,
         asin: asinMap.get(a.msku.sellerSku) ?? null,
+        listingStatus: listingStatusMap.get(a.msku.sellerSku) ?? null,
         activeQty: activeQtyMap.get(a.msku.sellerSku) ?? 0,
         currentPrice: priceMap.get(a.msku.sellerSku) ?? null,
         fgQty: Math.max(0, onHand - pending - wholesale),
