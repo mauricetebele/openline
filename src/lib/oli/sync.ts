@@ -6,14 +6,17 @@
  * or CompetitiveOffer table. Data is cached in the `oli_sku_cache` table.
  *
  * Two phases with progress callbacks for streaming UI updates:
- *   Phase 1: Listings Items API  — status, ASIN, price, qty  (5 req/s)
- *   Phase 2: Pricing Offers API  — buy box price + winner     (0.5 req/s)
+ *   Phase 1: Listings Items API        — status, ASIN, price, qty  (5 req/s)
+ *   Phase 2: Competitive Pricing API   — buy box price + ownership  (batched 20/req, ~10 req/s)
+ *            + Item Offers API fallback — competitor name lookup     (0.5 req/s, only non-owned)
  */
 import { prisma } from '@/lib/prisma'
 import { SpApiClient } from '@/lib/amazon/sp-api'
 
-const LISTING_DELAY_MS = 250   // 5 req/s with margin
-const BUYBOX_DELAY_MS = 2_100  // 0.5 req/s
+const LISTING_DELAY_MS = 250      // 5 req/s with margin
+const BATCH_DELAY_MS = 150        // ~10 req/s for competitive pricing batches
+const COMPETITOR_DELAY_MS = 2_100 // 0.5 req/s for individual item offers fallback
+const BATCH_SIZE = 20             // max ASINs per competitive pricing request
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
@@ -74,6 +77,32 @@ interface ListingItemResponse {
   }
 }
 
+// Competitive Pricing API (batched, accurate ownership via belongsToRequester)
+interface CompetitivePriceEntry {
+  CompetitivePriceId?: string
+  Price?: {
+    LandedPrice?: { Amount?: number }
+    ListingPrice?: { Amount?: number }
+  }
+  belongsToRequester?: boolean
+  condition?: string
+}
+
+interface CompetitivePricingItem {
+  ASIN: string
+  status: string
+  Product?: {
+    CompetitivePricing?: {
+      CompetitivePrices?: CompetitivePriceEntry[]
+    }
+  }
+}
+
+interface CompetitivePricingResponse {
+  payload?: CompetitivePricingItem[]
+}
+
+// Item Offers API (fallback for competitor name lookup)
 interface BuyBoxOffer {
   SellerId?: string
   IsBuyBoxWinner?: boolean
@@ -95,11 +124,11 @@ async function getAmazonSkus(): Promise<string[]> {
     distinct: ['mskuId'],
   })
 
-  return [...new Set(
+  return Array.from(new Set(
     assignments
       .filter((a) => a.msku.marketplace === 'amazon')
       .map((a) => a.msku.sellerSku),
-  )]
+  ))
 }
 
 // ─── Phase 1: Listings (status, ASIN, price, qty) ──────────────────────────
@@ -140,6 +169,7 @@ export async function syncOliListings(onProgress?: OnProgress): Promise<{
 
       const summary = response.summaries?.[0]
       const asin = summary?.asin ?? null
+      const title = summary?.itemName ?? null
       const statusArr = summary?.status ?? []
 
       // Determine listing status:
@@ -172,8 +202,8 @@ export async function syncOliListings(onProgress?: OnProgress): Promise<{
 
       await prisma.oliSkuCache.upsert({
         where: { sellerSku: sku },
-        create: { sellerSku: sku, asin, listingStatus, price, activeQty: qty, lastSyncedAt: now },
-        update: { asin, listingStatus, price, activeQty: qty, lastSyncedAt: now },
+        create: { sellerSku: sku, asin, title, listingStatus, price, activeQty: qty, lastSyncedAt: now },
+        update: { asin, title, listingStatus, price, activeQty: qty, lastSyncedAt: now },
       })
 
       synced++
@@ -190,7 +220,7 @@ export async function syncOliListings(onProgress?: OnProgress): Promise<{
   return { synced, errors }
 }
 
-// ─── Phase 2: Buy Box (price + winner) ─────────────────────────────────────
+// ─── Phase 2: Buy Box (Competitive Pricing + competitor fallback) ────────
 
 export async function syncOliBuyBox(onProgress?: OnProgress): Promise<{
   synced: number
@@ -217,7 +247,7 @@ export async function syncOliBuyBox(onProgress?: OnProgress): Promise<{
     asinToSkus.set(row.asin, skus)
   }
 
-  const uniqueAsins = [...asinToSkus.keys()]
+  const uniqueAsins = Array.from(asinToSkus.keys())
   if (uniqueAsins.length === 0) {
     onProgress?.({ phase: 'buybox', current: 0, total: 0, label: '', done: true })
     return { synced: 0, errors: 0 }
@@ -225,52 +255,106 @@ export async function syncOliBuyBox(onProgress?: OnProgress): Promise<{
 
   let errors = 0
   let synced = 0
-  const total = uniqueAsins.length
 
-  console.log(`[OLI Sync] Phase 2 — syncing ${total} buy boxes`)
+  console.log(`[OLI Sync] Phase 2 — checking ${uniqueAsins.length} ASINs via Competitive Pricing API`)
 
-  const sellerIdsToResolve = new Set<string>()
-  const asinBuyBox = new Map<string, { price: number | null; sellerId: string | null }>()
+  // ── Step 1: Batch Competitive Pricing (fast: 20/batch, ~10 req/s) ─────
+  // Uses belongsToRequester for definitive buy box ownership detection
+  const asinBuyBox = new Map<string, { price: number | null; isOurs: boolean; sellerId: string | null }>()
+  const totalBatches = Math.ceil(uniqueAsins.length / BATCH_SIZE)
 
-  for (let i = 0; i < uniqueAsins.length; i++) {
-    const asin = uniqueAsins[i]
-    onProgress?.({ phase: 'buybox', current: i + 1, total, label: asin })
+  for (let i = 0; i < uniqueAsins.length; i += BATCH_SIZE) {
+    const batch = uniqueAsins.slice(i, i + BATCH_SIZE)
+    const batchNum = Math.floor(i / BATCH_SIZE) + 1
+    onProgress?.({ phase: 'buybox', current: i, total: uniqueAsins.length, label: `Batch ${batchNum}/${totalBatches}` })
 
     try {
-      const response = await client.get<BuyBoxResponse>(
-        `/products/pricing/v0/items/${asin}/offers`,
-        {
-          MarketplaceId: account.marketplaceId,
-          ItemCondition: 'New',
-          CustomerType: 'Consumer',
-        },
+      // Build URL with repeated Asins params (SP-API array format)
+      const qs = new URLSearchParams()
+      qs.append('MarketplaceId', account.marketplaceId)
+      qs.append('ItemType', 'Asin')
+      for (const asin of batch) qs.append('Asins', asin)
+
+      const response = await client.get<CompetitivePricingResponse>(
+        `/products/pricing/v0/competitivePrice?${qs.toString()}`,
       )
 
-      const offers = response?.payload?.Offers ?? []
-      const bbWinner = offers.find((o) => o.IsBuyBoxWinner)
+      for (const item of response.payload ?? []) {
+        if (item.status !== 'Success') {
+          asinBuyBox.set(item.ASIN, { price: null, isOurs: false, sellerId: null })
+          continue
+        }
 
-      if (bbWinner) {
-        const price = bbWinner.LandedPrice?.Amount ?? bbWinner.ListingPrice?.Amount ?? null
-        const sellerId = bbWinner.SellerId ?? null
-        asinBuyBox.set(asin, { price, sellerId })
-        if (sellerId) sellerIdsToResolve.add(sellerId)
-      } else {
-        asinBuyBox.set(asin, { price: null, sellerId: null })
+        const prices = item.Product?.CompetitivePricing?.CompetitivePrices ?? []
+        // CompetitivePriceId "1" = New Buy Box Price
+        const bbEntry = prices.find((p) => p.CompetitivePriceId === '1')
+
+        if (bbEntry) {
+          const price = bbEntry.Price?.LandedPrice?.Amount ?? bbEntry.Price?.ListingPrice?.Amount ?? null
+          asinBuyBox.set(item.ASIN, { price, isOurs: bbEntry.belongsToRequester === true, sellerId: null })
+        } else {
+          asinBuyBox.set(item.ASIN, { price: null, isOurs: false, sellerId: null })
+        }
       }
-      synced++
+
+      synced += batch.length
     } catch (err) {
-      errors++
-      console.error(`[OLI Sync] BuyBox error for ${asin}:`, err instanceof Error ? err.message : String(err))
+      errors += batch.length
+      console.error(`[OLI Sync] Competitive pricing batch error:`, err instanceof Error ? err.message : String(err))
     }
 
-    if (i < uniqueAsins.length - 1) await sleep(BUYBOX_DELAY_MS)
+    if (i + BATCH_SIZE < uniqueAsins.length) await sleep(BATCH_DELAY_MS)
   }
 
-  // Resolve seller names
+  // ── Step 2: Competitor name lookup (only for non-owned buy boxes) ─────
+  // Uses getItemOffers to identify WHO has the buy box when it's not us
+  const competitorAsins = Array.from(asinBuyBox.entries())
+    .filter(([, bb]) => !bb.isOurs && bb.price != null)
+    .map(([asin]) => asin)
+
+  const grandTotal = uniqueAsins.length + competitorAsins.length
+
+  if (competitorAsins.length > 0) {
+    console.log(`[OLI Sync] Phase 2b — identifying ${competitorAsins.length} competitor buy box holders`)
+
+    for (let i = 0; i < competitorAsins.length; i++) {
+      const asin = competitorAsins[i]
+      onProgress?.({ phase: 'buybox', current: uniqueAsins.length + i + 1, total: grandTotal, label: asin })
+
+      try {
+        const response = await client.get<BuyBoxResponse>(
+          `/products/pricing/v0/items/${asin}/offers`,
+          {
+            MarketplaceId: account.marketplaceId,
+            ItemCondition: 'New',
+            CustomerType: 'Consumer',
+          },
+        )
+
+        const offers = response?.payload?.Offers ?? []
+        const bbWinner = offers.find((o) => o.IsBuyBoxWinner)
+        if (bbWinner?.SellerId) {
+          const bb = asinBuyBox.get(asin)!
+          bb.sellerId = bbWinner.SellerId
+        }
+      } catch (err) {
+        console.error(`[OLI Sync] Competitor lookup error for ${asin}:`, err instanceof Error ? err.message : String(err))
+      }
+
+      if (i < competitorAsins.length - 1) await sleep(COMPETITOR_DELAY_MS)
+    }
+  }
+
+  // ── Step 3: Resolve seller names ──────────────────────────────────────
+  const sellerIdsToResolve = new Set<string>()
+  Array.from(asinBuyBox.values()).forEach((bb) => {
+    if (bb.sellerId && !bb.isOurs) sellerIdsToResolve.add(bb.sellerId)
+  })
+
   const sellerNameMap = new Map<string, string>()
   if (sellerIdsToResolve.size > 0) {
     const profiles = await prisma.sellerProfile.findMany({
-      where: { sellerId: { in: [...sellerIdsToResolve] } },
+      where: { sellerId: { in: Array.from(sellerIdsToResolve) } },
       select: { sellerId: true, name: true },
     })
     for (const p of profiles) {
@@ -278,12 +362,17 @@ export async function syncOliBuyBox(onProgress?: OnProgress): Promise<{
     }
   }
 
-  // Write buy box data to cache
-  for (const [asin, bb] of asinBuyBox) {
+  // ── Step 4: Write to cache ────────────────────────────────────────────
+  for (const [asin, bb] of Array.from(asinBuyBox.entries())) {
     const skus = asinToSkus.get(asin) ?? []
-    const winnerName = bb.sellerId
-      ? (sellerNameMap.get(bb.sellerId) ?? bb.sellerId)
-      : null
+    let winnerName: string | null
+    if (bb.isOurs) {
+      winnerName = 'You'
+    } else if (bb.sellerId) {
+      winnerName = sellerNameMap.get(bb.sellerId) ?? bb.sellerId
+    } else {
+      winnerName = null
+    }
 
     for (const sku of skus) {
       await prisma.oliSkuCache.update({
@@ -293,7 +382,7 @@ export async function syncOliBuyBox(onProgress?: OnProgress): Promise<{
     }
   }
 
-  onProgress?.({ phase: 'buybox', current: total, total, label: '', done: true })
-  console.log(`[OLI Sync] Phase 2 done — ${synced} buy boxes, ${errors} errors`)
+  onProgress?.({ phase: 'buybox', current: grandTotal, total: grandTotal, label: '', done: true })
+  console.log(`[OLI Sync] Phase 2 done — ${synced} ASINs checked, ${competitorAsins.length} competitor lookups, ${errors} errors`)
   return { synced, errors }
 }

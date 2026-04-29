@@ -2318,6 +2318,7 @@ model PricingStrategyMsku {
 model OliSkuCache {
   sellerSku     String   @id
   asin          String?
+  title         String?  @db.Text
   listingStatus String?
   price         Decimal? @db.Decimal(10, 2)
   activeQty     Int      @default(0)

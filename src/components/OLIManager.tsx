@@ -30,6 +30,7 @@ interface MskuAssignment {
   mskuId: string
   createdAt: string
   asin: string | null
+  title: string | null
   listingStatus: string | null
   activeQty: number
   currentPrice: number | null
@@ -638,7 +639,7 @@ export default function OLIManager() {
       case 'sellerSku': return a.msku.sellerSku.toLowerCase()
       case 'asin': return (a.asin ?? '').toLowerCase()
       case 'product': return a.msku.product.sku.toLowerCase()
-      case 'description': return a.msku.product.description.toLowerCase()
+      case 'title': return (a.title ?? '').toLowerCase()
       case 'grade': return (a.msku.grade?.grade ?? '').toLowerCase()
       case 'price': return a.currentPrice ?? -1
       case 'buyBox': return a.buyBoxPrice ?? -1
@@ -660,7 +661,7 @@ export default function OLIManager() {
         a.msku.sellerSku.toLowerCase().includes(q) ||
         (a.asin ?? '').toLowerCase().includes(q) ||
         a.msku.product.sku.toLowerCase().includes(q) ||
-        a.msku.product.description.toLowerCase().includes(q) ||
+        (a.title ?? '').toLowerCase().includes(q) ||
         (a.msku.grade?.grade ?? '').toLowerCase().includes(q) ||
         (a.buyBoxWinner ?? '').toLowerCase().includes(q)
       )
@@ -933,7 +934,7 @@ export default function OLIManager() {
                           { key: 'sellerSku', label: 'Seller SKU', align: 'left' },
                           { key: 'asin', label: 'ASIN', align: 'left' },
                           { key: 'product', label: 'Product', align: 'left' },
-                          { key: 'description', label: 'Description', align: 'left' },
+                          { key: 'title', label: 'Title', align: 'left' },
                           { key: 'grade', label: 'Grade', align: 'left' },
                           { key: 'price', label: 'Price', align: 'right' },
                           { key: 'buyBox', label: 'Buy Box', align: 'right' },
@@ -980,7 +981,7 @@ export default function OLIManager() {
                           <td className="px-3 py-2 text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">{a.msku.sellerSku}</td>
                           <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{a.asin ?? <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
                           <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{a.msku.product.sku}</td>
-                          <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">{a.msku.product.description}</td>
+                          <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">{a.title ?? <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
                           <td className="px-3 py-2">
                             {a.msku.grade ? (
                               <span className="text-[9px] font-semibold uppercase px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
@@ -996,8 +997,14 @@ export default function OLIManager() {
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">
                             {a.buyBoxPrice != null ? `$${a.buyBoxPrice.toFixed(2)}` : <span className="text-gray-300 dark:text-gray-600">—</span>}
                           </td>
-                          <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate">
-                            {a.buyBoxWinner ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
+                          <td className="px-3 py-2 text-xs max-w-[140px] truncate">
+                            {a.buyBoxWinner === 'You' ? (
+                              <span className="font-semibold text-green-600 dark:text-green-400">You</span>
+                            ) : a.buyBoxWinner ? (
+                              <span className="text-gray-600 dark:text-gray-400">{a.buyBoxWinner}</span>
+                            ) : (
+                              <span className="text-gray-300 dark:text-gray-600">—</span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.activeQty}</td>
                           <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">{a.fgQty}</td>

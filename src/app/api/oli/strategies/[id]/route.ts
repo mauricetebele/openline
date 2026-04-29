@@ -135,6 +135,7 @@ export async function GET(
       return {
         ...a,
         asin: c?.asin ?? null,
+        title: c?.title ?? null,
         listingStatus: c?.listingStatus ?? null,
         activeQty: c?.activeQty ?? 0,
         currentPrice: c?.price != null ? Number(c.price) : null,
