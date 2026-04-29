@@ -70,6 +70,14 @@ export async function GET(req: NextRequest) {
 
     if (search) {
       const olmNum = search.toUpperCase().startsWith('OLM-') ? parseInt(search.slice(4), 10) : parseInt(search, 10)
+
+      // Find sellerSkus whose mapped internal product SKU matches the search term
+      const mappedSkus = await prisma.productGradeMarketplaceSku.findMany({
+        where: { product: { sku: { contains: search, mode: 'insensitive' } } },
+        select: { sellerSku: true },
+      })
+      const mappedSellerSkus = mappedSkus.map(m => m.sellerSku)
+
       where.OR = [
         { amazonOrderId: { contains: search, mode: 'insensitive' } },
         { items: { some: { sellerSku: { contains: search, mode: 'insensitive' } } } },
@@ -77,6 +85,7 @@ export async function GET(req: NextRequest) {
         { shipTracking: { contains: search, mode: 'insensitive' } },
         { label: { trackingNumber: { contains: search, mode: 'insensitive' } } },
         ...(Number.isFinite(olmNum) ? [{ olmNumber: olmNum }] : []),
+        ...(mappedSellerSkus.length > 0 ? [{ items: { some: { sellerSku: { in: mappedSellerSkus } } } }] : []),
       ]
     }
 
