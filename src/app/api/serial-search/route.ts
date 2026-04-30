@@ -114,10 +114,39 @@ export async function GET(req: NextRequest) {
   const vrmaSerials = allSerialNumbers.length > 0
     ? await prisma.vendorRMASerial.findMany({
         where: { serialNumber: { in: allSerialNumbers } },
-        include: { rmaItem: { include: { rma: { select: { rmaNumber: true } } } } },
+        select: { serialNumber: true, scannedOutAt: true, rmaItem: { select: { rma: { select: { rmaNumber: true } } } } },
       })
     : []
-  const vrmaBySerial = new Map(vrmaSerials.map(v => [v.serialNumber, v.rmaItem.rma.rmaNumber]))
+
+  // Group VRMA serials by serial number
+  const vrmaGrouped = new Map<string, typeof vrmaSerials>()
+  for (const v of vrmaSerials) {
+    const arr = vrmaGrouped.get(v.serialNumber) ?? []
+    arr.push(v)
+    vrmaGrouped.set(v.serialNumber, arr)
+  }
+
+  // Resolve active VRMA for a serial, accounting for re-receipt after shipment
+  function getActiveVrma(serialNumber: string, history: typeof records[0]['history']): string | null {
+    const vrmas = vrmaGrouped.get(serialNumber)
+    if (!vrmas?.length) return null
+
+    // If any VRMA hasn't been scanned out yet, it's active
+    const pending = vrmas.find(v => !v.scannedOutAt)
+    if (pending) return pending.rmaItem.rma.rmaNumber
+
+    // All VRMAs shipped — check if serial was re-received after the most recent one
+    const latest = vrmas.sort((a, b) =>
+      (b.scannedOutAt?.getTime() ?? 0) - (a.scannedOutAt?.getTime() ?? 0)
+    )[0]
+
+    const latestReceipt = history.find(h => h.eventType === 'PO_RECEIPT')
+    if (latestReceipt && latest.scannedOutAt && latestReceipt.createdAt > latest.scannedOutAt) {
+      return null // Re-received on a new PO after VRMA shipped
+    }
+
+    return latest.rmaItem.rma.rmaNumber
+  }
 
   let found = records.map(r => {
     const pol = r.receiptLine?.purchaseOrderLine
@@ -145,7 +174,7 @@ export async function GET(req: NextRequest) {
       grade:         r.grade?.grade ?? null,
       note:          r.note ?? null,
       binLocation:   r.binLocation ?? null,
-      vrma:          vrmaBySerial.get(r.serialNumber) ?? null,
+      vrma:          getActiveVrma(r.serialNumber, r.history),
     }
   })
 

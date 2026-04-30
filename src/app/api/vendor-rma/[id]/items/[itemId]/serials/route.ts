@@ -16,9 +16,11 @@ export async function POST(
     return NextResponse.json({ error: 'Serial number is required' }, { status: 400 })
   }
 
-  // Check if serial exists on ANY vendor RMA (not just this item)
+  // Check if serial exists on an active vendor RMA (not yet scanned out).
+  // Serials that were shipped on a previous VRMA and then re-received on a new PO
+  // are allowed to be added to a new VRMA.
   const existingOnAnyRma = await prisma.vendorRMASerial.findFirst({
-    where: { serialNumber: serialNumber.trim() },
+    where: { serialNumber: serialNumber.trim(), scannedOutAt: null },
     include: { rmaItem: { include: { rma: { select: { rmaNumber: true } } } } },
   })
   if (existingOnAnyRma) {

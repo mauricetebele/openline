@@ -330,7 +330,7 @@ export async function POST(req: NextRequest) {
               rateId      = cheapest.rate_id
 
             } else {
-              // ── Non-Amazon orders → V1 rates across all carriers ─────────────
+              // ── Non-Amazon orders (BackMarket) → try UPS first, then all carriers ──
               if (!v1CarriersCache) {
                 try { v1CarriersCache = await client.getCarriers() } catch {
                   throw new Error('Failed to load ShipStation carriers')
@@ -341,44 +341,70 @@ export async function POST(req: NextRequest) {
                 throw new Error('No non-Amazon carriers connected to ShipStation (add UPS/FedEx/USPS)')
               }
 
-              const allV1Rates: { serviceName: string; serviceCode: string; carrierCode: string; shipmentCost: number; otherCost: number; rate_id?: string }[] = []
-              for (const c of nonAmazonCarriers) {
+              type V1Rate = { serviceName: string; serviceCode: string; carrierCode: string; shipmentCost: number; otherCost: number; rate_id?: string }
+              const ratePayloadBase = {
+                packageCode:    preset.packageCode ?? undefined,
+                fromPostalCode,
+                fromCity:       from.city,
+                fromState:      from.state,
+                toPostalCode,
+                toCity,
+                toState,
+                toCountry,
+                weight: { value: preset.weightValue, units: preset.weightUnit as 'ounces' | 'pounds' | 'grams' | 'kilograms' } as const,
+                ...(preset.dimLength && preset.dimWidth && preset.dimHeight
+                  ? { dimensions: { units: preset.dimUnit as 'inches' | 'centimeters', length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight } }
+                  : {}),
+              }
+              const hasDims = !!(preset.dimLength && preset.dimWidth && preset.dimHeight)
+              const isFlatRatePkg = preset.packageCode && /flat_rate|envelope|regional_rate/i.test(preset.packageCode)
+
+              // Step 1: Try UPS carrier, filtering out USPS-via-UPS services (SurePost, Mail Innovations)
+              const upsCarrier = nonAmazonCarriers.find(c => c.code === 'ups_walleted' || c.code === 'ups')
+              let upsRates: V1Rate[] = []
+              if (upsCarrier) {
                 try {
-                  const rates = await client.getRates({
-                    carrierCode:    c.code,
-                    packageCode:    preset.packageCode ?? undefined,
-                    fromPostalCode,
-                    fromCity:       from.city,
-                    fromState:      from.state,
-                    toPostalCode,
-                    toCity,
-                    toState,
-                    toCountry,
-                    weight: { value: preset.weightValue, units: preset.weightUnit as 'ounces' | 'pounds' | 'grams' | 'kilograms' },
-                    ...(preset.dimLength && preset.dimWidth && preset.dimHeight
-                      ? { dimensions: { units: preset.dimUnit as 'inches' | 'centimeters', length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight } }
-                      : {}),
-                  } as SSRatesPayload)
-                  const hasDims = !!(preset.dimLength && preset.dimWidth && preset.dimHeight)
-                  const isFlatRatePkg = preset.packageCode && /flat_rate|envelope|regional_rate/i.test(preset.packageCode)
-                  for (const r of rates) {
+                  const raw = await client.getRates({ carrierCode: upsCarrier.code, ...ratePayloadBase } as SSRatesPayload)
+                  for (const r of raw) {
                     if (hasDims && !isFlatRatePkg && /flat rate|envelope/i.test(r.serviceName)) continue
-                    allV1Rates.push({ ...r, carrierCode: r.carrierCode || c.code })
+                    if (/usps|surepost|mail innovations/i.test(r.serviceName)) continue
+                    upsRates.push({ ...r, carrierCode: r.carrierCode || upsCarrier.code })
                   }
                 } catch (e) {
-                  console.warn('[rate-shop-applied] V1 carrier %s error: %s', c.code, e instanceof Error ? e.message : String(e))
+                  console.warn('[rate-shop-applied] UPS carrier %s error: %s', upsCarrier.code, e instanceof Error ? e.message : String(e))
                 }
               }
 
-              if (allV1Rates.length === 0) {
-                throw new Error('No valid rates returned from any carrier (UPS/FedEx/USPS)')
+              let chosen: V1Rate | undefined
+              if (upsRates.length > 0) {
+                const ground = upsRates.find(r => /ground/i.test(r.serviceName))
+                chosen = ground ?? upsRates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))[0]
+                console.log('[rate-shop-applied] order=%s BM UPS rate=%s %s $%s', order.amazonOrderId, chosen.carrierCode, chosen.serviceName, (chosen.shipmentCost + chosen.otherCost).toFixed(2))
+              } else {
+                // Step 2: No UPS rate — fall back to ALL non-Amazon carriers
+                const allV1Rates: V1Rate[] = []
+                for (const c of nonAmazonCarriers) {
+                  try {
+                    const rates = await client.getRates({ carrierCode: c.code, ...ratePayloadBase } as SSRatesPayload)
+                    for (const r of rates) {
+                      if (hasDims && !isFlatRatePkg && /flat rate|envelope/i.test(r.serviceName)) continue
+                      allV1Rates.push({ ...r, carrierCode: r.carrierCode || c.code })
+                    }
+                  } catch (e) {
+                    console.warn('[rate-shop-applied] V1 carrier %s error: %s', c.code, e instanceof Error ? e.message : String(e))
+                  }
+                }
+                if (allV1Rates.length === 0) {
+                  throw new Error('No valid rates returned from any carrier (UPS/FedEx/USPS)')
+                }
+                chosen = allV1Rates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))[0]
+                console.log('[rate-shop-applied] order=%s BM fallback cheapest=%s %s $%s', order.amazonOrderId, chosen.carrierCode, chosen.serviceName, (chosen.shipmentCost + chosen.otherCost).toFixed(2))
               }
 
-              const cheapest = allV1Rates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))[0]
-              rateAmount  = cheapest.shipmentCost + cheapest.otherCost
-              rateCarrier = cheapest.carrierCode
-              rateService = cheapest.serviceName
-              rateId      = cheapest.rate_id
+              rateAmount  = chosen.shipmentCost + chosen.otherCost
+              rateCarrier = chosen.carrierCode
+              rateService = chosen.serviceName
+              rateId      = chosen.rate_id
             }
 
             // ── Persist rate on order ─────────────────────────────────────────
