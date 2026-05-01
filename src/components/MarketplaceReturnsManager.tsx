@@ -4,6 +4,7 @@ import { Plus, X, Search, CheckCircle2, RotateCcw, Package, ChevronDown, Trash2 
 import { clsx } from 'clsx'
 import CreateReturnModal from './CreateMarketplaceReturnModal'
 import SickwCheckButton from './SickwCheckButton'
+import FbaReturnsTab from './FbaReturnsTab'
 import type { MarketplaceRMA, OrderSearchResult, RMASerial, RMAItem, Warehouse, Location, Grade } from './CreateMarketplaceReturnModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -27,7 +28,10 @@ const SOURCE_COLOR: Record<string, string> = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+type ReturnMode = 'self-fulfillment' | 'fba'
+
 export default function MarketplaceReturnsManager() {
+  const [mode, setMode] = useState<ReturnMode>('self-fulfillment')
   const [rmas, setRmas] = useState<MarketplaceRMA[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -94,6 +98,36 @@ export default function MarketplaceReturnsManager() {
 
   return (
     <div className="flex-1 overflow-auto px-6 py-4">
+      {/* Mode Tabs */}
+      <div className="flex items-center gap-1 mb-4 border-b border-gray-200 dark:border-gray-700">
+        <button
+          onClick={() => setMode('self-fulfillment')}
+          className={clsx(
+            'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+            mode === 'self-fulfillment'
+              ? 'border-amazon-blue text-amazon-blue'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
+          )}
+        >
+          Self Fulfillment Returns
+        </button>
+        <button
+          onClick={() => setMode('fba')}
+          className={clsx(
+            'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+            mode === 'fba'
+              ? 'border-amazon-blue text-amazon-blue'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
+          )}
+        >
+          FBA Returns
+        </button>
+      </div>
+
+      {mode === 'fba' ? (
+        <FbaReturnsTab />
+      ) : (
+      <>
       {/* Toolbar */}
       <div className="flex items-center gap-3 mb-4">
         <div className="relative">
@@ -342,6 +376,8 @@ export default function MarketplaceReturnsManager() {
           onClose={() => { setShowReceiveModal(false); setReceiveRmaId(null) }}
           onReceived={handleReceived}
         />
+      )}
+      </>
       )}
     </div>
   )

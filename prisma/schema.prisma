@@ -45,6 +45,7 @@ model User {
   canViewPurchaseOrders Boolean  @default(false)
   vendorId              String?
   vendor                Vendor?  @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  fbaReturnReceipts     FbaReturnReceipt[]
 
   @@map("users")
 }
@@ -914,6 +915,7 @@ model Product {
   marketplaceSkus        ProductGradeMarketplaceSku[]
   marketplaceRMAItems    MarketplaceRMAItem[]
   fbaReservations        FbaInventoryReservation[]
+  fbaReturnReceipts      FbaReturnReceipt[]
 
   @@map("products")
 }
@@ -939,6 +941,7 @@ model Grade {
   orderItems             OrderItem[]
   salesOrderItems        SalesOrderItem[]   @relation("GradeSalesOrderItems")
   fbaReservations        FbaInventoryReservation[]
+  fbaReturnReceipts      FbaReturnReceipt[]
 
   @@map("grades")
 }
@@ -1200,6 +1203,7 @@ model Location {
   customerRMASerials     CustomerRMASerial[]
   fbaReservations        FbaInventoryReservation[]
   clientLocationAccess   ClientLocationAccess[]
+  fbaReturnReceipts      FbaReturnReceipt[]
 
   @@unique([warehouseId, name])
   @@index([warehouseId])
@@ -1287,6 +1291,7 @@ model InventorySerial {
   fbaShipmentAssignment  FbaShipmentSerialAssignment?
   marketplaceRMASerials  MarketplaceRMASerial[]
   customerRMASerials     CustomerRMASerial[]
+  fbaReturnReceipts      FbaReturnReceipt[]
 
   @@unique([productId, serialNumber])
   @@index([productId, locationId])
@@ -1359,6 +1364,7 @@ enum SerialEventType {
   VENDOR_RMA_SHIPPED
   WHOLESALE_RMA_RETURN
   GRADE_CHANGE
+  FBA_RETURN
 }
 
 // ─── RMA (Return Merchandise Authorization) ───────────────────────────────────
@@ -2048,6 +2054,7 @@ model FbaShipment {
   reservations      FbaInventoryReservation[]
   serialAssignments FbaShipmentSerialAssignment[]
   serialHistory     SerialHistory[]
+  fbaReturnReceipts FbaReturnReceipt[]
 
   @@index([accountId])
   @@index([status])
@@ -2134,6 +2141,35 @@ model FbaShipmentSerialAssignment {
 
   @@index([fbaShipmentId])
   @@map("fba_shipment_serial_assignments")
+}
+
+// ─── FBA Return Receipts ─────────────────────────────────────────────────────
+
+model FbaReturnReceipt {
+  id                String          @id @default(cuid())
+  receiptNumber     String          @unique   // "FBA-RET-0001"
+  inventorySerialId String
+  inventorySerial   InventorySerial @relation(fields: [inventorySerialId], references: [id], onDelete: Restrict)
+  productId         String
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  fbaShipmentId     String?
+  fbaShipment       FbaShipment?    @relation(fields: [fbaShipmentId], references: [id], onDelete: SetNull)
+  serialNumber      String          // denormalized
+  sku               String          // denormalized
+  gradeId           String?
+  grade             Grade?          @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  previousGradeId   String?         // grade before regrade
+  locationId        String
+  location          Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  note              String?
+  receivedAt        DateTime        @default(now())
+  receivedById      String?
+  receivedBy        User?           @relation(fields: [receivedById], references: [id], onDelete: SetNull)
+  createdAt         DateTime        @default(now())
+
+  @@index([inventorySerialId])
+  @@index([productId])
+  @@map("fba_return_receipts")
 }
 
 // ─── Chat ────────────────────────────────────────────────────────────────────
