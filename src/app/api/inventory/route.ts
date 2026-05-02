@@ -74,15 +74,17 @@ export async function GET(req: NextRequest) {
         ...(locationId  ? { locationId } : {}),
         ...(warehouseId ? { location: { warehouseId } } : {}),
         ...(gradeId === 'none' ? { gradeId: null } : gradeId ? { gradeId } : {}),
-        ...(search
-          ? {
-              OR: [
-                { product: { description: { contains: search, mode: 'insensitive' } } },
-                { product: { sku: { contains: search, mode: 'insensitive' } } },
-              ],
-            }
-          : {}),
-        ...(agedFilter ? agedFilter : {}),
+        AND: [
+          ...(search
+            ? [{
+                OR: [
+                  { product: { description: { contains: search, mode: 'insensitive' as const } } },
+                  { product: { sku: { contains: search, mode: 'insensitive' as const } } },
+                ],
+              }]
+            : []),
+          ...(agedFilter ? [agedFilter] : []),
+        ],
       },
       include: {
         product:  { select: { id: true, description: true, sku: true, isSerializable: true,
