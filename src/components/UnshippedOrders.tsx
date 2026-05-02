@@ -7476,10 +7476,11 @@ export default function UnshippedOrders() {
                           : new Date(sy, sm - 1, sd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                         const isShippedOrder = order.workflowStatus === 'SHIPPED'
                         return (
-                          <span className={clsx('text-[11px] font-semibold',
-                            !isShippedOrder && dayDiff < 0  ? 'text-red-600' :
-                            !isShippedOrder && dayDiff === 0 ? 'text-amber-600' :
-                            'text-gray-600'
+                          <span className={clsx('text-[11px]',
+                            isShippedOrder ? 'text-gray-500' :
+                            dayDiff < 0  ? 'text-red-600 font-semibold' :
+                            dayDiff === 0 ? 'text-amber-600 font-semibold' :
+                            'text-gray-600 font-semibold'
                           )}>
                             {!isShippedOrder && dayDiff < 0 && '⚠ '}Ship {label}
                           </span>
