@@ -7380,14 +7380,14 @@ export default function UnshippedOrders() {
                   {/* Order */}
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {order.orderSource === 'wholesale' ? (
-                      <div className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5">
+                      <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5">
                         <WholesaleIcon />
                         <span className="text-xs font-semibold text-emerald-700">
                           {order.wholesaleOrderNumber ?? order.amazonOrderId}
                         </span>
                       </div>
                     ) : (
-                      <div className="inline-flex flex-col gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5">
+                      <div className="flex flex-col gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5">
                         <div className="flex items-center gap-1.5">
                           <button onClick={() => setDetailOrder(order)} className="flex items-center gap-0.5 group shrink-0" title="View order details">
                             {order.olmNumber != null
