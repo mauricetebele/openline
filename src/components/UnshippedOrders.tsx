@@ -447,13 +447,15 @@ function ProcessOrderModal({ order, onClose, onProcessed }: {
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="text-[13px] font-semibold text-gray-900 leading-tight">{item.sellerSku ?? '—'}</p>
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 pl-2.5 pr-2 py-0.5">
+                        <span className="text-[13px] font-semibold text-gray-900 leading-tight">{item.sellerSku ?? '—'}</span>
+                        {item.gradeName && (
+                          <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-1.5 py-0.5 text-[10px] font-bold leading-none">
+                            {item.gradeName}
+                          </span>
+                        )}
+                      </span>
                       {asin && <span className="text-[10px] text-gray-400 tracking-wide">{asin}</span>}
-                      {item.gradeName && (
-                        <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-1.5 py-0.5 text-[10px] font-bold">
-                          Grade {item.gradeName}
-                        </span>
-                      )}
                     </div>
                     <p className="text-[11px] text-gray-400 truncate leading-snug">{item.title ?? '—'}</p>
                     <p className="text-xs text-gray-400 mt-0.5">Qty: <strong>{item.quantityOrdered}</strong></p>
@@ -727,12 +729,14 @@ function BulkProcessModal({
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <p className="text-[13px] font-semibold text-gray-900 leading-tight">{item.sellerSku ?? '—'}</p>
-                                  {item.gradeName && (
-                                    <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-1.5 py-0.5 text-[10px] font-bold">
-                                      Grade {item.gradeName}
-                                    </span>
-                                  )}
+                                  <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 pl-2.5 pr-2 py-0.5">
+                                    <span className="text-[13px] font-semibold text-gray-900 leading-tight">{item.sellerSku ?? '—'}</span>
+                                    {item.gradeName && (
+                                      <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-1.5 py-0.5 text-[10px] font-bold leading-none">
+                                        {item.gradeName}
+                                      </span>
+                                    )}
+                                  </span>
                                 </div>
                                 <p className="text-[11px] text-gray-400 truncate leading-snug">{item.title ?? '—'}</p>
                                 <p className="text-xs text-gray-400">Qty: <strong>{item.quantityOrdered}</strong></p>
