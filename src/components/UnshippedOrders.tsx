@@ -2384,29 +2384,75 @@ function BmSerializeModal({ order, onClose, onSaved }: {
   )
 }
 
-// ─── BackMarket Manual Ship Modal ──────────────────────────────────────────────
+// ─── BackMarket Combined Ship Modal ────────────────────────────────────────────
 
-function BmManualShipModal({ order, onClose, onShipped }: {
+function BmShipModal({ order, onClose, onShipped }: {
   order: Order; onClose: () => void; onShipped: () => void
 }) {
-  const [carrier, setCarrier]       = useState('')
-  const [tracking, setTracking]     = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [submitErr, setSubmitErr]   = useState<string | null>(null)
+  // Serial inputs per item
+  const [serialMap, setSerialMap] = useState<Record<string, string[]>>(() => {
+    const m: Record<string, string[]> = {}
+    for (const item of order.items) {
+      const existing = item.bmSerials ?? []
+      m[item.id] = Array.from({ length: item.quantityOrdered }, (_, i) => existing[i] ?? '')
+    }
+    return m
+  })
 
-  const canSubmit = carrier.trim() && tracking.trim()
+  const [carrier, setCarrier]           = useState('')
+  const [tracking, setTracking]         = useState('')
+  const [shippingCost, setShippingCost] = useState('')
+  const [pushToBm, setPushToBm]         = useState(true)
+  const [submitting, setSubmitting]     = useState(false)
+  const [submitErr, setSubmitErr]       = useState<string | null>(null)
+
+  const allSerialsFilled = order.items.every(item =>
+    (serialMap[item.id] ?? []).every(s => s.trim().length > 0),
+  )
+  const canSubmit = allSerialsFilled && carrier.trim() && tracking.trim()
 
   async function handleSubmit() {
     if (!canSubmit) return
     setSubmitting(true); setSubmitErr(null)
     try {
-      const res = await fetch(`/api/orders/${order.id}/bm-ship`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ carrier: carrier.trim(), tracking: tracking.trim() }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? `${res.status}`)
+      const assignments = order.items.map(item => ({
+        orderItemId: item.id,
+        serials: (serialMap[item.id] ?? []).map(s => s.trim()),
+      }))
+
+      if (pushToBm) {
+        // Push to BackMarket: bm-ship handles serials + BM API + inventory
+        const res = await fetch(`/api/orders/${order.id}/bm-ship`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            carrier: carrier.trim(),
+            tracking: tracking.trim(),
+            ...(shippingCost ? { shippingCost: parseFloat(shippingCost) } : {}),
+            assignments,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? `${res.status}`)
+      } else {
+        // Local only: manual-ship handles serial validation + inventory
+        const manualAssignments = order.items.map(item => ({
+          orderItemId: item.id,
+          serialNumbers: (serialMap[item.id] ?? []).map(s => s.trim()),
+        }))
+        const res = await fetch(`/api/orders/${order.id}/manual-ship`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            carrier: carrier.trim(),
+            tracking: tracking.trim(),
+            ...(shippingCost ? { shippingCost: parseFloat(shippingCost) } : {}),
+            assignments: manualAssignments,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? `${res.status}`)
+      }
       onShipped()
     } catch (e) {
       setSubmitErr(e instanceof Error ? e.message : 'Failed to ship')
@@ -2416,50 +2462,139 @@ function BmManualShipModal({ order, onClose, onShipped }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
+        {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
           <div>
             <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
-              <Truck size={15} className="text-emerald-600" /> Ship to Back Market
+              <Truck size={15} className="text-emerald-600" /> Ship BackMarket Order
             </h3>
             <p className="text-xs text-gray-500 font-mono mt-0.5">
               {order.olmNumber ? `OLM-${order.olmNumber}` : order.amazonOrderId}
+              {order.amazonOrderId && order.olmNumber ? ` · ${order.amazonOrderId}` : ''}
             </p>
+            {order.shipToName && <p className="text-xs text-gray-400 mt-0.5">{order.shipToName}</p>}
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[10px] font-medium text-gray-600 mb-1">Carrier <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                value={carrier}
-                onChange={e => setCarrier(e.target.value)}
-                placeholder="e.g. UPS, FedEx, USPS…"
-                className="w-full h-8 rounded border border-gray-300 px-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-medium text-gray-600 mb-1">Tracking Number <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                value={tracking}
-                onChange={e => setTracking(e.target.value)}
-                placeholder="Tracking number…"
-                className="w-full h-8 rounded border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* Serial inputs per item */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Order Items</p>
+            <div className="space-y-4">
+              {order.items.map(item => (
+                <div key={item.id} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    {item.imageUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={item.imageUrl} alt="" className="w-8 h-8 rounded border object-cover shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-gray-800 truncate">{item.internalSku ?? item.sellerSku ?? item.title ?? 'Unknown'}</p>
+                      <p className="text-[10px] text-gray-400">
+                        {item.sellerSku ? `SKU: ${item.sellerSku}` : ''}
+                        {item.mappedGradeName ? ` · ${item.mappedGradeName}` : ''}
+                        {` · Qty: ${item.quantityOrdered}`}
+                      </p>
+                    </div>
+                  </div>
+                  {Array.from({ length: item.quantityOrdered }, (_, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-400 w-14 shrink-0">
+                        {item.quantityOrdered > 1 ? `Unit ${idx + 1}` : 'Serial'}
+                      </span>
+                      <input
+                        type="text"
+                        value={serialMap[item.id]?.[idx] ?? ''}
+                        onChange={e => {
+                          const val = e.target.value
+                          setSerialMap(prev => {
+                            const arr = [...(prev[item.id] ?? [])]
+                            arr[idx] = val
+                            return { ...prev, [item.id]: arr }
+                          })
+                        }}
+                        placeholder="Enter IMEI / Serial #"
+                        className="flex-1 h-7 px-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 font-mono"
+                      />
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           </div>
-          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs">
-            <CheckCircle2 size={13} className="shrink-0" />
-            <span>Carrier and tracking will be pushed to Back Market.</span>
+
+          {/* Shipping details */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Shipping Details</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-medium text-gray-600 mb-1">Carrier <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={carrier}
+                  onChange={e => setCarrier(e.target.value)}
+                  placeholder="e.g. UPS, FedEx, USPS…"
+                  className="w-full h-8 rounded border border-gray-300 px-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-gray-600 mb-1">Tracking Number <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={tracking}
+                  onChange={e => setTracking(e.target.value)}
+                  placeholder="Tracking number…"
+                  className="w-full h-8 rounded border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+            </div>
+            <div className="w-1/2 mt-3">
+              <label className="block text-[10px] font-medium text-gray-600 mb-1">Shipping Cost</label>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={shippingCost}
+                  onChange={e => setShippingCost(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full h-8 rounded border border-gray-300 pl-5 pr-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+            </div>
           </div>
+
+          {/* BM fulfillment checkbox */}
+          <label className={clsx(
+            'flex items-start gap-2.5 p-2.5 rounded-lg border text-xs cursor-pointer transition-colors',
+            pushToBm
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-amber-50 border-amber-200 text-amber-800',
+          )}>
+            <input
+              type="checkbox"
+              checked={pushToBm}
+              onChange={e => setPushToBm(e.target.checked)}
+              className="mt-0.5 accent-emerald-600"
+            />
+            <div>
+              <span className="font-medium">Send Fulfillment Payload to Back Market</span>
+              <p className="text-[10px] mt-0.5 opacity-75">
+                {pushToBm
+                  ? 'Tracking + serials will be pushed to Back Market.'
+                  : 'Local only — no data will be sent to Back Market.'}
+              </p>
+            </div>
+          </label>
         </div>
 
-        <div className="px-5 py-3 border-t shrink-0 space-y-2">
+        {/* Footer */}
+        <div className="px-5 py-3 border-t shrink-0 space-y-2 bg-gray-50/50 rounded-b-xl">
           {submitErr && (
             <div className="flex items-start gap-2 p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs">
               <AlertCircle size={12} className="shrink-0 mt-0.5" />{submitErr}
@@ -5420,8 +5555,6 @@ export default function UnshippedOrders() {
   // BackMarket confirm order state
   const [confirmingBmId, setConfirmingBmId] = useState<string | null>(null)
 
-  // BackMarket serialize modal
-  const [bmSerializeOrder, setBmSerializeOrder] = useState<Order | null>(null)
   const [bmShippingId, setBmShippingId]         = useState<string | null>(null)
   const [bmShipError, setBmShipError]           = useState<string | null>(null)
   const [bmManualShipOrder, setBmManualShipOrder] = useState<Order | null>(null)
@@ -6567,26 +6700,8 @@ export default function UnshippedOrders() {
       {wholesaleSerializeOrder && <WholesaleSerializeModal order={wholesaleSerializeOrder} onClose={() => setWholesaleSerializeOrder(null)} onSaved={() => { setWholesaleSerializeOrder(null); setFetchKey(k => k + 1) }} />}
       {manualShipOrder && <ManualShipModal order={manualShipOrder} onClose={() => setManualShipOrder(null)} onShipped={() => { setManualShipOrder(null); setFetchKey(k => k + 1) }} />}
       {unserializeOrder && <UnserializeModal order={unserializeOrder} onClose={() => setUnserializeOrder(null)} onUnserialized={() => { setUnserializeOrder(null); setFetchKey(k => k + 1) }} />}
-      {bmSerializeOrder && (
-        <BmSerializeModal
-          order={bmSerializeOrder}
-          onClose={() => setBmSerializeOrder(null)}
-          onSaved={(updatedItems) => {
-            setOrders(prev => prev.map(o => {
-              if (o.id !== bmSerializeOrder.id) return o
-              return {
-                ...o,
-                items: o.items.map(i => {
-                  const match = updatedItems.find(u => u.orderItemId === i.id)
-                  return match ? { ...i, bmSerials: match.serials } : i
-                }),
-              }
-            }))
-          }}
-        />
-      )}
       {bmManualShipOrder && (
-        <BmManualShipModal
+        <BmShipModal
           order={bmManualShipOrder}
           onClose={() => setBmManualShipOrder(null)}
           onShipped={() => { setBmManualShipOrder(null); setFetchKey(k => k + 1) }}
@@ -7704,9 +7819,8 @@ export default function UnshippedOrders() {
                             </span>
                           )}
                           {order.orderStatus !== 'Unshipped' && (
-                            <button onClick={() => setLabelOrder(order)}
-                              className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium transition-colors',
-                                ssAccount ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}>
+                            <button onClick={() => setBmManualShipOrder(order)}
+                              className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
                               <Truck size={10} /> Ship
                             </button>
                           )}

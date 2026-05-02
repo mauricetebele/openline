@@ -58,7 +58,7 @@ export async function POST(
 
   const { orderId } = await params
 
-  const order = await prisma.order.findUnique({
+  let order = await prisma.order.findUnique({
     where: { id: orderId },
     include: {
       items: true,
@@ -70,10 +70,35 @@ export async function POST(
     return NextResponse.json({ error: 'Not a BackMarket order' }, { status: 400 })
   }
 
-  // Accept manual carrier/tracking from body, fall back to label
-  const body = await req.json().catch(() => ({})) as { carrier?: string; tracking?: string }
+  // Accept manual carrier/tracking/cost + optional inline serial assignments from body
+  const body = await req.json().catch(() => ({})) as {
+    carrier?: string
+    tracking?: string
+    shippingCost?: number
+    assignments?: Array<{ orderItemId: string; serials: string[] }>
+  }
   const manualTracking = body.tracking?.trim()
   const manualCarrier  = body.carrier?.trim()
+
+  // If inline assignments provided, save bmSerials on each OrderItem before proceeding
+  if (body.assignments && body.assignments.length > 0) {
+    await prisma.$transaction(
+      body.assignments.map(a =>
+        prisma.orderItem.update({
+          where: { id: a.orderItemId },
+          data: { bmSerials: a.serials },
+        }),
+      ),
+    )
+    // Refresh order items so serial checks below see the updated bmSerials
+    const refreshed = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true, label: { select: { trackingNumber: true, carrier: true } } },
+    })
+    if (refreshed) {
+      order = refreshed
+    }
+  }
 
   const trackingNumber = manualTracking || order.label?.trackingNumber || order.shipTracking
   if (!trackingNumber) {
@@ -213,7 +238,7 @@ export async function POST(
       await tx.orderInventoryReservation.deleteMany({ where: { orderId } })
     })
 
-    // Mark order as shipped locally + save carrier/tracking
+    // Mark order as shipped locally + save carrier/tracking + optional shipping cost
     await prisma.order.update({
       where: { id: orderId },
       data: {
@@ -222,6 +247,7 @@ export async function POST(
         shipCarrier:    shipper ?? null,
         shipTracking:   trackingNumber,
         shippedAt:      new Date(),
+        ...(body.shippingCost != null && body.shippingCost > 0 ? { manualShipCost: body.shippingCost } : {}),
       },
     })
 
