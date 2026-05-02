@@ -2245,7 +2245,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   const router = useRouter()
   const searchParams = useSearchParams()
   const [items,        setItems]        = useState<InventoryItem[]>([])
-  const [warehouses,   setWarehouses]   = useState<(Warehouse & { locations: { id: string; name: string }[] })[]>([])
+  const [warehouses,   setWarehouses]   = useState<(Warehouse & { locations: { id: string; name: string; isFinishedGoods: boolean }[] })[]>([])
   const [loading,      setLoading]      = useState(true)
   const [err,          setErr]          = useState('')
   const [warehouseId,  setWarehouseId]  = useState('')
@@ -2259,6 +2259,9 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   const [showConvert,   setShowConvert]   = useState(false)
   const [showInventory, setShowInventory] = useState(false)
   const [showRegrade,   setShowRegrade]   = useState(false)
+  const [agedFg,        setAgedFg]        = useState(false)
+  // Track pre-aged filter values so we can restore on toggle off
+  const prevFiltersRef = useRef<{ warehouseId: string; locationId: string } | null>(null)
 
   // Sort state
   type SortKey = 'sku' | 'description' | 'grade' | 'warehouse' | 'location' | 'type' | 'onHand' | 'reserved' | 'available' | 'value' | 'marketplace' | 'avgCost'
@@ -2340,6 +2343,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
       if (locationId)  params.set('locationId',  locationId)
       if (search)      params.set('search',       search)
       if (gradeId)     params.set('gradeId',      gradeId)
+      if (agedFg)      params.set('agedFg',       'true')
       const res  = await fetch(`/api/inventory?${params}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to load')
@@ -2349,7 +2353,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
     } finally {
       setLoading(false)
     }
-  }, [warehouseId, locationId, search, gradeId])
+  }, [warehouseId, locationId, search, gradeId, agedFg])
 
   useEffect(() => {
     const t = setTimeout(load, search ? 300 : 0)
@@ -2394,6 +2398,42 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
             <option value="none">Ungraded</option>
           </select>
         )}
+
+        <button
+          type="button"
+          onClick={() => {
+            setAgedFg(prev => {
+              if (!prev) {
+                // Turning ON — save current filters and auto-select FG location
+                prevFiltersRef.current = { warehouseId, locationId }
+                const fgLoc = warehouses.flatMap(w => w.locations).find(l => l.isFinishedGoods)
+                if (fgLoc) {
+                  const parentWh = warehouses.find(w => w.locations.some(loc => loc.id === fgLoc.id))
+                  if (parentWh) setWarehouseId(parentWh.id)
+                  // locationId will reset via useEffect on warehouseId change, so set it after a tick
+                  setTimeout(() => setLocationId(fgLoc.id), 0)
+                }
+              } else {
+                // Turning OFF — restore previous filters
+                const prev = prevFiltersRef.current
+                if (prev) {
+                  setWarehouseId(prev.warehouseId)
+                  setTimeout(() => setLocationId(prev.locationId), 0)
+                  prevFiltersRef.current = null
+                }
+              }
+              return !prev
+            })
+          }}
+          className={
+            agedFg
+              ? 'flex items-center gap-1.5 h-9 px-3 rounded-md border text-sm font-medium transition-colors bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
+              : 'flex items-center gap-1.5 h-9 px-3 rounded-md border text-sm font-medium transition-colors border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+          }
+        >
+          <Clock size={14} />
+          Aged {'>'}30d
+        </button>
 
         <input
           type="text"

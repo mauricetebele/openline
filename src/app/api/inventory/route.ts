@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 
@@ -12,6 +13,52 @@ export async function GET(req: NextRequest) {
   const search      = searchParams.get('search')?.trim()
   const gradeId     = searchParams.get('gradeId')
   const productId   = searchParams.get('productId')
+  const agedFg      = searchParams.get('agedFg') === 'true'
+
+  // When agedFg is active, find serials whose last move to FG was >30 days ago
+  let agedFilter: Prisma.InventoryItemWhereInput | undefined
+  if (agedFg) {
+    const fgLocations = await prisma.location.findMany({
+      where: { isFinishedGoods: true },
+      select: { id: true },
+    })
+    const fgLocationIds = fgLocations.map(l => l.id)
+
+    if (fgLocationIds.length === 0) {
+      return NextResponse.json({ data: [] })
+    }
+
+    // Find serials currently IN_STOCK at FG whose last move to FG was >30 days ago
+    const agedSerials = await prisma.$queryRaw<
+      { productId: string; locationId: string; gradeId: string | null }[]
+    >`
+      SELECT DISTINCT s."productId", s."locationId", s."gradeId"
+      FROM inventory_serials s
+      INNER JOIN (
+        SELECT "inventorySerialId", MAX("createdAt") AS last_fg_move
+        FROM serial_history
+        WHERE "locationId" = ANY(${fgLocationIds}::text[])
+          AND "eventType" IN ('LOCATION_MOVE', 'PO_RECEIPT', 'MP_RMA_RETURN', 'FBA_RETURN', 'WHOLESALE_RMA_RETURN')
+        GROUP BY "inventorySerialId"
+      ) sh ON s.id = sh."inventorySerialId"
+      WHERE s.status = 'IN_STOCK'
+        AND s."locationId" = ANY(${fgLocationIds}::text[])
+        AND sh.last_fg_move < NOW() - INTERVAL '30 days'
+    `
+
+    if (agedSerials.length === 0) {
+      return NextResponse.json({ data: [] })
+    }
+
+    // Build OR conditions for matching inventory items
+    agedFilter = {
+      OR: agedSerials.map(s => ({
+        productId: s.productId,
+        locationId: s.locationId,
+        gradeId: s.gradeId,
+      })),
+    }
+  }
 
   const [items, reservationGroups, fbaReservationGroups, wholesaleReservationGroups, costRows, serialCostRows] = await Promise.all([
     prisma.inventoryItem.findMany({
@@ -28,6 +75,7 @@ export async function GET(req: NextRequest) {
               ],
             }
           : {}),
+        ...(agedFilter ? agedFilter : {}),
       },
       include: {
         product:  { select: { id: true, description: true, sku: true, isSerializable: true,
