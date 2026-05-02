@@ -7379,80 +7379,78 @@ export default function UnshippedOrders() {
                   </td>
                   {/* Order */}
                   <td className="px-3 py-2.5 whitespace-nowrap">
-                    <div className="flex flex-col gap-0.5">
-                      {order.orderSource === 'wholesale' ? (
-                        <div className="flex items-center gap-1.5">
-                          <WholesaleIcon />
-                          <span className="font-mono text-xs font-semibold text-emerald-700">
-                            {order.wholesaleOrderNumber ?? order.amazonOrderId}
-                          </span>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-1 flex-wrap">
-                            <button onClick={() => setDetailOrder(order)} className="flex items-center gap-0.5 group" title="View order details">
-                              {order.olmNumber != null
-                                ? <span className="font-mono text-xs font-semibold text-amazon-blue group-hover:underline">OLM-{order.olmNumber}</span>
-                                : <span className="font-mono text-xs text-gray-400 italic">—</span>
-                              }
-                              <Eye size={10} className="text-gray-300 group-hover:text-amazon-blue transition-colors" />
-                            </button>
-                            {order.orderSource === 'backmarket' ? <BackMarketBadge /> : <AmazonSmileIcon />}
-                            {order.isPrime && <PrimeBadge />}
-                            {order.requiresTransparency && (
-                              <span title="Transparency code required" className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-teal-100 text-teal-800 border border-teal-300 px-1 py-px rounded">
-                                <ShieldCheck size={8} /> T
-                              </span>
-                            )}
-                            {(order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null && !order.shipToCity && (
-                              <button
-                                onClick={async (e) => {
-                                  e.stopPropagation()
-                                  const btn = e.currentTarget
-                                  btn.disabled = true
-                                  btn.textContent = '…'
-                                  try {
-                                    const res = await fetch(`/api/orders/${order.id}/ss-pull`, { method: 'POST' })
-                                    const data = await res.json()
-                                    if (data.found) {
-                                      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ssOrderId: data.ssOrderId } : o))
-                                      btn.textContent = '✓'
-                                      btn.className = btn.className.replace('bg-yellow-100 text-yellow-800 border-yellow-300', 'bg-green-100 text-green-800 border-green-300')
-                                    } else {
-                                      btn.textContent = '✗'
-                                      btn.title = data.error ?? 'Not found in ShipStation'
-                                      setTimeout(() => { btn.textContent = 'SS Pull'; btn.disabled = false }, 2000)
-                                    }
-                                  } catch {
+                    {order.orderSource === 'wholesale' ? (
+                      <div className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5">
+                        <WholesaleIcon />
+                        <span className="text-xs font-semibold text-emerald-700">
+                          {order.wholesaleOrderNumber ?? order.amazonOrderId}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="inline-flex flex-col gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button onClick={() => setDetailOrder(order)} className="flex items-center gap-0.5 group" title="View order details">
+                            {order.olmNumber != null
+                              ? <span className="text-[13px] font-semibold text-amazon-blue group-hover:underline leading-tight">OLM-{order.olmNumber}</span>
+                              : <span className="text-xs text-gray-400 italic">—</span>
+                            }
+                            <Eye size={10} className="text-gray-300 group-hover:text-amazon-blue transition-colors" />
+                          </button>
+                          {order.orderSource === 'backmarket' ? <BackMarketBadge /> : <AmazonSmileIcon />}
+                          {order.isPrime && <PrimeBadge />}
+                          {order.requiresTransparency && (
+                            <span title="Transparency code required" className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-teal-100 text-teal-800 border border-teal-300 px-1 py-px rounded">
+                              <ShieldCheck size={8} /> T
+                            </span>
+                          )}
+                          {(order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null && !order.shipToCity && (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                const btn = e.currentTarget
+                                btn.disabled = true
+                                btn.textContent = '…'
+                                try {
+                                  const res = await fetch(`/api/orders/${order.id}/ss-pull`, { method: 'POST' })
+                                  const data = await res.json()
+                                  if (data.found) {
+                                    setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ssOrderId: data.ssOrderId } : o))
+                                    btn.textContent = '✓'
+                                    btn.className = btn.className.replace('bg-yellow-100 text-yellow-800 border-yellow-300', 'bg-green-100 text-green-800 border-green-300')
+                                  } else {
                                     btn.textContent = '✗'
+                                    btn.title = data.error ?? 'Not found in ShipStation'
                                     setTimeout(() => { btn.textContent = 'SS Pull'; btn.disabled = false }, 2000)
                                   }
-                                }}
-                                title="Pull this order from ShipStation"
-                                className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-yellow-100 text-yellow-800 border border-yellow-300 px-1 py-px rounded hover:bg-yellow-200 transition-colors cursor-pointer"
-                              >
-                                <Link2 size={8} /> SS
-                              </button>
-                            )}
-                            {order.isBuyerRequestedCancel && (
-                              <span title={order.buyerCancelReason ? `Buyer cancel reason: ${order.buyerCancelReason}` : 'Buyer requested cancellation'}
-                                className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-amber-100 text-amber-800 border border-amber-300 px-1 py-px rounded">
-                                <AlertTriangle size={8} /> CANCEL
-                              </span>
-                            )}
-                          </div>
-                          <a
-                            href={order.orderSource === 'backmarket'
-                              ? `https://www.backmarket.com/dashboard/sales/orders/${order.amazonOrderId}`
-                              : `https://sellercentral.amazon.com/orders-v3/order/${order.amazonOrderId}`}
-                            target="_blank" rel="noopener noreferrer"
-                            className="font-mono text-[10px] text-gray-400 hover:text-amazon-blue hover:underline"
-                          >
-                            {order.amazonOrderId}
-                          </a>
-                        </>
-                      )}
-                    </div>
+                                } catch {
+                                  btn.textContent = '✗'
+                                  setTimeout(() => { btn.textContent = 'SS Pull'; btn.disabled = false }, 2000)
+                                }
+                              }}
+                              title="Pull this order from ShipStation"
+                              className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-yellow-100 text-yellow-800 border border-yellow-300 px-1 py-px rounded hover:bg-yellow-200 transition-colors cursor-pointer"
+                            >
+                              <Link2 size={8} /> SS
+                            </button>
+                          )}
+                          {order.isBuyerRequestedCancel && (
+                            <span title={order.buyerCancelReason ? `Buyer cancel reason: ${order.buyerCancelReason}` : 'Buyer requested cancellation'}
+                              className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-amber-100 text-amber-800 border border-amber-300 px-1 py-px rounded">
+                              <AlertTriangle size={8} /> CANCEL
+                            </span>
+                          )}
+                        </div>
+                        <a
+                          href={order.orderSource === 'backmarket'
+                            ? `https://www.backmarket.com/dashboard/sales/orders/${order.amazonOrderId}`
+                            : `https://sellercentral.amazon.com/orders-v3/order/${order.amazonOrderId}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-[10px] text-gray-400 hover:text-amazon-blue hover:underline"
+                        >
+                          {order.amazonOrderId}
+                        </a>
+                      </div>
+                    )}
                   </td>
                   {/* Customer */}
                   <td className="px-3 py-2.5 whitespace-nowrap">
