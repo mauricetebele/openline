@@ -7388,8 +7388,8 @@ export default function UnshippedOrders() {
                       </div>
                     ) : (
                       <div className="inline-flex flex-col gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <button onClick={() => setDetailOrder(order)} className="flex items-center gap-0.5 group" title="View order details">
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => setDetailOrder(order)} className="flex items-center gap-0.5 group shrink-0" title="View order details">
                             {order.olmNumber != null
                               ? <span className="text-[13px] font-semibold text-amazon-blue group-hover:underline leading-tight">OLM-{order.olmNumber}</span>
                               : <span className="text-xs text-gray-400 italic">—</span>
