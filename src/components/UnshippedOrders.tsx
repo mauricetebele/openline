@@ -3714,7 +3714,10 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1.5">
             {order.items.map(item => (
               <div key={item.id} className="flex items-start gap-2 text-xs">
-                <span className="font-mono text-gray-600 shrink-0">{item.internalSku ?? item.sellerSku ?? '—'}{item.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}</span>
+                <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white pl-2 pr-1.5 py-0.5 shrink-0">
+                  <span className="text-[13px] font-semibold text-gray-900 leading-tight">{item.internalSku ?? item.sellerSku ?? '—'}</span>
+                  {item.mappedGradeName && <GradeBadge grade={item.mappedGradeName} size="xs" />}
+                </span>
                 <span className="text-gray-500">×{item.quantityOrdered}</span>
                 <span className="text-gray-700 truncate">{item.title ?? '—'}</span>
               </div>
@@ -7494,11 +7497,11 @@ export default function UnshippedOrders() {
                     <div className={clsx('flex flex-col', multi && 'divide-y divide-gray-200')}>
                       {order.items.map(i => (
                         <div key={i.id} className={clsx('leading-snug', multi && 'py-1 first:pt-0 last:pb-0')}>
-                          <span className="whitespace-nowrap">
-                            <span className="font-mono text-xs font-semibold text-gray-900 dark:text-gray-100">{i.internalSku ?? i.sellerSku ?? '—'}</span>
-                            {i.mappedGradeName && <span className="ml-1"><GradeBadge grade={i.mappedGradeName} size="xs" /></span>}
+                          <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 pl-2.5 pr-2 py-0.5 whitespace-nowrap">
+                            <span className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 leading-tight">{i.internalSku ?? i.sellerSku ?? '—'}</span>
+                            {i.mappedGradeName && <GradeBadge grade={i.mappedGradeName} size="xs" />}
                           </span>
-                          {i.title && <span className="block text-[10px] text-gray-500 truncate max-w-[200px]" title={i.title}>{i.title}</span>}
+                          {i.title && <span className="block text-[10px] text-gray-400 truncate max-w-[200px] mt-0.5" title={i.title}>{i.title}</span>}
                         </div>
                       ))}
                     </div>
