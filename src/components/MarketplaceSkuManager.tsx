@@ -32,6 +32,7 @@ interface MarketplaceSku {
   maxQty: number | null
   isDefaultSku: boolean
   fulfillmentChannel: string | null
+  itemCondition: string | null
 }
 
 interface MarketplaceListing {
@@ -1113,6 +1114,7 @@ export default function MarketplaceSkuManager() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">FNSKU</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Parent SKU</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
@@ -1153,6 +1155,7 @@ export default function MarketplaceSkuManager() {
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-700">{s.product.sku}</td>
                     <td className="px-4 py-3 text-xs text-gray-600">{s.grade?.grade ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{s.itemCondition ?? '—'}</td>
                     <td className="px-4 py-3 text-xs text-gray-600 max-w-[200px] truncate" title={s.product.description}>{s.product.description}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
