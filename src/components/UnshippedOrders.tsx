@@ -447,8 +447,8 @@ function ProcessOrderModal({ order, onClose, onProcessed }: {
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="font-mono text-xs font-semibold text-gray-800">{item.sellerSku ?? '—'}</p>
-                      {asin && <span className="font-mono text-[10px] text-gray-400">{asin}</span>}
+                      <p className="text-xs font-semibold text-gray-800 tracking-tight">{item.sellerSku ?? '—'}</p>
+                      {asin && <span className="text-[10px] text-gray-400 tracking-wide">{asin}</span>}
                       {item.gradeName && (
                         <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-1.5 py-0.5 text-[10px] font-bold">
                           Grade {item.gradeName}
@@ -677,7 +677,7 @@ function BulkProcessModal({
                     )}
                     onClick={() => toggleExpand(oi.orderId)}
                   >
-                    <span className="text-xs font-mono font-semibold text-gray-800 flex-1">{oi.amazonOrderId}</span>
+                    <span className="text-xs font-semibold text-gray-800 tracking-tight flex-1">{oi.amazonOrderId}</span>
                     {oi.allFG && (
                       <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold shrink-0">
                         Auto FG
@@ -727,7 +727,7 @@ function BulkProcessModal({
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <p className="font-mono text-xs font-semibold text-gray-800">{item.sellerSku ?? '—'}</p>
+                                  <p className="text-xs font-semibold text-gray-800 tracking-tight">{item.sellerSku ?? '—'}</p>
                                   {item.gradeName && (
                                     <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-1.5 py-0.5 text-[10px] font-bold">
                                       Grade {item.gradeName}
@@ -1018,7 +1018,7 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
               if (!item.isSerializable) return (
                 <div key={item.orderItemId} className="rounded-lg border border-gray-100 bg-gray-50 p-3 flex items-center justify-between">
                   <div>
-                    <span className="font-mono text-xs font-semibold text-gray-700">{item.internalSku ?? item.sellerSku ?? '—'}</span>
+                    <span className="text-xs font-semibold text-gray-700 tracking-tight">{item.internalSku ?? item.sellerSku ?? '—'}</span>
                     <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
                     {item.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}
                     <p className="text-xs text-gray-500 truncate mt-0.5">{item.title ?? '—'}</p>
@@ -1030,7 +1030,7 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
               return (
                 <div key={item.orderItemId} className="rounded-lg border border-gray-200 p-3 space-y-2">
                   <div>
-                    <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
+                    <span className="text-xs font-semibold text-gray-800 tracking-tight">{item.internalSku ?? item.sellerSku ?? '—'}</span>
                     <span className="text-xs text-gray-500 ml-2">×{item.quantityOrdered}</span>
                     {(item.mappedGradeName || item.gradeName) && (
                       <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName ?? item.gradeName!} size="xs" /></span>
@@ -1225,7 +1225,7 @@ function WholesaleProcessModal({ order, onClose, onProcessed }: {
               <div key={item.orderItemId} className="rounded-lg border border-gray-200 p-3 space-y-2">
                 <div className="flex items-start gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="font-mono text-xs font-semibold text-gray-800">{item.sellerSku ?? '—'}</p>
+                    <p className="text-xs font-semibold text-gray-800 tracking-tight">{item.sellerSku ?? '—'}</p>
                     <p className="text-xs text-gray-500 truncate">{item.title ?? '—'}</p>
                     <p className="text-xs text-gray-400 mt-0.5">Qty: <strong>{item.quantityOrdered}</strong></p>
                   </div>
@@ -1615,7 +1615,7 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
                 <div key={item.id} className={clsx('rounded-lg border p-3 space-y-2', item.isSerializable ? 'border-gray-200' : 'border-gray-100 bg-gray-50/60')}>
                   <div className="flex items-start justify-between">
                     <div>
-                      <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
+                      <span className="text-xs font-semibold text-gray-800 tracking-tight">{item.internalSku ?? item.sellerSku ?? '—'}</span>
                       <span className="text-xs text-gray-400 ml-2">×{item.quantityOrdered}</span>
                       {item.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}
                       {item.title && <p className="text-xs text-gray-500 truncate mt-0.5">{item.title}</p>}
@@ -1918,7 +1918,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
                 <div key={item.id} className={clsx('rounded-lg border p-3 space-y-2', item.isSerializable ? 'border-gray-200' : 'border-gray-100 bg-gray-50/60')}>
                   <div className="flex items-start justify-between">
                     <div>
-                      <span className="font-mono text-xs font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
+                      <span className="text-xs font-semibold text-gray-800 tracking-tight">{item.internalSku ?? item.sellerSku ?? '—'}</span>
                       <span className="text-xs text-gray-400 ml-2">x{item.quantityOrdered}</span>
                       {item.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}
                       {item.title && <p className="text-xs text-gray-500 truncate mt-0.5">{item.title}</p>}
@@ -2235,7 +2235,7 @@ function ManualShipModal({ order, onClose, onShipped }: {
                     <div key={item.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-gray-50 border border-gray-100">
                       <div className="flex items-start gap-2 min-w-0">
                         <div>
-                          <span className="font-mono font-semibold text-gray-800">{item.internalSku ?? item.sellerSku ?? '—'}</span>
+                          <span className="font-semibold text-gray-800 tracking-tight">{item.internalSku ?? item.sellerSku ?? '—'}</span>
                           {item.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}
                         </div>
                         <span className="text-gray-400">×{item.quantityOrdered}</span>
