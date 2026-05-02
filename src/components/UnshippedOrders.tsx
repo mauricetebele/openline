@@ -2957,7 +2957,7 @@ function OrderDetailModal({
                                   <button
                                     onClick={isPendingOrder ? () => { setEditingSkuItemId(item.id); setEditingSkuValue(item.sellerSku ?? '') } : undefined}
                                     className={clsx(
-                                      'font-mono text-[13px] font-semibold text-gray-900 text-left',
+                                      'text-[13px] font-semibold text-gray-900 tracking-tight text-left',
                                       isPendingOrder && 'group inline-flex items-center gap-1.5 hover:text-indigo-600 cursor-pointer',
                                     )}
                                   >
@@ -2976,7 +2976,7 @@ function OrderDetailModal({
                                   ) : null}
                                   {/* Show marketplace SKU underneath when internal SKU differs */}
                                   {item.internalSku && item.sellerSku && item.internalSku !== item.sellerSku && (
-                                    <span className="block font-mono text-[10px] text-gray-400 mt-0.5">{item.sellerSku}</span>
+                                    <span className="block text-[10px] text-gray-400 mt-0.5 tracking-wide">{item.sellerSku}</span>
                                   )}
                                 </div>
                               )}
@@ -3033,9 +3033,9 @@ function OrderDetailModal({
                                     <Package size={16} className="text-gray-300" />
                                   </div>
                                 )}
-                                <div>
-                                  <p className="text-gray-800 font-medium leading-snug">{item.title ?? <span className="text-gray-400 italic">—</span>}</p>
-                                  {item.asin && <p className="font-mono text-[10px] text-gray-400 mt-0.5">{item.asin}</p>}
+                                <div className="min-w-0">
+                                  <p className="text-gray-700 font-medium leading-snug line-clamp-2">{item.title ?? <span className="text-gray-400 italic">—</span>}</p>
+                                  {item.asin && <p className="text-[10px] text-gray-400 mt-0.5 tracking-wide">{item.asin}</p>}
                                   {item.quantityShipped > 0 && (
                                     <p className="text-[10px] text-gray-400 mt-0.5">{item.quantityShipped} shipped</p>
                                   )}
