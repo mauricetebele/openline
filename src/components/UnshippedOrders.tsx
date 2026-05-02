@@ -7445,7 +7445,7 @@ export default function UnshippedOrders() {
                             ? `https://www.backmarket.com/dashboard/sales/orders/${order.amazonOrderId}`
                             : `https://sellercentral.amazon.com/orders-v3/order/${order.amazonOrderId}`}
                           target="_blank" rel="noopener noreferrer"
-                          className="text-[10px] text-gray-400 hover:text-amazon-blue hover:underline"
+                          className="text-[11px] font-medium text-gray-600 dark:text-gray-300 hover:text-amazon-blue hover:underline"
                         >
                           {order.amazonOrderId}
                         </a>
