@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
 
   // When agedFg is active, find serials whose last move to FG was >30 days ago
   let agedFilter: Prisma.InventoryItemWhereInput | undefined
+  const agedQtyMap = new Map<string, number>() // key → aged serial count
   if (agedFg) {
     const fgLocations = await prisma.location.findMany({
       where: { isFinishedGoods: true },
@@ -28,11 +29,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ data: [] })
     }
 
-    // Find serials currently IN_STOCK at FG whose last move to FG was >30 days ago
-    const agedSerials = await prisma.$queryRaw<
-      { productId: string; locationId: string; gradeId: string | null }[]
+    // Count aged serials per product+location+grade combo
+    const agedGroups = await prisma.$queryRaw<
+      { productId: string; locationId: string; gradeId: string | null; agedCount: bigint }[]
     >`
-      SELECT DISTINCT s."productId", s."locationId", s."gradeId"
+      SELECT s."productId", s."locationId", s."gradeId", COUNT(*)::bigint AS "agedCount"
       FROM inventory_serials s
       INNER JOIN (
         SELECT "inventorySerialId", MAX("createdAt") AS last_fg_move
@@ -44,18 +45,24 @@ export async function GET(req: NextRequest) {
       WHERE s.status = 'IN_STOCK'
         AND s."locationId" = ANY(${fgLocationIds}::text[])
         AND sh.last_fg_move < NOW() - INTERVAL '30 days'
+      GROUP BY s."productId", s."locationId", s."gradeId"
     `
 
-    if (agedSerials.length === 0) {
+    if (agedGroups.length === 0) {
       return NextResponse.json({ data: [] })
     }
 
-    // Build OR conditions for matching inventory items
+    // Build qty override map and filter conditions
+    for (const g of agedGroups) {
+      const key = `${g.productId}:${g.locationId}:${g.gradeId ?? ''}`
+      agedQtyMap.set(key, Number(g.agedCount))
+    }
+
     agedFilter = {
-      OR: agedSerials.map(s => ({
-        productId: s.productId,
-        locationId: s.locationId,
-        gradeId: s.gradeId,
+      OR: agedGroups.map(g => ({
+        productId: g.productId,
+        locationId: g.locationId,
+        gradeId: g.gradeId,
       })),
     }
   }
@@ -188,7 +195,8 @@ export async function GET(req: NextRequest) {
       const key      = `${item.productId}:${item.locationId}:${item.gradeId ?? ''}`
       const hardReserved      = hardReservedMap.get(key) ?? 0
       const wholesaleReserved = wholesaleReservedMap.get(key) ?? 0
-      const onHand   = item.qty + hardReserved          // qty has hard-reserves subtracted
+      const fullOnHand = item.qty + hardReserved          // qty has hard-reserves subtracted
+      const onHand   = agedQtyMap.has(key) ? agedQtyMap.get(key)! : fullOnHand
       const reserved = hardReserved + wholesaleReserved  // total committed to orders
       const costKey = `${item.productId}:${item.gradeId ?? ''}`
       const unitCost = costMap.get(costKey) ?? costProductOnly.get(item.productId)
