@@ -283,12 +283,8 @@ function BackMarketBadge() {
 
 function WholesaleIcon() {
   return (
-    <span
-      title="Wholesale order"
-      className="inline-flex items-center justify-center w-5 h-5 rounded bg-emerald-700 text-white font-black text-[10px] select-none shrink-0"
-    >
-      W
-    </span>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src="/logos/olm-icon.svg" alt="OLM" title="Wholesale order" className="w-5 h-5 shrink-0 select-none" />
   )
 }
 
