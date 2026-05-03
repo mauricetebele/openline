@@ -65,7 +65,9 @@ export async function GET(req: NextRequest) {
       asin: s.marketplace === 'amazon' ? (asinMap.get(s.sellerSku) ?? null) : null,
       fnsku: s.fnsku || fnskuMap.get(s.sellerSku) || null,
       fulfillmentChannel: fcMap.get(s.id) ?? slFcMap.get(s.sellerSku) ?? null,
-      itemCondition: conditionMap.get(s.sellerSku) ?? bmConditionMap.get(s.sellerSku) ?? null,
+      itemCondition: s.marketplace === 'backmarket'
+        ? (bmConditionMap.get(s.sellerSku) ?? null)
+        : (conditionMap.get(s.sellerSku) ?? null),
       bmListingId: s.marketplace === 'backmarket' ? (bmIdMap.get(s.sellerSku) ?? null) : null,
     }))
 

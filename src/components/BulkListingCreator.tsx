@@ -27,6 +27,8 @@ const CONDITIONS = [
   'Refurbished',
 ]
 
+const BM_CONDITIONS = ['Excellent', 'Good', 'Stallone']
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface LookupProduct {
@@ -104,6 +106,8 @@ IPHONE-14-256,,,B0YYYYYYYYY,199.99,New,5,`
 export default function BulkListingCreator() {
   // Mode toggle
   const [mode, setMode] = useState<'manual' | 'upload'>('manual')
+  const [marketplace, setMarketplace] = useState<'amazon' | 'backmarket'>('amazon')
+  const isBM = marketplace === 'backmarket'
 
   // Step: 0=page textarea, 1=staging, 2=form, 3=progress
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0)
@@ -272,15 +276,17 @@ export default function BulkListingCreator() {
   const handleNextToForm = useCallback(async () => {
     const checked = stagingRows.filter(r => r.checked)
 
-    // Fetch ASIN suggestions for selected products
-    const uniqueProductIds = Array.from(new Set(checked.map(r => r.productId)))
     let suggestions: Record<string, string> = {}
-    try {
-      const res = await fetch(`/api/marketplace-skus/asin-suggestions?productIds=${uniqueProductIds.join(',')}`)
-      const data = await res.json()
-      if (res.ok && data.data) suggestions = data.data
-    } catch { /* ignore — suggestions are optional */ }
-    setAsinSuggestions(suggestions)
+    if (!isBM) {
+      // Fetch ASIN suggestions for selected products (Amazon only)
+      const uniqueProductIds = Array.from(new Set(checked.map(r => r.productId)))
+      try {
+        const res = await fetch(`/api/marketplace-skus/asin-suggestions?productIds=${uniqueProductIds.join(',')}`)
+        const data = await res.json()
+        if (res.ok && data.data) suggestions = data.data
+      } catch { /* ignore — suggestions are optional */ }
+      setAsinSuggestions(suggestions)
+    }
 
     const rows: ListingRow[] = checked.map(r => ({
       productId: r.productId,
@@ -290,27 +296,34 @@ export default function BulkListingCreator() {
       gradeName: r.gradeName,
       availableQty: r.availableQty,
       marketplaceSku: '',
-      asin: suggestions[r.productId] ?? '',
+      asin: isBM ? '' : (suggestions[r.productId] ?? ''),
       price: '',
-      condition: 'New',
+      condition: isBM ? BM_CONDITIONS[0] : 'New',
       quantity: '0',
       shippingTemplate: '',
     }))
     setListingRows(rows)
-    // Fetch buy box data for any auto-populated ASINs
-    for (const r of rows) {
-      if (ASIN_RE.test(r.asin)) fetchBuyBox(r.asin)
+    if (!isBM) {
+      // Fetch buy box data for any auto-populated ASINs
+      for (const r of rows) {
+        if (ASIN_RE.test(r.asin)) fetchBuyBox(r.asin)
+      }
     }
     setStep(2)
-  }, [stagingRows, fetchBuyBox])
+  }, [stagingRows, fetchBuyBox, isBM])
 
   // ─── Step 2 validation ──────────────────────────────────────────────────
 
   const getRowErrors = (row: ListingRow, index: number): string[] => {
     const errs: string[] = []
-    if (!ASIN_RE.test(row.asin)) errs.push('Invalid ASIN')
-    const p = parseFloat(row.price)
-    if (!row.price || isNaN(p) || p <= 0) errs.push('Price > 0')
+    if (isBM) {
+      if (!row.asin.trim() || !/^\d+$/.test(row.asin.trim())) errs.push('BMID must be numeric')
+      if (!BM_CONDITIONS.includes(row.condition)) errs.push('Invalid BM condition')
+    } else {
+      if (!ASIN_RE.test(row.asin)) errs.push('Invalid ASIN')
+      const p = parseFloat(row.price)
+      if (!row.price || isNaN(p) || p <= 0) errs.push('Price > 0')
+    }
     // Check for duplicate product+grade within the list
     const isDupe = listingRows.some((other, j) =>
       j !== index && other.productId === row.productId && other.gradeId === row.gradeId
@@ -398,6 +411,47 @@ export default function BulkListingCreator() {
     async function createAll() {
       const rows = [...progressRows]
 
+      if (isBM) {
+        // BackMarket: single batch call
+        setProgressRows(prev => prev.map(r => ({ ...r, status: 'creating' })))
+        try {
+          const payload = {
+            rows: rows.map(r => ({
+              productId: r.productId,
+              gradeId: r.gradeId,
+              sellerSku: r.marketplaceSku.trim(),
+              bmId: r.asin.trim(),
+              condition: r.condition,
+            })),
+          }
+          const res = await fetch('/api/marketplace-skus/bulk-backmarket', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          const data = await res.json()
+          if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+
+          const resultMap = new Map<string, { status: string; error?: string }>()
+          for (const r of data.results ?? []) {
+            resultMap.set(r.sellerSku, r)
+          }
+          setProgressRows(prev => prev.map(r => {
+            const result = resultMap.get(r.marketplaceSku.trim())
+            if (result?.status === 'success') return { ...r, status: 'success' as RowStatus }
+            return { ...r, status: 'error' as RowStatus, error: result?.error ?? 'Unknown error' }
+          }))
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err)
+          setProgressRows(prev => prev.map(r => ({ ...r, status: 'error' as RowStatus, error: msg })))
+        }
+
+        setIsCreating(false)
+        creatingRef.current = false
+        return
+      }
+
+      // Amazon: sequential per-row creation
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
 
@@ -620,7 +674,7 @@ export default function BulkListingCreator() {
 
   // ─── Render: Error state ─────────────────────────────────────────────────
 
-  if (accountsError) {
+  if (accountsError && !isBM) {
     return (
       <div className="p-6">
         <div className="flex items-center gap-2 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
@@ -661,10 +715,38 @@ export default function BulkListingCreator() {
       </div>
     )
 
+    const marketplaceToggle = (
+      <div className="flex gap-0 rounded-md border border-gray-300 overflow-hidden w-fit">
+        <button
+          type="button"
+          onClick={() => setMarketplace('amazon')}
+          className={clsx(
+            'px-4 py-2 text-sm font-medium transition-colors',
+            !isBM ? 'bg-amazon-blue text-white' : 'bg-white text-gray-600 hover:bg-gray-50',
+          )}
+        >
+          Amazon
+        </button>
+        <button
+          type="button"
+          onClick={() => setMarketplace('backmarket')}
+          className={clsx(
+            'px-4 py-2 text-sm font-medium transition-colors border-l border-gray-300',
+            isBM ? 'bg-amazon-blue text-white' : 'bg-white text-gray-600 hover:bg-gray-50',
+          )}
+        >
+          BackMarket
+        </button>
+      </div>
+    )
+
     if (!isUploadMode) {
       return (
         <div className="p-6 max-w-2xl space-y-4">
-          {modeToggle}
+          <div className="flex items-center gap-4">
+            {modeToggle}
+            {marketplaceToggle}
+          </div>
 
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
@@ -1001,7 +1083,7 @@ export default function BulkListingCreator() {
         className={clsx(
           'bg-white rounded-xl shadow-2xl flex flex-col',
           'max-h-[90vh]',
-          step === 2 ? 'w-[1300px]' : 'w-[900px]',
+          step === 2 ? (isBM ? 'w-[900px]' : 'w-[1300px]') : 'w-[900px]',
         )}
       >
         {/* ── Step 1: Staging Area ──────────────────────────────────────────── */}
@@ -1137,7 +1219,8 @@ export default function BulkListingCreator() {
             </div>
 
             <div className="flex-1 overflow-auto px-6 py-4 space-y-5">
-              {/* Shared defaults */}
+              {/* Shared defaults (Amazon only) */}
+              {!isBM && (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {/* Account */}
                 <div>
@@ -1184,6 +1267,7 @@ export default function BulkListingCreator() {
                   </div>
                 </div>
               </div>
+              )}
 
               {/* Per-row table */}
               <div className="border rounded-lg overflow-hidden">
@@ -1195,11 +1279,11 @@ export default function BulkListingCreator() {
                         <th className="px-2 py-2">Internal SKU</th>
                         <th className="px-2 py-2">Grade</th>
                         <th className="px-2 py-2">Condition</th>
-                        <th className="px-2 py-2">Marketplace SKU</th>
-                        <th className="px-2 py-2">ASIN</th>
-                        <th className="px-2 py-2">Price</th>
-                        {fulfillment === 'MFN' && <th className="px-2 py-2">Qty</th>}
-                        {fulfillment === 'MFN' && <th className="px-2 py-2">Template</th>}
+                        {!isBM && <th className="px-2 py-2">Marketplace SKU</th>}
+                        <th className="px-2 py-2">{isBM ? 'BMID' : 'ASIN'}</th>
+                        {!isBM && <th className="px-2 py-2">Price</th>}
+                        {!isBM && fulfillment === 'MFN' && <th className="px-2 py-2">Qty</th>}
+                        {!isBM && fulfillment === 'MFN' && <th className="px-2 py-2">Template</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -1217,7 +1301,7 @@ export default function BulkListingCreator() {
                           }
                         })
 
-                        const colCount = fulfillment === 'MFN' ? 9 : 7
+                        const colCount = isBM ? 5 : (fulfillment === 'MFN' ? 9 : 7)
 
                         return groups.map((group) => {
                           const isMulti = group.rows.length > 1
@@ -1233,7 +1317,7 @@ export default function BulkListingCreator() {
                                         const rowKey = `${row.productId}::${row.gradeId}::${row.marketplaceSku}`
                                         const isLocked = lockedKeys.has(rowKey)
                                         const errs = isLocked ? [] : getRowErrors(row, i)
-                                        const hasErr = errs.length > 0 && (row.asin || row.price)
+                                        const hasErr = errs.length > 0 && (row.asin || (!isBM && row.price))
                                         return (
                           <tr key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`} className={clsx('border-b last:border-0', isLocked && 'bg-green-50/50 opacity-60')}>
                             <td className="px-2 py-1.5 w-20">
@@ -1243,7 +1327,7 @@ export default function BulkListingCreator() {
                                 <div className="flex items-center gap-1">
                                   {hasErr ? (
                                     <span title={errs.join(', ')}><XCircle size={14} className="text-red-500" /></span>
-                                  ) : row.asin && row.price ? (
+                                  ) : row.asin && (isBM || row.price) ? (
                                     <CheckCircle2 size={14} className="text-green-600" />
                                   ) : <span className="w-3.5" />}
                                   <button
@@ -1308,11 +1392,12 @@ export default function BulkListingCreator() {
                                 onChange={(e) => setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, condition: e.target.value } : r))}
                                 className="w-full h-8 rounded-md border border-gray-300 px-1 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                               >
-                                {CONDITIONS.map((c) => (
+                                {(isBM ? BM_CONDITIONS : CONDITIONS).map((c) => (
                                   <option key={c} value={c}>{c}</option>
                                 ))}
                               </select>
                             </td>
+                            {!isBM && (
                             <td className="px-2 py-1.5">
                               <input
                                 type="text"
@@ -1323,7 +1408,24 @@ export default function BulkListingCreator() {
                                 className="w-full h-8 rounded-md border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                               />
                             </td>
+                            )}
                             <td className="px-2 py-1.5">
+                              {isBM ? (
+                              <input
+                                type="text"
+                                value={row.asin}
+                                disabled={isLocked}
+                                onChange={(e) => {
+                                  const val = e.target.value.replace(/\D/g, '')
+                                  setListingRows(prev => prev.map((r, idx) => idx === i ? { ...r, asin: val } : r))
+                                }}
+                                placeholder="Catalog product ID"
+                                className={clsx(
+                                  'w-full h-8 rounded-md border px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500',
+                                  !isLocked && row.asin && !/^\d+$/.test(row.asin) ? 'border-red-400' : 'border-gray-300',
+                                )}
+                              />
+                              ) : (
                               <div className="relative">
                               <input
                                 type="text"
@@ -1367,7 +1469,9 @@ export default function BulkListingCreator() {
                                 </div>
                               )}
                               </div>
+                              )}
                             </td>
+                            {!isBM && (
                             <td className="px-2 py-1.5">
                               <input
                                 type="number"
@@ -1380,7 +1484,8 @@ export default function BulkListingCreator() {
                                 className="w-20 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                               />
                             </td>
-                            {fulfillment === 'MFN' && (
+                            )}
+                            {!isBM && fulfillment === 'MFN' && (
                               <td className="px-2 py-1.5">
                                 <input
                                   type="number"
@@ -1393,7 +1498,7 @@ export default function BulkListingCreator() {
                                 />
                               </td>
                             )}
-                            {fulfillment === 'MFN' && (
+                            {!isBM && fulfillment === 'MFN' && (
                               <td className="px-2 py-1.5">
                                 <select
                                   value={row.shippingTemplate}
@@ -1448,7 +1553,7 @@ export default function BulkListingCreator() {
                     : 'bg-gray-200 text-gray-400 cursor-not-allowed',
                 )}
               >
-                Submit {validListingRows.length} Listings
+                Submit {validListingRows.length} {isBM ? 'BM Mappings' : 'Listings'}
               </button>
             </div>
           </>
@@ -1459,7 +1564,7 @@ export default function BulkListingCreator() {
           <>
             <div className="px-6 py-4 border-b flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold">Creating Listings</h2>
+                <h2 className="text-lg font-semibold">{isBM ? 'Creating BM Mappings' : 'Creating Listings'}</h2>
                 <p className="text-sm text-gray-500 mt-0.5">
                   {isCreating
                     ? `Processing… ${succeededCount + failedCount} of ${progressRows.length}`
@@ -1480,9 +1585,10 @@ export default function BulkListingCreator() {
                     <tr className="bg-gray-50 border-b text-left text-xs font-semibold text-gray-500 uppercase">
                       <th className="px-3 py-2">Internal SKU</th>
                       <th className="px-3 py-2">Grade</th>
-                      <th className="px-3 py-2">Marketplace SKU</th>
-                      <th className="px-3 py-2">ASIN</th>
-                      <th className="px-3 py-2">Price</th>
+                      {!isBM && <th className="px-3 py-2">Marketplace SKU</th>}
+                      <th className="px-3 py-2">{isBM ? 'BMID' : 'ASIN'}</th>
+                      {isBM && <th className="px-3 py-2">Condition</th>}
+                      {!isBM && <th className="px-3 py-2">Price</th>}
                       <th className="px-3 py-2 w-16">Status</th>
                     </tr>
                   </thead>
@@ -1499,9 +1605,10 @@ export default function BulkListingCreator() {
                             <span className="text-xs text-gray-400">—</span>
                           )}
                         </td>
-                        <td className="px-3 py-2 font-mono text-xs">{row.marketplaceSku}</td>
+                        {!isBM && <td className="px-3 py-2 font-mono text-xs">{row.marketplaceSku}</td>}
                         <td className="px-3 py-2 font-mono text-xs">{row.asin}</td>
-                        <td className="px-3 py-2 text-xs">${row.price}</td>
+                        {isBM && <td className="px-3 py-2 text-xs">{row.condition}</td>}
+                        {!isBM && <td className="px-3 py-2 text-xs">${row.price}</td>}
                         <td className="px-3 py-2">
                           {row.status === 'pending' && <span className="text-xs text-gray-400">Pending</span>}
                           {row.status === 'creating' && <Loader2 size={14} className="animate-spin text-amazon-blue" />}
