@@ -49,22 +49,23 @@ export async function GET(req: NextRequest) {
       : []
     const fcMap = new Map(mpListings.map(l => [l.mskuId, l.fulfillmentChannel]))
 
-    // Fetch BM listing IDs by sellerSku (mskuId linkage not reliable for BM)
+    // Fetch BM listing IDs + condition by sellerSku (mskuId linkage not reliable for BM)
     const bmSkus = skus.filter(s => s.marketplace === 'backmarket').map(s => s.sellerSku)
     const bmListings = bmSkus.length > 0
       ? await prisma.marketplaceListing.findMany({
           where: { marketplace: 'backmarket', sellerSku: { in: bmSkus } },
-          select: { sellerSku: true, externalId: true },
+          select: { sellerSku: true, externalId: true, condition: true },
         })
       : []
     const bmIdMap = new Map(bmListings.filter(l => l.externalId).map(l => [l.sellerSku, l.externalId]))
+    const bmConditionMap = new Map(bmListings.filter(l => l.condition).map(l => [l.sellerSku, l.condition]))
 
     const enriched = skus.map(s => ({
       ...s,
       asin: s.marketplace === 'amazon' ? (asinMap.get(s.sellerSku) ?? null) : null,
       fnsku: s.fnsku || fnskuMap.get(s.sellerSku) || null,
       fulfillmentChannel: fcMap.get(s.id) ?? slFcMap.get(s.sellerSku) ?? null,
-      itemCondition: conditionMap.get(s.sellerSku) ?? null,
+      itemCondition: conditionMap.get(s.sellerSku) ?? bmConditionMap.get(s.sellerSku) ?? null,
       bmListingId: s.marketplace === 'backmarket' ? (bmIdMap.get(s.sellerSku) ?? null) : null,
     }))
 
