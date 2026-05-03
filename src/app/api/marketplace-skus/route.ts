@@ -26,11 +26,11 @@ export async function GET(req: NextRequest) {
       orderBy: [{ marketplace: 'asc' }, { sellerSku: 'asc' }],
     })
 
-    // Enrich with ASIN from SellerListing + fulfillmentChannel from MarketplaceListing
-    const sellerSkus = skus.map(s => s.sellerSku)
-    const sellerListings = sellerSkus.length > 0
+    // Enrich with ASIN from SellerListing (Amazon only) + fulfillmentChannel from MarketplaceListing
+    const amazonSkus = skus.filter(s => s.marketplace === 'amazon').map(s => s.sellerSku)
+    const sellerListings = amazonSkus.length > 0
       ? await prisma.sellerListing.findMany({
-          where: { sku: { in: sellerSkus } },
+          where: { sku: { in: amazonSkus } },
           select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true },
           distinct: ['sku'],
         })
@@ -44,19 +44,28 @@ export async function GET(req: NextRequest) {
     const mpListings = mskuIds.length > 0
       ? await prisma.marketplaceListing.findMany({
           where: { mskuId: { in: mskuIds } },
-          select: { mskuId: true, fulfillmentChannel: true, externalId: true },
+          select: { mskuId: true, fulfillmentChannel: true },
         })
       : []
     const fcMap = new Map(mpListings.map(l => [l.mskuId, l.fulfillmentChannel]))
-    const externalIdMap = new Map(mpListings.map(l => [l.mskuId, l.externalId]))
+
+    // Fetch BM listing IDs by sellerSku (mskuId linkage not reliable for BM)
+    const bmSkus = skus.filter(s => s.marketplace === 'backmarket').map(s => s.sellerSku)
+    const bmListings = bmSkus.length > 0
+      ? await prisma.marketplaceListing.findMany({
+          where: { marketplace: 'backmarket', sellerSku: { in: bmSkus } },
+          select: { sellerSku: true, externalId: true },
+        })
+      : []
+    const bmIdMap = new Map(bmListings.filter(l => l.externalId).map(l => [l.sellerSku, l.externalId]))
 
     const enriched = skus.map(s => ({
       ...s,
-      asin: asinMap.get(s.sellerSku) ?? null,
+      asin: s.marketplace === 'amazon' ? (asinMap.get(s.sellerSku) ?? null) : null,
       fnsku: s.fnsku || fnskuMap.get(s.sellerSku) || null,
       fulfillmentChannel: fcMap.get(s.id) ?? slFcMap.get(s.sellerSku) ?? null,
       itemCondition: conditionMap.get(s.sellerSku) ?? null,
-      bmListingId: externalIdMap.get(s.id) ?? null,
+      bmListingId: s.marketplace === 'backmarket' ? (bmIdMap.get(s.sellerSku) ?? null) : null,
     }))
 
     return NextResponse.json({ data: enriched })
