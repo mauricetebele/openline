@@ -59,6 +59,7 @@ interface BackMarketListing {
   title?: string
   product?: string
   listing_id?: number
+  backmarket_id?: number
 }
 
 export async function POST(req: NextRequest) {
@@ -225,7 +226,7 @@ async function syncBackMarket() {
         where: { id: existing.id },
         data: {
           title: bm.title || bm.product || null,
-          externalId: bm.listing_id != null ? String(bm.listing_id) : null,
+          externalId: bm.backmarket_id != null ? String(bm.backmarket_id) : null,
           lastSyncedAt: new Date(),
         },
       })
@@ -236,7 +237,7 @@ async function syncBackMarket() {
           sellerSku: sku,
           accountId: null,
           title: bm.title || bm.product || null,
-          externalId: bm.listing_id != null ? String(bm.listing_id) : null,
+          externalId: bm.backmarket_id != null ? String(bm.backmarket_id) : null,
         },
       })
       newCount++

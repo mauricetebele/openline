@@ -981,7 +981,7 @@ model MarketplaceListing {
   title              String?
   accountId          String?   // Amazon account ID or null for BM
   fulfillmentChannel String?   // "MFN" | "FBA" (Amazon only)
-  externalId         String?   // BM listing_id or other marketplace-specific ID
+  externalId         String?   // BM backmarket_id (product catalog ID) or other marketplace-specific ID
   lastSyncedAt       DateTime  @default(now())
   createdAt          DateTime  @default(now())
 
