@@ -225,6 +225,7 @@ async function syncBackMarket() {
         where: { id: existing.id },
         data: {
           title: bm.title || bm.product || null,
+          externalId: bm.listing_id != null ? String(bm.listing_id) : null,
           lastSyncedAt: new Date(),
         },
       })
@@ -235,6 +236,7 @@ async function syncBackMarket() {
           sellerSku: sku,
           accountId: null,
           title: bm.title || bm.product || null,
+          externalId: bm.listing_id != null ? String(bm.listing_id) : null,
         },
       })
       newCount++

@@ -44,10 +44,11 @@ export async function GET(req: NextRequest) {
     const mpListings = mskuIds.length > 0
       ? await prisma.marketplaceListing.findMany({
           where: { mskuId: { in: mskuIds } },
-          select: { mskuId: true, fulfillmentChannel: true },
+          select: { mskuId: true, fulfillmentChannel: true, externalId: true },
         })
       : []
     const fcMap = new Map(mpListings.map(l => [l.mskuId, l.fulfillmentChannel]))
+    const externalIdMap = new Map(mpListings.map(l => [l.mskuId, l.externalId]))
 
     const enriched = skus.map(s => ({
       ...s,
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest) {
       fnsku: s.fnsku || fnskuMap.get(s.sellerSku) || null,
       fulfillmentChannel: fcMap.get(s.id) ?? slFcMap.get(s.sellerSku) ?? null,
       itemCondition: conditionMap.get(s.sellerSku) ?? null,
+      bmListingId: externalIdMap.get(s.id) ?? null,
     }))
 
     return NextResponse.json({ data: enriched })

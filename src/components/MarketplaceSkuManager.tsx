@@ -33,6 +33,7 @@ interface MarketplaceSku {
   isDefaultSku: boolean
   fulfillmentChannel: string | null
   itemCondition: string | null
+  bmListingId: string | null
 }
 
 interface MarketplaceListing {
@@ -810,6 +811,7 @@ export default function MarketplaceSkuManager() {
         (s.grade?.grade ?? '').toLowerCase().includes(q) ||
         (s.accountId ?? '').toLowerCase().includes(q) ||
         (s.asin ?? '').toLowerCase().includes(q) ||
+        (s.bmListingId ?? '').toLowerCase().includes(q) ||
         (s.fnsku ?? '').toLowerCase().includes(q)
       )
     }
@@ -1110,7 +1112,7 @@ export default function MarketplaceSkuManager() {
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN / BMID</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">FNSKU</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Parent SKU</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
@@ -1136,7 +1138,7 @@ export default function MarketplaceSkuManager() {
                 {filteredSkus.map(s => (
                   <tr key={s.id} className={clsx('group', s.fulfillmentChannel === 'FBA' ? 'bg-blue-50/60 hover:bg-blue-100/60' : 'hover:bg-gray-50')}>
                     <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{s.asin ?? '—'}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{s.asin ?? s.bmListingId ?? '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">
                       {s.fnsku ? s.fnsku : s.marketplace === 'amazon' && s.accountId ? (
                         <button
