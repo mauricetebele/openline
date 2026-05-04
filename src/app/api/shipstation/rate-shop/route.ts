@@ -123,9 +123,6 @@ export async function POST(req: NextRequest) {
     // Non-Amazon orders skip Amazon carriers; Amazon orders ONLY use Amazon Buy Shipping
     if (!isAmazonOrder && isAmzCarrier) return
     if (isAmazonOrder && !isAmzCarrier) return
-    // Skip ShipStation UPS for BackMarket orders — UPS Direct rates (below) are more
-    // accurate and include all surcharges (signature confirmation, residential, etc.)
-    if (!isAmazonOrder && /^ups/i.test(carrier.code)) return
 
     if (isAmzCarrier) {
       // ── Amazon Buy Shipping → V2 API ──────────────────────────────────
@@ -471,7 +468,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  allRates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))
+  // If UPS Direct returned rates, drop ShipStation UPS duplicates (UPS Direct
+  // includes all surcharges like signature confirmation; ShipStation UPS doesn't)
+  const hasUpsDirectRates = allRates.some(r => r.carrierCode === 'ups_direct')
+  const finalRates = hasUpsDirectRates
+    ? allRates.filter(r => r.carrierCode === 'ups_direct' || !/^ups/i.test(r.carrierCode))
+    : allRates
+  finalRates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))
 
   // ── Amazon SP-API MerchantFulfillment (Amazon Buy Shipping rates incl. UPS) ──
   let amazonServices: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[] | undefined
@@ -543,5 +546,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ rates: allRates, errors: rateErrors, amazonServices, fedexDebug })
+  return NextResponse.json({ rates: finalRates, errors: rateErrors, amazonServices, fedexDebug })
 }
