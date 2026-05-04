@@ -123,6 +123,9 @@ export async function POST(req: NextRequest) {
     // Non-Amazon orders skip Amazon carriers; Amazon orders ONLY use Amazon Buy Shipping
     if (!isAmazonOrder && isAmzCarrier) return
     if (isAmazonOrder && !isAmzCarrier) return
+    // Skip ShipStation UPS for BackMarket orders — UPS Direct rates (below) are more
+    // accurate and include all surcharges (signature confirmation, residential, etc.)
+    if (!isAmazonOrder && /^ups/i.test(carrier.code)) return
 
     if (isAmzCarrier) {
       // ── Amazon Buy Shipping → V2 API ──────────────────────────────────
