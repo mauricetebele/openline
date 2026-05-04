@@ -214,10 +214,12 @@ export async function POST(req: NextRequest) {
       const v2CarrierId = v2CarrierMap.get(carrier.code)!
 
       try {
+        const v2Conf = body.confirmation && body.confirmation !== 'none' ? body.confirmation as 'delivery' | 'signature' | 'adult_signature' : undefined
         const v2Payload: V2RatesRequest = {
           rate_options: { carrier_ids: [v2CarrierId] },
           shipment: {
             ...(body.shipDate ? { ship_date: `${body.shipDate}` } : {}),
+            ...(v2Conf ? { confirmation: v2Conf } : {}),
             ...(ssWarehouseId
               ? { warehouse_id: ssWarehouseId }
               : { ship_from: {

@@ -183,6 +183,7 @@ export interface V2RatesRequest {
     ship_to: V2Address
     ship_from?: V2Address
     insurance_provider?: 'parcelguard' | 'carrier' | 'none'
+    confirmation?: 'none' | 'delivery' | 'signature' | 'adult_signature'
     packages: {
       weight: { value: number; unit: 'ounce' | 'pound' | 'gram' | 'kilogram' }
       dimensions?: { length: number; width: number; height: number; unit: 'inch' | 'centimeter' }
