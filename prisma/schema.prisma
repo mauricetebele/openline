@@ -711,7 +711,8 @@ model UpsCredential {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  returnLabels     ReturnLabel[]
+  returnLabels      ReturnLabel[]
+  shippingPresets   ShippingPreset[]
 
   @@map("ups_credentials")
 }
@@ -791,6 +792,8 @@ model ShippingPreset {
   confirmation      String?
   insuredValue      Float?    // declared value in USD (e.g. 150.00)
   insuranceProvider String?   // 'parcelguard' | 'carrier' | null (null = none)
+  upsCredentialId   String?   // which UPS API account to use when carrierCode = 'ups_direct'
+  upsCredential     UpsCredential? @relation(fields: [upsCredentialId], references: [id])
   isDefault         Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

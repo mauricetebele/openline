@@ -18,6 +18,7 @@ import { requireAdmin } from '@/lib/auth-helpers'
 import { decrypt } from '@/lib/crypto'
 import { ShipStationClient, V2RatesRequest, SSRatesPayload } from '@/lib/shipstation/client'
 import { loadFedExCredentials, getRates as getFedExRates, type FedExRateParams } from '@/lib/fedex/client'
+import { getUpsDirectRates } from '@/lib/ups-tracking'
 
 export const dynamic = 'force-dynamic'
 
@@ -328,6 +329,52 @@ export async function POST(req: NextRequest) {
               rateCarrier = cheapest.carrier_friendly_name || cheapest.carrier_code
               rateService = cheapest.service_type || cheapest.service_code
               rateId      = cheapest.rate_id
+
+            } else if (preset.carrierCode === 'ups_direct' && preset.upsCredentialId) {
+              // ── UPS Direct path — use UPS API directly with selected credential ──
+              let weightValue = preset.weightValue
+              const weightUnit: 'LBS' | 'KGS' = /gram|kilo/i.test(preset.weightUnit) ? 'KGS' : 'LBS'
+              if (preset.weightUnit === 'ounces') weightValue = preset.weightValue / 16
+              else if (preset.weightUnit === 'grams') weightValue = preset.weightValue / 1000
+
+              const dimUnit: 'IN' | 'CM' = /cent|cm/i.test(preset.dimUnit) ? 'CM' : 'IN'
+
+              const upsRates = await getUpsDirectRates({
+                fromAddress: {
+                  line1: from.street1,
+                  city: from.city,
+                  state: from.state,
+                  postal: fromPostalCode,
+                  country: from.country || 'US',
+                },
+                toAddress: {
+                  line1: toAddress1,
+                  line2: toAddress2,
+                  city: toCity,
+                  state: toState,
+                  postal: toPostalCode,
+                  country: toCountry,
+                },
+                weight: { value: weightValue, unit: weightUnit },
+                dimensions: preset.dimLength && preset.dimWidth && preset.dimHeight
+                  ? { length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight, unit: dimUnit }
+                  : undefined,
+                confirmation: (preset.confirmation ?? 'none') as 'none' | 'delivery' | 'signature' | 'adult_signature',
+              }, preset.upsCredentialId)
+
+              if (upsRates.length === 0) throw new Error('No UPS Direct rates returned')
+
+              // Pick ground if available, else cheapest
+              const ground = upsRates.find(r => /ground/i.test(r.serviceName))
+              const best = ground ?? upsRates.sort((a, b) => (a.negotiatedCost ?? a.shipmentCost) - (b.negotiatedCost ?? b.shipmentCost))[0]
+              const cost = best.negotiatedCost ?? best.shipmentCost
+
+              console.log('[rate-shop-applied] order=%s UPS Direct rate=%s $%s', order.amazonOrderId, best.serviceName, cost.toFixed(2))
+
+              rateAmount  = cost
+              rateCarrier = 'ups_direct'
+              rateService = best.serviceName
+              rateId      = undefined
 
             } else {
               // ── Non-Amazon orders (BackMarket) → try UPS first, then all carriers ──

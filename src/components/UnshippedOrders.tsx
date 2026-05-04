@@ -4191,7 +4191,8 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
 interface ShippingPreset {
   id: string; name: string; carrierCode: string; serviceCode: string | null; packageCode: string | null
   weightValue: number; weightUnit: string; dimLength: number | null; dimWidth: number | null; dimHeight: number | null
-  dimUnit: string; confirmation: string | null; insuredValue: number | null; insuranceProvider: string | null; isDefault: boolean
+  dimUnit: string; confirmation: string | null; insuredValue: number | null; insuranceProvider: string | null
+  upsCredentialId: string | null; isDefault: boolean
 }
 
 interface PackagePreset {
@@ -4228,11 +4229,13 @@ function PresetManagementModal({ onClose, onChange }: {
   const [loadingCarriers, setLoadingCarriers] = useState(false)
   const [loadingServices, setLoadingServices] = useState(false)
   const [loadingPackages, setLoadingPackages] = useState(false)
+  const [upsAccounts, setUpsAccounts] = useState<{ id: string; nickname: string; isDefault: boolean }[]>([])
+  const [loadingUpsAccounts, setLoadingUpsAccounts] = useState(false)
 
   const blankPreset: Omit<ShippingPreset, 'id'> = {
     name: '', carrierCode: '', serviceCode: null, packageCode: null,
     weightValue: 16, weightUnit: 'ounces', dimLength: null, dimWidth: null, dimHeight: null,
-    dimUnit: 'inches', confirmation: null, insuredValue: null, insuranceProvider: null, isDefault: false,
+    dimUnit: 'inches', confirmation: null, insuredValue: null, insuranceProvider: null, upsCredentialId: null, isDefault: false,
   }
   const [form, setForm] = useState<Omit<ShippingPreset, 'id'>>(blankPreset)
 
@@ -4256,6 +4259,15 @@ function PresetManagementModal({ onClose, onChange }: {
       })
       .catch(() => {})
       .finally(() => setLoadingCarriers(false))
+    // Load UPS API accounts for ups_direct presets
+    setLoadingUpsAccounts(true)
+    fetch('/api/ups/credentials')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { configured?: boolean; accounts?: { id: string; nickname: string; isDefault: boolean }[] } | null) => {
+        if (d?.accounts) setUpsAccounts(d.accounts)
+      })
+      .catch(() => {})
+      .finally(() => setLoadingUpsAccounts(false))
   }, [])
 
   const FEDEX_DIRECT_SERVICES = [
@@ -4323,7 +4335,7 @@ function PresetManagementModal({ onClose, onChange }: {
     setForm({ name: p.name, carrierCode: p.carrierCode, serviceCode: p.serviceCode, packageCode: p.packageCode,
       weightValue: p.weightValue, weightUnit: p.weightUnit, dimLength: p.dimLength, dimWidth: p.dimWidth,
       dimHeight: p.dimHeight, dimUnit: p.dimUnit, confirmation: p.confirmation,
-      insuredValue: p.insuredValue, insuranceProvider: p.insuranceProvider, isDefault: p.isDefault })
+      insuredValue: p.insuredValue, insuranceProvider: p.insuranceProvider, upsCredentialId: p.upsCredentialId, isDefault: p.isDefault })
     setEditing(p); setCreating(false); setErr(null)
   }
 
@@ -4411,7 +4423,7 @@ function PresetManagementModal({ onClose, onChange }: {
                 <div className="col-span-2">
                   <label className="block text-[10px] font-medium text-gray-600 mb-1">Carrier <span className="text-red-500">*</span></label>
                   <select value={form.carrierCode}
-                    onChange={e => setForm(f => ({ ...f, carrierCode: e.target.value, serviceCode: null, packageCode: null }))}
+                    onChange={e => setForm(f => ({ ...f, carrierCode: e.target.value, serviceCode: null, packageCode: null, upsCredentialId: e.target.value === 'ups_direct' ? f.upsCredentialId : null }))}
                     className="w-full h-7 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue disabled:opacity-50"
                     disabled={loadingCarriers}>
                     <option value="">{loadingCarriers ? 'Loading carriers…' : '— Select carrier —'}</option>
@@ -4422,6 +4434,25 @@ function PresetManagementModal({ onClose, onChange }: {
                     ))}
                   </select>
                 </div>
+                {form.carrierCode === 'ups_direct' && (
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-medium text-gray-600 mb-1">UPS API Account <span className="text-red-500">*</span></label>
+                  <select value={form.upsCredentialId ?? ''}
+                    onChange={e => setForm(f => ({ ...f, upsCredentialId: e.target.value || null }))}
+                    className="w-full h-7 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue disabled:opacity-50"
+                    disabled={loadingUpsAccounts}>
+                    <option value="">{loadingUpsAccounts ? 'Loading UPS accounts…' : '— Select UPS account —'}</option>
+                    {upsAccounts.map(a => (
+                      <option key={a.id} value={a.id}>
+                        {a.nickname}{a.isDefault ? ' (default)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {upsAccounts.length === 0 && !loadingUpsAccounts && (
+                    <p className="text-[10px] text-amber-600 mt-1">No UPS API accounts configured. Go to Settings → UPS to add one.</p>
+                  )}
+                </div>
+                )}
                 <div>
                   <label className="block text-[10px] font-medium text-gray-600 mb-1">Service</label>
                   <select value={form.serviceCode ?? ''}

@@ -24,6 +24,7 @@ const presetSchema = z.object({
   confirmation:      z.enum(['none', 'delivery', 'signature', 'adult_signature']).optional().nullable(),
   insuredValue:      z.number().positive().optional().nullable(),
   insuranceProvider: z.enum(['parcelguard', 'carrier']).optional().nullable(),
+  upsCredentialId:   z.string().optional().nullable(),
   isDefault:         z.boolean().default(false),
 })
 
