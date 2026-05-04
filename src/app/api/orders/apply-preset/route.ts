@@ -22,6 +22,7 @@ import {
   V2RatesRequest,
 } from '@/lib/shipstation/client'
 import { loadFedExCredentials, getRates as getFedExRates, type FedExRateParams } from '@/lib/fedex/client'
+import { getUpsDirectRates } from '@/lib/ups-tracking'
 
 export const dynamic = 'force-dynamic'
 
@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
   const ssWarehouseId   = `se-${warehouse.warehouseId}`
   const isAmazonCarrier  = preset.carrierCode.toLowerCase().includes('amazon')
   const isFedExDirect    = preset.carrierCode === 'fedex_direct'
+  const isUpsDirect      = preset.carrierCode === 'ups_direct' && !!preset.upsCredentialId
 
   // Pre-load FedEx credentials when using FedEx Direct
   const fedexCreds = isFedExDirect ? await loadFedExCredentials() : null
@@ -115,8 +117,8 @@ export async function POST(req: NextRequest) {
     'FEDEX_LARGE_BOX', 'FEDEX_EXTRA_LARGE_BOX', 'FEDEX_TUBE',
   ])
 
-  console.log('[apply-preset] warehouse=%s fromPostal=%s carrier=%s service=%s orders=%d isAmazon=%s fedexDirect=%s',
-    warehouse.warehouseName, fromPostalCode, preset.carrierCode, preset.serviceCode ?? '(cheapest)', orders.length, isAmazonCarrier, isFedExDirect)
+  console.log('[apply-preset] warehouse=%s fromPostal=%s carrier=%s service=%s orders=%d isAmazon=%s fedexDirect=%s upsDirect=%s',
+    warehouse.warehouseName, fromPostalCode, preset.carrierCode, preset.serviceCode ?? '(cheapest)', orders.length, isAmazonCarrier, isFedExDirect, isUpsDirect)
 
   const amazonV2CarrierId = ssAccount.amazonCarrierId ?? null
   console.log('[apply-preset] amazonV2CarrierId=%s', amazonV2CarrierId)
@@ -411,6 +413,52 @@ export async function POST(req: NextRequest) {
               rateCarrier = chosen.carrierCode
               rateService = chosen.serviceName
               rateId      = chosen.rate_id ?? null
+
+            } else if (isUpsDirect) {
+              // ── UPS Direct path — use UPS API directly with linked credential ──
+              let upsWeightValue = preset.weightValue
+              const upsWeightUnit: 'LBS' | 'KGS' = /gram|kilo/i.test(preset.weightUnit) ? 'KGS' : 'LBS'
+              if (preset.weightUnit === 'ounces') upsWeightValue = preset.weightValue / 16
+              else if (preset.weightUnit === 'grams') upsWeightValue = preset.weightValue / 1000
+
+              const upsDimUnit: 'IN' | 'CM' = /cent|cm/i.test(preset.dimUnit) ? 'CM' : 'IN'
+
+              const upsRates = await getUpsDirectRates({
+                fromAddress: {
+                  line1: from.street1,
+                  city: from.city,
+                  state: from.state,
+                  postal: fromPostalCode,
+                  country: from.country || 'US',
+                },
+                toAddress: {
+                  line1: toAddress1,
+                  line2: toAddress2,
+                  city: toCity,
+                  state: toState,
+                  postal: toPostalCode,
+                  country: toCountry,
+                },
+                weight: { value: upsWeightValue, unit: upsWeightUnit },
+                dimensions: preset.dimLength && preset.dimWidth && preset.dimHeight
+                  ? { length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight, unit: upsDimUnit }
+                  : undefined,
+                confirmation: (preset.confirmation ?? 'none') as 'none' | 'delivery' | 'signature' | 'adult_signature',
+              }, preset.upsCredentialId!)
+
+              if (upsRates.length === 0) throw new Error('No UPS Direct rates returned')
+
+              // If a specific service was chosen, find that; else prefer Ground, else cheapest
+              const sorted = upsRates.sort((a, b) => (a.negotiatedCost ?? a.shipmentCost) - (b.negotiatedCost ?? b.shipmentCost))
+              const match = preset.serviceCode
+                ? sorted.find(r => r.serviceCode === preset.serviceCode) ?? sorted[0]
+                : sorted.find(r => /ground/i.test(r.serviceName)) ?? sorted[0]
+
+              const cost = match.negotiatedCost ?? match.shipmentCost
+              rateAmount  = cost
+              rateCarrier = 'ups_direct'
+              rateService = match.serviceName
+              rateId      = null
 
             } else {
               const v1Payload: SSRatesPayload = {
