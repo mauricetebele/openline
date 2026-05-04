@@ -207,8 +207,9 @@ export async function POST(req: NextRequest) {
         console.error('[rate-shop] V2 error:', msg)
         rateErrors.push(`Amazon Buy Shipping: ${msg}`)
       }
-    } else if (v2CarrierMap?.has(carrier.code)) {
-      // ── Non-Amazon carriers → V2 getRates (returns delivery dates) ────
+    } else if (v2CarrierMap?.has(carrier.code) && !/^ups/i.test(carrier.code)) {
+      // ── Non-Amazon, non-UPS carriers → V2 getRates (returns delivery dates) ──
+      // UPS is forced to V1 because V2 doesn't include confirmation surcharges in rates
       const wtUnit  = singularUnit(body.weight.units) as 'ounce' | 'pound' | 'gram' | 'kilogram'
       const dimUnit = singularUnit(body.dimensions.units) as 'inch' | 'centimeter'
       const v2CarrierId = v2CarrierMap.get(carrier.code)!
