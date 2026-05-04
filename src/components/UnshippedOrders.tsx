@@ -7819,10 +7819,18 @@ export default function UnshippedOrders() {
                             </span>
                           )}
                           {order.orderStatus !== 'Unshipped' && (
-                            <button onClick={() => setBmManualShipOrder(order)}
-                              className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
-                              <Truck size={10} /> Ship
-                            </button>
+                            <>
+                              <button onClick={() => setLabelOrder(order)}
+                                className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium transition-colors',
+                                  ssAccount ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}>
+                                <Truck size={10} /> Ship
+                              </button>
+                              <button onClick={() => setBmManualShipOrder(order)}
+                                title="Manual Ship — enter carrier & tracking without rate shopping"
+                                className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+                                <Truck size={10} /> Manual
+                              </button>
+                            </>
                           )}
                           <button onClick={() => handleUnprocess(order)} disabled={isUnprocessing} title="Unprocess — release inventory reservation"
                             className="inline-flex items-center justify-center h-6 w-6 rounded text-[10px] text-gray-400 hover:text-amber-600 hover:bg-amber-50 disabled:opacity-40 transition-colors">

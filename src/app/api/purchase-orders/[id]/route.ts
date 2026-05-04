@@ -53,7 +53,7 @@ export async function PUT(
 
   const existing = await prisma.purchaseOrder.findUnique({
     where: { id: params.id },
-    select: { status: true },
+    select: { status: true, vendorId: true },
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const isReceived = existing.status === 'RECEIVED'
@@ -171,6 +171,20 @@ export async function PUT(
           costCodeId: l.costCodeId || null,
         })),
       })
+    }
+
+    // Cascade vendor change to linked serials
+    if (vendorId !== existing!.vendorId) {
+      const receiptLineIds = await tx.pOReceiptLine.findMany({
+        where: { purchaseOrderLine: { purchaseOrderId: params.id } },
+        select: { id: true },
+      })
+      if (receiptLineIds.length > 0) {
+        await tx.inventorySerial.updateMany({
+          where: { receiptLineId: { in: receiptLineIds.map(r => r.id) } },
+          data: { vendorId },
+        })
+      }
     }
 
     return tx.purchaseOrder.update({
