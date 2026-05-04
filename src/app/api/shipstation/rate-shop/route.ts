@@ -468,13 +468,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // If UPS Direct returned rates, drop ShipStation UPS duplicates (UPS Direct
-  // includes all surcharges like signature confirmation; ShipStation UPS doesn't)
-  const hasUpsDirectRates = allRates.some(r => r.carrierCode === 'ups_direct')
-  const finalRates = hasUpsDirectRates
-    ? allRates.filter(r => r.carrierCode === 'ups_direct' || !/^ups/i.test(r.carrierCode))
-    : allRates
-  finalRates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))
+  allRates.sort((a, b) => (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost))
 
   // ── Amazon SP-API MerchantFulfillment (Amazon Buy Shipping rates incl. UPS) ──
   let amazonServices: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[] | undefined
@@ -546,5 +540,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ rates: finalRates, errors: rateErrors, amazonServices, fedexDebug })
+  return NextResponse.json({ rates: allRates, errors: rateErrors, amazonServices, fedexDebug })
 }
