@@ -24,7 +24,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Check if any serial already exists on another vendor RMA
     const trimmedSerials = (serials as string[]).map((sn: string) => sn.trim())
     const existingVrmaSerials = await prisma.vendorRMASerial.findMany({
-      where: { serialNumber: { in: trimmedSerials } },
+      where: { serialNumber: { in: trimmedSerials }, scannedOutAt: null },
       include: { rmaItem: { include: { rma: { select: { rmaNumber: true } } } } },
     })
     if (existingVrmaSerials.length > 0) {
