@@ -1,11 +1,14 @@
 /**
  * POST /api/marketplace-skus/bulk-backmarket
  *
- * Bulk-create BackMarket MSKU mappings + MarketplaceListing records.
+ * Bulk-create BackMarket MSKU mappings + MarketplaceListing records,
+ * then push listings to BackMarket via their CSV API.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { decrypt } from '@/lib/crypto'
+import { BackMarketClient, BM_CONDITION_TO_STATE } from '@/lib/backmarket/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +18,7 @@ interface RowInput {
   sellerSku: string
   bmId: string
   condition: string
+  price: number
 }
 
 export async function POST(req: NextRequest) {
@@ -36,6 +40,7 @@ export async function POST(req: NextRequest) {
       if (!row.sellerSku?.trim()) throw new Error('sellerSku is required')
       if (!row.bmId?.trim() || !/^\d+$/.test(row.bmId.trim())) throw new Error('bmId must be a numeric string')
       if (!row.condition?.trim()) throw new Error('condition is required')
+      if (typeof row.price !== 'number' || isNaN(row.price) || row.price <= 0) throw new Error('price must be > 0')
 
       const sellerSku = row.sellerSku.trim()
       const bmId = row.bmId.trim()
@@ -94,5 +99,40 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ results })
+  // Push successfully created listings to BackMarket API
+  const successRows = rows.filter(r => results.find(res => res.sellerSku === r.sellerSku.trim() && res.status === 'success'))
+  let bmApiResponse: { success: boolean; error?: string; detail?: unknown } | undefined
+
+  if (successRows.length > 0) {
+    try {
+      const credential = await prisma.backMarketCredential.findFirst({
+        where: { isActive: true },
+        select: { apiKeyEnc: true },
+      })
+      if (!credential) throw new Error('No active BackMarket credential configured')
+
+      const client = new BackMarketClient(decrypt(credential.apiKeyEnc))
+      const bmRows = successRows.map(r => {
+        const state = BM_CONDITION_TO_STATE[r.condition.trim()]
+        if (state === undefined) throw new Error(`Unknown BM condition: ${r.condition}`)
+        return {
+          sku: r.sellerSku.trim(),
+          backmarketId: parseInt(r.bmId.trim(), 10),
+          price: r.price,
+          quantity: 1,
+          state,
+        }
+      })
+
+      const resp = await client.createListings(bmRows)
+      console.log('[BackMarket] createListings response:', JSON.stringify(resp))
+      bmApiResponse = { success: true, detail: resp }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[BackMarket] createListings failed:', msg)
+      bmApiResponse = { success: false, error: msg }
+    }
+  }
+
+  return NextResponse.json({ results, bmApi: bmApiResponse })
 }

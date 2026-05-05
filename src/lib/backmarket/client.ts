@@ -34,6 +34,12 @@ async function withRetry<T>(fn: () => Promise<T>, attempt = 0): Promise<T> {
   }
 }
 
+export const BM_CONDITION_TO_STATE: Record<string, number> = {
+  Excellent: 0,
+  Good: 2,
+  Stallone: 3,
+}
+
 export class BackMarketClient {
   private http: AxiosInstance
 
@@ -76,6 +82,22 @@ export class BackMarketClient {
   async updateListingQuantity(listingId: number, quantity: number): Promise<void> {
     await this.post(`/listings/${listingId}`, { quantity })
     console.log(`[BackMarket] Updated listing ${listingId} quantity to ${quantity}`)
+  }
+
+  /**
+   * Create new listings on BackMarket via CSV-style POST /ws/listings.
+   */
+  async createListings(rows: { sku: string; backmarketId: number; price: number; quantity: number; state: number }[]) {
+    const header = 'sku;backmarket_id;price;quantity;state'
+    const lines = rows.map(r => `${r.sku};${r.backmarketId};${r.price};${r.quantity};${r.state}`)
+    const catalog = [header, ...lines].join('\n')
+    return this.post<{ bodymessage: number; statuscode: number }>('/listings', {
+      encoding: 'latin1',
+      delimiter: ';',
+      quotechar: '"',
+      header: true,
+      catalog,
+    })
   }
 
   /**

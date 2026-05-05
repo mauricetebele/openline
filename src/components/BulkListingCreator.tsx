@@ -299,7 +299,7 @@ export default function BulkListingCreator() {
       asin: isBM ? '' : (suggestions[r.productId] ?? ''),
       price: '',
       condition: isBM ? BM_CONDITIONS[0] : 'New',
-      quantity: '0',
+      quantity: isBM ? '1' : '0',
       shippingTemplate: '',
     }))
     setListingRows(rows)
@@ -319,6 +319,8 @@ export default function BulkListingCreator() {
     if (isBM) {
       if (!row.asin.trim() || !/^\d+$/.test(row.asin.trim())) errs.push('BMID must be numeric')
       if (!BM_CONDITIONS.includes(row.condition)) errs.push('Invalid BM condition')
+      const p = parseFloat(row.price)
+      if (!row.price || isNaN(p) || p <= 0) errs.push('Price > 0')
     } else {
       if (!ASIN_RE.test(row.asin)) errs.push('Invalid ASIN')
       const p = parseFloat(row.price)
@@ -422,6 +424,7 @@ export default function BulkListingCreator() {
               sellerSku: r.marketplaceSku.trim(),
               bmId: r.asin.trim(),
               condition: r.condition,
+              price: parseFloat(r.price),
             })),
           }
           const res = await fetch('/api/marketplace-skus/bulk-backmarket', {
@@ -1281,7 +1284,7 @@ export default function BulkListingCreator() {
                         <th className="px-2 py-2">Condition</th>
                         {!isBM && <th className="px-2 py-2">Marketplace SKU</th>}
                         <th className="px-2 py-2">{isBM ? 'BMID' : 'ASIN'}</th>
-                        {!isBM && <th className="px-2 py-2">Price</th>}
+                        <th className="px-2 py-2">Price</th>
                         {!isBM && fulfillment === 'MFN' && <th className="px-2 py-2">Qty</th>}
                         {!isBM && fulfillment === 'MFN' && <th className="px-2 py-2">Template</th>}
                       </tr>
@@ -1301,7 +1304,7 @@ export default function BulkListingCreator() {
                           }
                         })
 
-                        const colCount = isBM ? 5 : (fulfillment === 'MFN' ? 9 : 7)
+                        const colCount = isBM ? 6 : (fulfillment === 'MFN' ? 9 : 7)
 
                         return groups.map((group) => {
                           const isMulti = group.rows.length > 1
@@ -1317,7 +1320,7 @@ export default function BulkListingCreator() {
                                         const rowKey = `${row.productId}::${row.gradeId}::${row.marketplaceSku}`
                                         const isLocked = lockedKeys.has(rowKey)
                                         const errs = isLocked ? [] : getRowErrors(row, i)
-                                        const hasErr = errs.length > 0 && (row.asin || (!isBM && row.price))
+                                        const hasErr = errs.length > 0 && (row.asin || row.price)
                                         return (
                           <tr key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`} className={clsx('border-b last:border-0', isLocked && 'bg-green-50/50 opacity-60')}>
                             <td className="px-2 py-1.5 w-20">
@@ -1327,7 +1330,7 @@ export default function BulkListingCreator() {
                                 <div className="flex items-center gap-1">
                                   {hasErr ? (
                                     <span title={errs.join(', ')}><XCircle size={14} className="text-red-500" /></span>
-                                  ) : row.asin && (isBM || row.price) ? (
+                                  ) : row.asin && row.price ? (
                                     <CheckCircle2 size={14} className="text-green-600" />
                                   ) : <span className="w-3.5" />}
                                   <button
@@ -1471,7 +1474,6 @@ export default function BulkListingCreator() {
                               </div>
                               )}
                             </td>
-                            {!isBM && (
                             <td className="px-2 py-1.5">
                               <input
                                 type="number"
@@ -1484,7 +1486,6 @@ export default function BulkListingCreator() {
                                 className="w-20 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-100 disabled:text-gray-500"
                               />
                             </td>
-                            )}
                             {!isBM && fulfillment === 'MFN' && (
                               <td className="px-2 py-1.5">
                                 <input
