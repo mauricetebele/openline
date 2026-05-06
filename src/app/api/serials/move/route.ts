@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-  })
+  }, { timeout: 30_000 })
 
   return NextResponse.json({ movedCount: toMove.length })
 }
