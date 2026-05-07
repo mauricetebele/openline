@@ -73,11 +73,24 @@ export async function POST(req: NextRequest) {
 
       if (!serial) throw new Error('Serial not found')
       if (serial.status !== 'OUT_OF_STOCK') throw new Error('Serial is not OUT_OF_STOCK')
-      if (!serial.fbaShipmentAssignment) throw new Error('Serial has no FBA shipment assignment')
+
+      const isManualFba = !serial.fbaShipmentAssignment
+      if (isManualFba) {
+        // Verify this is a Manual FBA serial
+        const manualFbaEvent = await tx.serialHistory.findFirst({
+          where: {
+            inventorySerialId: serial.id,
+            eventType: 'MANUAL_REMOVE',
+            notes: { startsWith: 'MANUAL FBA' },
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+        if (!manualFbaEvent) throw new Error('Serial has no FBA shipment assignment')
+      }
 
       const previousGradeId = serial.gradeId
       const finalGradeId = gradeId ?? serial.gradeId // keep existing grade if not regraded
-      const fbaShipmentId = serial.fbaShipmentAssignment.fbaShipmentId
+      const fbaShipmentId = serial.fbaShipmentAssignment?.fbaShipmentId ?? null
 
       // 2. Update InventorySerial → IN_STOCK, set location, optionally regrade
       await tx.inventorySerial.update({
@@ -91,9 +104,11 @@ export async function POST(req: NextRequest) {
       })
 
       // 3. Delete FbaShipmentSerialAssignment (frees unique constraint for re-shipment)
-      await tx.fbaShipmentSerialAssignment.delete({
-        where: { id: serial.fbaShipmentAssignment.id },
-      })
+      if (serial.fbaShipmentAssignment) {
+        await tx.fbaShipmentSerialAssignment.delete({
+          where: { id: serial.fbaShipmentAssignment.id },
+        })
+      }
 
       // 4. Create SerialHistory event (FBA_RETURN)
       await tx.serialHistory.create({
@@ -103,7 +118,9 @@ export async function POST(req: NextRequest) {
           locationId,
           fbaShipmentId,
           userId: user.dbId,
-          notes: note?.trim() || `Received back from FBA shipment ${serial.fbaShipmentAssignment.fbaShipment.shipmentNumber ?? ''}`.trim(),
+          notes: note?.trim() || (isManualFba
+            ? 'Received back from Manual FBA'
+            : `Received back from FBA shipment ${serial.fbaShipmentAssignment!.fbaShipment.shipmentNumber ?? ''}`.trim()),
         },
       })
 

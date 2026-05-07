@@ -23,7 +23,7 @@ interface ValidatedSerial {
   description: string
   gradeId: string | null
   grade: string | null
-  fbaShipmentId: string
+  fbaShipmentId: string | null
   fbaShipmentNumber: string | null
 }
 
@@ -215,8 +215,10 @@ export default function CreateFbaReturnModal({
             <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg space-y-1">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{validated.sku}</span>
-                {validated.fbaShipmentNumber && (
+                {validated.fbaShipmentNumber ? (
                   <span className="text-xs font-mono text-blue-600 dark:text-blue-400">{validated.fbaShipmentNumber}</span>
+                ) : (
+                  <span className="text-xs font-medium px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">Manual FBA</span>
                 )}
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400">{validated.description}</p>
