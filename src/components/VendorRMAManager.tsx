@@ -1305,7 +1305,9 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
               serialNumber: s.serialNumber,
               sku: item.product.sku,
               description: item.product.description,
-              unitCost: item.unitCost,
+              unitCost: (s as unknown as { liveCost?: number | null }).liveCost != null
+                ? String((s as unknown as { liveCost: number }).liveCost)
+                : item.unitCost,
             })),
           ).sort((a, b) => a.sku.localeCompare(b.sku) || a.serialNumber.localeCompare(b.serialNumber))
           const totalCost = flatSerials.reduce((sum, s) => sum + (s.unitCost ? parseFloat(s.unitCost) : 0), 0)

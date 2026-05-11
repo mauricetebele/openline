@@ -51,12 +51,20 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     ])
   )
 
-  // Compute live unitCost per item from serial costs
+  // Enrich each serial with its individual live cost, and compute item average
   const enrichedItems = rma.items.map(item => {
     if (item.serials.length > 0) {
-      const costs = item.serials.map(s => liveCostMap.get(s.serialNumber)).filter((c): c is number => c != null)
+      const enrichedSerials = item.serials.map(s => ({
+        ...s,
+        liveCost: liveCostMap.get(s.serialNumber) ?? null,
+      }))
+      const costs = enrichedSerials.map(s => s.liveCost).filter((c): c is number => c != null)
       const liveUnitCost = costs.length > 0 ? costs.reduce((a, b) => a + b, 0) / costs.length : null
-      return { ...item, unitCost: liveUnitCost != null ? String(liveUnitCost) : item.unitCost }
+      return {
+        ...item,
+        serials: enrichedSerials,
+        unitCost: liveUnitCost != null ? String(liveUnitCost) : item.unitCost,
+      }
     }
     return item
   })
