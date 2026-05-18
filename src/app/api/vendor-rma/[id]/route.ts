@@ -114,8 +114,8 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
 
   const rma = await prisma.vendorRMA.findUnique({ where: { id: params.id } })
   if (!rma) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (rma.status !== 'AWAITING_VENDOR_APPROVAL') {
-    return NextResponse.json({ error: 'Only returns awaiting approval can be deleted' }, { status: 400 })
+  if (rma.status !== 'AWAITING_VENDOR_APPROVAL' && rma.status !== 'APPROVED_TO_RETURN') {
+    return NextResponse.json({ error: 'Only returns that have not been shipped can be deleted' }, { status: 400 })
   }
 
   await prisma.vendorRMA.delete({ where: { id: params.id } })

@@ -1105,7 +1105,7 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
               </>
             )
           })()}
-          {rma.status === 'AWAITING_VENDOR_APPROVAL' && (
+          {(rma.status === 'AWAITING_VENDOR_APPROVAL' || rma.status === 'APPROVED_TO_RETURN') && (
             <button onClick={handleDelete} className="ml-3 text-xs text-red-500 hover:text-red-700 underline">Delete Return</button>
           )}
           {(rma.status === 'APPROVED_TO_RETURN' || rma.status === 'SHIPPED_AWAITING_CREDIT') && (() => {
