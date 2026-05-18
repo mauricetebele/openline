@@ -255,15 +255,10 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                   <ClipboardCheck size={12} /> Process to Fulfillment
                 </button>
               )}
-              {order.fulfillmentStatus === 'SHIPPED' ? (
+              {order.fulfillmentStatus === 'SHIPPED' && (
                 <button onClick={() => setShowInvoiceModal(true)}
                   className="px-3 py-1.5 bg-yellow-500 text-white rounded text-xs font-medium hover:bg-yellow-600 flex items-center gap-1">
                   Create Invoice
-                </button>
-              ) : (
-                <button onClick={() => transition('INVOICED')} disabled={transitioning}
-                  className="px-3 py-1.5 bg-yellow-500 text-white rounded text-xs font-medium hover:bg-yellow-600 disabled:opacity-50">
-                  Mark as Invoiced
                 </button>
               )}
               <button onClick={deleteOrder} disabled={deleting}
