@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { ClipboardCheck, MapPin, RefreshCcw, AlertCircle, X, Truck, Plus, Trash2, ExternalLink, Package, Mail } from 'lucide-react'
+import { ClipboardCheck, MapPin, RefreshCcw, AlertCircle, X, Truck, Plus, Trash2, ExternalLink, Package, Mail, Pencil, Check } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generate-wholesale-invoice'
 import EmailDocumentModal from '@/components/EmailDocumentModal'
 
@@ -74,6 +74,9 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
   const [trackingLoading, setTrackingLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [emailModal, setEmailModal] = useState(false)
+  const [editingPo, setEditingPo] = useState(false)
+  const [poInput, setPoInput] = useState('')
+  const [savingPo, setSavingPo] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -158,8 +161,57 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
         <Link href={`/wholesale/customers/${order.customer.id}`} className="text-sm text-gray-600 hover:text-orange-600">
           {order.customer.companyName}
         </Link>
-        {order.customerPoNumber && (
-          <span className="text-sm text-gray-500">PO# <span className="font-mono font-medium text-gray-700">{order.customerPoNumber}</span></span>
+        {editingPo ? (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault()
+              setSavingPo(true)
+              try {
+                const res = await fetch(`/api/wholesale/orders/${id}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ customerPoNumber: poInput.trim() || null }),
+                })
+                if (res.ok) {
+                  setOrder(prev => prev ? { ...prev, customerPoNumber: poInput.trim() || undefined } : prev)
+                  setEditingPo(false)
+                  toast.success('Customer PO# updated')
+                } else {
+                  toast.error('Failed to update PO#')
+                }
+              } finally { setSavingPo(false) }
+            }}
+            className="flex items-center gap-1"
+          >
+            <span className="text-sm text-gray-500">PO#</span>
+            <input
+              autoFocus
+              value={poInput}
+              onChange={(e) => setPoInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setEditingPo(false) }}
+              placeholder="Enter PO#"
+              className="w-32 border border-gray-300 rounded px-2 py-0.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-orange-400"
+              disabled={savingPo}
+            />
+            <button type="submit" disabled={savingPo} className="text-green-600 hover:text-green-700">
+              <Check size={14} />
+            </button>
+            <button type="button" onClick={() => setEditingPo(false)} className="text-gray-400 hover:text-gray-600">
+              <X size={14} />
+            </button>
+          </form>
+        ) : (
+          <button
+            onClick={() => { setPoInput(order.customerPoNumber ?? ''); setEditingPo(true) }}
+            className="flex items-center gap-1 text-sm text-gray-500 hover:text-orange-600 group"
+          >
+            {order.customerPoNumber ? (
+              <>PO# <span className="font-mono font-medium text-gray-700 group-hover:text-orange-600">{order.customerPoNumber}</span></>
+            ) : (
+              <span className="text-gray-400 italic">+ Add PO#</span>
+            )}
+            <Pencil size={12} className="opacity-0 group-hover:opacity-100" />
+          </button>
         )}
         <div className="ml-auto flex flex-wrap gap-2">
           {order.status === 'PENDING_APPROVAL' && (

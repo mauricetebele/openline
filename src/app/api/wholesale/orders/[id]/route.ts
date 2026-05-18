@@ -67,15 +67,37 @@ export async function PUT(
     include: { customer: { select: { paymentTerms: true } } },
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (!['DRAFT', 'PENDING_APPROVAL'].includes(existing.status)) {
-    return NextResponse.json({ error: 'Only unapproved orders can be edited' }, { status: 400 })
-  }
 
   const body = await req.json()
   const {
     customerPoNumber, notes, internalNotes, discountPct, taxRate, shippingCost, items,
     shippingAddressId, billingAddressId, orderDate, paymentTerms,
   } = body
+
+  // Allow customerPoNumber updates on any status; full edits only on unapproved orders
+  const isPoOnlyUpdate = customerPoNumber !== undefined &&
+    notes === undefined && internalNotes === undefined && discountPct === undefined &&
+    taxRate === undefined && shippingCost === undefined && items === undefined &&
+    shippingAddressId === undefined && billingAddressId === undefined &&
+    orderDate === undefined && paymentTerms === undefined
+
+  if (!isPoOnlyUpdate && !['DRAFT', 'PENDING_APPROVAL'].includes(existing.status)) {
+    return NextResponse.json({ error: 'Only unapproved orders can be edited' }, { status: 400 })
+  }
+
+  if (isPoOnlyUpdate) {
+    const updated = await prisma.salesOrder.update({
+      where: { id: params.id },
+      data: { customerPoNumber: customerPoNumber?.trim() || null },
+      include: {
+        customer: { select: { id: true, companyName: true, paymentTerms: true } },
+        items: { orderBy: { createdAt: 'asc' } },
+        allocations: true,
+        creditMemoAllocations: { include: { creditMemo: { select: { id: true, memoNumber: true } } } },
+      },
+    })
+    return NextResponse.json(updated)
+  }
 
   const order = await prisma.$transaction(async (tx) => {
     if (items !== undefined) {
