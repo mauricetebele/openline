@@ -9,12 +9,10 @@ const TERMS_DAYS: Record<string, number> = {
 }
 
 function calcTotals(items: Array<{
-  quantity: number; unitPrice: number; discount: number; taxable: boolean
+  quantity: number; unitPrice: number; taxable: boolean
 }>, discountPct: number, taxRate: number, shippingCost: number) {
   const lineItems = items.map((item) => {
-    const lineGross = item.quantity * item.unitPrice
-    const lineDisc  = lineGross * (item.discount / 100)
-    return { ...item, lineTotal: lineGross - lineDisc }
+    return { ...item, lineTotal: item.quantity * item.unitPrice }
   })
   const subtotal    = lineItems.reduce((s, i) => s + i.lineTotal, 0)
   const discountAmt = subtotal * (discountPct / 100)
@@ -128,10 +126,9 @@ export async function PUT(
     }
 
     const lineItems = items
-      ? items.map((i: { quantity: number; unitPrice: number; discount?: number; taxable?: boolean }) => ({
+      ? items.map((i: { quantity: number; unitPrice: number; taxable?: boolean }) => ({
           quantity:  Number(i.quantity),
           unitPrice: Number(i.unitPrice),
-          discount:  Number(i.discount ?? 0),
           taxable:   i.taxable ?? true,
         }))
       : []
@@ -178,7 +175,7 @@ export async function PUT(
               description: src.description?.trim() || null,
               quantity:    Number(src.quantity),
               unitPrice:   Number(src.unitPrice),
-              discount:    Number(src.discount ?? 0),
+              discount:    0,
               total:       computed[idx].lineTotal,
               taxable:     src.taxable ?? true,
             })),

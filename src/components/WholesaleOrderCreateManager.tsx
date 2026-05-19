@@ -46,12 +46,11 @@ interface LineItem {
   description: string
   quantity: number
   unitPrice: number
-  discount: number
   taxable: boolean
 }
 
 function calcLine(item: LineItem) {
-  return item.quantity * item.unitPrice * (1 - item.discount / 100)
+  return item.quantity * item.unitPrice
 }
 
 function calcTotals(items: LineItem[], discountPct: number, taxRate: number, shippingCost: number) {
@@ -67,7 +66,7 @@ function calcTotals(items: LineItem[], discountPct: number, taxRate: number, shi
 let lineKeyCounter = 0
 const blankLine = (): LineItem => ({
   _key: `line-${++lineKeyCounter}`,
-  sku: '', title: '', description: '', quantity: 1, unitPrice: 0, discount: 0, taxable: true,
+  sku: '', title: '', description: '', quantity: 1, unitPrice: 0, taxable: true,
 })
 
 export default function WholesaleOrderCreateManager({ editOrderId }: { editOrderId?: string } = {}) {
@@ -161,7 +160,7 @@ export default function WholesaleOrderCreateManager({ editOrderId }: { editOrder
           const invMap: Record<string, ProductResult['inventoryItems']> = {}
           const loadedItems: LineItem[] = data.items.map((it: {
             productId?: string; gradeId?: string; sku?: string; title: string;
-            description?: string; quantity: number; unitPrice: number; discount: number; taxable: boolean
+            description?: string; quantity: number; unitPrice: number; taxable: boolean
             product?: { id: string; sku: string; description: string; inventoryItems?: ProductResult['inventoryItems'] }
             grade?: { grade: string }
           }) => {
@@ -178,7 +177,6 @@ export default function WholesaleOrderCreateManager({ editOrderId }: { editOrder
               description: it.productId ? `Available: ${avail}` : (it.description ?? ''),
               quantity: Number(it.quantity),
               unitPrice: Number(it.unitPrice),
-              discount: Number(it.discount),
               taxable: it.taxable,
             }
           })
@@ -262,7 +260,7 @@ export default function WholesaleOrderCreateManager({ editOrderId }: { editOrder
     setItems((prev) => [...prev, {
       _key: `line-${++lineKeyCounter}`,
       productId: p.id, gradeId: '', sku: p.sku, title: p.description, description: `Available: ${avail}`,
-      quantity: 1, unitPrice: 0, discount: discountPct, taxable: true,
+      quantity: 1, unitPrice: 0, taxable: true,
     }])
     setProductSearch('')
     setProductResults([])
@@ -307,7 +305,7 @@ export default function WholesaleOrderCreateManager({ editOrderId }: { editOrder
           gradeId: i.gradeId || undefined,
           sku: i.sku, title: i.title, description: i.description,
           quantity: i.quantity, unitPrice: i.unitPrice,
-          discount: i.discount, taxable: i.taxable,
+          taxable: i.taxable,
         })),
       }
 
@@ -564,7 +562,6 @@ export default function WholesaleOrderCreateManager({ editOrderId }: { editOrder
                     <th className="text-left pb-2 w-36">Grade</th>
                     <th className="text-right pb-2 w-20">Qty</th>
                     <th className="text-right pb-2 w-28">Unit Price</th>
-                    <th className="text-right pb-2 w-20">Disc%</th>
                     <th className="text-right pb-2 w-28">Line Total</th>
                     <th className="w-8"></th>
                   </tr>
@@ -633,14 +630,6 @@ export default function WholesaleOrderCreateManager({ editOrderId }: { editOrder
                           className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-orange-400"
                         />
                       </td>
-                      <td className="py-2 pr-2">
-                        <input
-                          type="number" min="0" max="100" step="0.01"
-                          value={item.discount}
-                          onChange={(e) => updateLine(i, 'discount', Number(e.target.value))}
-                          className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-orange-400"
-                        />
-                      </td>
                       <td className="py-2 pr-2 text-right font-medium">{fmt(calcLine(item))}</td>
                       <td className="py-2">
                         <button onClick={() => removeLine(i)} className="text-gray-300 hover:text-red-400">
@@ -702,7 +691,6 @@ export default function WholesaleOrderCreateManager({ editOrderId }: { editOrder
                     <th className="text-left py-2">Title</th>
                     <th className="text-right py-2">Qty</th>
                     <th className="text-right py-2">Unit Price</th>
-                    <th className="text-right py-2">Disc%</th>
                     <th className="text-right py-2">Total</th>
                   </tr>
                 </thead>
@@ -712,7 +700,6 @@ export default function WholesaleOrderCreateManager({ editOrderId }: { editOrder
                       <td className="py-1.5">{item.title}</td>
                       <td className="py-1.5 text-right">{item.quantity}</td>
                       <td className="py-1.5 text-right">{fmt(item.unitPrice)}</td>
-                      <td className="py-1.5 text-right">{item.discount}%</td>
                       <td className="py-1.5 text-right">{fmt(calcLine(item))}</td>
                     </tr>
                   ))}

@@ -3,15 +3,13 @@ import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 
 function calcTotals(
-  items: Array<{ quantity: number; unitPrice: number; discount: number; taxable: boolean }>,
+  items: Array<{ quantity: number; unitPrice: number; taxable: boolean }>,
   discountPct: number,
   taxRate: number,
   shippingCost: number,
 ) {
   const lineItems = items.map((item) => {
-    const lineGross = item.quantity * item.unitPrice
-    const lineDisc = lineGross * (item.discount / 100)
-    return { ...item, lineTotal: lineGross - lineDisc }
+    return { ...item, lineTotal: item.quantity * item.unitPrice }
   })
   const subtotal = lineItems.reduce((s, i) => s + i.lineTotal, 0)
   const discountAmt = subtotal * (discountPct / 100)
@@ -84,7 +82,6 @@ export async function POST(
       allItems.map((i) => ({
         quantity: Number(i.quantity),
         unitPrice: Number(i.unitPrice),
-        discount: Number(i.discount),
         taxable: i.taxable,
       })),
       Number(order.discountPct),
