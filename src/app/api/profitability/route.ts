@@ -368,22 +368,20 @@ export async function GET(req: NextRequest) {
     const commission = 0
 
     let totalCogs = 0
-    let costCodeDeductions = 0
-    const serialCostsByItem = new Map<string, { cogs: number; cc: number; count: number }>()
+    const costCodeDeductions = 0 // Cost codes excluded from wholesale profitability
+    const serialCostsByItem = new Map<string, { cogs: number; count: number }>()
     for (const sa of order.serialAssignments) {
       const serial = sa.inventorySerial
       const polCost = serial.receiptLine?.purchaseOrderLine
       const itemId = sa.salesOrderItemId ?? ''
-      const existing = serialCostsByItem.get(itemId) ?? { cogs: 0, cc: 0, count: 0 }
+      const existing = serialCostsByItem.get(itemId) ?? { cogs: 0, count: 0 }
       if (polCost) {
         existing.cogs += Number(polCost.unitCost)
-        existing.cc += polCost.costCode ? Number(polCost.costCode.amount) : 0
       } else if (serial.unitCost != null && Number(serial.unitCost) > 0) {
         existing.cogs += Number(serial.unitCost)
       } else {
         const key = `${serial.productId}:${serial.gradeId ?? ''}`
         existing.cogs += cogsMap.get(key) ?? cogsProductOnly.get(serial.productId) ?? 0
-        existing.cc += costCodeMap.get(key) ?? costCodeProductOnly.get(serial.productId) ?? 0
       }
       existing.count += 1
       serialCostsByItem.set(itemId, existing)
@@ -393,15 +391,12 @@ export async function GET(req: NextRequest) {
       const serialCosts = serialCostsByItem.get(item.id)
       if (serialCosts && serialCosts.count > 0) {
         totalCogs += serialCosts.cogs
-        costCodeDeductions += serialCosts.cc
       } else {
         // Non-serialized: use item product directly
         if (item.productId) {
           const key = `${item.productId}:`
           const unitCost = cogsMap.get(key) ?? cogsProductOnly.get(item.productId) ?? 0
           totalCogs += unitCost * Number(item.quantity)
-          const ccAmount = costCodeMap.get(key) ?? costCodeProductOnly.get(item.productId) ?? 0
-          costCodeDeductions += ccAmount * Number(item.quantity)
         }
       }
     }
