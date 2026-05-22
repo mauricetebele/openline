@@ -212,7 +212,7 @@ async function handleWholesale(
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
   const orderTotal = Number(order.total ?? 0)
-  const totalShipping = Number(order.shippingCost ?? 0)
+  const totalShipping = 0 // Actual cost of shipping (TBD — input to be added later)
 
   // Build serial cost map keyed by salesOrderItemId
   const serialCostsByItem = new Map<string, { cogs: number; count: number }>()
@@ -247,7 +247,7 @@ async function handleWholesale(
       itemCogs = (cogsMap.get(key) ?? cogsProductOnly.get(item.productId) ?? 0) * Number(item.quantity)
     }
 
-    const itemShipping = totalShipping * proportion
+    const itemShipping = totalShipping * proportion // 0 until actual shipping cost is tracked
     const itemNetProfit = itemSale - itemCogs - itemShipping - itemCostCodes
 
     return {

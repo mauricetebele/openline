@@ -364,7 +364,8 @@ export async function GET(req: NextRequest) {
   // ── Wholesale rows ────────────────────────────────────────────────────
   for (const order of wholesaleOrders) {
     const saleValue = Number(order.total ?? 0)
-    const shippingCost = Number(order.shippingCost ?? 0)
+    const customerShipping = Number(order.shippingCost ?? 0) // Amount billed to customer for shipping
+    const shippingCost = 0 // Actual cost of shipping (TBD — input to be added later)
     const commission = 0
 
     let totalCogs = 0
@@ -401,7 +402,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const netProfit = saleValue - totalCogs - commission - shippingCost - costCodeDeductions
+    const netProfit = saleValue + customerShipping - totalCogs - commission - shippingCost - costCodeDeductions
 
     rows.push({
       id: order.id,
@@ -413,8 +414,8 @@ export async function GET(req: NextRequest) {
       saleValue,
       totalCogs: Math.round(totalCogs * 100) / 100,
       commission: 0,
-      customerShipping: 0,
-      shippingCost: Math.round(shippingCost * 100) / 100,
+      customerShipping: Math.round(customerShipping * 100) / 100,
+      shippingCost: 0,
       costCodeDeductions: Math.round(costCodeDeductions * 100) / 100,
       netProfit: Math.round(netProfit * 100) / 100,
       commissionSynced: true,
