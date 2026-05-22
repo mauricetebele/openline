@@ -407,15 +407,42 @@ export async function runLabelBatch(batchId: string): Promise<void> {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[LabelBatch] orderId=%s error=%s', order.id, msg)
-      failedCount++
-      await prisma.labelBatchItem.update({
-        where: { id: item.id },
-        data:  { status: 'FAILED', error: msg },
+
+      // Check if a label already exists for this order (e.g. from a prior attempt
+      // that succeeded on the carrier side but failed to record locally, or from
+      // an "overfill" error meaning Amazon already has a shipment for these items).
+      const existingLabel = await prisma.orderLabel.findUnique({
+        where: { orderId: order.id },
+        select: { trackingNumber: true },
       })
-      await prisma.labelBatch.update({
-        where: { id: batchId },
-        data:  { failed: failedCount },
-      })
+      if (existingLabel?.trackingNumber) {
+        console.log('[LabelBatch] orderId=%s has existing label (tracking=%s) — treating as success despite error: %s',
+          order.id, existingLabel.trackingNumber, msg)
+        // Ensure order status is advanced
+        await prisma.order.update({
+          where: { id: order.id },
+          data:  { workflowStatus: 'AWAITING_VERIFICATION' },
+        }).catch(() => {})
+        completedCount++
+        await prisma.labelBatchItem.update({
+          where: { id: item.id },
+          data:  { status: 'COMPLETED' },
+        })
+        await prisma.labelBatch.update({
+          where: { id: batchId },
+          data:  { completed: completedCount },
+        })
+      } else {
+        failedCount++
+        await prisma.labelBatchItem.update({
+          where: { id: item.id },
+          data:  { status: 'FAILED', error: msg },
+        })
+        await prisma.labelBatch.update({
+          where: { id: batchId },
+          data:  { failed: failedCount },
+        })
+      }
     }
   }
 
