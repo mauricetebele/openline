@@ -485,8 +485,7 @@ function POPanel({
               <select
                 value={vendorId}
                 onChange={e => setVendorId(e.target.value)}
-                disabled={isReceived}
-                className={clsx("w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue", isReceived && "bg-gray-100 text-gray-500 cursor-not-allowed")}
+                className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
               >
                 <option value="">Select vendor…</option>
                 {vendors.map(v => <option key={v.id} value={v.id}>V-{v.vendorNumber} — {v.name}</option>)}
