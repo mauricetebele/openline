@@ -173,17 +173,37 @@ export async function PUT(
       })
     }
 
-    // Cascade vendor change to linked serials
+    // Cascade vendor change to linked serials + record history
     if (vendorId !== existing!.vendorId) {
       const receiptLineIds = await tx.pOReceiptLine.findMany({
         where: { purchaseOrderLine: { purchaseOrderId: params.id } },
         select: { id: true },
       })
       if (receiptLineIds.length > 0) {
-        await tx.inventorySerial.updateMany({
+        const affectedSerials = await tx.inventorySerial.findMany({
           where: { receiptLineId: { in: receiptLineIds.map(r => r.id) } },
+          select: { id: true, locationId: true },
+        })
+        await tx.inventorySerial.updateMany({
+          where: { id: { in: affectedSerials.map(s => s.id) } },
           data: { vendorId },
         })
+        // Look up old and new vendor names for history
+        const [oldVendor, newVendor] = await Promise.all([
+          tx.vendor.findUnique({ where: { id: existing!.vendorId }, select: { name: true, vendorNumber: true } }),
+          tx.vendor.findUnique({ where: { id: vendorId }, select: { name: true, vendorNumber: true } }),
+        ])
+        if (affectedSerials.length > 0) {
+          await tx.serialHistory.createMany({
+            data: affectedSerials.map(s => ({
+              inventorySerialId: s.id,
+              eventType: 'NOTE_ADDED',
+              locationId: s.locationId,
+              userId: user.dbId,
+              notes: `Vendor changed from ${oldVendor?.name ?? 'Unknown'} (V-${oldVendor?.vendorNumber ?? '?'}) to ${newVendor?.name ?? 'Unknown'} (V-${newVendor?.vendorNumber ?? '?'}) via PO edit`,
+            })),
+          })
+        }
       }
     }
 
