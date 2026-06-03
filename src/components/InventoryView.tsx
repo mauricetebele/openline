@@ -650,17 +650,46 @@ function SKUConvertConfirmModal({
   onConvert: (toProductId: string) => Promise<void>
   onClose:   () => void
 }) {
-  const [products,     setProducts]     = useState<SimpleProduct[]>([])
   const [toProductId,  setToProductId]  = useState('')
+  const [selectedLabel, setSelectedLabel] = useState('')
   const [converting,   setConverting]   = useState(false)
   const [err,          setErr]          = useState('')
 
+  // Searchable product dropdown
+  const [skuSearch, setSkuSearch] = useState('')
+  const [skuResults, setSkuResults] = useState<SimpleProduct[]>([])
+  const [skuOpen, setSkuOpen] = useState(false)
+  const skuRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
-    fetch('/api/products?serializable=true')
-      .then(r => r.json())
-      .then(d => setProducts(d.data ?? []))
-      .catch(() => {})
+    if (!skuSearch.trim()) { setSkuResults([]); return }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/products?serializable=true&search=${encodeURIComponent(skuSearch.trim())}`)
+        const d = await res.json()
+        setSkuResults(d.data ?? [])
+        setSkuOpen(true)
+      } catch { /* ignore */ }
+    }, 200)
+    return () => clearTimeout(t)
+  }, [skuSearch])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (skuRef.current && !skuRef.current.contains(e.target as Node)) setSkuOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
   }, [])
+
+  function selectProduct(p: SimpleProduct) {
+    setToProductId(p.id)
+    setSelectedLabel(`${p.sku} — ${p.description}`)
+    setSkuSearch('')
+    setSkuResults([])
+    setSkuOpen(false)
+  }
 
   async function handleConfirm() {
     if (!toProductId) return
@@ -686,18 +715,38 @@ function SKUConvertConfirmModal({
 
         <div className="px-5 py-4 space-y-3">
           {err && <ErrorBanner msg={err} onClose={() => setErr('')} />}
-          <div>
+          <div ref={skuRef} className="relative">
             <label className="block text-xs font-medium text-gray-600 mb-1">Target SKU / Product</label>
-            <select
-              value={toProductId}
-              onChange={e => setToProductId(e.target.value)}
-              className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-            >
-              <option value="">Select target product…</option>
-              {products.map(p => (
-                <option key={p.id} value={p.id}>{p.sku} — {p.description}</option>
-              ))}
-            </select>
+            {toProductId ? (
+              <div className="flex items-center gap-2 h-9 px-2 rounded-md border border-green-300 bg-green-50">
+                <span className="flex-1 text-sm text-gray-900 truncate">{selectedLabel}</span>
+                <button type="button" onClick={() => { setToProductId(''); setSelectedLabel('') }}
+                  className="text-gray-400 hover:text-gray-600 shrink-0"><X size={14} /></button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  autoFocus
+                  value={skuSearch}
+                  onChange={e => setSkuSearch(e.target.value)}
+                  onFocus={() => { if (skuResults.length) setSkuOpen(true) }}
+                  placeholder="Search SKU or description…"
+                  className="w-full h-9 rounded-md border border-gray-300 pl-8 pr-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                />
+              </div>
+            )}
+            {skuOpen && skuResults.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-48 overflow-y-auto">
+                {skuResults.map(p => (
+                  <button key={p.id} type="button" onClick={() => selectProduct(p)}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm">
+                    <span className="font-mono text-orange-600 mr-2">{p.sku}</span>
+                    <span className="text-gray-700">{p.description}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           {toProductId && (
             <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
