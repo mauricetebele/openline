@@ -214,22 +214,35 @@ export async function POST(req: NextRequest) {
                 },
               }
 
-              const v2Result = await client.getRatesV2(v2Payload)
-              const allRates = v2Result.rate_response?.rates ?? []
-              const validRates = allRates
-                .filter(r => r.validation_status !== 'invalid')
-                .sort((a, b) =>
-                  (a.shipping_amount.amount + (a.insurance_amount?.amount ?? 0) + a.other_amount.amount) -
-                  (b.shipping_amount.amount + (b.insurance_amount?.amount ?? 0) + b.other_amount.amount)
-                )
-
-              console.log('[apply-package-preset] order=%s v2 rates total=%d valid=%d',
-                order.amazonOrderId, allRates.length, validRates.length)
-
-              const cheapest = validRates[0]
+              const TRANSIENT_RE = /temporarily unavailable|service unavailable|timeout|ETIMEDOUT|ECONNRESET|429|503|502/i
+              let cheapest: (typeof allRatesTyped)[number] | undefined
+              type V2Rate = NonNullable<Awaited<ReturnType<typeof client.getRatesV2>>['rate_response']>['rates'][number]
+              let allRatesTyped: V2Rate[] = []
+              for (let attempt = 0; attempt < 3; attempt++) {
+                if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
+                const v2Result = await client.getRatesV2(v2Payload)
+                allRatesTyped = v2Result.rate_response?.rates ?? []
+                const validRates = allRatesTyped
+                  .filter(r => r.validation_status !== 'invalid')
+                  .sort((a, b) =>
+                    (a.shipping_amount.amount + (a.insurance_amount?.amount ?? 0) + a.other_amount.amount) -
+                    (b.shipping_amount.amount + (b.insurance_amount?.amount ?? 0) + b.other_amount.amount)
+                  )
+                console.log('[apply-package-preset] order=%s v2 rates total=%d valid=%d attempt=%d',
+                  order.amazonOrderId, allRatesTyped.length, validRates.length, attempt + 1)
+                cheapest = validRates[0]
+                if (cheapest) break
+                const invalids = v2Result.rate_response?.invalid_rates ?? []
+                const firstErr = invalids[0]?.error_messages?.[0]
+                if (attempt < 2 && firstErr && TRANSIENT_RE.test(firstErr)) {
+                  console.log('[apply-package-preset] V2 transient retry %d: %s', attempt + 1, firstErr)
+                  continue
+                }
+                break
+              }
               if (!cheapest) {
-                const statuses = allRates.map(r => `${r.service_code}:${r.validation_status}`).join(', ')
-                throw new Error(`No valid rates returned (${allRates.length} total: ${statuses || 'none'})`)
+                const statuses = allRatesTyped.map(r => `${r.service_code}:${r.validation_status}`).join(', ')
+                throw new Error(`No valid rates returned (${allRatesTyped.length} total: ${statuses || 'none'})`)
               }
 
               rateAmount  = cheapest.shipping_amount.amount + (cheapest.insurance_amount?.amount ?? 0) + cheapest.other_amount.amount

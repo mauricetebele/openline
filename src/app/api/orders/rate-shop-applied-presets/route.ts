@@ -306,23 +306,36 @@ export async function POST(req: NextRequest) {
                 },
               }
 
-              const v2Result = await client.getRatesV2(v2Payload)
-              const allRates = v2Result.rate_response?.rates ?? []
-              // Filter out One Rate services when package dimensions exceed One Rate limits
-              // FedEx One Rate max: ~16x15x12 (Extra Large Box). If any dim > 16", One Rate won't fit.
-              const maxDim = Math.max(preset.dimLength ?? 0, preset.dimWidth ?? 0, preset.dimHeight ?? 0)
-              const validRates = allRates
-                .filter(r => r.validation_status !== 'invalid')
-                .filter(r => !(maxDim > 16 && /one rate/i.test(r.service_type || r.service_code)))
-                .sort((a, b) =>
-                  (a.shipping_amount.amount + (a.insurance_amount?.amount ?? 0) + a.other_amount.amount) -
-                  (b.shipping_amount.amount + (b.insurance_amount?.amount ?? 0) + b.other_amount.amount)
-                )
-
-              const cheapest = validRates[0]
+              const TRANSIENT_RE = /temporarily unavailable|service unavailable|timeout|ETIMEDOUT|ECONNRESET|429|503|502/i
+              let cheapest: (typeof allRatesTyped)[number] | undefined
+              type V2Rate = NonNullable<Awaited<ReturnType<typeof client.getRatesV2>>['rate_response']>['rates'][number]
+              let allRatesTyped: V2Rate[] = []
+              for (let attempt = 0; attempt < 3; attempt++) {
+                if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
+                const v2Result = await client.getRatesV2(v2Payload)
+                allRatesTyped = v2Result.rate_response?.rates ?? []
+                const maxDim = Math.max(preset.dimLength ?? 0, preset.dimWidth ?? 0, preset.dimHeight ?? 0)
+                const validRates = allRatesTyped
+                  .filter(r => r.validation_status !== 'invalid')
+                  .filter(r => !(maxDim > 16 && /one rate/i.test(r.service_type || r.service_code)))
+                  .sort((a, b) =>
+                    (a.shipping_amount.amount + (a.insurance_amount?.amount ?? 0) + a.other_amount.amount) -
+                    (b.shipping_amount.amount + (b.insurance_amount?.amount ?? 0) + b.other_amount.amount)
+                  )
+                cheapest = validRates[0]
+                if (cheapest) break
+                // Check if the failure is transient and worth retrying
+                const invalids = v2Result.rate_response?.invalid_rates ?? []
+                const firstErr = invalids[0]?.error_messages?.[0]
+                if (attempt < 2 && firstErr && TRANSIENT_RE.test(firstErr)) {
+                  console.log('[rate-shop-presets] V2 transient retry %d: %s', attempt + 1, firstErr)
+                  continue
+                }
+                break
+              }
               if (!cheapest) {
-                const statuses = allRates.map(r => `${r.service_code}:${r.validation_status}`).join(', ')
-                throw new Error(`No valid rates returned (${allRates.length} total: ${statuses || 'none'})`)
+                const statuses = allRatesTyped.map(r => `${r.service_code}:${r.validation_status}`).join(', ')
+                throw new Error(`No valid rates returned (${allRatesTyped.length} total: ${statuses || 'none'})`)
               }
 
               rateAmount  = cheapest.shipping_amount.amount + (cheapest.insurance_amount?.amount ?? 0) + cheapest.other_amount.amount
