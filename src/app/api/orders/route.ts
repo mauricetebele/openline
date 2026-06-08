@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
     const workflowStatus: WorkflowStatus = TAB_WORKFLOW[tabParam] ?? 'PENDING'
 
     const page     = Math.max(1, Number(searchParams.get('page') ?? '1'))
-    const pageSize = Math.min(200, Math.max(1, Number(searchParams.get('pageSize') ?? '50')))
+    const pageSize = Math.min(500, Math.max(1, Number(searchParams.get('pageSize') ?? '50')))
     const skip     = (page - 1) * pageSize
     const search   = searchParams.get('search')?.trim()
 
