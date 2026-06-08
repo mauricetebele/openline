@@ -125,14 +125,27 @@ export async function runLabelBatch(batchId: string): Promise<void> {
         throw new Error('Order is already marked as Shipped on Amazon')
       }
 
-      let trackingNumber: string
-      let labelData: string
-      let labelFormat: string
+      let trackingNumber = ''
+      let labelData = ''
+      let labelFormat = ''
       let shipmentCost: number | undefined
       let insuranceCost: number | undefined
       let carrier: string | undefined
       let serviceCode: string | undefined
       let ssShipmentId: string | undefined
+
+      // Retry wrapper for transient carrier errors
+      const TRANSIENT_PATTERNS = /temporarily unavailable|service unavailable|timeout|ETIMEDOUT|ECONNRESET|rate limit|429|503|502/i
+      const MAX_RETRIES = 2
+      let lastErr: Error | null = null
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          if (attempt > 0) {
+            console.log('[LabelBatch] orderId=%s retry %d/%d after transient error: %s',
+              order.id, attempt, MAX_RETRIES, lastErr?.message)
+            await new Promise(r => setTimeout(r, 3000 * attempt)) // 3s, 6s backoff
+          }
+          lastErr = null
 
       const isFedExDirect = order.presetRateCarrier === 'fedex_direct' ||
         order.appliedPreset?.carrierCode === 'fedex_direct'
@@ -354,6 +367,16 @@ export async function runLabelBatch(batchId: string): Promise<void> {
         serviceCode    = preset.serviceCode
         ssShipmentId   = label.shipmentId ? String(label.shipmentId) : undefined
       }
+
+          break // Label created successfully — exit retry loop
+        } catch (retryErr: unknown) {
+          lastErr = retryErr instanceof Error ? retryErr : new Error(String(retryErr))
+          if (attempt < MAX_RETRIES && TRANSIENT_PATTERNS.test(lastErr.message)) {
+            continue // Retry on transient errors
+          }
+          throw lastErr // Non-transient or final attempt — propagate
+        }
+      } // end retry loop
 
       // ── Success: save label and advance order status ──────────────────────
       await prisma.orderLabel.upsert({

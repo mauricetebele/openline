@@ -175,37 +175,56 @@ export async function POST(req: NextRequest) {
       }
 
       console.log('[rate-shop] V2 payload:', JSON.stringify(v2Payload, null, 2))
-      try {
-        const v2Result = await client.getRatesV2(v2Payload)
-        const v2Rates  = v2Result.rate_response?.rates ?? []
-        console.log('[rate-shop] V2 rates: %d valid, %d invalid',
-          v2Rates.length, v2Result.rate_response?.invalid_rates?.length ?? 0)
+      const TRANSIENT_RE = /temporarily unavailable|service unavailable|timeout|ETIMEDOUT|ECONNRESET|429|503|502/i
+      let v2LastErr: string | null = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (attempt > 0) {
+            console.log('[rate-shop] V2 retry %d/2 after: %s', attempt, v2LastErr)
+            await new Promise(r => setTimeout(r, 2000 * attempt))
+          }
+          const v2Result = await client.getRatesV2(v2Payload)
+          const v2Rates  = v2Result.rate_response?.rates ?? []
+          console.log('[rate-shop] V2 rates: %d valid, %d invalid',
+            v2Rates.length, v2Result.rate_response?.invalid_rates?.length ?? 0)
 
-        const mapped = v2Rates
-          .filter(r => r.validation_status !== 'invalid' && !r.error_messages?.length)
-          .map(r => ({
-            serviceName:  r.service_type || r.service_code,
-            serviceCode:  r.service_code,
-            carrierCode:  r.carrier_friendly_name || r.carrier_code,
-            carrierName,
-            shipmentCost: r.shipping_amount?.amount ?? 0,
-            otherCost:    (r.other_amount?.amount ?? 0) + (r.insurance_amount?.amount ?? 0),
-            transitDays:  r.carrier_delivery_days ?? null,
-            deliveryDate: r.estimated_delivery_date ?? null,
-            rate_id:      r.rate_id,
-          } as SSRate & { carrierName: string }))
+          const mapped = v2Rates
+            .filter(r => r.validation_status !== 'invalid' && !r.error_messages?.length)
+            .map(r => ({
+              serviceName:  r.service_type || r.service_code,
+              serviceCode:  r.service_code,
+              carrierCode:  r.carrier_friendly_name || r.carrier_code,
+              carrierName,
+              shipmentCost: r.shipping_amount?.amount ?? 0,
+              otherCost:    (r.other_amount?.amount ?? 0) + (r.insurance_amount?.amount ?? 0),
+              transitDays:  r.carrier_delivery_days ?? null,
+              deliveryDate: r.estimated_delivery_date ?? null,
+              rate_id:      r.rate_id,
+            } as SSRate & { carrierName: string }))
 
-        for (const r of mapped) allRates.push(r)
+          for (const r of mapped) allRates.push(r)
 
-        if (mapped.length === 0) {
-          const invalids = v2Result.rate_response?.invalid_rates ?? []
-          const firstErr = invalids[0]?.error_messages?.[0]
-          rateErrors.push(`Amazon Buy Shipping: no rates returned${firstErr ? ` — ${firstErr}` : ''}`)
+          if (mapped.length === 0) {
+            const invalids = v2Result.rate_response?.invalid_rates ?? []
+            const firstErr = invalids[0]?.error_messages?.[0]
+            // Retry if the error looks transient
+            if (firstErr && TRANSIENT_RE.test(firstErr) && attempt < 2) {
+              v2LastErr = firstErr
+              continue
+            }
+            rateErrors.push(`Amazon Buy Shipping: no rates returned${firstErr ? ` — ${firstErr}` : ''}`)
+          }
+          break // Success or non-transient error — stop retrying
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          if (TRANSIENT_RE.test(msg) && attempt < 2) {
+            v2LastErr = msg
+            continue
+          }
+          console.error('[rate-shop] V2 error:', msg)
+          rateErrors.push(`Amazon Buy Shipping: ${msg}`)
+          break
         }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        console.error('[rate-shop] V2 error:', msg)
-        rateErrors.push(`Amazon Buy Shipping: ${msg}`)
       }
     } else if (v2CarrierMap?.has(carrier.code) && !/^ups/i.test(carrier.code)) {
       // ── Non-Amazon, non-UPS carriers → V2 getRates (returns delivery dates) ──
