@@ -160,7 +160,7 @@ export async function GET(req: NextRequest) {
           ...item,
           isSerializable: directMatch || mappedMatch,
           internalSku:    mapping?.product.sku ?? null,
-          mappedGradeName: mapping?.grade?.grade ?? item.grade?.grade ?? null,
+          mappedGradeName: item.grade?.grade ?? mapping?.grade?.grade ?? null,
         }
       }),
     }))

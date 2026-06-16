@@ -53,8 +53,8 @@ export async function GET(
       }
       isSerializable = product?.isSerializable ?? false
     }
-    // Fall back to item's own grade if no MSKU grade
-    if (!mappedGradeName && item.grade?.grade) {
+    // Item's explicit grade (user-set) always wins over MSKU default
+    if (item.grade?.grade) {
       mappedGradeName = item.grade.grade
     }
 
