@@ -103,6 +103,7 @@ model AmazonAccount {
   fbaReimbursements FbaReimbursement[]
   fbaShipments      FbaShipment[]
   freeReplacements  FreeReplacement[]
+  removalShipments  RemovalShipment[]
 
   @@unique([sellerId, marketplaceId])
   @@map("amazon_accounts")
@@ -2375,4 +2376,38 @@ model OliSkuCache {
   buyBoxWinner  String?
   lastSyncedAt  DateTime  @default(now())
   @@map("oli_sku_cache")
+}
+
+// ─── FBA Removal Shipments ──────────────────────────────────────────────────
+
+model RemovalShipment {
+  id               String   @id @default(cuid())
+  accountId        String
+  account          AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  removalOrderId   String        // Amazon removal order ID
+  shipmentId       String        // Amazon shipment ID
+  trackingNumber   String
+  carrier          String?
+  shipDate         DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  items            RemovalShipmentItem[]
+
+  @@unique([accountId, shipmentId, trackingNumber])
+  @@index([accountId])
+  @@index([trackingNumber])
+  @@map("removal_shipments")
+}
+
+model RemovalShipmentItem {
+  id               String   @id @default(cuid())
+  shipmentId       String
+  shipment         RemovalShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  sellerSku        String
+  fnsku            String
+  title            String?
+
+  @@index([shipmentId])
+  @@map("removal_shipment_items")
 }
