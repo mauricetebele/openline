@@ -91,28 +91,42 @@ export async function syncRemovalShipments(
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
 
-  // ── 1. Request the removal order report ────────────────────────────────────
-  const { reportId } = await client.post<CreateReportResponse>('/reports/2021-06-30/reports', {
-    reportType: 'GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA',
-    marketplaceIds: [account.marketplaceId],
-    dataStartTime: startDate.toISOString(),
-    dataEndTime: endDate.toISOString(),
-  })
+  const reportType = 'GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA'
 
-  // ── 2. Poll until DONE (max 30 × 10 s = 5 min) ────────────────────────────
+  // ── 1. Check for a recent completed report we can reuse ───────────────────
   let reportDocumentId: string | undefined
-  for (let attempt = 0; attempt < 30; attempt++) {
-    await sleep(10_000)
-    const report = await client.get<GetReportResponse>(`/reports/2021-06-30/reports/${reportId}`)
-    if (report.processingStatus === 'DONE') {
-      reportDocumentId = report.reportDocumentId
-      break
-    }
-    if (report.processingStatus === 'FATAL' || report.processingStatus === 'CANCELLED') {
-      throw new Error(`Removal order report ended with status: ${report.processingStatus}`)
-    }
+
+  const existing = await client.get<{ reports: GetReportResponse[] }>(
+    `/reports/2021-06-30/reports?reportTypes=${reportType}&pageSize=5&processingStatuses=DONE`,
+  )
+  if (existing.reports.length > 0 && existing.reports[0].reportDocumentId) {
+    // Use the most recent completed report
+    reportDocumentId = existing.reports[0].reportDocumentId
   }
-  if (!reportDocumentId) throw new Error('Removal order report did not complete within the polling window')
+
+  // ── 2. If no existing report, request a new one ───────────────────────────
+  if (!reportDocumentId) {
+    const { reportId } = await client.post<CreateReportResponse>('/reports/2021-06-30/reports', {
+      reportType,
+      marketplaceIds: [account.marketplaceId],
+      dataStartTime: startDate.toISOString(),
+      dataEndTime: endDate.toISOString(),
+    })
+
+    // Poll until DONE (max 30 × 10 s = 5 min)
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await sleep(10_000)
+      const report = await client.get<GetReportResponse>(`/reports/2021-06-30/reports/${reportId}`)
+      if (report.processingStatus === 'DONE') {
+        reportDocumentId = report.reportDocumentId
+        break
+      }
+      if (report.processingStatus === 'FATAL' || report.processingStatus === 'CANCELLED') {
+        throw new Error(`Removal order report ended with status: ${report.processingStatus}`)
+      }
+    }
+    if (!reportDocumentId) throw new Error('Removal order report did not complete within the polling window')
+  }
 
   // ── 3. Download ────────────────────────────────────────────────────────────
   const docMeta = await client.get<GetReportDocumentResponse>(
