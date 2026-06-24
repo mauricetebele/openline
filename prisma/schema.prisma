@@ -2378,26 +2378,27 @@ model OliSkuCache {
   @@map("oli_sku_cache")
 }
 
-// ─── FBA Removal Orders ─────────────────────────────────────────────────────
+// ─── FBA Removal Shipments ──────────────────────────────────────────────────
 
 model RemovalShipment {
   id               String   @id @default(cuid())
   accountId        String
   account          AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  removalOrderId   String        // Amazon removal order ID (e.g. "bsD/AIJ3WH")
+  removalOrderId   String        // Amazon removal order ID
+  trackingNumber   String        // UPS/FedEx tracking number (primary display key)
+  carrier          String?       // e.g. UPS_GR_PL
   orderType        String?       // Return, Disposal
-  orderStatus      String?       // Pending, Completed, Cancelled
-  orderSource      String?       // e.g. "Seller-configured Automated Unfulfillable Removal System"
+  shipDate         DateTime?
   requestDate      DateTime?
-  lastUpdatedDate  DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   items            RemovalShipmentItem[]
 
-  @@unique([accountId, removalOrderId])
+  @@unique([accountId, trackingNumber])
   @@index([accountId])
-  @@index([orderStatus])
+  @@index([removalOrderId])
+  @@index([trackingNumber])
   @@map("removal_shipments")
 }
 
@@ -2408,15 +2409,8 @@ model RemovalShipmentItem {
   sellerSku        String
   fnsku            String
   disposition      String?       // Unsellable, Sellable, Defective, etc.
-  requestedQty     Int      @default(0)
-  cancelledQty     Int      @default(0)
-  disposedQty      Int      @default(0)
-  shippedQty       Int      @default(0)
-  inProcessQty     Int      @default(0)
-  removalFee       Decimal? @db.Decimal(10, 2)
-  currency         String?
+  quantity         Int      @default(1)
 
-  @@unique([shipmentId, sellerSku, fnsku])
   @@index([shipmentId])
   @@map("removal_shipment_items")
 }

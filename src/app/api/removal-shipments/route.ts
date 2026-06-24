@@ -1,5 +1,5 @@
 /**
- * GET /api/removal-shipments — Paginated list of removal orders
+ * GET /api/removal-shipments — Paginated list of removal shipments
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
@@ -23,26 +23,26 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get('search')?.trim()
   if (search) {
     where.OR = [
+      { trackingNumber: { contains: search, mode: 'insensitive' } },
       { removalOrderId: { contains: search, mode: 'insensitive' } },
-      { orderStatus: { contains: search, mode: 'insensitive' } },
-      { orderType: { contains: search, mode: 'insensitive' } },
+      { carrier: { contains: search, mode: 'insensitive' } },
       { items: { some: { sellerSku: { contains: search, mode: 'insensitive' } } } },
       { items: { some: { fnsku: { contains: search, mode: 'insensitive' } } } },
     ]
   }
 
-  const sortBy = searchParams.get('sortBy') ?? 'requestDate'
+  const sortBy = searchParams.get('sortBy') ?? 'shipDate'
   const sortDir = (searchParams.get('sortDir') ?? 'desc') as 'asc' | 'desc'
 
   const sortMap: Record<string, Prisma.RemovalShipmentOrderByWithRelationInput> = {
-    requestDate: { requestDate: sortDir },
-    lastUpdatedDate: { lastUpdatedDate: sortDir },
+    shipDate: { shipDate: sortDir },
+    trackingNumber: { trackingNumber: sortDir },
     removalOrderId: { removalOrderId: sortDir },
-    orderStatus: { orderStatus: sortDir },
-    orderType: { orderType: sortDir },
+    carrier: { carrier: sortDir },
+    requestDate: { requestDate: sortDir },
     createdAt: { createdAt: sortDir },
   }
-  const orderBy = sortMap[sortBy] ?? { requestDate: sortDir }
+  const orderBy = sortMap[sortBy] ?? { shipDate: sortDir }
 
   const [total, shipments] = await Promise.all([
     prisma.removalShipment.count({ where }),
@@ -53,33 +53,15 @@ export async function GET(req: NextRequest) {
       orderBy,
       include: {
         _count: { select: { items: true } },
-        items: {
-          select: {
-            requestedQty: true,
-            shippedQty: true,
-            inProcessQty: true,
-            cancelledQty: true,
-            disposedQty: true,
-          },
-        },
+        items: { select: { quantity: true } },
       },
     }),
   ])
 
-  // Compute totals per order
   const data = shipments.map(s => {
-    const totals = s.items.reduce(
-      (acc, item) => ({
-        requested: acc.requested + item.requestedQty,
-        shipped: acc.shipped + item.shippedQty,
-        inProcess: acc.inProcess + item.inProcessQty,
-        cancelled: acc.cancelled + item.cancelledQty,
-        disposed: acc.disposed + item.disposedQty,
-      }),
-      { requested: 0, shipped: 0, inProcess: 0, cancelled: 0, disposed: 0 },
-    )
+    const unitCount = s.items.reduce((sum, item) => sum + item.quantity, 0)
     const { items: _items, ...rest } = s
-    return { ...rest, totals }
+    return { ...rest, unitCount }
   })
 
   return NextResponse.json({
