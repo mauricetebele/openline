@@ -364,7 +364,7 @@ export async function GET(req: NextRequest) {
   // ── Wholesale rows ────────────────────────────────────────────────────
   for (const order of wholesaleOrders) {
     const saleValue = Number(order.total ?? 0)
-    const customerShipping = 0 // Customer shipping excluded from profitability
+    const customerShipping = Number(order.shippingCost ?? 0) // Amount billed to customer for shipping (revenue)
     const shippingCost = 0 // Actual cost of shipping (TBD — input to be added later)
     const commission = 0
 
@@ -506,6 +506,7 @@ export async function GET(req: NextRequest) {
     // Flatten wholesale orders
     for (const order of wholesaleOrders) {
       const orderTotal = Number(order.total ?? 0)
+      const totalCustomerShippingVal = Number(order.shippingCost ?? 0) // Revenue from customer shipping
       const totalShippingVal = 0 // Actual cost of shipping (TBD — input to be added later)
 
       const serialCostsByItem = new Map<string, { cogs: number; cc: number; count: number }>()
@@ -544,8 +545,9 @@ export async function GET(req: NextRequest) {
           itemCostCodes = (costCodeMap.get(key) ?? costCodeProductOnly.get(item.productId) ?? 0) * Number(item.quantity)
         }
 
+        const itemCustomerShipping = totalCustomerShippingVal * proportion
         const itemShipping = totalShippingVal * proportion
-        const itemNetProfit = itemSale - itemCogs - itemShipping - itemCostCodes
+        const itemNetProfit = itemSale + itemCustomerShipping - itemCogs - itemShipping - itemCostCodes
 
         lineItemRows.push({
           id: `${order.id}:${item.id}`,
@@ -562,7 +564,7 @@ export async function GET(req: NextRequest) {
           saleValue: Math.round(itemSale * 100) / 100,
           totalCogs: Math.round(itemCogs * 100) / 100,
           commission: 0,
-          customerShipping: 0,
+          customerShipping: Math.round(itemCustomerShipping * 100) / 100,
           shippingCost: Math.round(itemShipping * 100) / 100,
           costCodeDeductions: Math.round(itemCostCodes * 100) / 100,
           netProfit: Math.round(itemNetProfit * 100) / 100,
