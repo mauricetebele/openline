@@ -24,13 +24,25 @@ export async function GET(req: NextRequest) {
   const receipts = await prisma.fbaReturnReceipt.findMany({
     where,
     orderBy: { createdAt: 'desc' },
-    include: {
+    select: {
+      id: true,
+      receiptNumber: true,
+      serialNumber: true,
+      sku: true,
+      gradeId: true,
+      previousGradeId: true,
+      note: true,
+      receivedAt: true,
+      removalTrackingNumber: true,
+      lpnNumber: true,
+      createdAt: true,
       product: { select: { sku: true, description: true } },
       grade: { select: { id: true, grade: true } },
       location: {
         select: { name: true, warehouse: { select: { name: true } } },
       },
       fbaShipment: { select: { shipmentNumber: true } },
+      removalShipment: { select: { trackingNumber: true } },
       receivedBy: { select: { name: true } },
     },
   })
@@ -45,11 +57,15 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { inventorySerialId, locationId, gradeId, note } = body as {
+  const { inventorySerialId, locationId, gradeId, note, removalShipmentId, removalShipmentItemId, removalTrackingNumber, lpnNumber } = body as {
     inventorySerialId: string
     locationId: string
     gradeId?: string | null
     note?: string
+    removalShipmentId?: string
+    removalShipmentItemId?: string
+    removalTrackingNumber?: string
+    lpnNumber?: string
   }
 
   if (!inventorySerialId) return NextResponse.json({ error: 'Serial is required' }, { status: 400 })
@@ -186,6 +202,10 @@ export async function POST(req: NextRequest) {
           locationId,
           note: note?.trim() || null,
           receivedById: user.dbId,
+          removalShipmentId: removalShipmentId || null,
+          removalShipmentItemId: removalShipmentItemId || null,
+          removalTrackingNumber: removalTrackingNumber || null,
+          lpnNumber: lpnNumber?.trim() || null,
         },
         include: {
           product: { select: { sku: true, description: true } },

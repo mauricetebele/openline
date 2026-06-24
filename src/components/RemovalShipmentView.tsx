@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Search, RefreshCcw, ChevronDown, ChevronRight, PackageMinus, X, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
+import ProcessShipmentModal from './ProcessShipmentModal'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ interface RemovalShipment {
   requestDate: string | null
   _count: { items: number }
   unitCount: number
+  receivedCount: number
 }
 
 interface RemovalShipmentItem {
@@ -73,6 +75,8 @@ export default function RemovalShipmentView() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedItems, setExpandedItems] = useState<RemovalShipmentItem[]>([])
   const [expandLoading, setExpandLoading] = useState(false)
+
+  const [processShipment, setProcessShipment] = useState<{ id: string; trackingNumber: string } | null>(null)
 
   useEffect(() => {
     fetch('/api/accounts')
@@ -270,6 +274,9 @@ export default function RemovalShipmentView() {
             <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
               <tr>
                 <th className="w-8" />
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('shipDate')}>
+                  Ship Date<SortIcon col="shipDate" />
+                </th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('trackingNumber')}>
                   Tracking #<SortIcon col="trackingNumber" />
                 </th>
@@ -279,11 +286,10 @@ export default function RemovalShipmentView() {
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('carrier')}>
                   Carrier<SortIcon col="carrier" />
                 </th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('shipDate')}>
-                  Ship Date<SortIcon col="shipDate" />
-                </th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Type</th>
                 <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Units</th>
+                <th className="px-3 py-2 text-center font-semibold text-gray-100 whitespace-nowrap">Received</th>
+                <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -302,6 +308,7 @@ export default function RemovalShipmentView() {
                         ? <ChevronDown size={14} className="text-gray-400 inline" />
                         : <ChevronRight size={14} className="text-gray-400 inline" />}
                     </td>
+                    <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300 whitespace-nowrap">{fmtDate(s.shipDate)}</td>
                     <td className="px-3 py-1.5 font-mono font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">
                       {s.trackingNumber}
                     </td>
@@ -309,14 +316,35 @@ export default function RemovalShipmentView() {
                       {s.removalOrderId}
                     </td>
                     <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">{s.carrier ?? '—'}</td>
-                    <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300 whitespace-nowrap">{fmtDate(s.shipDate)}</td>
                     <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">{s.orderType ?? '—'}</td>
                     <td className="px-3 py-1.5 text-right font-semibold text-gray-900 dark:text-gray-100">{s.unitCount}</td>
+                    <td className="px-3 py-1.5 text-center">
+                      {s.receivedCount > 0 ? (
+                        <span className={clsx(
+                          'text-xs font-semibold',
+                          s.receivedCount >= s.unitCount
+                            ? 'text-green-600 dark:text-green-400'
+                            : 'text-amber-600 dark:text-amber-400'
+                        )}>
+                          {s.receivedCount} / {s.unitCount}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setProcessShipment({ id: s.id, trackingNumber: s.trackingNumber }) }}
+                        className="px-2.5 py-1 text-[10px] font-semibold text-white bg-amazon-blue rounded hover:bg-amazon-blue/90"
+                      >
+                        Process
+                      </button>
+                    </td>
                   </tr>
 
                   {expandedId === s.id && (
                     <tr>
-                      <td colSpan={7} className="p-0">
+                      <td colSpan={9} className="p-0">
                         <div className="bg-gray-50 dark:bg-gray-800/80 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
                           {expandLoading ? (
                             <p className="text-xs text-gray-400 py-2 flex items-center gap-2">
@@ -372,6 +400,16 @@ export default function RemovalShipmentView() {
               className="px-3 py-1 rounded border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800">Next</button>
           </div>
         </div>
+      )}
+
+      {/* Process Shipment Modal */}
+      {processShipment && (
+        <ProcessShipmentModal
+          shipmentId={processShipment.id}
+          trackingNumber={processShipment.trackingNumber}
+          onClose={() => setProcessShipment(null)}
+          onUpdated={() => fetchShipments(pagination.page)}
+        />
       )}
     </div>
   )

@@ -2171,10 +2171,17 @@ model FbaReturnReceipt {
   receivedAt        DateTime        @default(now())
   receivedById      String?
   receivedBy        User?           @relation(fields: [receivedById], references: [id], onDelete: SetNull)
+  removalShipmentId     String?
+  removalShipment       RemovalShipment?     @relation(fields: [removalShipmentId], references: [id], onDelete: SetNull)
+  removalShipmentItemId String?
+  removalShipmentItem   RemovalShipmentItem? @relation(fields: [removalShipmentItemId], references: [id], onDelete: SetNull)
+  removalTrackingNumber String?
+  lpnNumber             String?
   createdAt         DateTime        @default(now())
 
   @@index([inventorySerialId])
   @@index([productId])
+  @@index([removalShipmentId])
   @@map("fba_return_receipts")
 }
 
@@ -2394,6 +2401,7 @@ model RemovalShipment {
   updatedAt        DateTime @updatedAt
 
   items            RemovalShipmentItem[]
+  fbaReturnReceipts FbaReturnReceipt[]
 
   @@unique([accountId, trackingNumber])
   @@index([accountId])
@@ -2410,6 +2418,8 @@ model RemovalShipmentItem {
   fnsku            String
   disposition      String?       // Unsellable, Sellable, Defective, etc.
   quantity         Int      @default(1)
+
+  fbaReturnReceipts FbaReturnReceipt[]
 
   @@index([shipmentId])
   @@map("removal_shipment_items")

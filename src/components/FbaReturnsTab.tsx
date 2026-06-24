@@ -15,10 +15,13 @@ interface FbaReturnReceipt {
   previousGradeId: string | null
   note: string | null
   receivedAt: string
+  removalTrackingNumber: string | null
+  lpnNumber: string | null
   product: { sku: string; description: string }
   grade: { id: string; grade: string } | null
   location: { name: string; warehouse: { name: string } }
   fbaShipment: { shipmentNumber: string | null } | null
+  removalShipment: { trackingNumber: string } | null
   receivedBy: { name: string } | null
 }
 
@@ -99,6 +102,8 @@ export default function FbaReturnsTab() {
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">SKU</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Grade</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Shipment #</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Removal Tracking #</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">LPN #</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Location</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Received By</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Date</th>
@@ -134,6 +139,12 @@ export default function FbaReturnsTab() {
                   </td>
                   <td className="px-3 py-1.5 font-mono text-gray-500 dark:text-gray-400">
                     {r.fbaShipment?.shipmentNumber ?? '—'}
+                  </td>
+                  <td className="px-3 py-1.5 font-mono text-gray-500 dark:text-gray-400">
+                    {r.removalTrackingNumber ?? '—'}
+                  </td>
+                  <td className="px-3 py-1.5 font-mono text-gray-500 dark:text-gray-400">
+                    {r.lpnNumber ?? '—'}
                   </td>
                   <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                     {r.location.warehouse.name} / {r.location.name}

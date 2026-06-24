@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
       take: pageSize,
       orderBy,
       include: {
-        _count: { select: { items: true } },
+        _count: { select: { items: true, fbaReturnReceipts: true } },
         items: { select: { quantity: true } },
       },
     }),
@@ -60,8 +60,9 @@ export async function GET(req: NextRequest) {
 
   const data = shipments.map(s => {
     const unitCount = s.items.reduce((sum, item) => sum + item.quantity, 0)
+    const receivedCount = s._count.fbaReturnReceipts
     const { items: _items, ...rest } = s
-    return { ...rest, unitCount }
+    return { ...rest, unitCount, receivedCount }
   })
 
   return NextResponse.json({

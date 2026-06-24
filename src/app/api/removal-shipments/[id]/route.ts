@@ -1,5 +1,5 @@
 /**
- * GET /api/removal-shipments/:id — Single shipment with all items + titles
+ * GET /api/removal-shipments/:id — Single shipment with all items + titles + receive progress
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -16,7 +16,13 @@ export async function GET(
 
   const shipment = await prisma.removalShipment.findUnique({
     where: { id },
-    include: { items: true },
+    include: {
+      items: {
+        include: {
+          _count: { select: { fbaReturnReceipts: true } },
+        },
+      },
+    },
   })
 
   if (!shipment) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -34,9 +40,30 @@ export async function GET(
   const titleMap = new Map(listings.map(l => [l.sku, l.productTitle]))
 
   const items = shipment.items.map(item => ({
-    ...item,
+    id: item.id,
+    shipmentId: item.shipmentId,
+    sellerSku: item.sellerSku,
+    fnsku: item.fnsku,
+    disposition: item.disposition,
+    quantity: item.quantity,
     title: titleMap.get(item.sellerSku) ?? null,
+    receivedCount: item._count.fbaReturnReceipts,
+    remainingQty: item.quantity - item._count.fbaReturnReceipts,
   }))
 
-  return NextResponse.json({ ...shipment, items })
+  const totalUnits = items.reduce((sum, i) => sum + i.quantity, 0)
+  const totalReceived = items.reduce((sum, i) => sum + i.receivedCount, 0)
+
+  return NextResponse.json({
+    id: shipment.id,
+    removalOrderId: shipment.removalOrderId,
+    trackingNumber: shipment.trackingNumber,
+    carrier: shipment.carrier,
+    orderType: shipment.orderType,
+    shipDate: shipment.shipDate,
+    requestDate: shipment.requestDate,
+    items,
+    totalUnits,
+    totalReceived,
+  })
 }
