@@ -1,5 +1,5 @@
 /**
- * GET /api/removal-shipments/:id — Single shipment with all items
+ * GET /api/removal-shipments/:id — Single shipment with all items + titles
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -21,5 +21,22 @@ export async function GET(
 
   if (!shipment) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  return NextResponse.json(shipment)
+  // Look up titles from SellerListing by SKU
+  const skus = Array.from(new Set(shipment.items.map(i => i.sellerSku).filter(Boolean)))
+  const listings = skus.length > 0
+    ? await prisma.sellerListing.findMany({
+        where: { sku: { in: skus }, productTitle: { not: null } },
+        select: { sku: true, productTitle: true },
+        distinct: ['sku'],
+      })
+    : []
+
+  const titleMap = new Map(listings.map(l => [l.sku, l.productTitle]))
+
+  const items = shipment.items.map(item => ({
+    ...item,
+    title: titleMap.get(item.sellerSku) ?? null,
+  }))
+
+  return NextResponse.json({ ...shipment, items })
 }

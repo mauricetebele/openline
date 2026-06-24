@@ -37,6 +37,7 @@ interface RemovalShipmentItem {
   fnsku: string
   disposition: string | null
   quantity: number
+  title: string | null
 }
 
 interface Pagination {
@@ -330,6 +331,7 @@ export default function RemovalShipmentView() {
                                   <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400 w-10">#</th>
                                   <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Merchant SKU</th>
                                   <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">FNSKU</th>
+                                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Title</th>
                                   <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Disposition</th>
                                   <th className="px-2 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400">Qty</th>
                                 </tr>
@@ -340,6 +342,7 @@ export default function RemovalShipmentView() {
                                     <td className="px-2 py-1.5 text-gray-400">{idx + 1}</td>
                                     <td className="px-2 py-1.5 font-mono text-gray-800 dark:text-gray-200">{item.sellerSku}</td>
                                     <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-400">{item.fnsku}</td>
+                                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 max-w-xs truncate" title={item.title ?? ''}>{item.title ?? '—'}</td>
                                     <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400">{item.disposition ?? '—'}</td>
                                     <td className="px-2 py-1.5 text-right font-semibold text-gray-900 dark:text-gray-100">{item.quantity}</td>
                                   </tr>
