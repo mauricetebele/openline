@@ -364,7 +364,7 @@ export async function GET(req: NextRequest) {
   // ── Wholesale rows ────────────────────────────────────────────────────
   for (const order of wholesaleOrders) {
     const saleValue = Number(order.total ?? 0)
-    const customerShipping = Number(order.shippingCost ?? 0) // Amount billed to customer for shipping
+    const customerShipping = 0 // Customer shipping excluded from profitability
     const shippingCost = 0 // Actual cost of shipping (TBD — input to be added later)
     const commission = 0
 
@@ -506,7 +506,7 @@ export async function GET(req: NextRequest) {
     // Flatten wholesale orders
     for (const order of wholesaleOrders) {
       const orderTotal = Number(order.total ?? 0)
-      const totalShippingVal = Number(order.shippingCost ?? 0)
+      const totalShippingVal = 0 // Actual cost of shipping (TBD — input to be added later)
 
       const serialCostsByItem = new Map<string, { cogs: number; cc: number; count: number }>()
       for (const sa of order.serialAssignments) {
