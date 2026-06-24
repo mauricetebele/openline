@@ -2378,25 +2378,26 @@ model OliSkuCache {
   @@map("oli_sku_cache")
 }
 
-// ─── FBA Removal Shipments ──────────────────────────────────────────────────
+// ─── FBA Removal Orders ─────────────────────────────────────────────────────
 
 model RemovalShipment {
   id               String   @id @default(cuid())
   accountId        String
   account          AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  removalOrderId   String        // Amazon removal order ID
-  shipmentId       String        // Amazon shipment ID
-  trackingNumber   String
-  carrier          String?
-  shipDate         DateTime?
+  removalOrderId   String        // Amazon removal order ID (e.g. "bsD/AIJ3WH")
+  orderType        String?       // Return, Disposal
+  orderStatus      String?       // Pending, Completed, Cancelled
+  orderSource      String?       // e.g. "Seller-configured Automated Unfulfillable Removal System"
+  requestDate      DateTime?
+  lastUpdatedDate  DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   items            RemovalShipmentItem[]
 
-  @@unique([accountId, shipmentId, trackingNumber])
+  @@unique([accountId, removalOrderId])
   @@index([accountId])
-  @@index([trackingNumber])
+  @@index([orderStatus])
   @@map("removal_shipments")
 }
 
@@ -2406,8 +2407,16 @@ model RemovalShipmentItem {
   shipment         RemovalShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   sellerSku        String
   fnsku            String
-  title            String?
+  disposition      String?       // Unsellable, Sellable, Defective, etc.
+  requestedQty     Int      @default(0)
+  cancelledQty     Int      @default(0)
+  disposedQty      Int      @default(0)
+  shippedQty       Int      @default(0)
+  inProcessQty     Int      @default(0)
+  removalFee       Decimal? @db.Decimal(10, 2)
+  currency         String?
 
+  @@unique([shipmentId, sellerSku, fnsku])
   @@index([shipmentId])
   @@map("removal_shipment_items")
 }

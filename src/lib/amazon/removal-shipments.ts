@@ -1,18 +1,21 @@
 /**
- * FBA Removal Shipment sync — downloads the
- * GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA report from SP-API,
+ * FBA Removal Order sync — downloads the
+ * GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA report from SP-API,
  * parses the TSV, and upserts rows into removal_shipments / removal_shipment_items.
  *
  * Report columns:
- *   request-date | order-id | shipment-date | sku | fnsku | quantity |
- *   shipment-id | tracking-number | carrier | title
+ *   request-date | order-id | order-source | order-type | order-status |
+ *   last-updated-date | sku | fnsku | disposition | requested-quantity |
+ *   cancelled-quantity | disposed-quantity | shipped-quantity |
+ *   in-process-quantity | removal-fee | currency
  *
- * Each report row may have quantity > 1. We expand into individual
- * RemovalShipmentItem rows (1 per unit) for future receiving workflow.
+ * Rows are grouped by order-id → one RemovalShipment per order,
+ * each SKU line becomes a RemovalShipmentItem with quantity breakdowns.
  */
 import axios from 'axios'
 import { gunzip } from 'zlib'
 import { promisify } from 'util'
+import { Decimal } from '@prisma/client/runtime/library'
 import { prisma } from '@/lib/prisma'
 import { SpApiClient } from './sp-api'
 
@@ -49,16 +52,34 @@ function parseDate(raw: string): Date | null {
   return isNaN(d.getTime()) ? null : d
 }
 
+function parseIntSafe(raw: string): number {
+  const n = parseInt(raw, 10)
+  return isNaN(n) ? 0 : n
+}
+
+function parseDecimal(raw: string): Decimal | null {
+  if (!raw) return null
+  const n = parseFloat(raw)
+  return isNaN(n) ? null : new Decimal(n)
+}
+
 interface ParsedRow {
   removalOrderId: string
-  shipmentId: string
-  trackingNumber: string
-  carrier: string | null
-  shipDate: Date | null
+  orderType: string | null
+  orderStatus: string | null
+  orderSource: string | null
+  requestDate: Date | null
+  lastUpdatedDate: Date | null
   sellerSku: string
   fnsku: string
-  title: string | null
-  quantity: number
+  disposition: string | null
+  requestedQty: number
+  cancelledQty: number
+  disposedQty: number
+  shippedQty: number
+  inProcessQty: number
+  removalFee: Decimal | null
+  currency: string | null
 }
 
 export async function syncRemovalShipments(
@@ -70,9 +91,9 @@ export async function syncRemovalShipments(
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
 
-  // ── 1. Request the removal shipment report ─────────────────────────────────
+  // ── 1. Request the removal order report ────────────────────────────────────
   const { reportId } = await client.post<CreateReportResponse>('/reports/2021-06-30/reports', {
-    reportType: 'GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA',
+    reportType: 'GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA',
     marketplaceIds: [account.marketplaceId],
     dataStartTime: startDate.toISOString(),
     dataEndTime: endDate.toISOString(),
@@ -88,10 +109,10 @@ export async function syncRemovalShipments(
       break
     }
     if (report.processingStatus === 'FATAL' || report.processingStatus === 'CANCELLED') {
-      throw new Error(`Removal shipment report ended with status: ${report.processingStatus}`)
+      throw new Error(`Removal order report ended with status: ${report.processingStatus}`)
     }
   }
-  if (!reportDocumentId) throw new Error('Removal shipment report did not complete within the polling window')
+  if (!reportDocumentId) throw new Error('Removal order report did not complete within the polling window')
 
   // ── 3. Download ────────────────────────────────────────────────────────────
   const docMeta = await client.get<GetReportDocumentResponse>(
@@ -113,37 +134,36 @@ export async function syncRemovalShipments(
     .filter((line) => line.trim())
     .map((line) => line.split('\t'))
 
-  // Parse into structured rows
   const parsed: ParsedRow[] = []
   for (const row of rawRows) {
-    const shipmentId    = col(row, headers, 'shipment-id', 'shipment id', 'shipmentid')
-    const trackingNumber = col(row, headers, 'tracking-number', 'tracking number', 'trackingnumber')
     const removalOrderId = col(row, headers, 'order-id', 'order id', 'orderid')
-    if (!shipmentId || !trackingNumber) continue
-
-    const qtyRaw  = col(row, headers, 'shipped-quantity', 'quantity', 'shipped quantity', 'qty')
-    const quantity = Math.max(1, parseInt(qtyRaw, 10) || 1)
+    if (!removalOrderId) continue
 
     parsed.push({
       removalOrderId,
-      shipmentId,
-      trackingNumber,
-      carrier:   col(row, headers, 'carrier', 'carrier-name') || null,
-      shipDate:  parseDate(col(row, headers, 'shipment-date', 'shipment date', 'ship-date')),
-      sellerSku: col(row, headers, 'sku', 'seller-sku', 'merchant-sku', 'merchant sku') || '',
-      fnsku:     col(row, headers, 'fnsku', 'fn-sku') || '',
-      title:     col(row, headers, 'product-name', 'product name', 'title', 'item-name') || null,
-      quantity,
+      orderType:       col(row, headers, 'order-type', 'order type') || null,
+      orderStatus:     col(row, headers, 'order-status', 'order status') || null,
+      orderSource:     col(row, headers, 'order-source', 'order source') || null,
+      requestDate:     parseDate(col(row, headers, 'request-date', 'request date')),
+      lastUpdatedDate: parseDate(col(row, headers, 'last-updated-date', 'last updated date')),
+      sellerSku:       col(row, headers, 'sku', 'seller-sku') || '',
+      fnsku:           col(row, headers, 'fnsku', 'fn-sku') || '',
+      disposition:     col(row, headers, 'disposition') || null,
+      requestedQty:    parseIntSafe(col(row, headers, 'requested-quantity', 'requested quantity')),
+      cancelledQty:    parseIntSafe(col(row, headers, 'cancelled-quantity', 'cancelled quantity')),
+      disposedQty:     parseIntSafe(col(row, headers, 'disposed-quantity', 'disposed quantity')),
+      shippedQty:      parseIntSafe(col(row, headers, 'shipped-quantity', 'shipped quantity')),
+      inProcessQty:    parseIntSafe(col(row, headers, 'in-process-quantity', 'in-process quantity')),
+      removalFee:      parseDecimal(col(row, headers, 'removal-fee', 'removal fee')),
+      currency:        col(row, headers, 'currency') || null,
     })
   }
 
-  // ── 5. Group by (shipmentId, trackingNumber) and upsert ────────────────────
-  const groupKey = (r: ParsedRow) => `${r.shipmentId}|${r.trackingNumber}`
+  // ── 5. Group by order-id and upsert ────────────────────────────────────────
   const groups = new Map<string, ParsedRow[]>()
   for (const row of parsed) {
-    const key = groupKey(row)
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)!.push(row)
+    if (!groups.has(row.removalOrderId)) groups.set(row.removalOrderId, [])
+    groups.get(row.removalOrderId)!.push(row)
   }
 
   let totalFound = parsed.length
@@ -153,55 +173,71 @@ export async function syncRemovalShipments(
   for (const groupRows of groupEntries) {
     const first = groupRows[0]
 
-    // Upsert the shipment
-    const shipment = await prisma.removalShipment.upsert({
+    // Upsert the removal order header
+    const order = await prisma.removalShipment.upsert({
       where: {
-        accountId_shipmentId_trackingNumber: {
+        accountId_removalOrderId: {
           accountId,
-          shipmentId: first.shipmentId,
-          trackingNumber: first.trackingNumber,
+          removalOrderId: first.removalOrderId,
         },
       },
       create: {
         accountId,
         removalOrderId: first.removalOrderId,
-        shipmentId: first.shipmentId,
-        trackingNumber: first.trackingNumber,
-        carrier: first.carrier,
-        shipDate: first.shipDate,
+        orderType: first.orderType,
+        orderStatus: first.orderStatus,
+        orderSource: first.orderSource,
+        requestDate: first.requestDate,
+        lastUpdatedDate: first.lastUpdatedDate,
       },
       update: {
-        removalOrderId: first.removalOrderId,
-        carrier: first.carrier,
-        shipDate: first.shipDate,
+        orderType: first.orderType,
+        orderStatus: first.orderStatus,
+        orderSource: first.orderSource,
+        requestDate: first.requestDate,
+        lastUpdatedDate: first.lastUpdatedDate,
       },
     })
 
-    // Delete existing items and re-create (idempotent on re-sync)
-    await prisma.removalShipmentItem.deleteMany({
-      where: { shipmentId: shipment.id },
-    })
-
-    // Expand each row's quantity into individual item rows
-    const itemData: { shipmentId: string; sellerSku: string; fnsku: string; title: string | null }[] = []
+    // Upsert each SKU line item
     for (const row of groupRows) {
-      for (let i = 0; i < row.quantity; i++) {
-        itemData.push({
-          shipmentId: shipment.id,
+      await prisma.removalShipmentItem.upsert({
+        where: {
+          shipmentId_sellerSku_fnsku: {
+            shipmentId: order.id,
+            sellerSku: row.sellerSku,
+            fnsku: row.fnsku,
+          },
+        },
+        create: {
+          shipmentId: order.id,
           sellerSku: row.sellerSku,
           fnsku: row.fnsku,
-          title: row.title,
-        })
-      }
-    }
-
-    if (itemData.length > 0) {
-      await prisma.removalShipmentItem.createMany({ data: itemData })
+          disposition: row.disposition,
+          requestedQty: row.requestedQty,
+          cancelledQty: row.cancelledQty,
+          disposedQty: row.disposedQty,
+          shippedQty: row.shippedQty,
+          inProcessQty: row.inProcessQty,
+          removalFee: row.removalFee,
+          currency: row.currency,
+        },
+        update: {
+          disposition: row.disposition,
+          requestedQty: row.requestedQty,
+          cancelledQty: row.cancelledQty,
+          disposedQty: row.disposedQty,
+          shippedQty: row.shippedQty,
+          inProcessQty: row.inProcessQty,
+          removalFee: row.removalFee,
+          currency: row.currency,
+        },
+      })
     }
 
     totalUpserted += groupRows.length
 
-    // Update progress every 5 shipments
+    // Update progress every 5 orders
     if (totalUpserted % 5 === 0) {
       await prisma.importJob.update({
         where: { id: jobId },

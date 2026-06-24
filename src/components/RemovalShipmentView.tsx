@@ -19,21 +19,36 @@ interface ImportJob {
   errorMessage: string | null
 }
 
-interface RemovalShipment {
+interface RemovalOrder {
   id: string
   removalOrderId: string
-  shipmentId: string
-  trackingNumber: string
-  carrier: string | null
-  shipDate: string | null
+  orderType: string | null
+  orderStatus: string | null
+  orderSource: string | null
+  requestDate: string | null
+  lastUpdatedDate: string | null
   _count: { items: number }
+  totals: {
+    requested: number
+    shipped: number
+    inProcess: number
+    cancelled: number
+    disposed: number
+  }
 }
 
-interface RemovalShipmentItem {
+interface RemovalOrderItem {
   id: string
   sellerSku: string
   fnsku: string
-  title: string | null
+  disposition: string | null
+  requestedQty: number
+  cancelledQty: number
+  disposedQty: number
+  shippedQty: number
+  inProcessQty: number
+  removalFee: string | null
+  currency: string | null
 }
 
 interface Pagination {
@@ -41,6 +56,21 @@ interface Pagination {
   pageSize: number
   total: number
   totalPages: number
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function statusBadge(status: string | null) {
+  const s = (status ?? '').toLowerCase()
+  if (s === 'completed') return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+  if (s === 'pending')   return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+  if (s === 'cancelled') return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+  return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+}
+
+function fmtDate(d: string | null) {
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -56,16 +86,16 @@ export default function RemovalShipmentView() {
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Data
-  const [shipments, setShipments] = useState<RemovalShipment[]>([])
+  const [orders, setOrders] = useState<RemovalOrder[]>([])
   const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 25, total: 0, totalPages: 0 })
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState('shipDate')
+  const [sortBy, setSortBy] = useState('requestDate')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   // Expanded rows
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [expandedItems, setExpandedItems] = useState<RemovalShipmentItem[]>([])
+  const [expandedItems, setExpandedItems] = useState<RemovalOrderItem[]>([])
   const [expandLoading, setExpandLoading] = useState(false)
 
   // Load accounts
@@ -79,8 +109,8 @@ export default function RemovalShipmentView() {
       .catch(() => {})
   }, [])
 
-  // Fetch shipments
-  const fetchShipments = useCallback(async (page = 1) => {
+  // Fetch orders
+  const fetchOrders = useCallback(async (page = 1) => {
     setLoading(true)
     try {
       const params = new URLSearchParams({
@@ -92,13 +122,13 @@ export default function RemovalShipmentView() {
       if (search) params.set('search', search)
       const res = await fetch(`/api/removal-shipments?${params}`)
       const json = await res.json()
-      setShipments(json.data ?? [])
+      setOrders(json.data ?? [])
       setPagination(json.pagination ?? { page: 1, pageSize: 25, total: 0, totalPages: 0 })
     } catch { /* ignore */ }
     setLoading(false)
   }, [search, sortBy, sortDir])
 
-  useEffect(() => { fetchShipments(1) }, [fetchShipments])
+  useEffect(() => { fetchOrders(1) }, [fetchOrders])
 
   // Cleanup poll on unmount
   useEffect(() => {
@@ -118,7 +148,7 @@ export default function RemovalShipmentView() {
         if (job.status === 'COMPLETED' || job.status === 'FAILED') {
           clearInterval(jobPollRef.current!)
           jobPollRef.current = null
-          if (job.status === 'COMPLETED') fetchShipments(1)
+          if (job.status === 'COMPLETED') fetchOrders(1)
         }
       } catch { /* transient poll error */ }
     }, 3_000)
@@ -208,14 +238,14 @@ export default function RemovalShipmentView() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tracking #, order ID..."
+            placeholder="Search order ID, SKU, FNSKU..."
             className="h-9 pl-8 pr-3 w-64 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
           />
         </div>
 
         {pagination.total > 0 && (
           <span className="text-xs text-gray-400">
-            {pagination.total} shipment{pagination.total !== 1 ? 's' : ''}
+            {pagination.total} order{pagination.total !== 1 ? 's' : ''}
           </span>
         )}
 
@@ -239,13 +269,17 @@ export default function RemovalShipmentView() {
               <option key={a.id} value={a.id}>{a.marketplaceName} ({a.sellerId})</option>
             ))}
           </select>
-          <button className="btn-primary text-sm" onClick={() => triggerSync(180)}
+          <button className="btn-primary text-sm" onClick={() => triggerSync(7)}
             disabled={!!isSyncing}>
-            Last 6 Months
+            Last 7 Days
           </button>
           <button className="btn-ghost text-sm" onClick={() => triggerSync(30)}
             disabled={!!isSyncing}>
             Last 30 Days
+          </button>
+          <button className="btn-ghost text-sm" onClick={() => triggerSync(60)}
+            disabled={!!isSyncing}>
+            Last 60 Days
           </button>
           <span className="text-gray-300 dark:text-gray-600">|</span>
           <input type="date" className="input w-36 text-sm" value={syncStart} onChange={e => setSyncStart(e.target.value)} />
@@ -284,15 +318,15 @@ export default function RemovalShipmentView() {
       <div className="flex-1 overflow-auto">
         {loading ? (
           <div className="py-20 text-center text-sm text-gray-400">Loading...</div>
-        ) : shipments.length === 0 ? (
+        ) : orders.length === 0 ? (
           <div className="py-20 text-center">
             <PackageMinus size={36} className="mx-auto text-gray-200 dark:text-gray-600 mb-3" />
             <p className="text-sm font-medium text-gray-400">
-              {search ? 'No shipments match your search' : 'No removal shipments synced yet'}
+              {search ? 'No removal orders match your search' : 'No removal orders synced yet'}
             </p>
             {!search && (
               <button onClick={() => setShowSync(true)} className="mt-3 text-sm text-amazon-blue hover:underline">
-                Sync removal shipments from Amazon
+                Sync removal orders from Amazon
               </button>
             )}
           </div>
@@ -302,91 +336,111 @@ export default function RemovalShipmentView() {
               <tr>
                 <th className="w-8" />
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => handleSort('trackingNumber')}>
-                  Tracking #<SortIcon col="trackingNumber" />
-                </th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none"
                     onClick={() => handleSort('removalOrderId')}>
-                  Removal Order ID<SortIcon col="removalOrderId" />
+                  Order ID<SortIcon col="removalOrderId" />
                 </th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => handleSort('carrier')}>
-                  Carrier<SortIcon col="carrier" />
+                    onClick={() => handleSort('orderType')}>
+                  Type<SortIcon col="orderType" />
                 </th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => handleSort('shipDate')}>
-                  Ship Date<SortIcon col="shipDate" />
+                    onClick={() => handleSort('orderStatus')}>
+                  Status<SortIcon col="orderStatus" />
                 </th>
-                <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">
-                  Units
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none"
+                    onClick={() => handleSort('requestDate')}>
+                  Request Date<SortIcon col="requestDate" />
                 </th>
+                <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Requested</th>
+                <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Shipped</th>
+                <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">In Process</th>
+                <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">SKUs</th>
               </tr>
             </thead>
             <tbody>
-              {shipments.map((s, i) => (
-                <React.Fragment key={s.id}>
+              {orders.map((o, i) => (
+                <React.Fragment key={o.id}>
                   <tr
                     className={clsx(
                       'border-b border-gray-200 dark:border-gray-700 last:border-0 align-middle cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-colors',
                       i % 2 === 0
                         ? 'bg-white dark:bg-gray-900'
                         : 'bg-gray-50 dark:bg-gray-800/50',
-                      expandedId === s.id && 'bg-blue-50 dark:bg-blue-900/10',
+                      expandedId === o.id && 'bg-blue-50 dark:bg-blue-900/10',
                     )}
-                    onClick={() => toggleExpand(s.id)}
+                    onClick={() => toggleExpand(o.id)}
                   >
                     <td className="px-2 py-1.5 text-center">
-                      {expandedId === s.id
+                      {expandedId === o.id
                         ? <ChevronDown size={14} className="text-gray-400 inline" />
                         : <ChevronRight size={14} className="text-gray-400 inline" />}
                     </td>
                     <td className="px-3 py-1.5 font-mono font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                      {s.trackingNumber}
-                    </td>
-                    <td className="px-3 py-1.5 font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                      {s.removalOrderId}
+                      {o.removalOrderId}
                     </td>
                     <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
-                      {s.carrier ?? '—'}
+                      {o.orderType ?? '—'}
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <span className={clsx('px-2 py-0.5 rounded-full text-[10px] font-semibold', statusBadge(o.orderStatus))}>
+                        {o.orderStatus ?? '—'}
+                      </span>
                     </td>
                     <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                      {s.shipDate
-                        ? new Date(s.shipDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                        : '—'}
+                      {fmtDate(o.requestDate)}
                     </td>
                     <td className="px-3 py-1.5 text-right font-semibold text-gray-900 dark:text-gray-100">
-                      {s._count.items}
+                      {o.totals.requested}
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-gray-700 dark:text-gray-300">
+                      {o.totals.shipped}
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-gray-700 dark:text-gray-300">
+                      {o.totals.inProcess}
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-gray-500">
+                      {o._count.items}
                     </td>
                   </tr>
 
                   {/* Expanded items sub-table */}
-                  {expandedId === s.id && (
+                  {expandedId === o.id && (
                     <tr>
-                      <td colSpan={6} className="p-0">
+                      <td colSpan={9} className="p-0">
                         <div className="bg-gray-50 dark:bg-gray-800/80 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
                           {expandLoading ? (
                             <p className="text-xs text-gray-400 py-2 flex items-center gap-2">
                               <Loader2 size={12} className="animate-spin" /> Loading items...
                             </p>
                           ) : expandedItems.length === 0 ? (
-                            <p className="text-xs text-gray-400 py-2 italic">No items in this shipment</p>
+                            <p className="text-xs text-gray-400 py-2 italic">No items in this order</p>
                           ) : (
                             <table className="w-full text-xs">
                               <thead>
                                 <tr className="border-b border-gray-200 dark:border-gray-600">
-                                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400 w-10">#</th>
-                                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Merchant SKU</th>
+                                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">SKU</th>
                                   <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">FNSKU</th>
-                                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Item Title</th>
+                                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Disposition</th>
+                                  <th className="px-2 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400">Requested</th>
+                                  <th className="px-2 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400">Shipped</th>
+                                  <th className="px-2 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400">In Process</th>
+                                  <th className="px-2 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400">Cancelled</th>
+                                  <th className="px-2 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400">Fee</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {expandedItems.map((item, idx) => (
+                                {expandedItems.map((item) => (
                                   <tr key={item.id} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
-                                    <td className="px-2 py-1.5 text-gray-400">{idx + 1}</td>
                                     <td className="px-2 py-1.5 font-mono text-gray-800 dark:text-gray-200">{item.sellerSku}</td>
                                     <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-400">{item.fnsku}</td>
-                                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 max-w-md truncate">{item.title ?? '—'}</td>
+                                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400">{item.disposition ?? '—'}</td>
+                                    <td className="px-2 py-1.5 text-right font-semibold text-gray-900 dark:text-gray-100">{item.requestedQty}</td>
+                                    <td className="px-2 py-1.5 text-right text-gray-700 dark:text-gray-300">{item.shippedQty}</td>
+                                    <td className="px-2 py-1.5 text-right text-gray-700 dark:text-gray-300">{item.inProcessQty}</td>
+                                    <td className="px-2 py-1.5 text-right text-gray-700 dark:text-gray-300">{item.cancelledQty}</td>
+                                    <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400">
+                                      {item.removalFee ? `$${Number(item.removalFee).toFixed(2)}` : '—'}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -412,14 +466,14 @@ export default function RemovalShipmentView() {
           <div className="flex gap-1">
             <button
               disabled={pagination.page <= 1}
-              onClick={() => fetchShipments(pagination.page - 1)}
+              onClick={() => fetchOrders(pagination.page - 1)}
               className="px-3 py-1 rounded border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Prev
             </button>
             <button
               disabled={pagination.page >= pagination.totalPages}
-              onClick={() => fetchShipments(pagination.page + 1)}
+              onClick={() => fetchOrders(pagination.page + 1)}
               className="px-3 py-1 rounded border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Next
