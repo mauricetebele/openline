@@ -1,6 +1,7 @@
 'use client'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { X, CheckCircle2, AlertCircle, Loader2, Search, Printer } from 'lucide-react'
+import SickwCheckButton from './SickwCheckButton'
 import JsBarcode from 'jsbarcode'
 import { jsPDF } from 'jspdf'
 
@@ -392,6 +393,7 @@ export default function ReceiveRemovalItemModal({
                   <div className="flex items-center gap-2">
                     <CheckCircle2 size={14} className="text-green-500 shrink-0" />
                     <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">{validated.serialNumber}</span>
+                    <SickwCheckButton serial={validated.serialNumber} compact />
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
                     Product: <span className="font-semibold text-gray-700 dark:text-gray-300">{validated.sku}</span> — {validated.description}
@@ -420,8 +422,11 @@ export default function ReceiveRemovalItemModal({
                 </div>
               ) : (
                 <div className="p-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg">
-                  <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Override — New Serial: </span>
-                  <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">{serialInput.trim()}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Override — New Serial: </span>
+                    <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">{serialInput.trim()}</span>
+                    <SickwCheckButton serial={serialInput.trim()} compact />
+                  </div>
                 </div>
               )}
 
