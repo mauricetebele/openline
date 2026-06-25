@@ -7,6 +7,10 @@ interface SickwCheckButtonProps {
   serial: string
   /** Optional: compact mode for tight table cells */
   compact?: boolean
+  /** SICKW service ID to use (default: 3 = iCloud ON/OFF) */
+  serviceId?: number
+  /** SICKW service name (default: 'iCloud ON/OFF') */
+  serviceName?: string
 }
 
 type CheckStatus = null | 'loading' | 'checking' | 'ON' | 'OFF' | 'ERROR' | 'UNKNOWN'
@@ -17,11 +21,26 @@ interface HistoricalCheck {
 }
 
 function parseCheckResult(resultStr: string): 'ON' | 'OFF' | 'UNKNOWN' {
-  const lockMatch = resultStr.match(/iCloud Lock:\s*(?:<[^>]*>)?\s*(ON|OFF)/i)
-  return lockMatch ? (lockMatch[1].toUpperCase() as 'ON' | 'OFF') : 'UNKNOWN'
+  // Try multiple patterns: iCloud ON/OFF check and Apple Basic Info
+  const patterns = [
+    /iCloud Lock:\s*(?:<[^>]*>)?\s*(ON|OFF)/i,
+    /Find My (?:iPhone|iPad|Mac|iPod):\s*(?:<[^>]*>)?\s*(ON|OFF)/i,
+    /FMI:\s*(?:<[^>]*>)?\s*(ON|OFF)/i,
+    /Find My:\s*(?:<[^>]*>)?\s*(ON|OFF)/i,
+    /iCloud Status:\s*(?:<[^>]*>)?\s*(ON|OFF|Clean|Lost|Locked)/i,
+  ]
+  for (const pat of patterns) {
+    const m = resultStr.match(pat)
+    if (m) {
+      const val = m[1].toUpperCase()
+      if (val === 'CLEAN' || val === 'OFF') return 'OFF'
+      return 'ON'
+    }
+  }
+  return 'UNKNOWN'
 }
 
-export default function SickwCheckButton({ serial, compact }: SickwCheckButtonProps) {
+export default function SickwCheckButton({ serial, compact, serviceId = 3, serviceName = 'iCloud ON/OFF' }: SickwCheckButtonProps) {
   const [status, setStatus] = useState<CheckStatus>(null)
   const [history, setHistory] = useState<HistoricalCheck[]>([])
   const [showHistory, setShowHistory] = useState(false)
@@ -85,7 +104,7 @@ export default function SickwCheckButton({ serial, compact }: SickwCheckButtonPr
       const res = await fetch('/api/sickw/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imei: serial, serviceId: 30, serviceName: 'iCloud Lock (FMI) Status' }),
+        body: JSON.stringify({ imei: serial, serviceId, serviceName }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Check failed')

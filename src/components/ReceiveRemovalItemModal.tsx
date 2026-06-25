@@ -2,6 +2,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { X, CheckCircle2, AlertCircle, Loader2, Search, Printer } from 'lucide-react'
 import SickwCheckButton from './SickwCheckButton'
+
+/** Pick SICKW service based on device type:
+ *  iPhone / Apple Watch → iCloud ON/OFF (id 3)
+ *  MacBook / iPad       → Apple Basic Info (id 30)
+ */
+function getFmiService(text: string): { serviceId: number; serviceName: string } | null {
+  const t = text.toLowerCase()
+  if (/iphone|apple\s*watch/.test(t)) return { serviceId: 3, serviceName: 'iCloud ON/OFF' }
+  if (/macbook|ipad/.test(t)) return { serviceId: 30, serviceName: 'Basic Info' }
+  return null
+}
 import JsBarcode from 'jsbarcode'
 import { jsPDF } from 'jspdf'
 
@@ -393,7 +404,10 @@ export default function ReceiveRemovalItemModal({
                   <div className="flex items-center gap-2">
                     <CheckCircle2 size={14} className="text-green-500 shrink-0" />
                     <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">{validated.serialNumber}</span>
-                    <SickwCheckButton serial={validated.serialNumber} compact />
+                    {(() => {
+                      const svc = getFmiService(`${validated.sku} ${validated.description}`)
+                      return svc ? <SickwCheckButton serial={validated.serialNumber} compact serviceId={svc.serviceId} serviceName={svc.serviceName} /> : null
+                    })()}
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
                     Product: <span className="font-semibold text-gray-700 dark:text-gray-300">{validated.sku}</span> — {validated.description}
@@ -425,7 +439,10 @@ export default function ReceiveRemovalItemModal({
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Override — New Serial: </span>
                     <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">{serialInput.trim()}</span>
-                    <SickwCheckButton serial={serialInput.trim()} compact />
+                    {(() => {
+                      const svc = getFmiService(`${selectedProductSku} ${selectedProductDesc}`)
+                      return svc ? <SickwCheckButton serial={serialInput.trim()} compact serviceId={svc.serviceId} serviceName={svc.serviceName} /> : null
+                    })()}
                   </div>
                 </div>
               )}
