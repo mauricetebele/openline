@@ -213,7 +213,7 @@ async function handleWholesale(
 
   const orderTotal = Number(order.total ?? 0)
   const totalCustomerShipping = Number(order.shippingCost ?? 0) // Revenue from customer shipping
-  const totalShipping = 0 // Actual cost of shipping (TBD — input to be added later)
+  const totalShipping = Number(order.actualShippingCost ?? 0)
 
   // Build serial cost map keyed by salesOrderItemId
   const serialCostsByItem = new Map<string, { cogs: number; count: number }>()

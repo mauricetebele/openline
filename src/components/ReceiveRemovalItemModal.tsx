@@ -15,18 +15,15 @@ interface Grade {
   grade: string
 }
 
-interface ProductSuggestion {
-  productId: string
-  sku: string
-  description: string
-  gradeId: string | null
-  grade: string | null
-}
-
 interface ProductSearchResult {
   id: string
   sku: string
   description: string
+}
+
+interface Vendor {
+  id: string
+  name: string
 }
 
 interface ValidatedSerial {
@@ -62,35 +59,38 @@ export default function ReceiveRemovalItemModal({
   onClose,
   onReceived,
 }: Props) {
-  // Step tracking: 1=LPN, 2=SKU, 3=Grade, 4=Serial, 5=Location
+  // Step tracking: 1=LPN, 2=Serial, 3=Grade, 4=Location
   const [step, setStep] = useState(1)
 
   // Step 1 — LPN
   const [lpnNumber, setLpnNumber] = useState('')
   const lpnRef = useRef<HTMLInputElement>(null)
 
-  // Step 2 — Product
-  const [suggestions, setSuggestions] = useState<ProductSuggestion[]>([])
+  // Step 2 — Serial (validate first, then product is determined)
+  const [serialInput, setSerialInput] = useState('')
+  const [validating, setValidating] = useState(false)
+  const [validated, setValidated] = useState<ValidatedSerial | null>(null)
+  const [validationError, setValidationError] = useState('')
+  const [overrideMode, setOverrideMode] = useState(false)
+  const serialRef = useRef<HTMLInputElement>(null)
+
+  // Override — product picker + cost + vendor
   const [selectedProductId, setSelectedProductId] = useState('')
   const [selectedProductSku, setSelectedProductSku] = useState('')
   const [selectedProductDesc, setSelectedProductDesc] = useState('')
   const [productSearch, setProductSearch] = useState('')
   const [productResults, setProductResults] = useState<ProductSearchResult[]>([])
   const [searchingProducts, setSearchingProducts] = useState(false)
+  const [overrideCost, setOverrideCost] = useState('')
+  const [overrideVendorId, setOverrideVendorId] = useState('')
 
   // Step 3 — Grade
   const [grades, setGrades] = useState<Grade[]>([])
   const [gradeId, setGradeId] = useState('')
 
-  // Step 4 — Serial
-  const [serialInput, setSerialInput] = useState('')
-  const [validating, setValidating] = useState(false)
-  const [validated, setValidated] = useState<ValidatedSerial | null>(null)
-  const [validationError, setValidationError] = useState('')
-  const serialRef = useRef<HTMLInputElement>(null)
-
-  // Step 5 — Warehouse / Location
+  // Step 4 — Warehouse / Location
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+  const [vendors, setVendors] = useState<Vendor[]>([])
   const [warehouseId, setWarehouseId] = useState('')
   const [locationId, setLocationId] = useState('')
 
@@ -104,22 +104,12 @@ export default function ReceiveRemovalItemModal({
     Promise.all([
       fetch('/api/warehouses').then(r => r.json()),
       fetch('/api/grades').then(r => r.json()),
-      fetch(`/api/removal-shipments/${shipmentId}/product-lookup?sellerSku=${encodeURIComponent(sellerSku)}`).then(r => r.json()),
-    ]).then(([whJson, grJson, lookupJson]) => {
+      fetch('/api/vendors').then(r => r.json()).catch(() => ({ data: [] })),
+    ]).then(([whJson, grJson, vnJson]) => {
       const wh = whJson.data ?? whJson ?? []
       setWarehouses(wh)
       setGrades(grJson.data ?? [])
-
-      const suggs: ProductSuggestion[] = lookupJson.suggestions ?? []
-      setSuggestions(suggs)
-
-      // Auto-select first suggestion
-      if (suggs.length > 0) {
-        setSelectedProductId(suggs[0].productId)
-        setSelectedProductSku(suggs[0].sku)
-        setSelectedProductDesc(suggs[0].description)
-        if (suggs[0].gradeId) setGradeId(suggs[0].gradeId)
-      }
+      setVendors(vnJson.data ?? vnJson ?? [])
 
       // Restore last used warehouse/location from sessionStorage
       const lastWh = sessionStorage.getItem('removal-receive-warehouseId')
@@ -130,12 +120,12 @@ export default function ReceiveRemovalItemModal({
         if (lastLoc && hasLoc) setLocationId(lastLoc)
       }
     })
-  }, [shipmentId, sellerSku])
+  }, [])
 
   // Auto-focus LPN input
   useEffect(() => { lpnRef.current?.focus() }, [])
 
-  // Search products debounced
+  // Search products debounced (for override mode)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleProductSearch = useCallback((query: string) => {
     setProductSearch(query)
@@ -152,20 +142,13 @@ export default function ReceiveRemovalItemModal({
     }, 300)
   }, [])
 
-  function selectProduct(p: { id: string; sku: string; description?: string }) {
-    setSelectedProductId(p.id)
-    setSelectedProductSku(p.sku)
-    setSelectedProductDesc(p.description ?? '')
-    setProductSearch('')
-    setProductResults([])
-  }
-
   async function handleValidateSerial() {
     const sn = serialInput.trim()
     if (!sn) return
     setValidating(true)
     setValidationError('')
     setValidated(null)
+    setOverrideMode(false)
     try {
       const res = await fetch('/api/fba-return-receipts/validate-serial', {
         method: 'POST',
@@ -174,15 +157,16 @@ export default function ReceiveRemovalItemModal({
       })
       const json = await res.json()
       if (!res.ok) {
-        setValidationError(json.error || 'Validation failed')
+        if (res.status === 404) {
+          setValidationError('Serial not found — you can override to create a new serial record.')
+        } else {
+          setValidationError(json.error || 'Validation failed')
+        }
       } else {
         const data: ValidatedSerial = json.data
-        // Check product match
-        if (data.productId !== selectedProductId) {
-          setValidationError(`Serial belongs to product ${data.sku}, not ${selectedProductSku}`)
-        } else {
-          setValidated(data)
-        }
+        setValidated(data)
+        // Auto-populate grade from the serial
+        if (data.gradeId) setGradeId(data.gradeId)
       }
     } catch {
       setValidationError('Failed to validate serial')
@@ -191,28 +175,43 @@ export default function ReceiveRemovalItemModal({
   }
 
   async function handleReceive() {
-    if (!validated || !locationId) return
+    if (!overrideMode && !validated) return
+    if (!locationId) return
     setReceiving(true)
     setReceiveError('')
     try {
+      const body = overrideMode
+        ? {
+            createSerial: true,
+            serialNumber: serialInput.trim(),
+            productId: selectedProductId,
+            locationId,
+            gradeId: gradeId || null,
+            removalShipmentId: shipmentId,
+            removalShipmentItemId: shipmentItemId,
+            removalTrackingNumber: trackingNumber,
+            lpnNumber: lpnNumber.trim(),
+            unitCost: overrideCost ? parseFloat(overrideCost) : undefined,
+            vendorId: overrideVendorId || undefined,
+          }
+        : {
+            inventorySerialId: validated!.inventorySerialId,
+            locationId,
+            gradeId: gradeId || null,
+            removalShipmentId: shipmentId,
+            removalShipmentItemId: shipmentItemId,
+            removalTrackingNumber: trackingNumber,
+            lpnNumber: lpnNumber.trim(),
+          }
       const res = await fetch('/api/fba-return-receipts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          inventorySerialId: validated.inventorySerialId,
-          locationId,
-          gradeId: gradeId || null,
-          removalShipmentId: shipmentId,
-          removalShipmentItemId: shipmentItemId,
-          removalTrackingNumber: trackingNumber,
-          lpnNumber: lpnNumber.trim(),
-        }),
+        body: JSON.stringify(body),
       })
       const json = await res.json()
       if (!res.ok) {
         setReceiveError(json.error || 'Failed to receive')
       } else {
-        // Save warehouse/location for next receive
         sessionStorage.setItem('removal-receive-warehouseId', warehouseId)
         sessionStorage.setItem('removal-receive-locationId', locationId)
         setReceiptNumber(json.receiptNumber)
@@ -225,6 +224,9 @@ export default function ReceiveRemovalItemModal({
   }
 
   const filteredLocations = warehouses.find(w => w.id === warehouseId)?.locations ?? []
+
+  // Can advance from step 2?
+  const step2Complete = validated || (overrideMode && selectedProductId && !!overrideCost && !!overrideVendorId)
 
   // ── Success screen ──
   if (receiptNumber) {
@@ -274,14 +276,14 @@ export default function ReceiveRemovalItemModal({
               autoFocus
               value={lpnNumber}
               onChange={(e) => setLpnNumber(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && lpnNumber.trim()) setStep(2) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && lpnNumber.trim()) { setStep(2); setTimeout(() => serialRef.current?.focus(), 50) } }}
               placeholder="Scan or type LPN..."
               disabled={step > 1}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 disabled:opacity-60"
             />
             {step === 1 && (
               <button
-                onClick={() => { if (lpnNumber.trim()) setStep(2) }}
+                onClick={() => { if (lpnNumber.trim()) { setStep(2); setTimeout(() => serialRef.current?.focus(), 50) } }}
                 disabled={!lpnNumber.trim()}
                 className="mt-2 px-4 py-1.5 text-xs font-medium text-white bg-amazon-blue rounded-lg hover:bg-amazon-blue/90 disabled:opacity-40"
               >
@@ -290,54 +292,135 @@ export default function ReceiveRemovalItemModal({
             )}
           </div>
 
-          {/* Step 2: Internal SKU / Product */}
+          {/* Step 2: Serial Number */}
           {step >= 2 && (
             <div>
               <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
-                2. Internal Product
+                2. Serial Number
               </label>
-              {selectedProductId ? (
-                <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{selectedProductSku}</span>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{selectedProductDesc}</p>
+              {validated ? (
+                <div className="p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg space-y-1">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 size={14} className="text-green-500 shrink-0" />
+                    <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">{validated.serialNumber}</span>
                   </div>
-                  {step === 2 && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    Product: <span className="font-semibold text-gray-700 dark:text-gray-300">{validated.sku}</span> — {validated.description}
+                  </div>
+                  {validated.fbaShipmentNumber && (
+                    <div className="text-xs text-blue-600 dark:text-blue-400 font-mono">{validated.fbaShipmentNumber}</div>
+                  )}
+                </div>
+              ) : !overrideMode ? (
+                <div className="flex gap-2">
+                  <input
+                    ref={serialRef}
+                    value={serialInput}
+                    onChange={(e) => { setSerialInput(e.target.value); setValidationError('') }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleValidateSerial() }}
+                    placeholder="Scan or type serial..."
+                    className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  />
+                  <button
+                    onClick={handleValidateSerial}
+                    disabled={!serialInput.trim() || validating}
+                    className="px-4 py-2 text-sm font-medium text-white bg-amazon-blue rounded-lg hover:bg-amazon-blue/90 disabled:opacity-40"
+                  >
+                    {validating ? <Loader2 size={14} className="animate-spin" /> : 'Validate'}
+                  </button>
+                </div>
+              ) : (
+                <div className="p-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg">
+                  <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Override — New Serial: </span>
+                  <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">{serialInput.trim()}</span>
+                </div>
+              )}
+
+              {/* Validation error + override button */}
+              {validationError && !overrideMode && (
+                <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-red-700 dark:text-red-400">
+                    <AlertCircle size={14} />
+                    {validationError}
+                  </div>
+                  {validationError.includes('not found') && (
                     <button
-                      onClick={() => { setSelectedProductId(''); setSelectedProductSku(''); setSelectedProductDesc('') }}
-                      className="text-xs text-gray-500 hover:text-red-500 underline shrink-0"
+                      onClick={() => { setOverrideMode(true); setValidationError('') }}
+                      className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-100 rounded-lg hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50"
                     >
-                      Change
+                      Override — Create New Serial
                     </button>
                   )}
                 </div>
-              ) : (
-                <div className="relative">
-                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    value={productSearch}
-                    onChange={(e) => handleProductSearch(e.target.value)}
-                    placeholder="Search by SKU or name..."
-                    className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                  />
-                  {searchingProducts && <Loader2 size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-gray-400" />}
-                  {productResults.length > 0 && (
-                    <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                      {productResults.map(p => (
-                        <button
-                          key={p.id}
-                          onClick={() => selectProduct(p)}
-                          className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm border-b border-gray-100 dark:border-gray-700 last:border-0"
-                        >
-                          <span className="font-semibold text-gray-900 dark:text-gray-100">{p.sku}</span>
-                          <span className="ml-2 text-gray-500 dark:text-gray-400">{p.description}</span>
-                        </button>
-                      ))}
+              )}
+
+              {/* Override: product picker + cost + vendor */}
+              {overrideMode && (
+                <div className="mt-2 p-3 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg space-y-3">
+                  {/* Product search */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Product <span className="text-red-500">*</span></label>
+                    {selectedProductId ? (
+                      <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{selectedProductSku}</span>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{selectedProductDesc}</p>
+                        </div>
+                        <button onClick={() => { setSelectedProductId(''); setSelectedProductSku(''); setSelectedProductDesc('') }} className="text-xs text-gray-500 hover:text-red-500 underline shrink-0">Change</button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          value={productSearch}
+                          onChange={(e) => handleProductSearch(e.target.value)}
+                          placeholder="Search by SKU or name..."
+                          className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        />
+                        {searchingProducts && <Loader2 size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-gray-400" />}
+                        {productResults.length > 0 && (
+                          <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {productResults.map(p => (
+                              <button key={p.id} onClick={() => { setSelectedProductId(p.id); setSelectedProductSku(p.sku); setSelectedProductDesc(p.description); setProductSearch(''); setProductResults([]) }}
+                                className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm border-b border-gray-100 dark:border-gray-700 last:border-0">
+                                <span className="font-semibold text-gray-900 dark:text-gray-100">{p.sku}</span>
+                                <span className="ml-2 text-gray-500 dark:text-gray-400">{p.description}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Cost + Vendor */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Unit Cost <span className="text-red-500">*</span></label>
+                      <input
+                        type="number" step="0.01" min="0"
+                        value={overrideCost}
+                        onChange={(e) => setOverrideCost(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                      />
                     </div>
-                  )}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Vendor <span className="text-red-500">*</span></label>
+                      <select
+                        value={overrideVendorId}
+                        onChange={(e) => setOverrideVendorId(e.target.value)}
+                        className="w-full px-2 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                      >
+                        <option value="">Select vendor...</option>
+                        {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
                 </div>
               )}
-              {step === 2 && selectedProductId && (
+
+              {step === 2 && step2Complete && (
                 <button
                   onClick={() => setStep(3)}
                   className="mt-2 px-4 py-1.5 text-xs font-medium text-white bg-amazon-blue rounded-lg hover:bg-amazon-blue/90"
@@ -365,7 +448,7 @@ export default function ReceiveRemovalItemModal({
               </select>
               {step === 3 && (
                 <button
-                  onClick={() => { setStep(4); setTimeout(() => serialRef.current?.focus(), 50) }}
+                  onClick={() => setStep(4)}
                   className="mt-2 px-4 py-1.5 text-xs font-medium text-white bg-amazon-blue rounded-lg hover:bg-amazon-blue/90"
                 >
                   Next
@@ -374,61 +457,11 @@ export default function ReceiveRemovalItemModal({
             </div>
           )}
 
-          {/* Step 4: Serial Number */}
+          {/* Step 4: Warehouse / Location */}
           {step >= 4 && (
             <div>
               <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
-                4. Serial Number
-              </label>
-              {validated ? (
-                <div className="p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 size={14} className="text-green-500 shrink-0" />
-                    <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">{validated.serialNumber}</span>
-                    <span className="text-xs text-gray-500">— {validated.sku}</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <input
-                    ref={serialRef}
-                    value={serialInput}
-                    onChange={(e) => { setSerialInput(e.target.value); setValidationError('') }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleValidateSerial() }}
-                    placeholder="Scan or type serial..."
-                    className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                  />
-                  <button
-                    onClick={handleValidateSerial}
-                    disabled={!serialInput.trim() || validating}
-                    className="px-4 py-2 text-sm font-medium text-white bg-amazon-blue rounded-lg hover:bg-amazon-blue/90 disabled:opacity-40"
-                  >
-                    {validating ? <Loader2 size={14} className="animate-spin" /> : 'Validate'}
-                  </button>
-                </div>
-              )}
-              {validationError && (
-                <div className="mt-2 flex items-center gap-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-700 dark:text-red-400">
-                  <AlertCircle size={14} />
-                  {validationError}
-                </div>
-              )}
-              {step === 4 && validated && (
-                <button
-                  onClick={() => setStep(5)}
-                  className="mt-2 px-4 py-1.5 text-xs font-medium text-white bg-amazon-blue rounded-lg hover:bg-amazon-blue/90"
-                >
-                  Next
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Step 5: Warehouse / Location */}
-          {step >= 5 && (
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
-                5. Warehouse &amp; Location
+                4. Warehouse &amp; Location
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <select
@@ -466,10 +499,10 @@ export default function ReceiveRemovalItemModal({
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900">
             Cancel
           </button>
-          {step >= 5 && validated && (
+          {step >= 4 && (validated || overrideMode) && (
             <button
               onClick={handleReceive}
-              disabled={!locationId || receiving}
+              disabled={!locationId || receiving || (overrideMode && (!overrideCost || !overrideVendorId || !selectedProductId))}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg shadow hover:bg-green-700 disabled:opacity-40"
             >
               {receiving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}

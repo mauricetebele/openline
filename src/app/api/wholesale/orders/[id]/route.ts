@@ -189,6 +189,21 @@ export async function PUT(
   return NextResponse.json(order)
 }
 
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { actualShippingCost } = await req.json()
+  const updated = await prisma.salesOrder.update({
+    where: { id: params.id },
+    data: { actualShippingCost: actualShippingCost != null ? Number(actualShippingCost) : null },
+  })
+  return NextResponse.json(updated)
+}
+
 const DELETABLE_STATUSES = ['PENDING_APPROVAL', 'DRAFT', 'CONFIRMED']
 
 export async function DELETE(

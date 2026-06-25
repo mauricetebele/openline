@@ -1735,6 +1735,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
 }) {
   const [carrier, setCarrier]   = useState('')
   const [tracking, setTracking] = useState('')
+  const [shipCost, setShipCost] = useState('')
   const [serialInputs, setSerialInputs] = useState<Record<string, WholesaleSerialState>>({})
   const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const [submitting, setSubmitting] = useState(false)
@@ -1838,7 +1839,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
       const res = await fetch(`/api/wholesale/orders/${order.id}/ship`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ carrier: carrier.trim(), tracking: tracking.trim(), ...(serials.length > 0 ? { serials } : {}) }),
+        body: JSON.stringify({ carrier: carrier.trim(), tracking: tracking.trim(), ...(shipCost ? { shippingCost: parseFloat(shipCost) } : {}), ...(serials.length > 0 ? { serials } : {}) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `${res.status}`)
@@ -1880,8 +1881,8 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Carrier + Tracking */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Carrier + Tracking + Ship Cost */}
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-[10px] font-medium text-gray-600 mb-1">Carrier <span className="text-red-500">*</span></label>
               <input
@@ -1899,6 +1900,18 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
                 value={tracking}
                 onChange={e => setTracking(e.target.value)}
                 placeholder="Tracking number…"
+                className="w-full h-8 rounded border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-600 mb-1">Ship Cost</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={shipCost}
+                onChange={e => setShipCost(e.target.value)}
+                placeholder="0.00"
                 className="w-full h-8 rounded border border-gray-300 px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
               />
             </div>

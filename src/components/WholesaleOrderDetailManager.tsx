@@ -58,6 +58,7 @@ interface Order {
   notes?: string; internalNotes?: string
   invoiceNumber?: string; invoicedAt?: string
   shipCarrier?: string; shipTracking?: string; shippedAt?: string
+  actualShippingCost?: number
 }
 
 export default function WholesaleOrderDetailManager({ id }: { id: string }) {
@@ -77,6 +78,9 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
   const [editingPo, setEditingPo] = useState(false)
   const [poInput, setPoInput] = useState('')
   const [savingPo, setSavingPo] = useState(false)
+  const [editingShipCost, setEditingShipCost] = useState(false)
+  const [shipCostInput, setShipCostInput] = useState('')
+  const [savingShipCost, setSavingShipCost] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -364,7 +368,7 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-4 gap-4">
                 <div>
                   <p className="text-xs text-gray-400">Carrier</p>
                   <p className="font-medium text-gray-700">{order.shipCarrier || '—'}</p>
@@ -378,6 +382,55 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                   <p className="font-medium text-gray-700">
                     {order.shippedAt ? new Date(order.shippedAt).toLocaleDateString() : '—'}
                   </p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Ship Cost</p>
+                  {editingShipCost ? (
+                    <form onSubmit={async (e) => {
+                      e.preventDefault()
+                      setSavingShipCost(true)
+                      try {
+                        const val = parseFloat(shipCostInput) || 0
+                        const res = await fetch(`/api/wholesale/orders/${id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ actualShippingCost: val }),
+                        })
+                        if (res.ok) {
+                          setOrder(prev => prev ? { ...prev, actualShippingCost: val } : prev)
+                          setEditingShipCost(false)
+                          toast.success('Ship cost updated')
+                        } else { toast.error('Failed to update ship cost') }
+                      } finally { setSavingShipCost(false) }
+                    }} className="flex items-center gap-1">
+                      <input
+                        autoFocus
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={shipCostInput}
+                        onChange={(e) => setShipCostInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Escape') setEditingShipCost(false) }}
+                        placeholder="0.00"
+                        className="w-20 border border-gray-300 rounded px-2 py-0.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-orange-400"
+                        disabled={savingShipCost}
+                      />
+                      <button type="submit" disabled={savingShipCost} className="text-green-600 hover:text-green-700">
+                        <Check size={14} />
+                      </button>
+                      <button type="button" onClick={() => setEditingShipCost(false)} className="text-gray-400 hover:text-gray-600">
+                        <X size={14} />
+                      </button>
+                    </form>
+                  ) : (
+                    <button
+                      onClick={() => { setShipCostInput(String(Number(order.actualShippingCost ?? 0))); setEditingShipCost(true) }}
+                      className="flex items-center gap-1 font-medium text-gray-700 hover:text-orange-600 group"
+                    >
+                      {order.actualShippingCost ? `$${Number(order.actualShippingCost).toFixed(2)}` : <span className="text-gray-400 italic">+ Add</span>}
+                      <Pencil size={11} className="opacity-0 group-hover:opacity-100 text-gray-400" />
+                    </button>
+                  )}
                 </div>
               </div>
 

@@ -1539,6 +1539,7 @@ model SalesOrder {
   shipCarrier       String?
   shipTracking      String?
   shippedAt         DateTime?
+  actualShippingCost Decimal?              @db.Decimal(10, 2)
   invoiceNumber     String?                @unique
   invoicedAt        DateTime?
   createdAt         DateTime               @default(now())

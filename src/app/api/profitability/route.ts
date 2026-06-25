@@ -365,7 +365,7 @@ export async function GET(req: NextRequest) {
   for (const order of wholesaleOrders) {
     const saleValue = Number(order.total ?? 0)
     const customerShipping = Number(order.shippingCost ?? 0) // Amount billed to customer for shipping (revenue)
-    const shippingCost = 0 // Actual cost of shipping (TBD — input to be added later)
+    const shippingCost = Number(order.actualShippingCost ?? 0)
     const commission = 0
 
     let totalCogs = 0
@@ -415,7 +415,7 @@ export async function GET(req: NextRequest) {
       totalCogs: Math.round(totalCogs * 100) / 100,
       commission: 0,
       customerShipping: Math.round(customerShipping * 100) / 100,
-      shippingCost: 0,
+      shippingCost: Math.round(shippingCost * 100) / 100,
       costCodeDeductions: Math.round(costCodeDeductions * 100) / 100,
       netProfit: Math.round(netProfit * 100) / 100,
       commissionSynced: true,
@@ -507,7 +507,7 @@ export async function GET(req: NextRequest) {
     for (const order of wholesaleOrders) {
       const orderTotal = Number(order.total ?? 0)
       const totalCustomerShippingVal = Number(order.shippingCost ?? 0) // Revenue from customer shipping
-      const totalShippingVal = 0 // Actual cost of shipping (TBD — input to be added later)
+      const totalShippingVal = Number(order.actualShippingCost ?? 0)
 
       const serialCostsByItem = new Map<string, { cogs: number; cc: number; count: number }>()
       for (const sa of order.serialAssignments) {

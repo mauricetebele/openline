@@ -28,10 +28,11 @@ export async function POST(
   const body = await req.json() as {
     carrier: string
     tracking: string
+    shippingCost?: number
     serials?: { serialId?: string; serialNumber?: string; salesOrderItemId?: string }[]
   }
 
-  const { carrier, tracking, serials = [] } = body
+  const { carrier, tracking, shippingCost, serials = [] } = body
   if (!carrier?.trim()) return NextResponse.json({ error: 'carrier is required' }, { status: 400 })
   if (!tracking?.trim()) return NextResponse.json({ error: 'tracking is required' }, { status: 400 })
 
@@ -185,6 +186,7 @@ export async function POST(
           shipCarrier:  carrier.trim(),
           shipTracking: tracking.trim(),
           shippedAt:    new Date(),
+          ...(shippingCost != null && { actualShippingCost: shippingCost }),
         },
       })
     }, { timeout: 30000 })
