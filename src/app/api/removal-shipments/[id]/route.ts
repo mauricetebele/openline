@@ -22,6 +22,23 @@ export async function GET(
           _count: { select: { fbaReturnReceipts: true } },
         },
       },
+      fbaReturnReceipts: {
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          receiptNumber: true,
+          serialNumber: true,
+          sku: true,
+          lpnNumber: true,
+          note: true,
+          receivedAt: true,
+          grade: { select: { grade: true } },
+          previousGradeId: true,
+          location: { select: { name: true, warehouse: { select: { name: true } } } },
+          receivedBy: { select: { name: true } },
+          product: { select: { description: true } },
+        },
+      },
     },
   })
 
@@ -54,6 +71,21 @@ export async function GET(
   const totalUnits = items.reduce((sum, i) => sum + i.quantity, 0)
   const totalReceived = items.reduce((sum, i) => sum + i.receivedCount, 0)
 
+  const receipts = shipment.fbaReturnReceipts.map(r => ({
+    id: r.id,
+    receiptNumber: r.receiptNumber,
+    serialNumber: r.serialNumber,
+    sku: r.sku,
+    description: r.product?.description ?? null,
+    lpnNumber: r.lpnNumber,
+    grade: r.grade?.grade ?? null,
+    regraded: !!r.previousGradeId,
+    location: r.location ? `${r.location.warehouse.name} / ${r.location.name}` : null,
+    note: r.note,
+    receivedBy: r.receivedBy?.name ?? null,
+    receivedAt: r.receivedAt,
+  }))
+
   return NextResponse.json({
     id: shipment.id,
     removalOrderId: shipment.removalOrderId,
@@ -63,6 +95,7 @@ export async function GET(
     shipDate: shipment.shipDate,
     requestDate: shipment.requestDate,
     items,
+    receipts,
     totalUnits,
     totalReceived,
   })

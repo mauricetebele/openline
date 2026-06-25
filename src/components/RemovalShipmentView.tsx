@@ -42,6 +42,21 @@ interface RemovalShipmentItem {
   title: string | null
 }
 
+interface RemovalReceipt {
+  id: string
+  receiptNumber: string
+  serialNumber: string
+  sku: string
+  description: string | null
+  lpnNumber: string | null
+  grade: string | null
+  regraded: boolean
+  location: string | null
+  note: string | null
+  receivedBy: string | null
+  receivedAt: string
+}
+
 interface Pagination {
   page: number
   pageSize: number
@@ -74,6 +89,7 @@ export default function RemovalShipmentView() {
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedItems, setExpandedItems] = useState<RemovalShipmentItem[]>([])
+  const [expandedReceipts, setExpandedReceipts] = useState<RemovalReceipt[]>([])
   const [expandLoading, setExpandLoading] = useState(false)
 
   const [processShipment, setProcessShipment] = useState<{ id: string; trackingNumber: string } | null>(null)
@@ -163,10 +179,12 @@ export default function RemovalShipmentView() {
     setExpandedId(id)
     setExpandLoading(true)
     setExpandedItems([])
+    setExpandedReceipts([])
     try {
       const res = await fetch(`/api/removal-shipments/${id}`)
       const json = await res.json()
       setExpandedItems(json.items ?? [])
+      setExpandedReceipts(json.receipts ?? [])
     } catch { /* ignore */ }
     setExpandLoading(false)
   }
@@ -377,6 +395,48 @@ export default function RemovalShipmentView() {
                                 ))}
                               </tbody>
                             </table>
+
+                            {/* Received Units */}
+                            {expandedReceipts.length > 0 && (
+                              <div className="mt-4">
+                                <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                                  Received Units ({expandedReceipts.length})
+                                </h4>
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="border-b border-gray-200 dark:border-gray-600">
+                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Receipt #</th>
+                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Serial #</th>
+                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">LPN</th>
+                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">SKU</th>
+                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Grade</th>
+                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Location</th>
+                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Note</th>
+                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Received By</th>
+                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Received At</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {expandedReceipts.map(r => (
+                                      <tr key={r.id} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
+                                        <td className="px-2 py-1.5 font-mono font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">{r.receiptNumber}</td>
+                                        <td className="px-2 py-1.5 font-mono text-gray-800 dark:text-gray-200 whitespace-nowrap">{r.serialNumber}</td>
+                                        <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.lpnNumber || '—'}</td>
+                                        <td className="px-2 py-1.5 text-gray-700 dark:text-gray-300 whitespace-nowrap" title={r.description ?? ''}>{r.sku}</td>
+                                        <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                                          {r.grade ?? '—'}
+                                          {r.regraded && <span className="ml-1 text-amber-500" title="Regraded from previous grade">*</span>}
+                                        </td>
+                                        <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.location ?? '—'}</td>
+                                        <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={r.note ?? ''}>{r.note || '—'}</td>
+                                        <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.receivedBy ?? '—'}</td>
+                                        <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(r.receivedAt)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
                           )}
                         </div>
                       </td>
