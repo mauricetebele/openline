@@ -371,72 +371,73 @@ export default function RemovalShipmentView() {
                           ) : expandedItems.length === 0 ? (
                             <p className="text-xs text-gray-400 py-2 italic">No items in this shipment</p>
                           ) : (
-                            <table className="w-full text-xs">
-                              <thead>
-                                <tr className="border-b border-gray-200 dark:border-gray-600">
-                                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400 w-10">#</th>
-                                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Merchant SKU</th>
-                                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">FNSKU</th>
-                                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Title</th>
-                                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Disposition</th>
-                                  <th className="px-2 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400">Qty</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {expandedItems.map((item, idx) => (
-                                  <tr key={item.id} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
-                                    <td className="px-2 py-1.5 text-gray-400">{idx + 1}</td>
-                                    <td className="px-2 py-1.5 font-mono text-gray-800 dark:text-gray-200">{item.sellerSku}</td>
-                                    <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-400">{item.fnsku}</td>
-                                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 max-w-xs truncate" title={item.title ?? ''}>{item.title ?? '—'}</td>
-                                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400">{item.disposition ?? '—'}</td>
-                                    <td className="px-2 py-1.5 text-right font-semibold text-gray-900 dark:text-gray-100">{item.quantity}</td>
+                            <>
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b border-gray-200 dark:border-gray-600">
+                                    <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400 w-10">#</th>
+                                    <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Merchant SKU</th>
+                                    <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">FNSKU</th>
+                                    <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Title</th>
+                                    <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Disposition</th>
+                                    <th className="px-2 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400">Qty</th>
                                   </tr>
-                                ))}
-                              </tbody>
-                            </table>
-
-                            {/* Received Units */}
-                            {expandedReceipts.length > 0 && (
-                              <div className="mt-4">
-                                <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-                                  Received Units ({expandedReceipts.length})
-                                </h4>
-                                <table className="w-full text-xs">
-                                  <thead>
-                                    <tr className="border-b border-gray-200 dark:border-gray-600">
-                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Receipt #</th>
-                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Serial #</th>
-                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">LPN</th>
-                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">SKU</th>
-                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Grade</th>
-                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Location</th>
-                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Note</th>
-                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Received By</th>
-                                      <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Received At</th>
+                                </thead>
+                                <tbody>
+                                  {expandedItems.map((item, idx) => (
+                                    <tr key={item.id} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
+                                      <td className="px-2 py-1.5 text-gray-400">{idx + 1}</td>
+                                      <td className="px-2 py-1.5 font-mono text-gray-800 dark:text-gray-200">{item.sellerSku}</td>
+                                      <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-400">{item.fnsku}</td>
+                                      <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 max-w-xs truncate" title={item.title ?? ''}>{item.title ?? '—'}</td>
+                                      <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400">{item.disposition ?? '—'}</td>
+                                      <td className="px-2 py-1.5 text-right font-semibold text-gray-900 dark:text-gray-100">{item.quantity}</td>
                                     </tr>
-                                  </thead>
-                                  <tbody>
-                                    {expandedReceipts.map(r => (
-                                      <tr key={r.id} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
-                                        <td className="px-2 py-1.5 font-mono font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">{r.receiptNumber}</td>
-                                        <td className="px-2 py-1.5 font-mono text-gray-800 dark:text-gray-200 whitespace-nowrap">{r.serialNumber}</td>
-                                        <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.lpnNumber || '—'}</td>
-                                        <td className="px-2 py-1.5 text-gray-700 dark:text-gray-300 whitespace-nowrap" title={r.description ?? ''}>{r.sku}</td>
-                                        <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                                          {r.grade ?? '—'}
-                                          {r.regraded && <span className="ml-1 text-amber-500" title="Regraded from previous grade">*</span>}
-                                        </td>
-                                        <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.location ?? '—'}</td>
-                                        <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={r.note ?? ''}>{r.note || '—'}</td>
-                                        <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.receivedBy ?? '—'}</td>
-                                        <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(r.receivedAt)}</td>
+                                  ))}
+                                </tbody>
+                              </table>
+
+                              {expandedReceipts.length > 0 && (
+                                <div className="mt-4">
+                                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                                    Received Units ({expandedReceipts.length})
+                                  </h4>
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="border-b border-gray-200 dark:border-gray-600">
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Receipt #</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Serial #</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">LPN</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">SKU</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Grade</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Location</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Note</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Received By</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Received At</th>
                                       </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
+                                    </thead>
+                                    <tbody>
+                                      {expandedReceipts.map(r => (
+                                        <tr key={r.id} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
+                                          <td className="px-2 py-1.5 font-mono font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">{r.receiptNumber}</td>
+                                          <td className="px-2 py-1.5 font-mono text-gray-800 dark:text-gray-200 whitespace-nowrap">{r.serialNumber}</td>
+                                          <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.lpnNumber || '—'}</td>
+                                          <td className="px-2 py-1.5 text-gray-700 dark:text-gray-300 whitespace-nowrap" title={r.description ?? ''}>{r.sku}</td>
+                                          <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                                            {r.grade ?? '—'}
+                                            {r.regraded && <span className="ml-1 text-amber-500" title="Regraded from previous grade">*</span>}
+                                          </td>
+                                          <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.location ?? '—'}</td>
+                                          <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={r.note ?? ''}>{r.note || '—'}</td>
+                                          <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.receivedBy ?? '—'}</td>
+                                          <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(r.receivedAt)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>
