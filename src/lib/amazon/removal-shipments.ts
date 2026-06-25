@@ -73,38 +73,28 @@ export async function syncRemovalShipments(
 
   const reportType = 'GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA'
 
-  // ── 1. Check for a recent completed report we can reuse ───────────────────
+  // ── 1. Request a fresh report for the requested date range ────────────────
   let reportDocumentId: string | undefined
 
-  const existing = await client.get<{ reports: GetReportResponse[] }>(
-    `/reports/2021-06-30/reports?reportTypes=${reportType}&pageSize=5&processingStatuses=DONE`,
-  )
-  if (existing.reports.length > 0 && existing.reports[0].reportDocumentId) {
-    reportDocumentId = existing.reports[0].reportDocumentId
-  }
+  const { reportId } = await client.post<CreateReportResponse>('/reports/2021-06-30/reports', {
+    reportType,
+    marketplaceIds: [account.marketplaceId],
+    dataStartTime: startDate.toISOString(),
+    dataEndTime: endDate.toISOString(),
+  })
 
-  // ── 2. If no existing report, request a new one ───────────────────────────
-  if (!reportDocumentId) {
-    const { reportId } = await client.post<CreateReportResponse>('/reports/2021-06-30/reports', {
-      reportType,
-      marketplaceIds: [account.marketplaceId],
-      dataStartTime: startDate.toISOString(),
-      dataEndTime: endDate.toISOString(),
-    })
-
-    for (let attempt = 0; attempt < 30; attempt++) {
-      await sleep(10_000)
-      const report = await client.get<GetReportResponse>(`/reports/2021-06-30/reports/${reportId}`)
-      if (report.processingStatus === 'DONE') {
-        reportDocumentId = report.reportDocumentId
-        break
-      }
-      if (report.processingStatus === 'FATAL' || report.processingStatus === 'CANCELLED') {
-        throw new Error(`Removal shipment report ended with status: ${report.processingStatus}`)
-      }
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await sleep(10_000)
+    const report = await client.get<GetReportResponse>(`/reports/2021-06-30/reports/${reportId}`)
+    if (report.processingStatus === 'DONE') {
+      reportDocumentId = report.reportDocumentId
+      break
     }
-    if (!reportDocumentId) throw new Error('Removal shipment report did not complete within the polling window')
+    if (report.processingStatus === 'FATAL' || report.processingStatus === 'CANCELLED') {
+      throw new Error(`Removal shipment report ended with status: ${report.processingStatus}`)
+    }
   }
+  if (!reportDocumentId) throw new Error('Removal shipment report did not complete within the polling window')
 
   // ── 3. Download ────────────────────────────────────────────────────────────
   const docMeta = await client.get<GetReportDocumentResponse>(
