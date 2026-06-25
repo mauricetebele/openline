@@ -40,7 +40,7 @@ function parseCheckResult(resultStr: string): 'ON' | 'OFF' | 'UNKNOWN' {
   return 'UNKNOWN'
 }
 
-export default function SickwCheckButton({ serial, compact, serviceId = 3, serviceName = 'iCloud ON/OFF' }: SickwCheckButtonProps) {
+export default function SickwCheckButton({ serial, compact, serviceId = 30, serviceName = 'Basic Info' }: SickwCheckButtonProps) {
   const [status, setStatus] = useState<CheckStatus>(null)
   const [history, setHistory] = useState<HistoricalCheck[]>([])
   const [showHistory, setShowHistory] = useState(false)
