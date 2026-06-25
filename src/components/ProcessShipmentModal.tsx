@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { X, Loader2, CheckCircle2, Package } from 'lucide-react'
 import { clsx } from 'clsx'
 import ReceiveRemovalItemModal from './ReceiveRemovalItemModal'
+import CreateRemovalCaseModal from './CreateRemovalCaseModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,7 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
   const [detail, setDetail] = useState<ShipmentDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [receiveItem, setReceiveItem] = useState<ShipmentItem | null>(null)
+  const [caseItem, setCaseItem] = useState<ShipmentItem | null>(null)
 
   const fetchDetail = useCallback(async () => {
     try {
@@ -56,6 +58,12 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
 
   function handleReceived() {
     setReceiveItem(null)
+    fetchDetail()
+    onUpdated()
+  }
+
+  function handleCaseCreated() {
+    setCaseItem(null)
     fetchDetail()
     onUpdated()
   }
@@ -141,12 +149,20 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
                               <CheckCircle2 size={10} /> Done
                             </span>
                           ) : (
-                            <button
-                              onClick={() => setReceiveItem(item)}
-                              className="px-3 py-1 text-[11px] font-semibold text-white bg-amazon-blue rounded hover:bg-amazon-blue/90"
-                            >
-                              Receive
-                            </button>
+                            <div className="flex items-center gap-1 justify-end">
+                              <button
+                                onClick={() => setReceiveItem(item)}
+                                className="px-3 py-1 text-[11px] font-semibold text-white bg-amazon-blue rounded hover:bg-amazon-blue/90"
+                              >
+                                Receive
+                              </button>
+                              <button
+                                onClick={() => setCaseItem(item)}
+                                className="px-3 py-1 text-[11px] font-semibold text-white bg-amber-600 rounded hover:bg-amber-700"
+                              >
+                                Create Case
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -176,6 +192,21 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
           fnsku={receiveItem.fnsku}
           onClose={() => setReceiveItem(null)}
           onReceived={handleReceived}
+        />
+      )}
+
+      {/* Create Case Modal */}
+      {caseItem && detail && (
+        <CreateRemovalCaseModal
+          shipmentId={shipmentId}
+          shipmentItemId={caseItem.id}
+          trackingNumber={detail.trackingNumber}
+          removalOrderId={detail.removalOrderId}
+          sellerSku={caseItem.sellerSku}
+          fnsku={caseItem.fnsku}
+          productTitle={caseItem.title}
+          onClose={() => setCaseItem(null)}
+          onCreated={handleCaseCreated}
         />
       )}
     </>

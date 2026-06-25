@@ -1,6 +1,6 @@
 'use client'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, RefreshCcw, ChevronDown, ChevronRight, PackageMinus, X, Loader2 } from 'lucide-react'
+import { Search, RefreshCcw, ChevronDown, ChevronRight, PackageMinus, X, Loader2, AlertCircle } from 'lucide-react'
 import { clsx } from 'clsx'
 import ProcessShipmentModal from './ProcessShipmentModal'
 
@@ -57,6 +57,19 @@ interface RemovalReceipt {
   receivedAt: string
 }
 
+interface RemovalCase {
+  id: string
+  removalOrderId: string
+  trackingNumber: string
+  lpnNumber: string | null
+  fnsku: string
+  sellerSku: string
+  productTitle: string | null
+  note: string | null
+  createdBy: string | null
+  createdAt: string
+}
+
 interface Pagination {
   page: number
   pageSize: number
@@ -90,6 +103,7 @@ export default function RemovalShipmentView() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedItems, setExpandedItems] = useState<RemovalShipmentItem[]>([])
   const [expandedReceipts, setExpandedReceipts] = useState<RemovalReceipt[]>([])
+  const [expandedCases, setExpandedCases] = useState<RemovalCase[]>([])
   const [expandLoading, setExpandLoading] = useState(false)
 
   const [processShipment, setProcessShipment] = useState<{ id: string; trackingNumber: string } | null>(null)
@@ -180,11 +194,13 @@ export default function RemovalShipmentView() {
     setExpandLoading(true)
     setExpandedItems([])
     setExpandedReceipts([])
+    setExpandedCases([])
     try {
       const res = await fetch(`/api/removal-shipments/${id}`)
       const json = await res.json()
       setExpandedItems(json.items ?? [])
       setExpandedReceipts(json.receipts ?? [])
+      setExpandedCases(json.cases ?? [])
     } catch { /* ignore */ }
     setExpandLoading(false)
   }
@@ -396,6 +412,38 @@ export default function RemovalShipmentView() {
                                   ))}
                                 </tbody>
                               </table>
+
+                              {expandedCases.length > 0 && (
+                                <div className="mt-4">
+                                  <h4 className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                    <AlertCircle size={12} /> Cases ({expandedCases.length})
+                                  </h4>
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="border-b border-gray-200 dark:border-gray-600">
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">SKU</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">FNSKU</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">LPN</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Note</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Created By</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Created At</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {expandedCases.map(c => (
+                                        <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
+                                          <td className="px-2 py-1.5 font-mono text-gray-800 dark:text-gray-200 whitespace-nowrap">{c.sellerSku}</td>
+                                          <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{c.fnsku}</td>
+                                          <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{c.lpnNumber || '—'}</td>
+                                          <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 max-w-[250px] truncate" title={c.note ?? ''}>{c.note || '—'}</td>
+                                          <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{c.createdBy ?? '—'}</td>
+                                          <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
 
                               {expandedReceipts.length > 0 && (
                                 <div className="mt-4">

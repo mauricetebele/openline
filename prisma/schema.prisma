@@ -46,6 +46,7 @@ model User {
   vendorId              String?
   vendor                Vendor?  @relation(fields: [vendorId], references: [id], onDelete: SetNull)
   fbaReturnReceipts     FbaReturnReceipt[]
+  fbaRemovalCases       FbaRemovalCase[]
 
   @@map("users")
 }
@@ -2403,6 +2404,7 @@ model RemovalShipment {
 
   items            RemovalShipmentItem[]
   fbaReturnReceipts FbaReturnReceipt[]
+  fbaRemovalCases  FbaRemovalCase[]
 
   @@unique([accountId, trackingNumber])
   @@index([accountId])
@@ -2421,7 +2423,32 @@ model RemovalShipmentItem {
   quantity         Int      @default(1)
 
   fbaReturnReceipts FbaReturnReceipt[]
+  fbaRemovalCases   FbaRemovalCase[]
 
   @@index([shipmentId])
   @@map("removal_shipment_items")
+}
+
+// ─── FBA Removal Cases ──────────────────────────────────────────────────────
+
+model FbaRemovalCase {
+  id                    String               @id @default(cuid())
+  removalOrderId        String
+  trackingNumber        String
+  lpnNumber             String?
+  fnsku                 String
+  sellerSku             String
+  productTitle          String?
+  note                  String?              @db.Text
+  removalShipmentId     String?
+  removalShipment       RemovalShipment?     @relation(fields: [removalShipmentId], references: [id])
+  removalShipmentItemId String?
+  removalShipmentItem   RemovalShipmentItem? @relation(fields: [removalShipmentItemId], references: [id])
+  createdById           String?
+  createdBy             User?                @relation(fields: [createdById], references: [id])
+  createdAt             DateTime             @default(now())
+
+  @@index([removalShipmentId])
+  @@index([removalShipmentItemId])
+  @@map("fba_removal_cases")
 }

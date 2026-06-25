@@ -19,7 +19,7 @@ export async function GET(
     include: {
       items: {
         include: {
-          _count: { select: { fbaReturnReceipts: true } },
+          _count: { select: { fbaReturnReceipts: true, fbaRemovalCases: true } },
         },
       },
       fbaReturnReceipts: {
@@ -64,8 +64,8 @@ export async function GET(
     disposition: item.disposition,
     quantity: item.quantity,
     title: titleMap.get(item.sellerSku) ?? null,
-    receivedCount: item._count.fbaReturnReceipts,
-    remainingQty: item.quantity - item._count.fbaReturnReceipts,
+    receivedCount: item._count.fbaReturnReceipts + item._count.fbaRemovalCases,
+    remainingQty: item.quantity - item._count.fbaReturnReceipts - item._count.fbaRemovalCases,
   }))
 
   const totalUnits = items.reduce((sum, i) => sum + i.quantity, 0)
@@ -86,6 +86,26 @@ export async function GET(
     receivedAt: r.receivedAt,
   }))
 
+  // Fetch cases linked to this shipment
+  const rawCases = await prisma.fbaRemovalCase.findMany({
+    where: { removalShipmentId: id },
+    orderBy: { createdAt: 'desc' },
+    include: { createdBy: { select: { name: true } } },
+  })
+
+  const cases = rawCases.map(c => ({
+    id: c.id,
+    removalOrderId: c.removalOrderId,
+    trackingNumber: c.trackingNumber,
+    lpnNumber: c.lpnNumber,
+    fnsku: c.fnsku,
+    sellerSku: c.sellerSku,
+    productTitle: c.productTitle,
+    note: c.note,
+    createdBy: c.createdBy?.name ?? null,
+    createdAt: c.createdAt,
+  }))
+
   return NextResponse.json({
     id: shipment.id,
     removalOrderId: shipment.removalOrderId,
@@ -96,6 +116,7 @@ export async function GET(
     requestDate: shipment.requestDate,
     items,
     receipts,
+    cases,
     totalUnits,
     totalReceived,
   })

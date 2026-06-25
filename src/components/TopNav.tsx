@@ -9,7 +9,7 @@ import {
   LayoutGrid, RefreshCcw, PackageMinus, Barcode, List, ListTodo,
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
-  Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain,
+  Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain, AlertCircle,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -33,6 +33,7 @@ const NAV: NavItem[] = [
       { href: '/unshipped-orders',    label: 'Order Fulfillment', icon: Package },
       { href: '/fba-shipments',       label: 'FBA Shipments',     icon: Truck },
       { href: '/removal-shipments',   label: 'FBA Removals',      icon: PackageMinus },
+      { href: '/removal-cases',       label: 'Removal Cases',     icon: AlertCircle },
     ],
   },
   {
