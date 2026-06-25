@@ -230,7 +230,6 @@ export default function ReceiveRemovalItemModal({
           sku: json.product?.sku ?? json.sku ?? '',
           grade: json.grade?.grade ?? null,
         })
-        onReceived()
       }
     } catch {
       setReceiveError('Failed to receive')
@@ -331,7 +330,7 @@ export default function ReceiveRemovalItemModal({
             <button onClick={printSerialLabel} className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-gray-800 rounded-lg hover:bg-gray-900">
               <Printer size={15} /> Print Label
             </button>
-            <button onClick={onClose} className="px-5 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
+            <button onClick={onReceived} className="px-5 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
               Done
             </button>
           </div>
