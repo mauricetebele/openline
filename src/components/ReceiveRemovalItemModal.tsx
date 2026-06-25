@@ -1,6 +1,8 @@
 'use client'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { X, CheckCircle2, AlertCircle, Loader2, Search } from 'lucide-react'
+import { X, CheckCircle2, AlertCircle, Loader2, Search, Printer } from 'lucide-react'
+import JsBarcode from 'jsbarcode'
+import { jsPDF } from 'jspdf'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -98,7 +100,12 @@ export default function ReceiveRemovalItemModal({
   // Submission
   const [receiving, setReceiving] = useState(false)
   const [receiveError, setReceiveError] = useState('')
-  const [receiptNumber, setReceiptNumber] = useState<string | null>(null)
+  const [receiptData, setReceiptData] = useState<{
+    receiptNumber: string
+    serialNumber: string
+    sku: string
+    grade: string | null
+  } | null>(null)
 
   // Load static data on mount
   useEffect(() => {
@@ -217,7 +224,12 @@ export default function ReceiveRemovalItemModal({
       } else {
         sessionStorage.setItem('removal-receive-warehouseId', warehouseId)
         sessionStorage.setItem('removal-receive-locationId', locationId)
-        setReceiptNumber(json.receiptNumber)
+        setReceiptData({
+          receiptNumber: json.receiptNumber,
+          serialNumber: json.serialNumber,
+          sku: json.product?.sku ?? json.sku ?? '',
+          grade: json.grade?.grade ?? null,
+        })
         onReceived()
       }
     } catch {
@@ -226,13 +238,82 @@ export default function ReceiveRemovalItemModal({
     setReceiving(false)
   }
 
+  function printSerialLabel() {
+    if (!receiptData) return
+
+    // Label size: DYMO 30334 = 2.25" x 1.25"
+    const W = 2.25 * 72 // points
+    const H = 1.25 * 72 // points
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: [H, W] })
+
+    const margin = 4
+    const maxTextW = W - margin * 2
+
+    // SKU line (bold) — shrink font to fit
+    doc.setFont('helvetica', 'bold')
+    let skuSize = 10
+    doc.setFontSize(skuSize)
+    while (skuSize > 5 && doc.getTextWidth(receiptData.sku) > maxTextW) {
+      skuSize -= 0.5
+      doc.setFontSize(skuSize)
+    }
+    doc.text(receiptData.sku, margin, 12)
+
+    // Grade line (bold, only if exists)
+    let yAfterGrade = 12
+    if (receiptData.grade) {
+      yAfterGrade = 22
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.text(receiptData.grade, margin, yAfterGrade)
+    }
+
+    // Barcode — render at 4x resolution for crisp PDF output
+    const scale = 4
+    const canvas = document.createElement('canvas')
+    JsBarcode(canvas, receiptData.serialNumber, {
+      format: 'CODE128',
+      width: 2 * scale,
+      height: 40 * scale,
+      displayValue: false,
+      margin: 0,
+    })
+    const barcodeY = yAfterGrade + 6
+    const barcodeImg = canvas.toDataURL('image/png')
+    const barcodeW = W - margin * 2
+    const barcodeH = 42
+    doc.addImage(barcodeImg, 'PNG', margin, barcodeY, barcodeW, barcodeH)
+
+    // Serial number text below barcode
+    doc.setFont('courier', 'normal')
+    doc.setFontSize(8)
+    doc.text(receiptData.serialNumber, W / 2, barcodeY + barcodeH + 8, { align: 'center' })
+
+    // Timestamp
+    const timestamp = new Date().toLocaleString('en-US', {
+      month: '2-digit', day: '2-digit', year: '2-digit',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    })
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6)
+    doc.text(timestamp, W - margin, H - 4, { align: 'right' })
+
+    // Open print dialog
+    const pdfBlob = doc.output('blob')
+    const url = URL.createObjectURL(pdfBlob)
+    const printWindow = window.open(url, '_blank')
+    if (printWindow) {
+      printWindow.onload = () => { printWindow.print() }
+    }
+  }
+
   const filteredLocations = warehouses.find(w => w.id === warehouseId)?.locations ?? []
 
   // Can advance from step 2?
   const step2Complete = validated || (overrideMode && selectedProductId && !!overrideCost && !!overrideVendorId)
 
   // ── Success screen ──
-  if (receiptNumber) {
+  if (receiptData) {
     return (
       <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[8vh] bg-black/40">
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-lg mx-4">
@@ -240,11 +321,17 @@ export default function ReceiveRemovalItemModal({
             <CheckCircle2 size={48} className="mx-auto text-green-500" />
             <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Unit Received</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Receipt <strong className="text-gray-900 dark:text-gray-100">{receiptNumber}</strong> created
+              Receipt <strong className="text-gray-900 dark:text-gray-100">{receiptData.receiptNumber}</strong> created
+            </p>
+            <p className="text-xs text-gray-400">
+              {receiptData.sku} &middot; {receiptData.serialNumber}
             </p>
           </div>
-          <div className="flex justify-center px-6 py-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-2xl">
-            <button onClick={onClose} className="px-6 py-2 text-sm font-medium text-white bg-amazon-blue rounded-lg hover:bg-amazon-blue/90">
+          <div className="flex justify-center gap-3 px-6 py-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-2xl">
+            <button onClick={printSerialLabel} className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-gray-800 rounded-lg hover:bg-gray-900">
+              <Printer size={15} /> Print Label
+            </button>
+            <button onClick={onClose} className="px-5 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
               Done
             </button>
           </div>
