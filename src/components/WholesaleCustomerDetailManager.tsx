@@ -17,11 +17,13 @@ const SO_STATUS_COLOR: Record<string, string> = {
   PAID: 'bg-green-100 text-green-700',
 }
 
-interface CreditMemoAllocationLine {
-  orderId: string
-  orderNumber: string
+interface AllocationDetail {
+  id: string
+  label: string
   amount: number
   date: string
+  linkId: string
+  linkType: 'order' | 'payment' | 'credit-memo'
 }
 
 interface StatementLine {
@@ -35,9 +37,13 @@ interface StatementLine {
   remaining: number
   balance: number
   paymentId?: string
+  orderId?: string
+  orderStatus?: string
+  invoiceAllocations?: AllocationDetail[]
   creditMemoId?: string
   creditMemoStatus?: string
-  creditMemoAllocations?: CreditMemoAllocationLine[]
+  creditMemoAllocations?: AllocationDetail[]
+  paymentAllocations?: AllocationDetail[]
 }
 
 interface Customer {
@@ -97,7 +103,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
-  const [expandedCreditMemos, setExpandedCreditMemos] = useState<Set<string>>(new Set())
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [downloading, setDownloading] = useState<string | null>(null)
   const [emailModal, setEmailModal] = useState<{
     type: 'invoice' | 'credit-memo' | 'payment' | 'statement'
@@ -373,28 +379,70 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                       const balanceVal = tab === 'open' ? Number(line.remaining) : Number(line.balance)
                       const lineKey = line.type === 'PAYMENT' ? line.paymentId : line.reference
                       const isCM = line.type === 'CREDIT_MEMO'
-                      const hasAllocations = isCM && line.creditMemoAllocations && line.creditMemoAllocations.length > 0
-                      const isExpanded = isCM && line.creditMemoId && expandedCreditMemos.has(line.creditMemoId)
-                      const cmStatusLabel = isCM && line.creditMemoStatus
-                        ? line.creditMemoStatus === 'APPLIED' ? 'Applied'
+                      const isInv = line.type === 'INVOICE'
+                      const isPay = line.type === 'PAYMENT'
+
+                      // Determine allocations for this row
+                      const rowAllocs: AllocationDetail[] | undefined =
+                        isCM ? line.creditMemoAllocations
+                        : isInv ? line.invoiceAllocations
+                        : isPay ? line.paymentAllocations
+                        : undefined
+                      const hasAllocs = rowAllocs && rowAllocs.length > 0
+
+                      // Unique expand key per row
+                      const expandKey = isCM ? line.creditMemoId : isInv ? line.orderId : isPay ? line.paymentId : undefined
+                      const isExpanded = expandKey ? expandedRows.has(expandKey) : false
+
+                      // Status badge
+                      let statusLabel: string | null = null
+                      let statusColor = ''
+                      if (isCM && line.creditMemoStatus) {
+                        statusLabel = line.creditMemoStatus === 'APPLIED' ? 'Applied'
                           : line.creditMemoStatus === 'PARTIALLY_APPLIED' ? 'Partially Applied'
                           : 'Unapplied'
-                        : null
-                      const cmStatusColor = isCM && line.creditMemoStatus
-                        ? line.creditMemoStatus === 'APPLIED' ? 'bg-green-100 text-green-700'
+                        statusColor = line.creditMemoStatus === 'APPLIED' ? 'bg-green-100 text-green-700'
                           : line.creditMemoStatus === 'PARTIALLY_APPLIED' ? 'bg-orange-100 text-orange-700'
                           : 'bg-gray-100 text-gray-600'
-                        : ''
+                      } else if (isInv && line.orderStatus) {
+                        statusLabel = line.orderStatus === 'PAID' ? 'Paid'
+                          : line.orderStatus === 'PARTIALLY_PAID' ? 'Partially Paid'
+                          : 'Open'
+                        statusColor = line.orderStatus === 'PAID' ? 'bg-green-100 text-green-700'
+                          : line.orderStatus === 'PARTIALLY_PAID' ? 'bg-orange-100 text-orange-700'
+                          : 'bg-yellow-100 text-yellow-700'
+                      } else if (isPay) {
+                        const unalloc = Number(line.remaining)
+                        const total = Number(line.credits)
+                        if (unalloc <= 0.005) {
+                          statusLabel = 'Fully Applied'; statusColor = 'bg-green-100 text-green-700'
+                        } else if (unalloc < total - 0.005) {
+                          statusLabel = 'Partially Applied'; statusColor = 'bg-orange-100 text-orange-700'
+                        } else {
+                          statusLabel = 'Unapplied'; statusColor = 'bg-gray-100 text-gray-600'
+                        }
+                      }
+
+                      // Expand color per type
+                      const expandBg = isCM ? 'bg-purple-50/50' : isInv ? 'bg-yellow-50/50' : 'bg-green-50/50'
+                      const expandBorder = isCM ? 'border-purple-200' : isInv ? 'border-yellow-200' : 'border-green-200'
+                      const expandHeadBg = isCM ? 'bg-purple-100/60 text-purple-700' : isInv ? 'bg-yellow-100/60 text-yellow-700' : 'bg-green-100/60 text-green-700'
+                      const expandDivider = isCM ? 'divide-purple-100' : isInv ? 'divide-yellow-100' : 'divide-green-100'
+                      const expandHover = isCM ? 'hover:bg-purple-50' : isInv ? 'hover:bg-yellow-50' : 'hover:bg-green-50'
+
+                      // Column header for expanded sub-table
+                      const allocColHeader = isInv ? 'Payment / Credit' : 'Applied To Invoice'
+
                       return (
                       <React.Fragment key={i}>
                       <tr
-                        className={`${line.type === 'PAYMENT' ? 'bg-green-50/30' : isCM ? 'bg-purple-50/30' : ''} ${hasAllocations ? 'cursor-pointer' : ''}`}
+                        className={`${isPay ? 'bg-green-50/30' : isCM ? 'bg-purple-50/30' : ''} ${hasAllocs ? 'cursor-pointer' : ''}`}
                         onClick={() => {
-                          if (hasAllocations && line.creditMemoId) {
-                            setExpandedCreditMemos((prev) => {
+                          if (hasAllocs && expandKey) {
+                            setExpandedRows((prev) => {
                               const next = new Set(prev)
-                              if (next.has(line.creditMemoId!)) next.delete(line.creditMemoId!)
-                              else next.add(line.creditMemoId!)
+                              if (next.has(expandKey)) next.delete(expandKey)
+                              else next.add(expandKey)
                               return next
                             })
                           }
@@ -402,7 +450,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                       >
                         <td className="px-5 py-2.5 text-gray-500">
                           <div className="flex items-center gap-1.5">
-                            {hasAllocations && (
+                            {hasAllocs && (
                               <span className={`text-[10px] text-gray-400 transition-transform inline-block ${isExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
                             )}
                             {new Date(line.date).toLocaleDateString()}
@@ -411,12 +459,12 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                         <td className="px-5 py-2.5">
                           <div className="flex items-center gap-2">
                             <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                              line.type === 'INVOICE' ? 'bg-yellow-100 text-yellow-700'
+                              isInv ? 'bg-yellow-100 text-yellow-700'
                                 : isCM ? 'bg-purple-100 text-purple-700'
                                 : 'bg-green-100 text-green-700'
                             }`}>{isCM ? 'CREDIT MEMO' : line.type}</span>
-                            {cmStatusLabel && (
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${cmStatusColor}`}>{cmStatusLabel}</span>
+                            {statusLabel && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${statusColor}`}>{statusLabel}</span>
                             )}
                           </div>
                         </td>
@@ -432,32 +480,29 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  if (line.type === 'INVOICE') downloadInvoicePDF(line.reference)
+                                  if (isInv) downloadInvoicePDF(line.reference)
                                   else if (isCM) downloadCreditMemoPDF(line.invoiceNumber ?? line.reference)
                                   else if (line.paymentId) downloadPaymentReceipt(line.paymentId)
                                 }}
                                 disabled={downloading === lineKey}
                                 className="text-gray-400 hover:text-gray-700 disabled:opacity-40"
-                                title={line.type === 'INVOICE' ? 'Download Invoice PDF' : isCM ? 'Download Credit Memo PDF' : 'Download Payment Receipt'}
+                                title={isInv ? 'Download Invoice PDF' : isCM ? 'Download Credit Memo PDF' : 'Download Payment Receipt'}
                               >
                                 {downloading === lineKey ? <span className="text-xs">...</span> : <Download size={14} />}
                               </button>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  if (line.type === 'INVOICE') {
-                                    const order = customer.salesOrders.find(o => o.orderNumber === line.reference)
-                                    if (order) setEmailModal({ type: 'invoice', id: order.id, email: customer.email ?? '', label: 'Invoice' })
+                                  if (isInv) {
+                                    if (line.orderId) setEmailModal({ type: 'invoice', id: line.orderId, email: customer.email ?? '', label: 'Invoice' })
                                   } else if (isCM) {
-                                    if (line.creditMemoId) {
-                                      setEmailModal({ type: 'credit-memo', id: line.creditMemoId, email: customer.email ?? '', label: 'Credit Memo' })
-                                    }
+                                    if (line.creditMemoId) setEmailModal({ type: 'credit-memo', id: line.creditMemoId, email: customer.email ?? '', label: 'Credit Memo' })
                                   } else if (line.paymentId) {
                                     setEmailModal({ type: 'payment', id: line.paymentId, email: customer.email ?? '', label: 'Payment Receipt' })
                                   }
                                 }}
                                 className="text-gray-400 hover:text-blue-600"
-                                title={`Email ${line.type === 'INVOICE' ? 'Invoice' : isCM ? 'Credit Memo' : 'Payment Receipt'}`}
+                                title={`Email ${isInv ? 'Invoice' : isCM ? 'Credit Memo' : 'Payment Receipt'}`}
                               >
                                 <Mail size={14} />
                               </button>
@@ -465,36 +510,53 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                           )}
                         </td>
                       </tr>
-                      {isExpanded && line.creditMemoAllocations && (
-                        <tr className="bg-purple-50/50">
+                      {isExpanded && rowAllocs && rowAllocs.length > 0 && (
+                        <tr className={expandBg}>
                           <td colSpan={9} className="px-5 py-0 pb-3">
-                            <div className="ml-6 mt-1 border border-purple-200 rounded-lg overflow-hidden">
+                            <div className={`ml-6 mt-1 border ${expandBorder} rounded-lg overflow-hidden`}>
                               <table className="w-full text-xs">
                                 <thead>
-                                  <tr className="bg-purple-100/60 text-[10px] font-medium text-purple-700 uppercase tracking-wide">
-                                    <th className="text-left px-4 py-1.5">Applied To Invoice</th>
+                                  <tr className={`text-[10px] font-medium uppercase tracking-wide ${expandHeadBg}`}>
+                                    <th className="text-left px-4 py-1.5">{allocColHeader}</th>
+                                    <th className="text-left px-4 py-1.5">Type</th>
                                     <th className="text-right px-4 py-1.5">Amount</th>
                                     <th className="text-left px-4 py-1.5">Date</th>
                                   </tr>
                                 </thead>
-                                <tbody className="divide-y divide-purple-100">
-                                  {line.creditMemoAllocations.map((alloc, ai) => (
-                                    <tr key={ai} className="hover:bg-purple-50">
-                                      <td className="px-4 py-1.5">
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            router.push(`/wholesale/orders/${alloc.orderId}`)
-                                          }}
-                                          className="font-mono text-orange-600 hover:text-orange-700 hover:underline"
-                                        >
-                                          {alloc.orderNumber}
-                                        </button>
-                                      </td>
-                                      <td className="px-4 py-1.5 text-right text-green-700 font-medium">{fmt(alloc.amount)}</td>
-                                      <td className="px-4 py-1.5 text-gray-500">{new Date(alloc.date).toLocaleDateString()}</td>
-                                    </tr>
-                                  ))}
+                                <tbody className={`divide-y ${expandDivider}`}>
+                                  {rowAllocs.map((alloc) => {
+                                    const linkUrl = alloc.linkType === 'order'
+                                      ? `/wholesale/orders/${alloc.linkId}`
+                                      : alloc.linkType === 'credit-memo'
+                                      ? `/wholesale/credit-memo/${alloc.linkId}`
+                                      : undefined
+                                    const typeBadge = alloc.linkType === 'payment'
+                                      ? { label: 'Payment', cls: 'bg-green-100 text-green-700' }
+                                      : alloc.linkType === 'credit-memo'
+                                      ? { label: 'Credit', cls: 'bg-purple-100 text-purple-700' }
+                                      : { label: 'Invoice', cls: 'bg-yellow-100 text-yellow-700' }
+                                    return (
+                                      <tr key={alloc.id} className={expandHover}>
+                                        <td className="px-4 py-1.5">
+                                          {linkUrl ? (
+                                            <button
+                                              onClick={(e) => { e.stopPropagation(); router.push(linkUrl) }}
+                                              className="font-mono text-orange-600 hover:text-orange-700 hover:underline"
+                                            >
+                                              {alloc.label}
+                                            </button>
+                                          ) : (
+                                            <span className="font-mono text-gray-600">{alloc.label}</span>
+                                          )}
+                                        </td>
+                                        <td className="px-4 py-1.5">
+                                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${typeBadge.cls}`}>{typeBadge.label}</span>
+                                        </td>
+                                        <td className="px-4 py-1.5 text-right text-green-700 font-medium">{fmt(alloc.amount)}</td>
+                                        <td className="px-4 py-1.5 text-gray-500">{new Date(alloc.date).toLocaleDateString()}</td>
+                                      </tr>
+                                    )
+                                  })}
                                 </tbody>
                               </table>
                             </div>

@@ -18,15 +18,21 @@ export async function GET(
   if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // For open view, only fetch transactions that are not fully closed
-  const orderStatusFilter = view === 'open'
-    ? { in: ['INVOICED', 'PARTIALLY_PAID'] }
-    : { in: ['INVOICED', 'PARTIALLY_PAID', 'PAID'] }
-
   const [orders, payments, creditMemos] = await Promise.all([
     prisma.salesOrder.findMany({
       where: {
         customerId: params.customerId,
-        status: orderStatusFilter,
+        status: { in: view === 'open' ? ['INVOICED', 'PARTIALLY_PAID'] : ['INVOICED', 'PARTIALLY_PAID', 'PAID'] },
+      },
+      include: {
+        allocations: {
+          include: { payment: { select: { id: true, paymentNumber: true, method: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+        creditMemoAllocations: {
+          include: { creditMemo: { select: { id: true, memoNumber: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
       },
       orderBy: { orderDate: 'asc' },
     }),
@@ -34,6 +40,12 @@ export async function GET(
       where: {
         customerId: params.customerId,
         ...(view === 'open' ? { unallocated: { gt: 0 } } : {}),
+      },
+      include: {
+        allocations: {
+          include: { order: { select: { id: true, orderNumber: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
       },
       orderBy: { paymentDate: 'asc' },
     }),
@@ -54,6 +66,8 @@ export async function GET(
   ])
 
   // Build chronological statement lines
+  type AllocationDetail = { id: string; label: string; amount: number; date: Date; linkId: string; linkType: 'order' | 'payment' | 'credit-memo' }
+
   type StatementLine = {
     date: Date
     type: 'INVOICE' | 'PAYMENT' | 'CREDIT_MEMO'
@@ -65,9 +79,13 @@ export async function GET(
     remaining: number // per-line remaining (invoice balance, unapplied payment, unallocated CM)
     balance: number  // running balance (used by activity view)
     paymentId?: string
+    orderId?: string
+    orderStatus?: string
+    invoiceAllocations?: AllocationDetail[]
     creditMemoId?: string
     creditMemoStatus?: string
-    creditMemoAllocations?: { orderId: string; orderNumber: string; amount: number; date: Date }[]
+    creditMemoAllocations?: AllocationDetail[]
+    paymentAllocations?: AllocationDetail[]
   }
 
   const lines: StatementLine[] = []
@@ -77,6 +95,24 @@ export async function GET(
     ...orders.map((o) => {
       const total = Number(o.total)
       const bal = Number(o.balance)
+      const invAllocs: AllocationDetail[] = [
+        ...o.allocations.map((a) => ({
+          id: a.id,
+          label: a.payment.paymentNumber || `Payment`,
+          amount: Number(a.amount),
+          date: a.createdAt,
+          linkId: a.payment.id,
+          linkType: 'payment' as const,
+        })),
+        ...o.creditMemoAllocations.map((a) => ({
+          id: a.id,
+          label: a.creditMemo.memoNumber,
+          amount: Number(a.amount),
+          date: a.createdAt,
+          linkId: a.creditMemo.id,
+          linkType: 'credit-memo' as const,
+        })),
+      ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
       return {
         date: o.orderDate,
         line: {
@@ -88,12 +124,23 @@ export async function GET(
           credits:        0,
           applied:        total - bal,
           remaining:      bal,
+          orderId:        o.id,
+          orderStatus:    o.status,
+          invoiceAllocations: invAllocs,
         },
       }
     }),
     ...payments.map((p) => {
       const amt = Number(p.amount)
       const unalloc = Number(p.unallocated)
+      const payAllocs: AllocationDetail[] = p.allocations.map((a) => ({
+        id: a.id,
+        label: a.order.orderNumber,
+        amount: Number(a.amount),
+        date: a.createdAt,
+        linkId: a.order.id,
+        linkType: 'order' as const,
+      }))
       return {
         date: p.paymentDate,
         line: {
@@ -106,6 +153,7 @@ export async function GET(
           applied:        amt - unalloc,
           remaining:      unalloc,
           paymentId:      p.id,
+          paymentAllocations: payAllocs,
         },
       }
     }),
@@ -126,10 +174,12 @@ export async function GET(
           creditMemoId:   cm.id,
           creditMemoStatus: cm.status,
           creditMemoAllocations: cm.allocations.map((a) => ({
-            orderId: a.order.id,
-            orderNumber: a.order.orderNumber,
+            id: a.id,
+            label: a.order.orderNumber,
             amount: Number(a.amount),
             date: a.createdAt,
+            linkId: a.order.id,
+            linkType: 'order' as const,
           })),
         },
       }
