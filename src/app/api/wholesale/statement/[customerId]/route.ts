@@ -42,7 +42,13 @@ export async function GET(
         customerId: params.customerId,
         ...(view === 'open' ? { unallocated: { gt: 0 } } : {}),
       },
-      include: { rma: { select: { rmaNumber: true } } },
+      include: {
+        rma: { select: { rmaNumber: true } },
+        allocations: {
+          include: { order: { select: { id: true, orderNumber: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
       orderBy: { createdAt: 'asc' },
     }),
   ])
@@ -59,6 +65,9 @@ export async function GET(
     remaining: number // per-line remaining (invoice balance, unapplied payment, unallocated CM)
     balance: number  // running balance (used by activity view)
     paymentId?: string
+    creditMemoId?: string
+    creditMemoStatus?: string
+    creditMemoAllocations?: { orderId: string; orderNumber: string; amount: number; date: Date }[]
   }
 
   const lines: StatementLine[] = []
@@ -114,6 +123,14 @@ export async function GET(
           credits:        total,
           applied:        total - unalloc,
           remaining:      unalloc,
+          creditMemoId:   cm.id,
+          creditMemoStatus: cm.status,
+          creditMemoAllocations: cm.allocations.map((a) => ({
+            orderId: a.order.id,
+            orderNumber: a.order.orderNumber,
+            amount: Number(a.amount),
+            date: a.createdAt,
+          })),
         },
       }
     }),

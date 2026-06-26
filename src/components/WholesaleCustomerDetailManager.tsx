@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Download, Mail } from 'lucide-react'
@@ -17,6 +17,13 @@ const SO_STATUS_COLOR: Record<string, string> = {
   PAID: 'bg-green-100 text-green-700',
 }
 
+interface CreditMemoAllocationLine {
+  orderId: string
+  orderNumber: string
+  amount: number
+  date: string
+}
+
 interface StatementLine {
   date: string
   type: 'INVOICE' | 'PAYMENT' | 'CREDIT_MEMO'
@@ -28,6 +35,9 @@ interface StatementLine {
   remaining: number
   balance: number
   paymentId?: string
+  creditMemoId?: string
+  creditMemoStatus?: string
+  creditMemoAllocations?: CreditMemoAllocationLine[]
 }
 
 interface Customer {
@@ -87,6 +97,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
+  const [expandedCreditMemos, setExpandedCreditMemos] = useState<Set<string>>(new Set())
   const [downloading, setDownloading] = useState<string | null>(null)
   const [emailModal, setEmailModal] = useState<{
     type: 'invoice' | 'credit-memo' | 'payment' | 'statement'
@@ -361,15 +372,53 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                     {currentData.lines.map((line, i) => {
                       const balanceVal = tab === 'open' ? Number(line.remaining) : Number(line.balance)
                       const lineKey = line.type === 'PAYMENT' ? line.paymentId : line.reference
+                      const isCM = line.type === 'CREDIT_MEMO'
+                      const hasAllocations = isCM && line.creditMemoAllocations && line.creditMemoAllocations.length > 0
+                      const isExpanded = isCM && line.creditMemoId && expandedCreditMemos.has(line.creditMemoId)
+                      const cmStatusLabel = isCM && line.creditMemoStatus
+                        ? line.creditMemoStatus === 'APPLIED' ? 'Applied'
+                          : line.creditMemoStatus === 'PARTIALLY_APPLIED' ? 'Partially Applied'
+                          : 'Unapplied'
+                        : null
+                      const cmStatusColor = isCM && line.creditMemoStatus
+                        ? line.creditMemoStatus === 'APPLIED' ? 'bg-green-100 text-green-700'
+                          : line.creditMemoStatus === 'PARTIALLY_APPLIED' ? 'bg-orange-100 text-orange-700'
+                          : 'bg-gray-100 text-gray-600'
+                        : ''
                       return (
-                      <tr key={i} className={line.type === 'PAYMENT' ? 'bg-green-50/30' : line.type === 'CREDIT_MEMO' ? 'bg-purple-50/30' : ''}>
-                        <td className="px-5 py-2.5 text-gray-500">{new Date(line.date).toLocaleDateString()}</td>
+                      <React.Fragment key={i}>
+                      <tr
+                        className={`${line.type === 'PAYMENT' ? 'bg-green-50/30' : isCM ? 'bg-purple-50/30' : ''} ${hasAllocations ? 'cursor-pointer' : ''}`}
+                        onClick={() => {
+                          if (hasAllocations && line.creditMemoId) {
+                            setExpandedCreditMemos((prev) => {
+                              const next = new Set(prev)
+                              if (next.has(line.creditMemoId!)) next.delete(line.creditMemoId!)
+                              else next.add(line.creditMemoId!)
+                              return next
+                            })
+                          }
+                        }}
+                      >
+                        <td className="px-5 py-2.5 text-gray-500">
+                          <div className="flex items-center gap-1.5">
+                            {hasAllocations && (
+                              <span className={`text-[10px] text-gray-400 transition-transform inline-block ${isExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
+                            )}
+                            {new Date(line.date).toLocaleDateString()}
+                          </div>
+                        </td>
                         <td className="px-5 py-2.5">
-                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                            line.type === 'INVOICE' ? 'bg-yellow-100 text-yellow-700'
-                              : line.type === 'CREDIT_MEMO' ? 'bg-purple-100 text-purple-700'
-                              : 'bg-green-100 text-green-700'
-                          }`}>{line.type === 'CREDIT_MEMO' ? 'CREDIT MEMO' : line.type}</span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                              line.type === 'INVOICE' ? 'bg-yellow-100 text-yellow-700'
+                                : isCM ? 'bg-purple-100 text-purple-700'
+                                : 'bg-green-100 text-green-700'
+                            }`}>{isCM ? 'CREDIT MEMO' : line.type}</span>
+                            {cmStatusLabel && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${cmStatusColor}`}>{cmStatusLabel}</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.reference}</td>
                         <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.invoiceNumber ?? ''}</td>
@@ -384,12 +433,12 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   if (line.type === 'INVOICE') downloadInvoicePDF(line.reference)
-                                  else if (line.type === 'CREDIT_MEMO') downloadCreditMemoPDF(line.invoiceNumber ?? line.reference)
+                                  else if (isCM) downloadCreditMemoPDF(line.invoiceNumber ?? line.reference)
                                   else if (line.paymentId) downloadPaymentReceipt(line.paymentId)
                                 }}
                                 disabled={downloading === lineKey}
                                 className="text-gray-400 hover:text-gray-700 disabled:opacity-40"
-                                title={line.type === 'INVOICE' ? 'Download Invoice PDF' : line.type === 'CREDIT_MEMO' ? 'Download Credit Memo PDF' : 'Download Payment Receipt'}
+                                title={line.type === 'INVOICE' ? 'Download Invoice PDF' : isCM ? 'Download Credit Memo PDF' : 'Download Payment Receipt'}
                               >
                                 {downloading === lineKey ? <span className="text-xs">...</span> : <Download size={14} />}
                               </button>
@@ -399,21 +448,16 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                                   if (line.type === 'INVOICE') {
                                     const order = customer.salesOrders.find(o => o.orderNumber === line.reference)
                                     if (order) setEmailModal({ type: 'invoice', id: order.id, email: customer.email ?? '', label: 'Invoice' })
-                                  } else if (line.type === 'CREDIT_MEMO') {
-                                    fetch(`/api/wholesale/credit-memo?customerId=${customer.id}`)
-                                      .then(r => r.json())
-                                      .then(json => {
-                                        const memos = json.data ?? json
-                                        const cm = (Array.isArray(memos) ? memos : []).find((m: { memoNumber: string }) => m.memoNumber === (line.invoiceNumber ?? line.reference))
-                                        if (cm) setEmailModal({ type: 'credit-memo', id: cm.id, email: customer.email ?? '', label: 'Credit Memo' })
-                                        else toast.error('Credit memo not found')
-                                      })
+                                  } else if (isCM) {
+                                    if (line.creditMemoId) {
+                                      setEmailModal({ type: 'credit-memo', id: line.creditMemoId, email: customer.email ?? '', label: 'Credit Memo' })
+                                    }
                                   } else if (line.paymentId) {
                                     setEmailModal({ type: 'payment', id: line.paymentId, email: customer.email ?? '', label: 'Payment Receipt' })
                                   }
                                 }}
                                 className="text-gray-400 hover:text-blue-600"
-                                title={`Email ${line.type === 'INVOICE' ? 'Invoice' : line.type === 'CREDIT_MEMO' ? 'Credit Memo' : 'Payment Receipt'}`}
+                                title={`Email ${line.type === 'INVOICE' ? 'Invoice' : isCM ? 'Credit Memo' : 'Payment Receipt'}`}
                               >
                                 <Mail size={14} />
                               </button>
@@ -421,6 +465,43 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                           )}
                         </td>
                       </tr>
+                      {isExpanded && line.creditMemoAllocations && (
+                        <tr className="bg-purple-50/50">
+                          <td colSpan={9} className="px-5 py-0 pb-3">
+                            <div className="ml-6 mt-1 border border-purple-200 rounded-lg overflow-hidden">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="bg-purple-100/60 text-[10px] font-medium text-purple-700 uppercase tracking-wide">
+                                    <th className="text-left px-4 py-1.5">Applied To Invoice</th>
+                                    <th className="text-right px-4 py-1.5">Amount</th>
+                                    <th className="text-left px-4 py-1.5">Date</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-purple-100">
+                                  {line.creditMemoAllocations.map((alloc, ai) => (
+                                    <tr key={ai} className="hover:bg-purple-50">
+                                      <td className="px-4 py-1.5">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            router.push(`/wholesale/orders/${alloc.orderId}`)
+                                          }}
+                                          className="font-mono text-orange-600 hover:text-orange-700 hover:underline"
+                                        >
+                                          {alloc.orderNumber}
+                                        </button>
+                                      </td>
+                                      <td className="px-4 py-1.5 text-right text-green-700 font-medium">{fmt(alloc.amount)}</td>
+                                      <td className="px-4 py-1.5 text-gray-500">{new Date(alloc.date).toLocaleDateString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     )})}
                   </tbody>
                 </table>
