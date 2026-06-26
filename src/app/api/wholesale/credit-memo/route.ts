@@ -7,7 +7,14 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const customerId = req.nextUrl.searchParams.get('customerId')
-  const where = customerId ? { customerId } : {}
+  const status = req.nextUrl.searchParams.get('status')
+
+  const where: Record<string, unknown> = {}
+  if (customerId) where.customerId = customerId
+  if (status) {
+    const statuses = status.split(',').map((s) => s.trim()).filter(Boolean)
+    where.status = statuses.length === 1 ? statuses[0] : { in: statuses }
+  }
 
   const memos = await prisma.wholesaleCreditMemo.findMany({
     where,
