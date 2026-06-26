@@ -101,12 +101,17 @@ export default function ShippingManifest() {
   const [trackingMap, setTrackingMap] = useState<Record<string, TrackingResult>>({})
   const [trackingLoading, setTrackingLoading] = useState<Set<string>>(new Set())
 
+  // Channel filter
+  const [channelFilter, setChannelFilter] = useState<'all' | 'marketplace' | 'wholesale'>('all')
+
+  const filtered = channelFilter === 'all' ? rows : rows.filter((r) => r.source === channelFilter)
+
   // Pagination
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState<number>(25)
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
-  const paged = rows.slice(page * pageSize, (page + 1) * pageSize)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const paged = filtered.slice(page * pageSize, (page + 1) * pageSize)
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -254,9 +259,20 @@ export default function ShippingManifest() {
           Reset
         </button>
 
+        {/* Channel filter */}
+        <select
+          value={channelFilter}
+          onChange={(e) => { setChannelFilter(e.target.value as 'all' | 'marketplace' | 'wholesale'); setPage(0) }}
+          className="px-2.5 py-1.5 text-xs rounded-lg border border-gray-200 bg-white font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-amazon-blue dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600"
+        >
+          <option value="all">All Channels</option>
+          <option value="marketplace">Marketplace</option>
+          <option value="wholesale">Wholesale</option>
+        </select>
+
         {/* Row count */}
         <span className="ml-auto text-xs text-gray-400">
-          {rows.length} order{rows.length !== 1 ? 's' : ''}
+          {filtered.length} order{filtered.length !== 1 ? 's' : ''}{channelFilter !== 'all' ? ` (${rows.length} total)` : ''}
         </span>
       </div>
 
