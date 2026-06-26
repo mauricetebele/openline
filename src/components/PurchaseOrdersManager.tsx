@@ -460,7 +460,7 @@ function POPanel({
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className={clsx("relative w-full max-h-[90vh] bg-white rounded-xl shadow-2xl flex flex-col mx-4", isReceived ? "max-w-5xl" : "max-w-3xl")}>
+      <div className={clsx("relative w-full max-h-[90vh] bg-white rounded-xl shadow-2xl flex flex-col mx-4", isReceived ? "max-w-5xl" : "max-w-4xl")}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
@@ -703,7 +703,7 @@ function POPanel({
             ) : lines.length > 0 && (
               /* ── Standard grid layout (open PO) ──────────────────────────── */
               <>
-                <div className="grid gap-2 mb-1 px-1 grid-cols-[160px_1fr_100px_120px_60px_90px_28px]">
+                <div className="grid gap-2 mb-1 px-1 grid-cols-[minmax(100px,1fr)_minmax(120px,2fr)_100px_120px_60px_90px_28px]">
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">SKU</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Description</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Grade</span>
@@ -715,7 +715,7 @@ function POPanel({
 
                 <div className="space-y-1.5">
                   {lines.map((line, i) => (
-                    <div key={i} className="grid gap-2 items-center grid-cols-[160px_1fr_100px_120px_60px_90px_28px]">
+                    <div key={i} className="grid gap-2 items-center grid-cols-[minmax(100px,1fr)_minmax(120px,2fr)_100px_120px_60px_90px_28px]">
                       {/* SKU (read-only) */}
                       <span title={line.sku} className="h-9 flex items-center text-xs font-mono text-gray-700 truncate px-2 rounded-md bg-gray-50 border border-gray-200">
                         {line.sku}
