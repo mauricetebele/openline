@@ -703,7 +703,7 @@ function POPanel({
             ) : lines.length > 0 && (
               /* ── Standard grid layout (open PO) ──────────────────────────── */
               <>
-                <div className="grid gap-2 mb-1 px-1 grid-cols-[120px_1fr_100px_120px_60px_90px_28px]">
+                <div className="grid gap-2 mb-1 px-1 grid-cols-[160px_1fr_100px_120px_60px_90px_28px]">
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">SKU</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Description</span>
                   <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Grade</span>
@@ -715,15 +715,15 @@ function POPanel({
 
                 <div className="space-y-1.5">
                   {lines.map((line, i) => (
-                    <div key={i} className="grid gap-2 items-center grid-cols-[120px_1fr_100px_120px_60px_90px_28px]">
+                    <div key={i} className="grid gap-2 items-center grid-cols-[160px_1fr_100px_120px_60px_90px_28px]">
                       {/* SKU (read-only) */}
-                      <span className="h-9 flex items-center text-xs font-mono text-gray-700 truncate px-2 rounded-md bg-gray-50 border border-gray-200">
+                      <span title={line.sku} className="h-9 flex items-center text-xs font-mono text-gray-700 truncate px-2 rounded-md bg-gray-50 border border-gray-200">
                         {line.sku}
                       </span>
 
                       {/* Description (read-only) */}
-                      <span className="h-9 flex items-center text-xs text-gray-600 truncate px-2 rounded-md bg-gray-50 border border-gray-200">
-                        {line.description}
+                      <span title={line.description} className="h-9 flex items-center text-xs text-gray-600 truncate px-2 rounded-md bg-gray-50 border border-gray-200 min-w-0">
+                        <span className="truncate">{line.description}</span>
                       </span>
 
                       {/* Grade dropdown */}
@@ -1144,7 +1144,7 @@ function PORow({
                   {po.lines.map(line => (
                     <tr key={line.id}>
                       <td className="py-1 pr-3 font-mono text-xs font-semibold text-gray-900 whitespace-nowrap">{line.product.sku}</td>
-                      <td className="py-1 pr-3 text-gray-500 truncate max-w-[200px]">{line.product.description}</td>
+                      <td className="py-1 pr-3 text-gray-500 truncate max-w-[300px]" title={line.product.description}>{line.product.description}</td>
                       <td className="py-1 pr-3 text-gray-500">{line.grade?.grade ?? '—'}</td>
                       <td className="py-1 text-right text-gray-700">{line.qty}</td>
                       <td className="py-1 text-right">
