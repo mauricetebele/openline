@@ -91,16 +91,20 @@ function RemovalCaseDetailModal({
   }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !rc) return
+    const files = e.target.files
+    if (!files?.length || !rc) return
     setUploading(true)
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const uploadRes = await fetch('/api/cases/upload', { method: 'POST', body: fd })
-      if (!uploadRes.ok) throw new Error()
-      const attachment: ImageAttachment = await uploadRes.json()
-      const newImages = [...rc.images, attachment]
+      const uploads = await Promise.all(
+        Array.from(files).map(async (file) => {
+          const fd = new FormData()
+          fd.append('file', file)
+          const res = await fetch('/api/cases/upload', { method: 'POST', body: fd })
+          if (!res.ok) throw new Error()
+          return res.json() as Promise<ImageAttachment>
+        })
+      )
+      const newImages = [...rc.images, ...uploads]
       const patchRes = await fetch(`/api/removal-cases/${rc.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -207,6 +211,7 @@ function RemovalCaseDetailModal({
                     ref={fileRef}
                     type="file"
                     accept="image/*"
+                    multiple
                     className="hidden"
                     onChange={handleUpload}
                   />
