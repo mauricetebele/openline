@@ -53,6 +53,7 @@ function RemovalCaseDetailModal({
   const [noteDirty, setNoteDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const fetchCase = useCallback(async () => {
@@ -94,13 +95,17 @@ function RemovalCaseDetailModal({
     const files = e.target.files
     if (!files?.length || !rc) return
     setUploading(true)
+    setError(null)
     try {
       const uploads = await Promise.all(
         Array.from(files).map(async (file) => {
           const fd = new FormData()
           fd.append('file', file)
           const res = await fetch('/api/cases/upload', { method: 'POST', body: fd })
-          if (!res.ok) throw new Error()
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}))
+            throw new Error(err.error || `Upload failed (${res.status})`)
+          }
           return res.json() as Promise<ImageAttachment>
         })
       )
@@ -110,18 +115,24 @@ function RemovalCaseDetailModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ images: newImages }),
       })
-      if (patchRes.ok) {
-        const updated = await patchRes.json()
-        setRc({ ...updated, images: Array.isArray(updated.images) ? updated.images : [] })
-        onUpdated()
+      if (!patchRes.ok) {
+        const err = await patchRes.json().catch(() => ({}))
+        throw new Error(err.error || `Save failed (${patchRes.status})`)
       }
-    } catch { /* ignore */ }
+      const updated = await patchRes.json()
+      setRc({ ...updated, images: Array.isArray(updated.images) ? updated.images : [] })
+      onUpdated()
+    } catch (err) {
+      console.error('Image upload error:', err)
+      setError(err instanceof Error ? err.message : 'Upload failed')
+    }
     setUploading(false)
     if (fileRef.current) fileRef.current.value = ''
   }
 
   const deleteImage = async (idx: number) => {
     if (!rc) return
+    setError(null)
     const newImages = rc.images.filter((_, i) => i !== idx)
     try {
       const res = await fetch(`/api/removal-cases/${rc.id}`, {
@@ -129,12 +140,17 @@ function RemovalCaseDetailModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ images: newImages }),
       })
-      if (res.ok) {
-        const updated = await res.json()
-        setRc({ ...updated, images: Array.isArray(updated.images) ? updated.images : [] })
-        onUpdated()
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || `Delete failed (${res.status})`)
       }
-    } catch { /* ignore */ }
+      const updated = await res.json()
+      setRc({ ...updated, images: Array.isArray(updated.images) ? updated.images : [] })
+      onUpdated()
+    } catch (err) {
+      console.error('Image delete error:', err)
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    }
   }
 
   return (
@@ -155,6 +171,13 @@ function RemovalCaseDetailModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {error && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-xs">
+              <AlertCircle size={14} />
+              <span>{error}</span>
+              <button onClick={() => setError(null)} className="ml-auto"><X size={12} /></button>
+            </div>
+          )}
           {loading ? (
             <div className="py-12 text-center text-sm text-gray-400">Loading...</div>
           ) : !rc ? (
