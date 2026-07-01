@@ -16,6 +16,7 @@ interface ShipmentItem {
   title: string | null
   receivedCount: number
   remainingQty: number
+  lpnNumber: string | null
 }
 
 interface ShipmentDetail {
@@ -117,6 +118,7 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
                     <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">FNSKU</th>
                     <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Title</th>
                     <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Disposition</th>
+                    <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">LPN</th>
                     <th className="px-2 py-2 text-center font-semibold text-gray-500 dark:text-gray-400">Qty</th>
                     <th className="px-2 py-2 text-center font-semibold text-gray-500 dark:text-gray-400">Received</th>
                     <th className="px-2 py-2 text-right font-semibold text-gray-500 dark:text-gray-400">Action</th>
@@ -134,6 +136,7 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
                           {item.title ?? '—'}
                         </td>
                         <td className="px-2 py-2 text-gray-600 dark:text-gray-400">{item.disposition ?? '—'}</td>
+                        <td className="px-2 py-2 font-mono text-gray-600 dark:text-gray-400">{item.lpnNumber ?? '—'}</td>
                         <td className="px-2 py-2 text-center font-semibold text-gray-900 dark:text-gray-100">{item.quantity}</td>
                         <td className="px-2 py-2 text-center">
                           <span className={clsx(
@@ -205,6 +208,7 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
           sellerSku={caseItem.sellerSku}
           fnsku={caseItem.fnsku}
           productTitle={caseItem.title}
+          defaultLpn={caseItem.lpnNumber}
           onClose={() => setCaseItem(null)}
           onCreated={handleCaseCreated}
         />

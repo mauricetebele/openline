@@ -10,6 +10,7 @@ interface Props {
   sellerSku: string
   fnsku: string
   productTitle: string | null
+  defaultLpn?: string | null
   onClose: () => void
   onCreated: () => void
 }
@@ -22,10 +23,11 @@ export default function CreateRemovalCaseModal({
   sellerSku,
   fnsku,
   productTitle,
+  defaultLpn,
   onClose,
   onCreated,
 }: Props) {
-  const [lpnNumber, setLpnNumber] = useState('')
+  const [lpnNumber, setLpnNumber] = useState(defaultLpn ?? '')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')

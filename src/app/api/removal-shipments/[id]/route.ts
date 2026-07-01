@@ -37,6 +37,7 @@ export async function GET(
           location: { select: { name: true, warehouse: { select: { name: true } } } },
           receivedBy: { select: { name: true } },
           product: { select: { description: true } },
+          removalShipmentItemId: true,
         },
       },
     },
@@ -56,6 +57,14 @@ export async function GET(
 
   const titleMap = new Map(listings.map(l => [l.sku, l.productTitle]))
 
+  // Build a map of shipmentItemId → LPN from receipts
+  const itemLpnMap = new Map<string, string>()
+  for (const r of shipment.fbaReturnReceipts) {
+    if (r.removalShipmentItemId && r.lpnNumber && !itemLpnMap.has(r.removalShipmentItemId)) {
+      itemLpnMap.set(r.removalShipmentItemId, r.lpnNumber)
+    }
+  }
+
   const items = shipment.items.map(item => ({
     id: item.id,
     shipmentId: item.shipmentId,
@@ -66,6 +75,7 @@ export async function GET(
     title: titleMap.get(item.sellerSku) ?? null,
     receivedCount: item._count.fbaReturnReceipts + item._count.fbaRemovalCases,
     remainingQty: item.quantity - item._count.fbaReturnReceipts - item._count.fbaRemovalCases,
+    lpnNumber: itemLpnMap.get(item.id) ?? null,
   }))
 
   const totalUnits = items.reduce((sum, i) => sum + i.quantity, 0)
