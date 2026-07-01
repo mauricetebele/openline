@@ -2440,6 +2440,7 @@ model RemovalShipmentItem {
 
 model FbaRemovalCase {
   id                    String               @id @default(cuid())
+  caseNumber            Int                  @unique @default(autoincrement())
   removalOrderId        String
   trackingNumber        String
   lpnNumber             String?
@@ -2447,6 +2448,7 @@ model FbaRemovalCase {
   sellerSku             String
   productTitle          String?
   note                  String?              @db.Text
+  images                Json                 @default("[]")
   removalShipmentId     String?
   removalShipment       RemovalShipment?     @relation(fields: [removalShipmentId], references: [id])
   removalShipmentItemId String?

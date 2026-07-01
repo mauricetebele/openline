@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
 
   const search = searchParams.get('search')?.trim()
   if (search) {
+    const caseMatch = search.match(/^REMOVALCASE-(\d+)$/i)
     where.OR = [
       { removalOrderId: { contains: search, mode: 'insensitive' } },
       { trackingNumber: { contains: search, mode: 'insensitive' } },
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
       { fnsku: { contains: search, mode: 'insensitive' } },
       { note: { contains: search, mode: 'insensitive' } },
       { lpnNumber: { contains: search, mode: 'insensitive' } },
+      ...(caseMatch ? [{ caseNumber: Number(caseMatch[1]) }] : []),
     ]
   }
 
