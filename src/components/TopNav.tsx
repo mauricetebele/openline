@@ -70,6 +70,7 @@ const NAV: NavItem[] = [
       { href: '/marketplace-returns',       label: 'Marketplace Returns', icon: Undo2 },
       { href: '/wholesale/customer-rma',    label: 'Wholesale RMA',       icon: RotateCcw },
       { href: '/vendor-rma',               label: 'Vendor Returns',      icon: PackageMinus },
+      { href: '/legacy-rma',              label: 'Legacy RMA',          icon: Archive },
       { href: '/free-replacements',        label: 'Free Replacements',   icon: RefreshCcw },
     ],
   },

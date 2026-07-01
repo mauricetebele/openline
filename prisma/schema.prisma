@@ -886,6 +886,8 @@ model Vendor {
   ledgerEntries    VendorLedgerEntry[]
   inventorySerials InventorySerial[]
   users            User[]
+  legacyRMAs       LegacyRMA[]
+  legacyRMAItems   LegacyRMAItem[]
 
   @@map("vendors")
 }
@@ -921,6 +923,7 @@ model Product {
   marketplaceRMAItems    MarketplaceRMAItem[]
   fbaReservations        FbaInventoryReservation[]
   fbaReturnReceipts      FbaReturnReceipt[]
+  legacyRMAItems         LegacyRMAItem[]
 
   @@map("products")
 }
@@ -947,6 +950,7 @@ model Grade {
   salesOrderItems        SalesOrderItem[]   @relation("GradeSalesOrderItems")
   fbaReservations        FbaInventoryReservation[]
   fbaReturnReceipts      FbaReturnReceipt[]
+  legacyRMAItems         LegacyRMAItem[]
 
   @@map("grades")
 }
@@ -1211,6 +1215,7 @@ model Location {
   fbaReservations        FbaInventoryReservation[]
   clientLocationAccess   ClientLocationAccess[]
   fbaReturnReceipts      FbaReturnReceipt[]
+  legacyRMASerials       LegacyRMASerial[]
 
   @@unique([warehouseId, name])
   @@index([warehouseId])
@@ -1299,6 +1304,7 @@ model InventorySerial {
   marketplaceRMASerials  MarketplaceRMASerial[]
   customerRMASerials     CustomerRMASerial[]
   fbaReturnReceipts      FbaReturnReceipt[]
+  legacyRMASerials       LegacyRMASerial[]
 
   @@unique([productId, serialNumber])
   @@index([productId, locationId])
@@ -1372,6 +1378,7 @@ enum SerialEventType {
   WHOLESALE_RMA_RETURN
   GRADE_CHANGE
   FBA_RETURN
+  LEGACY_RMA_RECEIPT
 }
 
 // ─── RMA (Return Merchandise Authorization) ───────────────────────────────────
@@ -2451,4 +2458,59 @@ model FbaRemovalCase {
   @@index([removalShipmentId])
   @@index([removalShipmentItemId])
   @@map("fba_removal_cases")
+}
+
+// ─── Legacy RMA (pre-system vendor returns) ──────────────────────────────────
+
+model LegacyRMA {
+  id        String   @id @default(cuid())
+  rmaNumber String   @unique // "LRMA-0001"
+  orderRef  String   // free-form order reference
+  vendorId  String?
+  vendor    Vendor?  @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items LegacyRMAItem[]
+
+  @@index([vendorId])
+  @@map("legacy_rmas")
+}
+
+model LegacyRMAItem {
+  id        String   @id @default(cuid())
+  rmaId     String
+  rma       LegacyRMA @relation(fields: [rmaId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  gradeId   String?
+  grade     Grade?   @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  vendorId  String?
+  vendor    Vendor?  @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  unitCost  Decimal? @db.Decimal(12, 2)
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+
+  serials LegacyRMASerial[]
+
+  @@index([rmaId])
+  @@map("legacy_rma_items")
+}
+
+model LegacyRMASerial {
+  id                String          @id @default(cuid())
+  itemId            String
+  item              LegacyRMAItem   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  serialNumber      String
+  note              String?
+  locationId        String
+  location          Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  inventorySerialId String?
+  inventorySerial   InventorySerial? @relation(fields: [inventorySerialId], references: [id], onDelete: SetNull)
+  createdAt         DateTime        @default(now())
+
+  @@index([itemId])
+  @@index([inventorySerialId])
+  @@map("legacy_rma_serials")
 }
