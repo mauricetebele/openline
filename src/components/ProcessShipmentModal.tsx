@@ -144,26 +144,26 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
                           </span>
                         </td>
                         <td className="px-2 py-2 text-right">
-                          {done ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 text-[10px] font-semibold">
-                              <CheckCircle2 size={10} /> Done
-                            </span>
-                          ) : (
-                            <div className="flex items-center gap-1 justify-end">
+                          <div className="flex items-center gap-1 justify-end">
+                            {done ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 text-[10px] font-semibold">
+                                <CheckCircle2 size={10} /> Done
+                              </span>
+                            ) : (
                               <button
                                 onClick={() => setReceiveItem(item)}
                                 className="px-3 py-1 text-[11px] font-semibold text-white bg-amazon-blue rounded hover:bg-amazon-blue/90"
                               >
                                 Receive
                               </button>
-                              <button
-                                onClick={() => setCaseItem(item)}
-                                className="px-3 py-1 text-[11px] font-semibold text-white bg-amber-600 rounded hover:bg-amber-700"
-                              >
-                                Create Case
-                              </button>
-                            </div>
-                          )}
+                            )}
+                            <button
+                              onClick={() => setCaseItem(item)}
+                              className="px-3 py-1 text-[11px] font-semibold text-white bg-amber-600 rounded hover:bg-amber-700"
+                            >
+                              Create Case
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
