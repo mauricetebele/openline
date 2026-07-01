@@ -74,7 +74,7 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-start justify-center pt-[5vh] bg-black/40">
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-3xl mx-4 flex flex-col max-h-[88vh]">
+        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-5xl mx-4 flex flex-col max-h-[88vh]">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 shrink-0">
             <div>
@@ -114,7 +114,7 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
                     <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 w-8">#</th>
-                    <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">SKU</th>
+                    <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">SKU</th>
                     <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">FNSKU</th>
                     <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Title</th>
                     <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Disposition</th>
@@ -130,9 +130,9 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
                     return (
                       <tr key={item.id} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
                         <td className="px-2 py-2 text-gray-400">{idx + 1}</td>
-                        <td className="px-2 py-2 font-mono text-gray-800 dark:text-gray-200">{item.sellerSku}</td>
+                        <td className="px-2 py-2 font-mono text-gray-800 dark:text-gray-200 whitespace-nowrap">{item.sellerSku}</td>
                         <td className="px-2 py-2 font-mono text-gray-600 dark:text-gray-400">{item.fnsku}</td>
-                        <td className="px-2 py-2 text-gray-600 dark:text-gray-400 max-w-[180px] truncate" title={item.title ?? ''}>
+                        <td className="px-2 py-2 text-gray-600 dark:text-gray-400">
                           {item.title ?? '—'}
                         </td>
                         <td className="px-2 py-2 text-gray-600 dark:text-gray-400">{item.disposition ?? '—'}</td>
