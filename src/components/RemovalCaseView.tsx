@@ -1,6 +1,6 @@
 'use client'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, AlertCircle, X, Upload, Trash2, Save, Loader2 } from 'lucide-react'
+import { Search, AlertCircle, X, Upload, Trash2, Save, Loader2, Download } from 'lucide-react'
 
 interface ImageAttachment {
   url: string
@@ -251,6 +251,15 @@ function RemovalCaseDetailModal({
                             alt={img.filename}
                             className="w-full h-24 object-cover cursor-pointer"
                           />
+                        </a>
+                        <a
+                          href={img.url}
+                          download={img.filename}
+                          className="absolute top-1 right-8 p-1 rounded bg-gray-800/80 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Download image"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Download size={12} />
                         </a>
                         <button
                           onClick={() => deleteImage(i)}
