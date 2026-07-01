@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, X, Trash2, AlertCircle, Search, ScanLine, ChevronDown, Archive } from 'lucide-react'
+import { Plus, X, Trash2, AlertCircle, Search, ScanLine, ChevronDown, Archive, FileText } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -26,6 +26,7 @@ interface Vendor { id: string; vendorNumber: number; name: string }
 interface Product { id: string; sku: string; description: string; isSerializable: boolean }
 interface Grade { id: string; grade: string }
 interface Warehouse { id: string; name: string; locations: { id: string; name: string }[] }
+interface LegacyInvoiceItem { sku: string; serial: string; title: string }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -534,6 +535,32 @@ function DetailPanel({
   const [error, setError] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [receiveItem, setReceiveItem] = useState<LegacyRMAItem | null>(null)
+  const [invoiceItems, setInvoiceItems] = useState<LegacyInvoiceItem[]>([])
+  const [invoiceLoading, setInvoiceLoading] = useState(false)
+  const [invoiceExpanded, setInvoiceExpanded] = useState(true)
+
+  // Fetch legacy invoice data by order ref
+  useEffect(() => {
+    if (!rma.orderRef) return
+    setInvoiceLoading(true)
+    fetch(`/api/legacy-invoices/lookup?orderId=${encodeURIComponent(rma.orderRef)}`)
+      .then(r => r.json())
+      .then(data => {
+        const invoices = data.data ?? []
+        const allItems: LegacyInvoiceItem[] = invoices.flatMap((inv: { items: unknown }) => {
+          const items = inv.items as LegacyInvoiceItem[]
+          return Array.isArray(items) ? items : []
+        })
+        setInvoiceItems(allItems)
+      })
+      .catch(() => {})
+      .finally(() => setInvoiceLoading(false))
+  }, [rma.orderRef])
+
+  // Track which invoice serials have been received
+  const receivedSerialSet = new Set(
+    rma.items.flatMap(i => i.serials.map(s => s.serialNumber.toUpperCase()))
+  )
 
   async function handleDelete() {
     if (!confirm('Delete this Legacy RMA?')) return
@@ -600,6 +627,56 @@ function DetailPanel({
           {rma.notes && <p className="text-gray-500">Notes: {rma.notes}</p>}
           <p className="text-gray-400 text-xs">Created {fmt(rma.createdAt)}</p>
         </div>
+
+        {/* Legacy Invoice Reference */}
+        {(invoiceItems.length > 0 || invoiceLoading) && (
+          <div className="px-5 py-3 border-b shrink-0">
+            <button
+              onClick={() => setInvoiceExpanded(!invoiceExpanded)}
+              className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 uppercase tracking-wide w-full"
+            >
+              <FileText size={13} />
+              Legacy Invoice Reference ({invoiceItems.length} serial{invoiceItems.length !== 1 ? 's' : ''})
+              <ChevronDown size={13} className={clsx('ml-auto transition-transform', invoiceExpanded && 'rotate-180')} />
+            </button>
+            {invoiceExpanded && (
+              invoiceLoading ? (
+                <p className="text-xs text-gray-400 mt-2">Loading invoice data…</p>
+              ) : (
+                <div className="mt-2 border border-amber-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto bg-amber-50/50">
+                  <table className="w-full text-left">
+                    <thead className="bg-amber-100/60 border-b border-amber-200 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-1.5 text-xs font-semibold text-amber-800">Foreign SKU</th>
+                        <th className="px-3 py-1.5 text-xs font-semibold text-amber-800">Title</th>
+                        <th className="px-3 py-1.5 text-xs font-semibold text-amber-800">Serial</th>
+                        <th className="px-3 py-1.5 text-xs font-semibold text-amber-800 w-16">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-100">
+                      {invoiceItems.map((it, i) => {
+                        const received = receivedSerialSet.has(it.serial?.toUpperCase())
+                        return (
+                          <tr key={i} className={received ? 'bg-green-50/40' : ''}>
+                            <td className="px-3 py-1.5 text-xs font-mono text-gray-700">{it.sku || '—'}</td>
+                            <td className="px-3 py-1.5 text-xs text-gray-600 truncate max-w-[180px]" title={it.title}>{it.title || '—'}</td>
+                            <td className="px-3 py-1.5 text-xs font-mono text-gray-700">{it.serial || '—'}</td>
+                            <td className="px-3 py-1.5">
+                              {received
+                                ? <span className="text-xs text-green-600 font-medium">Received</span>
+                                : <span className="text-xs text-gray-400">Pending</span>
+                              }
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+          </div>
+        )}
 
         {/* Items */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
