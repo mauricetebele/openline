@@ -60,7 +60,8 @@ export async function GET(req: NextRequest) {
 
   const data = shipments.map(s => {
     const unitCount = s.items.reduce((sum, item) => sum + item.quantity, 0)
-    const receivedCount = s._count.fbaReturnReceipts + s._count.fbaRemovalCases
+    const rawReceived = s._count.fbaReturnReceipts + s._count.fbaRemovalCases
+    const receivedCount = Math.min(rawReceived, unitCount)
     const { items: _items, ...rest } = s
     return { ...rest, unitCount, receivedCount }
   })

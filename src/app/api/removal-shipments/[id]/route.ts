@@ -65,18 +65,22 @@ export async function GET(
     }
   }
 
-  const items = shipment.items.map(item => ({
-    id: item.id,
-    shipmentId: item.shipmentId,
-    sellerSku: item.sellerSku,
-    fnsku: item.fnsku,
-    disposition: item.disposition,
-    quantity: item.quantity,
-    title: titleMap.get(item.sellerSku) ?? null,
-    receivedCount: item._count.fbaReturnReceipts + item._count.fbaRemovalCases,
-    remainingQty: item.quantity - item._count.fbaReturnReceipts - item._count.fbaRemovalCases,
-    lpnNumber: itemLpnMap.get(item.id) ?? null,
-  }))
+  const items = shipment.items.map(item => {
+    const rawReceived = item._count.fbaReturnReceipts + item._count.fbaRemovalCases
+    const receivedCount = Math.min(rawReceived, item.quantity)
+    return {
+      id: item.id,
+      shipmentId: item.shipmentId,
+      sellerSku: item.sellerSku,
+      fnsku: item.fnsku,
+      disposition: item.disposition,
+      quantity: item.quantity,
+      title: titleMap.get(item.sellerSku) ?? null,
+      receivedCount,
+      remainingQty: Math.max(0, item.quantity - receivedCount),
+      lpnNumber: itemLpnMap.get(item.id) ?? null,
+    }
+  })
 
   const totalUnits = items.reduce((sum, i) => sum + i.quantity, 0)
   const totalReceived = items.reduce((sum, i) => sum + i.receivedCount, 0)
