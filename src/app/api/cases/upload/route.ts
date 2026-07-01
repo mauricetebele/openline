@@ -36,15 +36,23 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const blob = await put(`cases/${Date.now()}-${file.name}`, file, {
-    access: 'public',
-    contentType: file.type,
-  })
+  try {
+    const blob = await put(`cases/${Date.now()}-${file.name}`, file, {
+      access: 'public',
+      contentType: file.type,
+    })
 
-  return NextResponse.json({
-    url: blob.url,
-    filename: file.name,
-    contentType: file.type,
-    size: file.size,
-  })
+    return NextResponse.json({
+      url: blob.url,
+      filename: file.name,
+      contentType: file.type,
+      size: file.size,
+    })
+  } catch (err) {
+    console.error('Blob upload error:', err)
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Upload failed' },
+      { status: 500 },
+    )
+  }
 }
