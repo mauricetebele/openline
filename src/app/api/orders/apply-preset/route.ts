@@ -528,6 +528,7 @@ export async function POST(req: NextRequest) {
                 presetRateId:        rateId,
                 presetRateError:     null,
                 presetRateCheckedAt: new Date(),
+                presetRateUpsCredentialId: preset.upsCredentialId ?? null,
                 presetShipDate:      shipDate ?? null,
                 appliedPresetId:     presetId,
               },

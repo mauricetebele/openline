@@ -534,6 +534,7 @@ model Order {
   presetRateId           String?
   presetRateError        String?
   presetRateCheckedAt    DateTime?
+  presetRateUpsCredentialId String?
   presetShipDate         String?
   appliedPresetId        String?
   appliedPreset          ShippingPreset?             @relation(fields: [appliedPresetId], references: [id], onDelete: SetNull)

@@ -93,6 +93,7 @@ interface Order {
   presetRateId: string | null
   presetRateError: string | null
   presetRateCheckedAt: string | null
+  presetRateUpsCredentialId: string | null
   presetShipDate: string | null
   appliedPresetId: string | null
   appliedPackagePresetId: string | null
@@ -3550,7 +3551,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   useEffect(() => { localStorage.setItem(CONF_KEY, JSON.stringify(confirmation)) }, [confirmation])
   useEffect(() => { try { localStorage.setItem(WH_KEY, selectedWhId) } catch { /* */ } }, [selectedWhId])
 
-  // Load UPS accounts for BackMarket orders
+  // Load UPS accounts for BackMarket orders — prefer the credential used when rating
   useEffect(() => {
     if (order.orderSource !== 'backmarket') return
     fetch('/api/ups/credentials')
@@ -3558,11 +3559,14 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
       .then(data => {
         const accts = (data.accounts ?? []) as { id: string; nickname: string; isDefault: boolean; maskedAccountNumber?: string | null }[]
         setUpsAccounts(accts)
-        const def = accts.find(a => a.isDefault) ?? accts[0]
+        // Use the credential that was used to generate the preset rate, falling back to default
+        const presetCred = order.presetRateUpsCredentialId
+        const match = presetCred ? accts.find(a => a.id === presetCred) : null
+        const def = match ?? accts.find(a => a.isDefault) ?? accts[0]
         if (def) setSelectedUpsAccountId(def.id)
       })
       .catch(() => {})
-  }, [order.orderSource])
+  }, [order.orderSource, order.presetRateUpsCredentialId])
 
   const [rates, setRates]               = useState<SSRate[] | null>(null)
   const [amazonServices, setAmazonServices] = useState<{ code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[] | null>(null)

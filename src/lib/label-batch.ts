@@ -195,7 +195,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
           confirmation:     (preset.confirmation as UpsLabelRequest['confirmation']) ?? undefined,
         }
 
-        const upsResult = await generateOutboundLabel(upsReq)
+        const upsResult = await generateOutboundLabel(upsReq, preset.upsCredentialId ?? order.presetRateUpsCredentialId ?? undefined)
         trackingNumber = upsResult.trackingNumber
         labelData      = upsResult.labelBase64
         labelFormat    = upsResult.labelFormat  // 'pdf'
