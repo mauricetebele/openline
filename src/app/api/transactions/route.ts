@@ -6,6 +6,22 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 
+// ─── Transaction Type Mapping ───────────────────────────────────────────────
+// Maps user-friendly filter labels → raw Amazon transactionType values.
+// Any raw type not listed here falls into "Other".
+
+export const TRANSACTION_TYPE_MAP: Record<string, string[]> = {
+  'Shipment':      ['Shipment'],
+  'Refund':        ['Refund', 'ChargebackRefund', 'GuaranteeClaimRefund'],
+  'Service Fee':   ['ServiceFee'],
+  'Adjustment':    ['Adjustment', 'MiscellaneousLedgerAdjustment'],
+  'Transfer':      ['Transfer'],
+  'Reimbursement': ['FBAInventoryReimbursement'],
+}
+
+// All mapped raw types (used to compute "Other")
+const ALL_MAPPED_TYPES = new Set(Object.values(TRANSACTION_TYPE_MAP).flat())
+
 export async function GET(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -35,9 +51,20 @@ export async function GET(req: NextRequest) {
     where.OR = orClauses
   }
 
-  // Exact filters
+  // Type filter — uses mapping to match multiple raw types per category
   const type = searchParams.get('type')
-  if (type) where.transactionType = type
+  if (type) {
+    if (type === 'Other') {
+      where.transactionType = { notIn: Array.from(ALL_MAPPED_TYPES) }
+    } else {
+      const mapped = TRANSACTION_TYPE_MAP[type]
+      if (mapped) {
+        where.transactionType = { in: mapped }
+      } else {
+        where.transactionType = type
+      }
+    }
+  }
 
   const creditOrDebit = searchParams.get('creditOrDebit')
   if (creditOrDebit) where.creditOrDebit = creditOrDebit
@@ -127,5 +154,6 @@ export async function GET(req: NextRequest) {
       totalDebits,
       netAmount: totalCredits + totalDebits, // debits are negative
     },
+    typeMap: TRANSACTION_TYPE_MAP,
   })
 }

@@ -62,10 +62,16 @@ function fmtMoney(val: number) {
 function typeColor(type: string) {
   switch (type) {
     case 'Shipment': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-    case 'Refund': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+    case 'Refund':
+    case 'ChargebackRefund':
+    case 'GuaranteeClaimRefund':
+      return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
     case 'ServiceFee': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-    case 'Adjustment': return 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
+    case 'Adjustment':
+    case 'MiscellaneousLedgerAdjustment':
+      return 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
     case 'Transfer': return 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+    case 'FBAInventoryReimbursement': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
     default: return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
   }
 }
@@ -85,7 +91,8 @@ const DATE_PRESETS = [
   { label: '90 Days', days: 90 },
 ]
 
-const TYPE_OPTIONS = ['All Types', 'Shipment', 'Refund', 'ServiceFee', 'Adjustment', 'Transfer', 'Other']
+// Default type options — overridden by typeMap from API response
+const DEFAULT_TYPE_OPTIONS = ['All Types', 'Shipment', 'Refund', 'Service Fee', 'Adjustment', 'Transfer', 'Reimbursement', 'Other']
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -101,6 +108,7 @@ export default function TransactionView() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 50, total: 0, totalPages: 0 })
   const [summary, setSummary] = useState<Summary>({ totalCredits: 0, totalDebits: 0, netAmount: 0 })
+  const [typeMap, setTypeMap] = useState<Record<string, string[]>>({})
   const [loading, setLoading] = useState(true)
 
   // Filters
@@ -165,6 +173,7 @@ export default function TransactionView() {
       setTransactions(json.data ?? [])
       setPagination(json.pagination ?? { page: 1, pageSize: 50, total: 0, totalPages: 0 })
       setSummary(json.summary ?? { totalCredits: 0, totalDebits: 0, netAmount: 0 })
+      if (json.typeMap) setTypeMap(json.typeMap)
     } catch { /* ignore */ }
     setLoading(false)
   }, [search, typeFilter, creditDebitFilter, statusFilter, fulfillmentFilter, sortBy, sortDir, getDateParams])
@@ -340,7 +349,10 @@ export default function TransactionView() {
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
         >
-          {TYPE_OPTIONS.map(t => (
+          {(Object.keys(typeMap).length > 0
+            ? ['All Types', ...Object.keys(typeMap), 'Other']
+            : DEFAULT_TYPE_OPTIONS
+          ).map(t => (
             <option key={t} value={t === 'All Types' ? '' : t}>{t}</option>
           ))}
         </select>
