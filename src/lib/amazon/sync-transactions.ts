@@ -6,10 +6,10 @@
  * them in the AmazonTransaction table for a complete Transaction View.
  *
  * Deduplicates via SHA-256 hash of key fields.
+ * Uses batch raw SQL upserts (INSERT ... ON CONFLICT) for speed.
  */
 
 import { createHash } from 'crypto'
-import { Decimal } from '@prisma/client/runtime/library'
 import { prisma } from '@/lib/prisma'
 import { SpApiClient } from './sp-api'
 
@@ -67,7 +67,29 @@ function computeDedupHash(
   return createHash('sha256').update(raw).digest('hex')
 }
 
+// ─── Parsed row ready for DB ────────────────────────────────────────────────
+
+interface ParsedTransaction {
+  accountId: string
+  transactionType: string
+  transactionStatus: string
+  postedDate: Date
+  totalAmount: number
+  currency: string
+  description: string | null
+  creditOrDebit: string
+  orderId: string | null
+  shipmentId: string | null
+  relatedIdentifiers: string | null // JSON string
+  breakdowns: string | null         // JSON string
+  contexts: string | null           // JSON string
+  dedupHash: string
+}
+
 // ─── Main sync function ─────────────────────────────────────────────────────
+
+const BATCH_SIZE = 100
+const COLS_PER_ROW = 14 // number of $N placeholders per row
 
 export async function syncAmazonTransactions(
   accountId: string,
@@ -109,17 +131,14 @@ export async function syncAmazonTransactions(
     })
   }
 
-  // Upsert each transaction
-  let upserted = 0
-
-  for (const txn of allTransactions) {
+  // Parse all transactions into DB-ready rows
+  const parsed: ParsedTransaction[] = allTransactions.map((txn) => {
     const postedDate = txn.postedDate ?? new Date().toISOString()
     const transactionType = txn.transactionType ?? 'Unknown'
     const transactionStatus = txn.transactionStatus ?? 'UNKNOWN'
     const amount = txn.totalAmount?.currencyAmount ?? 0
     const currency = txn.totalAmount?.currencyCode ?? 'USD'
 
-    // Extract orderId and shipmentId from relatedIdentifiers
     const orderId = txn.relatedIdentifiers?.find(
       (r) => r.relatedIdentifierName === 'ORDER_ID',
     )?.relatedIdentifierValue ?? null
@@ -128,53 +147,82 @@ export async function syncAmazonTransactions(
       (r) => r.relatedIdentifierName === 'SHIPMENT_ID',
     )?.relatedIdentifierValue ?? null
 
-    const creditOrDebit = amount >= 0 ? 'CREDIT' : 'DEBIT'
-
-    const dedupHash = computeDedupHash(
+    return {
       accountId,
-      postedDate,
       transactionType,
       transactionStatus,
-      amount,
+      postedDate: new Date(postedDate),
+      totalAmount: Number(amount.toFixed(2)),
+      currency,
+      description: txn.description ?? null,
+      creditOrDebit: amount >= 0 ? 'CREDIT' : 'DEBIT',
       orderId,
-    )
+      shipmentId,
+      relatedIdentifiers: txn.relatedIdentifiers ? JSON.stringify(txn.relatedIdentifiers) : null,
+      breakdowns: txn.breakdowns ? JSON.stringify(txn.breakdowns) : null,
+      contexts: txn.contexts ? JSON.stringify(txn.contexts) : null,
+      dedupHash: computeDedupHash(accountId, postedDate, transactionType, transactionStatus, amount, orderId),
+    }
+  })
 
-    const description = txn.description ?? null
+  // Batch upsert using raw SQL (INSERT ... ON CONFLICT)
+  let totalUpserted = 0
+  const now = new Date()
 
-    await prisma.amazonTransaction.upsert({
-      where: { dedupHash },
-      create: {
-        accountId,
-        transactionType,
-        transactionStatus,
-        postedDate: new Date(postedDate),
-        totalAmount: new Decimal(amount.toFixed(2)),
-        currency,
-        description,
-        creditOrDebit,
-        orderId,
-        shipmentId,
-        relatedIdentifiers: txn.relatedIdentifiers as unknown as undefined,
-        breakdowns: txn.breakdowns as unknown as undefined,
-        contexts: txn.contexts as unknown as undefined,
-        dedupHash,
-      },
-      update: {
-        transactionStatus,
-        totalAmount: new Decimal(amount.toFixed(2)),
-        description,
-        breakdowns: txn.breakdowns as unknown as undefined,
-        contexts: txn.contexts as unknown as undefined,
-      },
-    })
+  for (let i = 0; i < parsed.length; i += BATCH_SIZE) {
+    const batch = parsed.slice(i, i + BATCH_SIZE)
 
-    upserted++
+    const values: unknown[] = []
+    const placeholders: string[] = []
 
-    // Update job progress periodically
-    if (jobId && upserted % 50 === 0) {
+    for (const row of batch) {
+      const o = values.length // offset
+      placeholders.push(
+        `(gen_random_uuid(), $${o+1}, $${o+2}, $${o+3}, $${o+4}, $${o+5}, $${o+6}, $${o+7}, $${o+8}, $${o+9}, $${o+10}, $${o+11}, $${o+12}::jsonb, $${o+13}::jsonb, $${o+14}::jsonb)`,
+      )
+      values.push(
+        row.accountId,          // 1
+        row.transactionType,    // 2
+        row.transactionStatus,  // 3
+        row.postedDate,         // 4
+        row.totalAmount,        // 5
+        row.currency,           // 6
+        row.description,        // 7
+        row.creditOrDebit,      // 8
+        row.orderId,            // 9
+        row.shipmentId,         // 10
+        row.dedupHash,          // 11
+        row.relatedIdentifiers, // 12
+        row.breakdowns,         // 13
+        row.contexts,           // 14
+      )
+    }
+
+    const sql = `
+      INSERT INTO amazon_transactions (
+        id, "accountId", "transactionType", "transactionStatus",
+        "postedDate", "totalAmount", currency, description,
+        "creditOrDebit", "orderId", "shipmentId", "dedupHash",
+        "relatedIdentifiers", breakdowns, contexts
+      )
+      VALUES ${placeholders.join(', ')}
+      ON CONFLICT ("dedupHash") DO UPDATE SET
+        "transactionStatus" = EXCLUDED."transactionStatus",
+        "totalAmount" = EXCLUDED."totalAmount",
+        description = EXCLUDED.description,
+        breakdowns = EXCLUDED.breakdowns,
+        contexts = EXCLUDED.contexts,
+        "updatedAt" = NOW()
+    `
+
+    await prisma.$executeRawUnsafe(sql, ...values)
+    totalUpserted += batch.length
+
+    // Update job progress every batch
+    if (jobId) {
       await prisma.importJob.update({
         where: { id: jobId },
-        data: { totalUpserted: upserted },
+        data: { totalUpserted },
       })
     }
   }
@@ -184,13 +232,13 @@ export async function syncAmazonTransactions(
     await prisma.importJob.update({
       where: { id: jobId },
       data: {
-        totalUpserted: upserted,
+        totalUpserted,
         status: 'COMPLETED',
         completedAt: new Date(),
       },
     })
   }
 
-  console.log(`[sync-transactions] account=${accountId}: ${allTransactions.length} fetched, ${upserted} upserted`)
-  return { found: allTransactions.length, upserted }
+  console.log(`[sync-transactions] account=${accountId}: ${allTransactions.length} fetched, ${totalUpserted} upserted in ${Math.ceil(parsed.length / BATCH_SIZE)} batches`)
+  return { found: allTransactions.length, upserted: totalUpserted }
 }
