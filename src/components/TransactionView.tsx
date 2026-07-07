@@ -30,6 +30,7 @@ interface Transaction {
   creditOrDebit: string
   orderId: string | null
   shipmentId: string | null
+  fulfillmentChannel: string | null
 }
 
 interface Pagination {
@@ -110,6 +111,7 @@ export default function TransactionView() {
   const [typeFilter, setTypeFilter] = useState('')
   const [creditDebitFilter, setCreditDebitFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [fulfillmentFilter, setFulfillmentFilter] = useState('')
 
   // Sort
   const [sortBy, setSortBy] = useState('postedDate')
@@ -154,6 +156,7 @@ export default function TransactionView() {
       if (typeFilter) params.set('type', typeFilter)
       if (creditDebitFilter) params.set('creditOrDebit', creditDebitFilter)
       if (statusFilter) params.set('status', statusFilter)
+      if (fulfillmentFilter) params.set('fulfillment', fulfillmentFilter)
       const dateParams = getDateParams()
       Object.entries(dateParams).forEach(([k, v]) => params.set(k, v))
 
@@ -164,7 +167,7 @@ export default function TransactionView() {
       setSummary(json.summary ?? { totalCredits: 0, totalDebits: 0, netAmount: 0 })
     } catch { /* ignore */ }
     setLoading(false)
-  }, [search, typeFilter, creditDebitFilter, statusFilter, sortBy, sortDir, getDateParams])
+  }, [search, typeFilter, creditDebitFilter, statusFilter, fulfillmentFilter, sortBy, sortDir, getDateParams])
 
   useEffect(() => { fetchTransactions(1) }, [fetchTransactions])
   useEffect(() => { return () => { if (jobPollRef.current) clearInterval(jobPollRef.current) } }, [])
@@ -195,9 +198,10 @@ export default function TransactionView() {
     setTypeFilter('')
     setCreditDebitFilter('')
     setStatusFilter('')
+    setFulfillmentFilter('')
   }
 
-  const hasFilters = search || datePreset !== null || startDate || endDate || typeFilter || creditDebitFilter || statusFilter
+  const hasFilters = search || datePreset !== null || startDate || endDate || typeFilter || creditDebitFilter || statusFilter || fulfillmentFilter
 
   // ── Sync ────────────────────────────────────────────────────────────────
 
@@ -363,6 +367,17 @@ export default function TransactionView() {
           <option value="RELEASED">RELEASED</option>
         </select>
 
+        {/* Fulfillment filter */}
+        <select
+          className="h-7 px-2 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 text-xs"
+          value={fulfillmentFilter}
+          onChange={(e) => setFulfillmentFilter(e.target.value)}
+        >
+          <option value="">All Fulfillment</option>
+          <option value="FBA">FBA</option>
+          <option value="MFN">FBM</option>
+        </select>
+
         {/* Clear filters */}
         {hasFilters && (
           <button onClick={clearFilters} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear filters">
@@ -487,7 +502,21 @@ export default function TransactionView() {
                       </span>
                     </td>
                     <td className="px-3 py-1.5 font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                      {t.orderId ?? '—'}
+                      {t.orderId ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          {t.orderId}
+                          {t.fulfillmentChannel && (
+                            <span className={clsx(
+                              'inline-block px-1.5 py-0.5 rounded text-[9px] font-bold leading-none',
+                              t.fulfillmentChannel === 'FBA'
+                                ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                                : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
+                            )}>
+                              {t.fulfillmentChannel === 'MFN' ? 'FBM' : t.fulfillmentChannel}
+                            </span>
+                          )}
+                        </span>
+                      ) : '—'}
                     </td>
                     <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400 max-w-xs truncate" title={t.description ?? ''}>
                       {t.description ?? '—'}

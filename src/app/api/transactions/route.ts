@@ -56,6 +56,19 @@ export async function GET(req: NextRequest) {
   }
   const orderBy = sortMap[sortBy] ?? { postedDate: sortDir }
 
+  // Fulfillment channel filter (FBA/MFN) — requires subquery on orders table
+  const fulfillment = searchParams.get('fulfillment') // "FBA" | "MFN"
+  if (fulfillment) {
+    // Find order IDs that match the fulfillment channel
+    const matchingOrders = await prisma.order.findMany({
+      where: { fulfillmentChannel: fulfillment },
+      select: { amazonOrderId: true },
+      distinct: ['amazonOrderId'],
+    })
+    const orderIds = matchingOrders.map(o => o.amazonOrderId)
+    where.orderId = { in: orderIds }
+  }
+
   // Fetch data + count + summary in parallel
   const [total, transactions, creditAgg, debitAgg] = await Promise.all([
     prisma.amazonTransaction.count({ where }),
@@ -75,11 +88,30 @@ export async function GET(req: NextRequest) {
     }),
   ])
 
+  // Enrich transactions with fulfillment channel from orders table
+  const orderIds = Array.from(new Set(transactions.map(t => t.orderId).filter(Boolean))) as string[]
+  const fulfillmentMap = new Map<string, string>()
+  if (orderIds.length > 0) {
+    const orders = await prisma.order.findMany({
+      where: { amazonOrderId: { in: orderIds } },
+      select: { amazonOrderId: true, fulfillmentChannel: true },
+      distinct: ['amazonOrderId'],
+    })
+    for (const o of orders) {
+      if (o.fulfillmentChannel) fulfillmentMap.set(o.amazonOrderId, o.fulfillmentChannel)
+    }
+  }
+
+  const enrichedData = transactions.map(t => ({
+    ...t,
+    fulfillmentChannel: t.orderId ? (fulfillmentMap.get(t.orderId) ?? null) : null,
+  }))
+
   const totalCredits = Number(creditAgg._sum.totalAmount ?? 0)
   const totalDebits = Number(debitAgg._sum.totalAmount ?? 0)
 
   return NextResponse.json({
-    data: transactions,
+    data: enrichedData,
     pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
     summary: {
       totalCredits,
