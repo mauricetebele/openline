@@ -178,7 +178,7 @@ export async function syncAmazonTransactions(
     for (const row of batch) {
       const o = values.length // offset
       placeholders.push(
-        `(gen_random_uuid(), $${o+1}, $${o+2}, $${o+3}, $${o+4}, $${o+5}, $${o+6}, $${o+7}, $${o+8}, $${o+9}, $${o+10}, $${o+11}, $${o+12}::jsonb, $${o+13}::jsonb, $${o+14}::jsonb)`,
+        `(gen_random_uuid(), $${o+1}, $${o+2}, $${o+3}, $${o+4}, $${o+5}, $${o+6}, $${o+7}, $${o+8}, $${o+9}, $${o+10}, $${o+11}, $${o+12}::jsonb, $${o+13}::jsonb, $${o+14}::jsonb, NOW(), NOW())`,
       )
       values.push(
         row.accountId,          // 1
@@ -203,7 +203,7 @@ export async function syncAmazonTransactions(
         id, "accountId", "transactionType", "transactionStatus",
         "postedDate", "totalAmount", currency, description,
         "creditOrDebit", "orderId", "shipmentId", "dedupHash",
-        "relatedIdentifiers", breakdowns, contexts
+        "relatedIdentifiers", breakdowns, contexts, "importedAt", "updatedAt"
       )
       VALUES ${placeholders.join(', ')}
       ON CONFLICT ("dedupHash") DO UPDATE SET
