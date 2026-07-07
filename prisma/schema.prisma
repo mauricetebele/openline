@@ -138,6 +138,8 @@ model AmazonTransaction {
   // Dedup: SHA-256 of accountId|postedDate|type|status|amount|orderId
   dedupHash          String        @unique
 
+  validatedAt        DateTime?
+
   importedAt         DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 

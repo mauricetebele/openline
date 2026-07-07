@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, RefreshCcw, X, Loader2, CreditCard } from 'lucide-react'
+import { Search, RefreshCcw, X, Loader2, CreditCard, CheckCircle2 } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -31,6 +31,7 @@ interface Transaction {
   orderId: string | null
   shipmentId: string | null
   fulfillmentChannel: string | null
+  validatedAt: string | null
 }
 
 interface Pagination {
@@ -83,6 +84,8 @@ function statusColor(status: string) {
     default: return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
   }
 }
+
+const REFUND_TYPES = ['Refund', 'ChargebackRefund', 'GuaranteeClaimRefund']
 
 const DATE_PRESETS = [
   { label: 'Today', days: 0 },
@@ -274,6 +277,31 @@ export default function TransactionView() {
   function SortIcon({ col }: { col: string }) {
     if (sortBy !== col) return null
     return <span className="ml-1 text-[10px]">{sortDir === 'asc' ? '▲' : '▼'}</span>
+  }
+
+  // ── Validate ────────────────────────────────────────────────────────────
+  async function toggleValidation(txn: Transaction) {
+    const isValidated = !!txn.validatedAt
+    if (isValidated && !confirm('Remove validation?')) return
+
+    // Optimistic update
+    setTransactions(prev => prev.map(t =>
+      t.id === txn.id ? { ...t, validatedAt: isValidated ? null : new Date().toISOString() } : t
+    ))
+
+    try {
+      const res = await fetch(`/api/transactions/${txn.id}/validate`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isValidated ? { action: 'unvalidate' } : {}),
+      })
+      if (!res.ok) throw new Error()
+    } catch {
+      // Revert on failure
+      setTransactions(prev => prev.map(t =>
+        t.id === txn.id ? { ...t, validatedAt: txn.validatedAt } : t
+      ))
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -489,6 +517,7 @@ export default function TransactionView() {
                 >
                   Amount<SortIcon col="totalAmount" />
                 </th>
+                <th className="px-3 py-2 w-28"></th>
               </tr>
             </thead>
             <tbody>
@@ -538,6 +567,25 @@ export default function TransactionView() {
                       amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400',
                     )}>
                       {fmtMoney(amount)}
+                    </td>
+                    <td className="px-3 py-1.5 text-center whitespace-nowrap">
+                      {REFUND_TYPES.includes(t.transactionType) && (
+                        t.validatedAt ? (
+                          <button
+                            onClick={() => toggleValidation(t)}
+                            className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-[10px] font-semibold"
+                          >
+                            <CheckCircle2 size={13} /> Validated
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => toggleValidation(t)}
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded border border-green-500 text-green-600 dark:text-green-400 text-[10px] font-semibold hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors"
+                          >
+                            Validate
+                          </button>
+                        )
+                      )}
                     </td>
                   </tr>
                 )
