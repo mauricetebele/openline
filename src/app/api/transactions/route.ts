@@ -65,11 +65,12 @@ export async function GET(req: NextRequest) {
   const orderBy = sortMap[sortBy] ?? { postedDate: sortDir }
 
   // Fulfillment channel filter (FBA/MFN) — requires subquery on orders table
+  // UI sends "FBA" or "MFN", but Amazon stores FBA as "AFN" in the DB
   const fulfillment = searchParams.get('fulfillment') // "FBA" | "MFN"
   if (fulfillment) {
-    // Find order IDs that match the fulfillment channel
+    const dbChannel = fulfillment === 'FBA' ? 'AFN' : fulfillment
     const matchingOrders = await prisma.order.findMany({
-      where: { fulfillmentChannel: fulfillment },
+      where: { fulfillmentChannel: dbChannel },
       select: { amazonOrderId: true },
       distinct: ['amazonOrderId'],
     })

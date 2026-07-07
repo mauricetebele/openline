@@ -508,11 +508,11 @@ export default function TransactionView() {
                           {t.fulfillmentChannel && (
                             <span className={clsx(
                               'inline-block px-1.5 py-0.5 rounded text-[9px] font-bold leading-none',
-                              t.fulfillmentChannel === 'FBA'
+                              t.fulfillmentChannel === 'AFN'
                                 ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                                 : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
                             )}>
-                              {t.fulfillmentChannel === 'MFN' ? 'FBM' : t.fulfillmentChannel}
+                              {t.fulfillmentChannel === 'AFN' ? 'FBA' : t.fulfillmentChannel === 'MFN' ? 'FBM' : t.fulfillmentChannel}
                             </span>
                           )}
                         </span>
