@@ -17,14 +17,22 @@ export async function GET(req: NextRequest) {
 
   const where: Prisma.AmazonTransactionWhereInput = {}
 
-  // Search across orderId, description, transactionType
+  // Search across orderId, description, transactionType, and amount
   const search = searchParams.get('search')?.trim()
   if (search) {
-    where.OR = [
+    const orClauses: Prisma.AmazonTransactionWhereInput[] = [
       { orderId: { contains: search, mode: 'insensitive' } },
       { description: { contains: search, mode: 'insensitive' } },
       { transactionType: { contains: search, mode: 'insensitive' } },
     ]
+    // If search looks like a number/dollar amount, also match totalAmount
+    const cleaned = search.replace(/[$,+\-\s]/g, '')
+    const num = parseFloat(cleaned)
+    if (!isNaN(num) && cleaned.length > 0) {
+      orClauses.push({ totalAmount: num })
+      orClauses.push({ totalAmount: -num })
+    }
+    where.OR = orClauses
   }
 
   // Exact filters
