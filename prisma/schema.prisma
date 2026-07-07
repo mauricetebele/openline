@@ -103,11 +103,51 @@ model AmazonAccount {
   fbaReturns        FbaReturn[]
   fbaReimbursements FbaReimbursement[]
   fbaShipments      FbaShipment[]
-  freeReplacements  FreeReplacement[]
-  removalShipments  RemovalShipment[]
+  freeReplacements    FreeReplacement[]
+  removalShipments    RemovalShipment[]
+  amazonTransactions  AmazonTransaction[]
 
   @@unique([sellerId, marketplaceId])
   @@map("amazon_accounts")
+}
+
+// ─── Amazon Transactions (Seller Central Transaction View) ───────────────────
+
+model AmazonTransaction {
+  id                 String        @id @default(cuid())
+  accountId          String
+  account            AmazonAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  transactionType    String        // Shipment, Refund, ServiceFee, Adjustment, Transfer, etc.
+  transactionStatus  String        // DEFERRED | RELEASED | DEFERRED_RELEASED
+  postedDate         DateTime
+  totalAmount        Decimal       @db.Decimal(12, 2)
+  currency           String        @default("USD")
+  description        String?       @db.Text
+  creditOrDebit      String        // "CREDIT" or "DEBIT" — derived from sign of totalAmount
+
+  // Flattened from relatedIdentifiers for search
+  orderId            String?
+  shipmentId         String?
+
+  // Raw JSON payloads
+  relatedIdentifiers Json?
+  breakdowns         Json?
+  contexts           Json?
+
+  // Dedup: SHA-256 of accountId|postedDate|type|status|amount|orderId
+  dedupHash          String        @unique
+
+  importedAt         DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([postedDate])
+  @@index([accountId, postedDate])
+  @@index([transactionType])
+  @@index([creditOrDebit])
+  @@index([orderId])
+
+  @@map("amazon_transactions")
 }
 
 // ─── Import Jobs ──────────────────────────────────────────────────────────────

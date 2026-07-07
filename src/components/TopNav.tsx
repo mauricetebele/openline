@@ -95,6 +95,7 @@ const NAV: NavItem[] = [
       { href: '/return-rates',       label: 'Return Rates',  icon: RotateCcw },
       { href: '/fba-sales-report',   label: 'FBA Sales',     icon: BarChart2 },
       { href: '/shipping-manifest', label: 'Manifest',      icon: ClipboardList },
+      { href: '/transactions',      label: 'Transactions',  icon: CreditCard },
     ],
   },
   {
