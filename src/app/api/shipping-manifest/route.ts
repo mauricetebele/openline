@@ -10,6 +10,16 @@ const CARRIER_DISPLAY: Record<string, string> = {
   AMZL: 'Amazon Logistics',
 }
 
+/** Normalize carrier to a standard name for filtering */
+function normalizeCarrier(display: string | null): string | null {
+  if (!display) return null
+  const u = display.toUpperCase()
+  if (u.includes('UPS')) return 'UPS'
+  if (u.includes('FEDEX') || u.includes('FDX')) return 'FedEx'
+  if (u.includes('USPS') || u.includes('US POSTAL') || u.includes('STAMPS')) return 'USPS'
+  return display
+}
+
 /** Resolve a human-readable carrier name from raw fields + tracking number */
 function resolveCarrier(rawCarrier: string | null, tracking: string | null): string | null {
   // If we already have a clean carrier name (not a generic placeholder), use it
@@ -53,6 +63,7 @@ export async function GET(req: NextRequest) {
         id: true,
         olmNumber: true,
         amazonOrderId: true,
+        orderSource: true,
         shipCarrier: true,
         shipTracking: true,
         shipmentServiceLevel: true,
@@ -93,31 +104,39 @@ export async function GET(req: NextRequest) {
     ...orders.map((o) => {
       const tracking = o.label?.trackingNumber || o.shipTracking || null
       const rawCarrier = o.label?.carrier || o.shipCarrier || null
+      const carrier = resolveCarrier(rawCarrier, tracking)
       return {
         id: o.id,
         source: 'marketplace' as const,
         olmNumber: o.olmNumber,
         amazonOrderId: o.amazonOrderId,
+        orderSource: o.orderSource,
         orderRef: null as string | null,
         customerName: null as string | null,
-        carrier: resolveCarrier(rawCarrier, tracking),
+        carrier,
+        carrierNorm: normalizeCarrier(carrier),
         serviceCode: o.label?.serviceCode || o.shipmentServiceLevel || null,
         shipDate: o.label?.createdAt || o.shippedAt || null,
         trackingNumber: tracking,
       }
     }),
-    ...wholesaleOrders.map((so) => ({
-      id: so.id,
-      source: 'wholesale' as const,
-      olmNumber: null,
-      amazonOrderId: null as string | null,
-      orderRef: so.invoiceNumber ?? so.orderNumber,
-      customerName: so.customer.companyName,
-      carrier: resolveCarrier(so.shipCarrier, so.shipTracking),
-      serviceCode: null,
-      shipDate: so.shippedAt,
-      trackingNumber: so.shipTracking,
-    })),
+    ...wholesaleOrders.map((so) => {
+      const carrier = resolveCarrier(so.shipCarrier, so.shipTracking)
+      return {
+        id: so.id,
+        source: 'wholesale' as const,
+        olmNumber: null,
+        amazonOrderId: null as string | null,
+        orderSource: 'wholesale' as string,
+        orderRef: so.invoiceNumber ?? so.orderNumber,
+        customerName: so.customer.companyName,
+        carrier,
+        carrierNorm: normalizeCarrier(carrier),
+        serviceCode: null,
+        shipDate: so.shippedAt,
+        trackingNumber: so.shipTracking,
+      }
+    }),
   ].sort((a, b) => {
     const da = a.shipDate ? new Date(a.shipDate).getTime() : 0
     const db = b.shipDate ? new Date(b.shipDate).getTime() : 0

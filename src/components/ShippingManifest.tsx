@@ -12,7 +12,9 @@ interface ManifestRow {
   orderRef: string | null
   customerName: string | null
   carrier: string | null
+  carrierNorm: string | null
   serviceCode: string | null
+  orderSource: string | null
   shipDate: string | null
   trackingNumber: string | null
 }
@@ -101,10 +103,20 @@ export default function ShippingManifest() {
   const [trackingMap, setTrackingMap] = useState<Record<string, TrackingResult>>({})
   const [trackingLoading, setTrackingLoading] = useState<Set<string>>(new Set())
 
-  // Channel filter
+  // Filters
   const [channelFilter, setChannelFilter] = useState<'all' | 'marketplace' | 'wholesale'>('all')
+  const [carrierFilter, setCarrierFilter] = useState('')
+  const [marketplaceFilter, setMarketplaceFilter] = useState('')
 
-  const filtered = channelFilter === 'all' ? rows : rows.filter((r) => r.source === channelFilter)
+  const filtered = rows.filter((r) => {
+    if (channelFilter !== 'all' && r.source !== channelFilter) return false
+    if (carrierFilter && (r.carrierNorm || '') !== carrierFilter) return false
+    if (marketplaceFilter) {
+      if (r.source === 'wholesale') return marketplaceFilter === 'wholesale'
+      if ((r.orderSource || 'amazon') !== marketplaceFilter) return false
+    }
+    return true
+  })
 
   // Pagination
   const [page, setPage] = useState(0)
@@ -267,6 +279,30 @@ export default function ShippingManifest() {
         >
           <option value="all">All Channels</option>
           <option value="marketplace">Marketplace</option>
+          <option value="wholesale">Wholesale</option>
+        </select>
+
+        {/* Carrier filter */}
+        <select
+          value={carrierFilter}
+          onChange={(e) => { setCarrierFilter(e.target.value); setPage(0) }}
+          className="px-2.5 py-1.5 text-xs rounded-lg border border-gray-200 bg-white font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-amazon-blue dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600"
+        >
+          <option value="">All Carriers</option>
+          <option value="UPS">UPS</option>
+          <option value="FedEx">FedEx</option>
+          <option value="USPS">USPS</option>
+        </select>
+
+        {/* Marketplace filter */}
+        <select
+          value={marketplaceFilter}
+          onChange={(e) => { setMarketplaceFilter(e.target.value); setPage(0) }}
+          className="px-2.5 py-1.5 text-xs rounded-lg border border-gray-200 bg-white font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-amazon-blue dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600"
+        >
+          <option value="">All Marketplaces</option>
+          <option value="amazon">Amazon</option>
+          <option value="backmarket">BackMarket</option>
           <option value="wholesale">Wholesale</option>
         </select>
 
