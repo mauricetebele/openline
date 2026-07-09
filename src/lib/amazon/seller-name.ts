@@ -135,7 +135,7 @@ export async function resolveSellerNames(
   sellerIds: string[],
   marketplaceId: string,
 ): Promise<Map<string, string | null>> {
-  const unique = [...new Set(sellerIds)]
+  const unique = Array.from(new Set(sellerIds))
   const result = new Map<string, string | null>()
 
   // Only treat rows with an actual name as "done" — null rows are retried

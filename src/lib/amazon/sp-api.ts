@@ -59,6 +59,18 @@ export class SpApiClient {
       where: { id: this.accountId },
     })
 
+    // Reuse a still-fresh access token persisted by a previous instance —
+    // avoids one LWA refresh round-trip per SpApiClient instantiation.
+    if (account.accessTokenEnc && new Date() < new Date(account.tokenExpiresAt.getTime() - 60_000)) {
+      try {
+        this.accessToken = decrypt(account.accessTokenEnc)
+        this.tokenExpiresAt = account.tokenExpiresAt
+        return
+      } catch {
+        // Corrupt/undecryptable stored token — fall through to a fresh LWA refresh
+      }
+    }
+
     const refreshToken = decrypt(account.refreshTokenEnc)
     const tokens = await refreshAccessToken(refreshToken)
 

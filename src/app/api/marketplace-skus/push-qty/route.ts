@@ -57,13 +57,11 @@ export interface BulkQuantities {
   inventoryMap: Map<string, number>   // pgKey → on-hand qty
   pendingMap: Map<string, number>     // sellerSku → pending MFN order qty
   wholesaleMap: Map<string, number>   // pgKey → wholesale reserved qty
-  listingQtyMap: Map<string, number>  // sellerSku::accountId → current Amazon qty
 }
 
 async function computeBulkQuantities(mskus: MskuWithRelations[]): Promise<BulkQuantities> {
   const productIds = Array.from(new Set(mskus.map(m => m.productId)))
   const amazonSkus = Array.from(new Set(mskus.filter(m => m.marketplace === 'amazon').map(m => m.sellerSku)))
-  const allSkus = Array.from(new Set(mskus.map(m => m.sellerSku)))
 
   // 1. On-hand inventory grouped by product+grade (finished-goods locations only)
   const invGroups = await prisma.inventoryItem.groupBy({
@@ -118,17 +116,7 @@ async function computeBulkQuantities(mskus: MskuWithRelations[]): Promise<BulkQu
     wholesaleMap.set(pgKey(g.productId, g.gradeId), g._sum.qtyReserved ?? 0)
   }
 
-  // 4. Current Amazon listing quantities (for skip-if-unchanged fallback)
-  const listings = await prisma.sellerListing.findMany({
-    where: { sku: { in: allSkus } },
-    select: { sku: true, accountId: true, quantity: true },
-  })
-  const listingQtyMap = new Map<string, number>()
-  for (const l of listings) {
-    listingQtyMap.set(`${l.sku}::${l.accountId}`, l.quantity)
-  }
-
-  return { inventoryMap, pendingMap, wholesaleMap, listingQtyMap }
+  return { inventoryMap, pendingMap, wholesaleMap }
 }
 
 // ─── Split qty evenly across a group of SKUs ─────────────────────────────────

@@ -38,7 +38,7 @@
  *        by ≥ $0.01 we add an AuditEvent("REFUND_AMOUNT_CHANGED") so reviewers are aware.
  */
 
-import { FulfillmentType } from '@prisma/client'
+import { FulfillmentType, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { logAuditEvent } from '@/lib/audit'
 import { SpApiClient } from './sp-api'
@@ -110,10 +110,10 @@ export async function importRefunds(
 
   // ── Step 2: Resolve fulfillment + catalog info ────────────────────────────
   // Catalog API: fire in parallel (separate rate limit bucket, typically < 20 SKUs).
-  const uniqueSkus = [...new Set(
+  const uniqueSkus = Array.from(new Set(
     allRefundEvents.flatMap(e => e.ShipmentItemAdjustmentList ?? [])
       .map(i => i.SellerSKU).filter((s): s is string => !!s)
-  )]
+  ))
 
   // Write totalFound now so the progress banner shows a real count immediately
   const totalFound = allRefundEvents.reduce(
@@ -182,7 +182,7 @@ export async function importRefunds(
       const catalogInfo = item.SellerSKU ? catalogMap.get(item.SellerSKU) : undefined
       const resolvedAsin = item.ASIN ?? catalogInfo?.asin ?? null
       const productTitle = catalogInfo?.title || null
-      const rawPayload = { event, item }
+      const rawPayload = { event, item } as unknown as Prisma.InputJsonObject
 
       // Check if a row already exists
       const existing = await prisma.refund.findUnique({

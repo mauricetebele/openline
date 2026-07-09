@@ -30,15 +30,34 @@ export async function GET(req: NextRequest) {
   const dateFrom = new Date(startDate + 'T00:00:00Z')
   const dateTo = new Date(endDate + 'T23:59:59.999Z')
 
-  // ── Fallback COGS lookup: latest unit cost per product+grade ──────────
-  const cogsRows = await prisma.$queryRaw<
-    { productId: string; gradeId: string | null; unitCost: number }[]
-  >(Prisma.sql`
-    SELECT DISTINCT ON ("productId", "gradeId")
-      "productId", "gradeId", "unitCost"::float8 as "unitCost"
-    FROM purchase_order_lines
-    ORDER BY "productId", "gradeId", "createdAt" DESC
-  `)
+  // ── Bulk lookups (independent — fetch in parallel) ────────────────────
+  const [cogsRows, costCodeRows, allProducts, mskuRows] = await Promise.all([
+    // Fallback COGS lookup: latest unit cost per product+grade
+    prisma.$queryRaw<
+      { productId: string; gradeId: string | null; unitCost: number }[]
+    >(Prisma.sql`
+      SELECT DISTINCT ON ("productId", "gradeId")
+        "productId", "gradeId", "unitCost"::float8 as "unitCost"
+      FROM purchase_order_lines
+      ORDER BY "productId", "gradeId", "createdAt" DESC
+    `),
+    // Fallback cost code lookup
+    prisma.$queryRaw<
+      { productId: string; gradeId: string | null; amount: number }[]
+    >(Prisma.sql`
+      SELECT DISTINCT ON (pol."productId", pol."gradeId")
+        pol."productId", pol."gradeId", cc."amount"::float8 as "amount"
+      FROM purchase_order_lines pol
+      JOIN cost_codes cc ON cc.id = pol."costCodeId"
+      WHERE pol."costCodeId" IS NOT NULL
+      ORDER BY pol."productId", pol."gradeId", pol."createdAt" DESC
+    `),
+    prisma.product.findMany({ select: { id: true, sku: true } }),
+    prisma.productGradeMarketplaceSku.findMany({
+      select: { sellerSku: true, productId: true, gradeId: true },
+    }),
+  ])
+
   const cogsMap = new Map<string, number>()
   const cogsProductOnly = new Map<string, number>()
   for (const row of cogsRows) {
@@ -48,17 +67,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── Fallback cost code lookup ─────────────────────────────────────────
-  const costCodeRows = await prisma.$queryRaw<
-    { productId: string; gradeId: string | null; amount: number }[]
-  >(Prisma.sql`
-    SELECT DISTINCT ON (pol."productId", pol."gradeId")
-      pol."productId", pol."gradeId", cc."amount"::float8 as "amount"
-    FROM purchase_order_lines pol
-    JOIN cost_codes cc ON cc.id = pol."costCodeId"
-    WHERE pol."costCodeId" IS NOT NULL
-    ORDER BY pol."productId", pol."gradeId", pol."createdAt" DESC
-  `)
   const costCodeMap = new Map<string, number>()
   const costCodeProductOnly = new Map<string, number>()
   for (const row of costCodeRows) {
@@ -70,11 +78,7 @@ export async function GET(req: NextRequest) {
 
   // ── SKU → product+grade mapping ────────────────────────────────────────
   const skuMap = new Map<string, { productId: string; gradeId: string | null }>()
-  const allProducts = await prisma.product.findMany({ select: { id: true, sku: true } })
   for (const p of allProducts) skuMap.set(p.sku, { productId: p.id, gradeId: null })
-  const mskuRows = await prisma.productGradeMarketplaceSku.findMany({
-    select: { sellerSku: true, productId: true, gradeId: true },
-  })
   for (const m of mskuRows) skuMap.set(m.sellerSku, { productId: m.productId, gradeId: m.gradeId })
 
   // ── Helper: resolve COGS + cost-code for a serial assignment ──────────

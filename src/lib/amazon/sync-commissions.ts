@@ -121,7 +121,7 @@ export async function syncAmazonCommissions(
   // Second pass: for each order, pick the best transactions (RELEASED > DEFERRED)
   const feesByOrderId = new Map<string, { commission: number; fbaFee: number }>()
 
-  for (const [orderId, entries] of txnsByOrder) {
+  for (const [orderId, entries] of Array.from(txnsByOrder.entries())) {
     const releasedEntries = entries.filter(e => e.status === 'RELEASED')
     // Use RELEASED transactions if any exist, otherwise fall back to DEFERRED
     const chosen = releasedEntries.length > 0 ? releasedEntries : entries

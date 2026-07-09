@@ -93,7 +93,7 @@ export function pushQtyForProducts(productIds: string[]): void {
       const wholesaleMap = new Map<string, number>()
       for (const g of whGroups) wholesaleMap.set(pgKey(g.productId, g.gradeId), g._sum.qtyReserved ?? 0)
 
-      const bulk: BulkQuantities = { inventoryMap, pendingMap, wholesaleMap, listingQtyMap: new Map() }
+      const bulk: BulkQuantities = { inventoryMap, pendingMap, wholesaleMap }
 
       // Compute split quantities per group
       const qtyMap = new Map<string, number>()

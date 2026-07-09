@@ -163,22 +163,27 @@ export async function GET(req: NextRequest) {
     return { totalCost, totalCostCode }
   }
 
+  // ── Bulk lookups (independent — fetch in parallel, products fetched once) ──
+  const [allProducts, mskuRows, fbaSkuRows, allGrades] = await Promise.all([
+    prisma.product.findMany({ select: { id: true, sku: true, description: true } }),
+    prisma.productGradeMarketplaceSku.findMany({
+      select: { sellerSku: true, productId: true, gradeId: true },
+    }),
+    prisma.$queryRaw<{ sellerSku: string }[]>(Prisma.sql`
+      SELECT pgms."sellerSku"
+      FROM product_grade_marketplace_skus pgms
+      JOIN marketplace_listings ml ON ml."mskuId" = pgms.id
+      WHERE ml."fulfillmentChannel" = 'FBA'
+    `),
+    prisma.grade.findMany({ select: { id: true, grade: true } }),
+  ])
+
   // ── SKU -> product+grade mapping ──────────────────────────────────────
   const skuMap = new Map<string, { productId: string; gradeId: string | null }>()
-  const allProducts = await prisma.product.findMany({ select: { id: true, sku: true } })
   for (const p of allProducts) skuMap.set(p.sku, { productId: p.id, gradeId: null })
-  const mskuRows = await prisma.productGradeMarketplaceSku.findMany({
-    select: { sellerSku: true, productId: true, gradeId: true },
-  })
   for (const m of mskuRows) skuMap.set(m.sellerSku, { productId: m.productId, gradeId: m.gradeId })
 
   // ── Build set of valid FBA seller SKUs ────────────────────────────────
-  const fbaSkuRows = await prisma.$queryRaw<{ sellerSku: string }[]>(Prisma.sql`
-    SELECT pgms."sellerSku"
-    FROM product_grade_marketplace_skus pgms
-    JOIN marketplace_listings ml ON ml."mskuId" = pgms.id
-    WHERE ml."fulfillmentChannel" = 'FBA'
-  `)
   const fbaSkuSet = new Set(fbaSkuRows.map(r => r.sellerSku))
 
   if (fbaSkuSet.size === 0) {
@@ -190,11 +195,9 @@ export async function GET(req: NextRequest) {
 
   // ── Build product+grade name lookup ───────────────────────────────────
   const productNameMap = new Map<string, string>()
-  const allProds = await prisma.product.findMany({ select: { id: true, description: true } })
-  for (const p of allProds) productNameMap.set(p.id, p.description)
+  for (const p of allProducts) productNameMap.set(p.id, p.description)
 
   const gradeNameMap = new Map<string, string>()
-  const allGrades = await prisma.grade.findMany({ select: { id: true, grade: true } })
   for (const g of allGrades) gradeNameMap.set(g.id, g.grade)
 
   // ── Consume pre-range FBA sales (advance FIFO pointers) ──────────────

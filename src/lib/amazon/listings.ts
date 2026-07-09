@@ -337,7 +337,7 @@ export async function resolveTemplateGroupId(
   }
 
   // Take the most common UUID across samples.
-  const [[uuid, count]] = [...uuidCounts.entries()].sort((a, b) => b[1] - a[1])
+  const [[uuid, count]] = Array.from(uuidCounts.entries()).sort((a, b) => b[1] - a[1])
 
   if (uuidCounts.size > 1) {
     console.warn(

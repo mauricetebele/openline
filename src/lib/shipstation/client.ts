@@ -639,7 +639,7 @@ export class ShipStationClient {
           console.log('[Pusher] connected socket_id=%s', socketId)
 
           // Try multiple auth endpoints/approaches in order
-          const authAttempts = [
+          const authAttempts: { endpoint: string; body: Record<string, string> }[] = [
             { endpoint: '/api/pusher/auth',      body: { socket_id: socketId } },
             { endpoint: '/api/pusher/user-auth', body: { socket_id: socketId } },
             { endpoint: '/api/pusher/auth',      body: { socket_id: socketId, channel_name: `#user-${userId}` } },

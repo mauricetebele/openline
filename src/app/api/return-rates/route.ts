@@ -27,27 +27,30 @@ export async function GET(req: NextRequest) {
   const dateFrom = new Date(startDate + 'T00:00:00Z')
   const dateTo = new Date(endDate + 'T23:59:59.999Z')
 
+  // ── Bulk lookups (independent — fetch in parallel, products fetched once) ──
+  const [allProducts, mskuRows, grades] = await Promise.all([
+    prisma.product.findMany({ select: { id: true, description: true, sku: true } }),
+    prisma.productGradeMarketplaceSku.findMany({
+      select: { sellerSku: true, productId: true, gradeId: true },
+    }),
+    prisma.grade.findMany({ select: { id: true, grade: true } }),
+  ])
+
   // ── SKU → product+grade mapping ────────────────────────────────────────
   const skuMap = new Map<string, { productId: string; gradeId: string | null }>()
-  const allProducts = await prisma.product.findMany({ select: { id: true, sku: true } })
   for (const p of allProducts) skuMap.set(p.sku, { productId: p.id, gradeId: null })
-  const mskuRows = await prisma.productGradeMarketplaceSku.findMany({
-    select: { sellerSku: true, productId: true, gradeId: true },
-  })
   for (const m of mskuRows) skuMap.set(m.sellerSku, { productId: m.productId, gradeId: m.gradeId })
 
   // ── Product lookup (internal SKU + description) ────────────────────────
   const productSkus = new Map<string, string>()   // productId → internal SKU
   const productTitles = new Map<string, string>()  // productId → description
-  const productsWithDesc = await prisma.product.findMany({ select: { id: true, description: true, sku: true } })
-  for (const p of productsWithDesc) {
+  for (const p of allProducts) {
     productSkus.set(p.id, p.sku)
     productTitles.set(p.id, p.description || p.sku)
   }
 
   // ── Grade name lookup (always loaded) ─────────────────────────────────
   const gradeNames = new Map<string, string>()
-  const grades = await prisma.grade.findMany({ select: { id: true, grade: true } })
   for (const g of grades) gradeNames.set(g.id, g.grade)
 
   // ── Aggregation bucket ─────────────────────────────────────────────────

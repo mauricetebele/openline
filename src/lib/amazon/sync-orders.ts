@@ -72,7 +72,7 @@ interface GetOrderResponse {
 interface AmazonOrderItem {
   OrderItemId?: string; ASIN?: string; SellerSKU?: string; Title?: string
   QuantityOrdered?: number; QuantityShipped?: number
-  ItemPrice?: { Amount?: string }; ShippingPrice?: { Amount?: string }
+  ItemPrice?: { Amount?: string }; ItemTax?: { Amount?: string }; ShippingPrice?: { Amount?: string }
   IsTransparency?: boolean
 }
 interface GetOrderItemsResponse {
