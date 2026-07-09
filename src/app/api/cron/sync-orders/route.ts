@@ -50,10 +50,23 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-      const job = await prisma.orderSyncJob.create({
-        data: { accountId: account.id, status: 'PENDING', trigger: 'cron' },
+      // Force a full (non-incremental) sync roughly once a day so the
+      // stale-PENDING cleanup runs and prunes orders cancelled on Amazon.
+      // Incremental syncs never re-fetch those, so they'd otherwise linger
+      // PENDING forever and suppress pushed qty (lost sales).
+      const lastFull = await prisma.orderSyncJob.findFirst({
+        where: { accountId: account.id, status: 'COMPLETED', trigger: 'cron-full' },
+        orderBy: { completedAt: 'desc' },
+        select: { completedAt: true },
       })
-      await syncUnshippedOrders(account.id, job.id, 'mfn-only')
+      const forceFull =
+        !lastFull?.completedAt ||
+        Date.now() - lastFull.completedAt.getTime() > 20 * 60 * 60 * 1000
+
+      const job = await prisma.orderSyncJob.create({
+        data: { accountId: account.id, status: 'PENDING', trigger: forceFull ? 'cron-full' : 'cron' },
+      })
+      await syncUnshippedOrders(account.id, job.id, 'mfn-only', forceFull)
       results.push({ accountId: account.id, sellerId: account.sellerId, jobId: job.id })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

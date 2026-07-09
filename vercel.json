@@ -4,13 +4,13 @@
     { "path": "/api/cron/push-qty", "schedule": "*/10 * * * *" },
     { "path": "/api/cron/backup-db", "schedule": "0 0 * * *" },
     { "path": "/api/cron/sync-fba-refunds", "schedule": "0 */6 * * *" },
-    { "path": "/api/cron/sync-commissions", "schedule": "0 */6 * * *" },
+    { "path": "/api/cron/sync-commissions", "schedule": "10 */6 * * *" },
     { "path": "/api/cron/reconcile-qty", "schedule": "0 0 * * *" },
-    { "path": "/api/cron/sync-fba-inventory", "schedule": "0 */6 * * *" },
-    { "path": "/api/cron/sync-replacements", "schedule": "0 */6 * * *" },
+    { "path": "/api/cron/sync-fba-inventory", "schedule": "20 */6 * * *" },
+    { "path": "/api/cron/sync-replacements", "schedule": "30 */6 * * *" },
     { "path": "/api/cron/sync-fba-orders", "schedule": "0 */12 * * *" },
     { "path": "/api/cron/sync-mfn-returns", "schedule": "0 6 * * *" },
-    { "path": "/api/cron/sync-listings", "schedule": "0 */6 * * *" },
-    { "path": "/api/cron/sync-transactions", "schedule": "0 */6 * * *" }
+    { "path": "/api/cron/sync-listings", "schedule": "40 */6 * * *" },
+    { "path": "/api/cron/sync-transactions", "schedule": "50 */6 * * *" }
   ]
 }

@@ -66,6 +66,32 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Age out unresolvable orders: a shipped Amazon order older than the reachable
+  // 30-day Finances window that still has no commission will never get one (the
+  // backfill fetch is capped at 30 days). Left alone, the single oldest such
+  // order pins the backfill anchor and forces a full 30-day Finances re-fetch on
+  // every run, indefinitely. Stamp commissionSyncedAt (marketplaceCommission is
+  // left untouched) so it drops out of the anchor query.
+  try {
+    const AGE_OUT_DAYS = 30
+    const ageOutCutoff = new Date(end.getTime() - AGE_OUT_DAYS * 24 * 60 * 60 * 1000)
+    const agedOut = await prisma.order.updateMany({
+      where: {
+        orderSource: 'amazon',
+        workflowStatus: 'SHIPPED',
+        commissionSyncedAt: null,
+        purchaseDate: { lt: ageOutCutoff },
+      },
+      data: { commissionSyncedAt: new Date() },
+    })
+    if (agedOut.count > 0) {
+      results.push({ source: 'amazon-ageout', status: 'ok', message: `${agedOut.count} unresolvable orders aged out` })
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    results.push({ source: 'amazon-ageout', status: 'error', message })
+  }
+
   // Backfill: set commission to 0 for wholesale orders missing commissionSyncedAt
   try {
     const backfilled = await prisma.order.updateMany({

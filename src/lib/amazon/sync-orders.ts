@@ -173,26 +173,24 @@ async function autoProcessPendingOrders(accountId: string): Promise<string[]> {
       // Execute reservations in a transaction
       await prisma.$transaction(async (tx) => {
         for (const r of plan) {
-          if (r.gradeId) {
-            await tx.inventoryItem.update({
-              where: {
-                productId_locationId_gradeId: {
-                  productId: r.productId,
-                  locationId: r.locationId,
-                  gradeId: r.gradeId,
-                },
-              },
-              data: { qty: { decrement: r.qtyReserved } },
-            })
-          } else {
-            const inv = await tx.inventoryItem.findFirst({
-              where: { productId: r.productId, locationId: r.locationId, gradeId: null },
-            })
-            if (!inv) throw new Error(`Inventory not found for product ${r.productId}`)
-            await tx.inventoryItem.update({
-              where: { id: inv.id },
-              data: { qty: { decrement: r.qtyReserved } },
-            })
+          // Conditional decrement guarded by qty >= qtyReserved so a concurrent
+          // reservation between the (pre-tx) stock check and this write can't
+          // drive qty negative. If nothing matched, another writer took the
+          // stock first — throw to roll back the whole tx and leave the order
+          // PENDING for the next sync pass.
+          const dec = await tx.inventoryItem.updateMany({
+            where: {
+              productId: r.productId,
+              locationId: r.locationId,
+              gradeId: r.gradeId,
+              qty: { gte: r.qtyReserved },
+            },
+            data: { qty: { decrement: r.qtyReserved } },
+          })
+          if (dec.count === 0) {
+            throw new Error(
+              `Insufficient stock for product ${r.productId} (location ${r.locationId}, grade ${r.gradeId ?? 'none'}) — concurrent reservation won the race`,
+            )
           }
 
           await tx.orderInventoryReservation.create({
@@ -232,6 +230,7 @@ export async function syncUnshippedOrders(
   accountId: string,
   jobId: string,
   mode: SyncMode = 'all',
+  forceFull = false,
 ): Promise<void> {
   console.log(`[SyncOrders] Starting sync — accountId=${accountId} jobId=${jobId}`)
   await prisma.orderSyncJob.update({ where: { id: jobId }, data: { status: 'RUNNING' } })
@@ -250,7 +249,11 @@ export async function syncUnshippedOrders(
       select: { completedAt: true },
     })
 
-    const isIncremental = !!lastSuccessfulSync?.completedAt
+    // forceFull downgrades an incremental sync to a full 60-day sweep so the
+    // stale-PENDING cleanup below (which only runs on full syncs) can prune
+    // orders cancelled on Amazon — otherwise they linger PENDING forever and
+    // permanently suppress pushed qty (lost sales).
+    const isIncremental = !!lastSuccessfulSync?.completedAt && !forceFull
     const allOrders: AmazonOrder[] = []
     let nextToken: string | undefined
     let pagesFetched = 0
