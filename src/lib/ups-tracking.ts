@@ -75,6 +75,30 @@ async function getUPSCredentialsById(credentialId: string): Promise<UPSCreds> {
   }
 }
 
+/**
+ * Resolve which UPS account a 1Z label was created under, by matching the 6-char
+ * shipper account number embedded in the tracking number (chars 3–8 of a 1Z
+ * number) against each active account's decrypted account number.
+ *
+ * A UPS void MUST use the same account that created the shipment — otherwise UPS
+ * returns 190102 "No Shipment found within the allowed void period" even when the
+ * shipment is perfectly voidable. Returns the credential id, or null if there's
+ * no confident match (caller should then fall back to a stored id / the default).
+ */
+export async function resolveUpsCredentialByTracking(trackingNumber: string | null | undefined): Promise<string | null> {
+  const t = (trackingNumber ?? '').toUpperCase().replace(/\s+/g, '')
+  if (!t.startsWith('1Z') || t.length < 8) return null
+  const shipperAccount = t.slice(2, 8)
+  const creds = await prisma.upsCredential.findMany({ where: { isActive: true } })
+  for (const c of creds) {
+    if (!c.accountNumberEnc) continue
+    try {
+      if (decrypt(c.accountNumberEnc).toUpperCase() === shipperAccount) return c.id
+    } catch { /* skip accounts whose secret can't be decrypted */ }
+  }
+  return null
+}
+
 async function getUPSToken(creds?: UPSCreds): Promise<string> {
   const resolved = creds ?? await getUPSCredentials()
   const { id, clientId, clientSecret } = resolved

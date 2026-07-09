@@ -9,7 +9,7 @@ import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { ShipStationClient } from '@/lib/shipstation/client'
 import { decrypt } from '@/lib/crypto'
-import { voidReturnLabel as voidUpsLabel } from '@/lib/ups-tracking'
+import { voidReturnLabel as voidUpsLabel, resolveUpsCredentialByTracking } from '@/lib/ups-tracking'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,7 +49,15 @@ export async function POST(
           { status: 404 },
         )
       }
-      await voidUpsLabel(upsShipmentId)
+      // The void must run under the SAME UPS account that bought the label, or UPS
+      // returns 190102 "No Shipment found". Prefer the account embedded in the 1Z
+      // tracking number (ground truth from the label), then the credential stored
+      // on the order, then the default account.
+      const upsCredentialId =
+        (await resolveUpsCredentialByTracking(order.label.trackingNumber)) ??
+        order.presetRateUpsCredentialId ??
+        undefined
+      await voidUpsLabel(upsShipmentId, upsCredentialId)
     } else {
       // ── ShipStation void path (default) ──────────────────────────────────
       const ssAccount = await prisma.shipStationAccount.findFirst({
