@@ -30,52 +30,59 @@ export async function GET(req: NextRequest) {
 
   const results: { accountId: string; status: string; message?: string }[] = []
 
-  for (const account of accounts) {
+  // Reap stale importJobs left RUNNING by a previous invocation that hit the
+  // Vercel maxDuration and was killed before its catch could mark them FAILED.
+  // Without this they linger RUNNING forever.
+  const STALE_MINUTES = 15
+  await prisma.importJob.updateMany({
+    where: {
+      status: 'RUNNING',
+      startedAt: { lt: new Date(Date.now() - STALE_MINUTES * 60 * 1000) },
+    },
+    data: { status: 'FAILED', errorMessage: 'Stale job reaped by cron', completedAt: new Date() },
+  })
+
+  // Wraps one report sync: creates its importJob, runs it, and marks the job
+  // FAILED on error. Returns a success message; rethrows a labelled error.
+  const runReportSync = async (
+    accountId: string,
+    label: string,
+    run: (jobId: string) => Promise<{ totalUpserted: number }>,
+  ): Promise<string> => {
     const job = await prisma.importJob.create({
-      data: { accountId: account.id, startDate: start, endDate: end, status: 'RUNNING' },
+      data: { accountId, startDate: start, endDate: end, status: 'RUNNING' },
     })
     try {
-      const result = await syncFbaRefunds(account.id, start, end, job.id)
-      results.push({ accountId: account.id, status: 'ok', message: `${result.totalUpserted} refunds upserted` })
+      const result = await run(job.id)
+      return `${result.totalUpserted} ${label} upserted`
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       await prisma.importJob.update({
         where: { id: job.id },
         data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
       })
-      results.push({ accountId: account.id, status: 'error', message })
+      throw new Error(`${label}: ${message}`)
     }
+  }
 
-    // Also sync FBA returns (last 7 days) for cross-reference
-    const returnJob = await prisma.importJob.create({
-      data: { accountId: account.id, startDate: start, endDate: end, status: 'RUNNING' },
-    })
-    try {
-      const returnResult = await syncFbaReturns(account.id, returnJob.id, start, end)
-      results.push({ accountId: account.id, status: 'ok', message: `${returnResult.totalUpserted} returns upserted` })
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      await prisma.importJob.update({
-        where: { id: returnJob.id },
-        data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
-      })
-      results.push({ accountId: account.id, status: 'error', message: `returns: ${message}` })
-    }
-
-    // Also sync FBA reimbursements (last 7 days) for cross-reference
-    const reimbursementJob = await prisma.importJob.create({
-      data: { accountId: account.id, startDate: start, endDate: end, status: 'RUNNING' },
-    })
-    try {
-      const reimbursementResult = await syncFbaReimbursements(account.id, reimbursementJob.id, start, end)
-      results.push({ accountId: account.id, status: 'ok', message: `${reimbursementResult.totalUpserted} reimbursements upserted` })
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      await prisma.importJob.update({
-        where: { id: reimbursementJob.id },
-        data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
-      })
-      results.push({ accountId: account.id, status: 'error', message: `reimbursements: ${message}` })
+  for (const account of accounts) {
+    // Run refunds, returns, and reimbursements concurrently. They poll different
+    // report types (independent SP-API rate buckets) and are otherwise fully
+    // independent, so this cuts wall-clock from the sum of three sequential
+    // report polls to the slowest single one — the difference between finishing
+    // and being killed at maxDuration=300s.
+    const settled = await Promise.allSettled([
+      runReportSync(account.id, 'refunds', (jobId) => syncFbaRefunds(account.id, start, end, jobId)),
+      runReportSync(account.id, 'returns', (jobId) => syncFbaReturns(account.id, jobId, start, end)),
+      runReportSync(account.id, 'reimbursements', (jobId) => syncFbaReimbursements(account.id, jobId, start, end)),
+    ])
+    for (const r of settled) {
+      if (r.status === 'fulfilled') {
+        results.push({ accountId: account.id, status: 'ok', message: r.value })
+      } else {
+        const message = r.reason instanceof Error ? r.reason.message : String(r.reason)
+        results.push({ accountId: account.id, status: 'error', message })
+      }
     }
   }
 

@@ -33,6 +33,11 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "order_sync_jobs_accountId_status_idx"
 CREATE INDEX CONCURRENTLY IF NOT EXISTS "inventory_serials_serialNumber_idx"
   ON inventory_serials ("serialNumber");
 
+-- purchase_order_lines (productId, gradeId, createdAt DESC) — supports the COGS
+-- DISTINCT ON lookup shared by profitability / sales-stats / fba-sales-report
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "purchase_order_lines_productId_gradeId_createdAt_idx"
+  ON purchase_order_lines ("productId", "gradeId", "createdAt" DESC);
+
 -- OPTIONAL: for case-insensitive `contains` serial searches, a trigram GIN index
 -- helps far more than the btree above. Requires the pg_trgm extension.
 -- CREATE EXTENSION IF NOT EXISTS pg_trgm;

@@ -1098,6 +1098,9 @@ model PurchaseOrderLine {
   @@index([productId])
   @@index([gradeId])
   @@index([costCodeId])
+  // Supports the `DISTINCT ON (productId, gradeId) ORDER BY ... createdAt DESC`
+  // COGS lookups in the profitability / sales-stats / fba-sales-report routes.
+  @@index([productId, gradeId, createdAt(sort: Desc)])
   @@map("purchase_order_lines")
 }
 

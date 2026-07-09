@@ -8,6 +8,7 @@
  *
  * Errors are logged but never thrown — this must never block the main operation.
  */
+import { waitUntil } from '@vercel/functions'
 import { prisma } from '@/lib/prisma'
 import {
   getBmContext,
@@ -25,8 +26,12 @@ export function pushQtyForProducts(productIds: string[]): void {
 
   const unique = Array.from(new Set(productIds))
 
-  // Fire-and-forget — run in background, catch all errors
-  ;(async () => {
+  // Run in the background, catching all errors. Wrapped in waitUntil so Vercel
+  // keeps the serverless instance alive until the push finishes — a bare
+  // fire-and-forget IIFE can be frozen/killed once the HTTP response is sent,
+  // silently dropping the qty push. Off-platform (local dev) waitUntil throws,
+  // so we fall back to letting the promise run on its own.
+  const work = (async () => {
     try {
       const mskus = await prisma.productGradeMarketplaceSku.findMany({
         where: { productId: { in: unique }, syncQty: true },
@@ -137,4 +142,10 @@ export function pushQtyForProducts(productIds: string[]): void {
       )
     }
   })()
+
+  try {
+    waitUntil(work)
+  } catch {
+    work.catch(() => {})
+  }
 }

@@ -89,7 +89,13 @@ export async function GET(req: NextRequest) {
       where: {
         trackingNumber: { not: null },
         importedAt: { gte: thirtyDaysAgo },
-        carrierStatus: { not: { contains: 'delivered' } },
+        // `not: { contains }` excludes NULL rows in Postgres/Prisma, so brand-new
+        // returns (carrierStatus still null) would never get their first refresh.
+        // Explicitly include nulls.
+        OR: [
+          { carrierStatus: null },
+          { carrierStatus: { not: { contains: 'delivered' } } },
+        ],
       },
       select: { id: true, orderId: true, trackingNumber: true },
     })
