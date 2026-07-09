@@ -69,7 +69,14 @@ export async function GET(req: NextRequest) {
     }
 
     if (search) {
-      const olmNum = search.toUpperCase().startsWith('OLM-') ? parseInt(search.slice(4), 10) : parseInt(search, 10)
+      // Only treat the search term as an OLM number when it's purely numeric and
+      // within the safe integer range. Otherwise a long tracking number (e.g. a
+      // 22-digit USPS number) parses to a value that overflows the 64-bit
+      // olmNumber column and Prisma throws "Unable to fit value into a 64-bit
+      // signed integer". Requiring all-digits also avoids spurious matches from
+      // parseInt("1Z999…") === 1.
+      const olmRaw = search.toUpperCase().startsWith('OLM-') ? search.slice(4) : search
+      const olmNum = /^\d+$/.test(olmRaw) ? Number(olmRaw) : NaN
 
       // Find sellerSkus whose mapped internal product SKU matches the search term
       const mappedSkus = await prisma.productGradeMarketplaceSku.findMany({
@@ -84,7 +91,7 @@ export async function GET(req: NextRequest) {
         { items: { some: { title: { contains: search, mode: 'insensitive' } } } },
         { shipTracking: { contains: search, mode: 'insensitive' } },
         { label: { trackingNumber: { contains: search, mode: 'insensitive' } } },
-        ...(Number.isFinite(olmNum) ? [{ olmNumber: olmNum }] : []),
+        ...(Number.isFinite(olmNum) && olmNum <= Number.MAX_SAFE_INTEGER ? [{ olmNumber: olmNum }] : []),
         ...(mappedSellerSkus.length > 0 ? [{ items: { some: { sellerSku: { in: mappedSellerSkus } } } }] : []),
       ]
     }
