@@ -83,7 +83,7 @@ If you have already shipped the device, you can still remove the Apple ID remote
 
 If the device is returned while still Apple ID locked, we will be unable to complete a refund until the lock is removed.
 
-If you need assistance, please reply to this message or contact us at 917-841-9444 and our team will be happy to help.
+If you need assistance, please reply to this message and our team will be happy to help.
 
 Thank you for your cooperation.
 Prime Mobility Returns`
