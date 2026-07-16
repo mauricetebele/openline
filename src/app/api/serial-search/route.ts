@@ -18,6 +18,12 @@ export async function GET(req: NextRequest) {
   const grade = req.nextUrl.searchParams.get('grade')
   const vrma = req.nextUrl.searchParams.get('vrma')
 
+  // Per-search result cap for filter / partial searches (default 500). Bounded
+  // to protect against huge result sets (each row pulls its full serial history).
+  const MAX_TAKE = 10000
+  const limitParam = parseInt(req.nextUrl.searchParams.get('limit') ?? '', 10)
+  const take = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, MAX_TAKE) : 500
+
   const requested = raw
     .split(/[\n,;]+/)
     .map(s => s.trim())
@@ -75,7 +81,7 @@ export async function GET(req: NextRequest) {
   const isPartialSearch = requested.length === 1
   const records = await prisma.inventorySerial.findMany({
     where,
-    ...((isFilterSearch || isPartialSearch) ? { take: 500 } : {}),
+    ...((isFilterSearch || isPartialSearch) ? { take } : {}),
     include: {
       product: { select: { id: true, sku: true, description: true } },
       grade: { select: { grade: true } },

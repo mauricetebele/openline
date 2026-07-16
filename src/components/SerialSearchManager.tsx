@@ -119,6 +119,7 @@ export default function SerialSearchManager() {
   const [filterSku, setFilterSku] = useState('')
   const [filterGrade, setFilterGrade] = useState<string>('')
   const [filterVrma, setFilterVrma] = useState<string>('')
+  const [limit, setLimit] = useState<number>(500)
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([])
   const [grades, setGrades] = useState<{ id: string; grade: string }[]>([])
 
@@ -220,6 +221,7 @@ export default function SerialSearchManager() {
       if (filterSku.trim()) params.set('sku', filterSku.trim())
       if (filterGrade) params.set('grade', filterGrade)
       if (filterVrma) params.set('vrma', filterVrma)
+      params.set('limit', String(limit))
       const res = await fetch(`/api/serial-search?${params}`)
       const data = await res.json()
       if (!res.ok) { setErr(data.error ?? 'Search failed'); return }
@@ -614,6 +616,20 @@ export default function SerialSearchManager() {
                     <option value="not_on_vrma">Not on a Vendor RMA</option>
                     <option value="on_vrma">Exists on a Vendor RMA</option>
                   </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Search size={11} /> Max Results</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10000}
+                    step={100}
+                    className="input w-full text-xs"
+                    value={limit}
+                    onChange={e => setLimit(Math.max(1, Math.min(10000, parseInt(e.target.value, 10) || 500)))}
+                    onKeyDown={e => { if (e.key === 'Enter') handleSearch() }}
+                    title="Max rows returned per search (applies to filter and partial-serial searches; up to 10,000)"
+                  />
                 </div>
               </div>
             </div>
