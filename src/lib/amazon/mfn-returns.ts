@@ -10,6 +10,7 @@ import { promisify } from 'util'
 import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/crypto'
 import { getFmiService, parseFmiStatus } from '@/lib/sickw/fmi'
+import { runSickwCheck } from '@/lib/sickw/check'
 import { SpApiClient } from './sp-api'
 
 const gunzipAsync = promisify(gunzip)
@@ -315,28 +316,26 @@ export async function autoCheckNewReturns(
     const svc = getFmiService(`${matchingItem.sellerSku ?? ret.sku ?? ''} ${title}`)
     if (!svc) continue // Apple, but not an FMI-checkable device type — skip
 
-    // Call SICKW API for the resolved FMI service
+    // Call SICKW for the resolved FMI service (self-corrects a device-class misroute)
     try {
-      const url = `https://sickw.com/api.php?format=json&key=${encodeURIComponent(apiKey)}&imei=${encodeURIComponent(serial)}&service=${svc.serviceId}`
-      const res = await fetch(url, { cache: 'no-store' })
-      const data = await res.json()
-
-      const status = data.status === 'success' || data.status === 'Success' ? 'success' : 'error'
+      const { data, serviceId: usedId, serviceName: usedName, status } =
+        await runSickwCheck(apiKey, serial, svc.serviceId, svc.serviceName)
 
       // Save SickwCheck record
       await prisma.sickwCheck.create({
         data: {
           imei: serial,
-          serviceId: svc.serviceId,
-          serviceName: svc.serviceName,
+          serviceId: usedId,
+          serviceName: usedName,
           status,
           result: JSON.stringify(data),
-          cost: data.cost != null ? data.cost : null,
+          cost: (data as { cost?: number | string | null }).cost ?? null,
         },
       })
 
       // Parse FMI status from result (handles both service formats)
-      const resultText = typeof data.result === 'string' ? data.result : JSON.stringify(data)
+      const rawResult = (data as { result?: unknown }).result
+      const resultText = typeof rawResult === 'string' ? rawResult : JSON.stringify(data)
       const fmiStatus = parseFmiStatus(resultText) ?? (status === 'error' ? 'ERROR' : 'UNKNOWN')
 
       // Update the MFN return

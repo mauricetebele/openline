@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/crypto'
+import { runSickwCheck } from '@/lib/sickw/check'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,24 +39,24 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const url = `https://sickw.com/api.php?format=json&key=${encodeURIComponent(apiKey)}&imei=${encodeURIComponent(imei)}&service=${serviceId}`
-    const res = await fetch(url, { cache: 'no-store' })
-    const data = await res.json()
+    // Runs the check and self-corrects an Apple FMI device-class misroute
+    // (e.g. iMac sent to iCloud ON/OFF → retried on the Mac service).
+    const { data, serviceId: usedServiceId, serviceName: usedServiceName, status, autoCorrected } =
+      await runSickwCheck(apiKey, imei, serviceId, serviceName)
 
-    const status = data.status === 'success' || data.status === 'Success' ? 'success' : 'error'
-
+    const cost = (data as { cost?: number | string | null }).cost
     const check = await prisma.sickwCheck.create({
       data: {
         imei,
-        serviceId,
-        serviceName,
+        serviceId: usedServiceId,
+        serviceName: usedServiceName,
         status,
         result: JSON.stringify(data),
-        cost: data.cost != null ? data.cost : null,
+        cost: cost != null ? cost : null,
       },
     })
 
-    return NextResponse.json({ id: check.id, status, data })
+    return NextResponse.json({ id: check.id, status, data, serviceUsed: usedServiceId, autoCorrected })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
 
