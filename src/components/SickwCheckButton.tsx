@@ -26,12 +26,14 @@ interface HistoricalCheck {
 
 function parseCheckResult(resultStr: string): 'ON' | 'OFF' | 'UNKNOWN' {
   // Try multiple patterns: iCloud ON/OFF check and Apple Basic Info
+  // Values arrive wrapped in nested HTML (e.g. <font><b>ON</b></font>) —
+  // skip any run of tags/whitespace between the label and the value.
   const patterns = [
-    /iCloud Lock:\s*(?:<[^>]*>)?\s*(ON|OFF)/i,
-    /Find My (?:iPhone|iPad|Mac|iPod):\s*(?:<[^>]*>)?\s*(ON|OFF)/i,
-    /FMI:\s*(?:<[^>]*>)?\s*(ON|OFF)/i,
-    /Find My:\s*(?:<[^>]*>)?\s*(ON|OFF)/i,
-    /iCloud Status:\s*(?:<[^>]*>)?\s*(ON|OFF|Clean|Lost|Locked)/i,
+    /iCloud Lock:\s*(?:<[^>]*>|\s)*(ON|OFF)/i,
+    /Find My (?:iPhone|iPad|Mac|iPod):\s*(?:<[^>]*>|\s)*(ON|OFF)/i,
+    /FMI:\s*(?:<[^>]*>|\s)*(ON|OFF)/i,
+    /Find My:\s*(?:<[^>]*>|\s)*(ON|OFF)/i,
+    /iCloud Status:\s*(?:<[^>]*>|\s)*(ON|OFF|Clean|Lost|Locked)/i,
   ]
   for (const pat of patterns) {
     const m = resultStr.match(pat)

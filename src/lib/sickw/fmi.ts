@@ -42,10 +42,12 @@ export function getFmiService(text: string | null | undefined): FmiService | nul
  */
 export function parseFmiStatus(resultText: string | null | undefined): 'ON' | 'OFF' | null {
   if (!resultText) return null
+  // SICKW wraps the value in nested HTML, e.g. `Find My iPhone:
+  // <font color="red"><b>ON</b></font>` — so skip ANY run of tags/whitespace.
   const patterns = [
-    /iCloud Lock:\s*(?:<[^>]*>)?\s*(ON|OFF)/i,
-    /Find My(?:\s*(?:iPhone|iPad|iPod|Mac))?:\s*(?:<[^>]*>)?\s*(ON|OFF)/i,
-    /\bFMI:\s*(?:<[^>]*>)?\s*(ON|OFF)/i,
+    /iCloud Lock:\s*(?:<[^>]*>|\s)*(ON|OFF)/i,
+    /Find My(?:\s*(?:iPhone|iPad|iPod|Mac))?:\s*(?:<[^>]*>|\s)*(ON|OFF)/i,
+    /\bFMI:\s*(?:<[^>]*>|\s)*(ON|OFF)/i,
   ]
   for (const p of patterns) {
     const m = resultText.match(p)
