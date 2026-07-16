@@ -7,6 +7,7 @@ import {
   AlertTriangle, Clock,
 } from 'lucide-react'
 import { clsx } from 'clsx'
+import { getFmiService, parseFmiStatus, FMI_ICLOUD_ON_OFF } from '@/lib/sickw/fmi'
 
 interface MFNReturnRow {
   id: string
@@ -213,20 +214,22 @@ export default function MFNReturnsManager() {
   }, [])
 
   // ── Find My iPhone (iCloud Lock) check via SICKW Basic Info ──────────────
-  async function checkFindMy(returnId: string, serial: string) {
+  async function checkFindMy(returnId: string, serial: string, deviceHint?: string) {
     setFmiChecking(prev => { const n = new Set(prev); n.add(returnId); return n })
     try {
+      // Route by device type (Apple Basic Info was retired):
+      // iPhone/iPad/Watch → iCloud ON/OFF (3); iMac/MacBook → Mac iCloud (110).
+      const svc = getFmiService(deviceHint) ?? FMI_ICLOUD_ON_OFF
       const res = await fetch('/api/sickw/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imei: serial, serviceId: 30, serviceName: 'Basic Info' }),
+        body: JSON.stringify({ imei: serial, serviceId: svc.serviceId, serviceName: svc.serviceName }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Check failed')
 
       const resultStr: string = json.data?.result ?? ''
-      const lockMatch = resultStr.match(/iCloud Lock:\s*(?:<[^>]*>)?\s*(ON|OFF)/i)
-      const fmiStatus = lockMatch ? lockMatch[1].toUpperCase() : 'UNKNOWN'
+      const fmiStatus = parseFmiStatus(resultStr) ?? 'UNKNOWN'
 
       await fetch('/api/returns', {
         method: 'PATCH',
@@ -346,7 +349,7 @@ export default function MFNReturnsManager() {
             iCloud ON
           </span>
           {r.expectedSerial && (
-            <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Re-check" className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors">
+            <button onClick={() => checkFindMy(r.id, r.expectedSerial!, `${r.sku ?? ''} ${r.title ?? ''}`)} title="Re-check" className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors">
               <RefreshCcw size={12} />
             </button>
           )}
@@ -361,7 +364,7 @@ export default function MFNReturnsManager() {
             iCloud OFF
           </span>
           {r.expectedSerial && (
-            <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Re-check" className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors">
+            <button onClick={() => checkFindMy(r.id, r.expectedSerial!, `${r.sku ?? ''} ${r.title ?? ''}`)} title="Re-check" className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors">
               <RefreshCcw size={12} />
             </button>
           )}
@@ -376,7 +379,7 @@ export default function MFNReturnsManager() {
             Error
           </span>
           {r.expectedSerial && (
-            <button onClick={() => checkFindMy(r.id, r.expectedSerial!)} title="Retry" className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors">
+            <button onClick={() => checkFindMy(r.id, r.expectedSerial!, `${r.sku ?? ''} ${r.title ?? ''}`)} title="Retry" className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors">
               <RefreshCcw size={12} />
             </button>
           )}
@@ -386,7 +389,7 @@ export default function MFNReturnsManager() {
     if (r.expectedSerial && /apple/i.test(r.title ?? '')) {
       return (
         <button
-          onClick={() => checkFindMy(r.id, r.expectedSerial!)}
+          onClick={() => checkFindMy(r.id, r.expectedSerial!, `${r.sku ?? ''} ${r.title ?? ''}`)}
           className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-medium border border-blue-200 dark:border-blue-500/20 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors"
         >
           <Smartphone size={12} />

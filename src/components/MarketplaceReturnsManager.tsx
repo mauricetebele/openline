@@ -271,7 +271,7 @@ export default function MarketplaceReturnsManager() {
                                         <td className="py-1 pr-3 text-gray-700 dark:text-gray-300 font-medium">{item.product?.sku ?? item.sellerSku ?? '—'}</td>
                                         <td className="py-1 pr-3 text-gray-500 dark:text-gray-400 max-w-[180px] truncate">{item.title ?? '—'}</td>
                                         <td className="py-1 pr-3 font-mono text-gray-900 dark:text-gray-200">{s.serialNumber}</td>
-                                        <td className="py-1 pr-3"><SickwCheckButton serial={s.serialNumber} compact /></td>
+                                        <td className="py-1 pr-3"><SickwCheckButton serial={s.serialNumber} compact deviceHint={`${item.product?.sku ?? item.sellerSku ?? ''} ${item.title ?? ''}`} /></td>
                                         <td className="py-1 pr-3 text-gray-500 dark:text-gray-400">{item.returnReason ?? '—'}</td>
                                         <td className="py-1 pr-3">
                                           {s.receivedAt ? (

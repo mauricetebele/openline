@@ -413,7 +413,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                         <td className="px-4 py-2 text-gray-400">{i + 1}</td>
                         <td className="px-4 py-2 font-mono font-medium text-gray-900 dark:text-white">{sa.inventorySerial.serialNumber}</td>
                         <td className="px-4 py-2 text-gray-600 dark:text-gray-400">{sa.orderItem.sellerSku ?? sa.inventorySerial.product?.sku ?? '—'}</td>
-                        <td className="px-4 py-2"><SickwCheckButton serial={sa.inventorySerial.serialNumber} compact /></td>
+                        <td className="px-4 py-2"><SickwCheckButton serial={sa.inventorySerial.serialNumber} compact deviceHint={`${sa.orderItem.sellerSku ?? sa.inventorySerial.product?.sku ?? ''}`} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -446,7 +446,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                               <td className="px-4 py-2 text-gray-400">{counter}</td>
                               <td className="px-4 py-2 font-mono font-medium text-gray-900 dark:text-white">{serial}</td>
                               <td className="px-4 py-2 text-gray-600 dark:text-gray-400">{item.sellerSku ?? '—'}</td>
-                              <td className="px-4 py-2"><SickwCheckButton serial={serial} compact /></td>
+                              <td className="px-4 py-2"><SickwCheckButton serial={serial} compact deviceHint={`${item.sellerSku ?? ''} ${item.title ?? ''}`} /></td>
                             </tr>
                           )
                         })
@@ -503,7 +503,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                                   <td className="px-3 py-1.5 font-medium text-gray-700 dark:text-gray-300">{item.sellerSku ?? '—'}</td>
                                   <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400 max-w-[160px] truncate">{item.title ?? '—'}</td>
                                   <td className="px-3 py-1.5 font-mono text-gray-900 dark:text-white">{s.serialNumber}</td>
-                                  <td className="px-3 py-1.5"><SickwCheckButton serial={s.serialNumber} compact /></td>
+                                  <td className="px-3 py-1.5"><SickwCheckButton serial={s.serialNumber} compact deviceHint={`${item.sellerSku ?? ''} ${item.title ?? ''}`} /></td>
                                   <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">{item.returnReason ?? '—'}</td>
                                   <td className="px-3 py-1.5">
                                     {s.receivedAt ? (

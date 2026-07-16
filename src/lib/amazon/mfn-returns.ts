@@ -9,6 +9,7 @@ import { gunzip } from 'zlib'
 import { promisify } from 'util'
 import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/crypto'
+import { getFmiService, parseFmiStatus } from '@/lib/sickw/fmi'
 import { SpApiClient } from './sp-api'
 
 const gunzipAsync = promisify(gunzip)
@@ -309,9 +310,14 @@ export async function autoCheckNewReturns(
     }
     if (!serial || !/^[A-Za-z0-9]{8,15}$/.test(serial)) continue
 
-    // Call SICKW API — service 30 = iCloud Lock check
+    // Pick the SICKW FMI service by device type (Apple Basic Info was retired):
+    //   iPhone/iPad/Watch → iCloud ON/OFF (3); iMac/MacBook → Mac iCloud (110).
+    const svc = getFmiService(`${matchingItem.sellerSku ?? ret.sku ?? ''} ${title}`)
+    if (!svc) continue // Apple, but not an FMI-checkable device type — skip
+
+    // Call SICKW API for the resolved FMI service
     try {
-      const url = `https://sickw.com/api.php?format=json&key=${encodeURIComponent(apiKey)}&imei=${encodeURIComponent(serial)}&service=30`
+      const url = `https://sickw.com/api.php?format=json&key=${encodeURIComponent(apiKey)}&imei=${encodeURIComponent(serial)}&service=${svc.serviceId}`
       const res = await fetch(url, { cache: 'no-store' })
       const data = await res.json()
 
@@ -321,18 +327,17 @@ export async function autoCheckNewReturns(
       await prisma.sickwCheck.create({
         data: {
           imei: serial,
-          serviceId: 30,
-          serviceName: 'iCloud Lock (FMI) Status',
+          serviceId: svc.serviceId,
+          serviceName: svc.serviceName,
           status,
           result: JSON.stringify(data),
           cost: data.cost != null ? data.cost : null,
         },
       })
 
-      // Parse iCloud Lock status from result
+      // Parse FMI status from result (handles both service formats)
       const resultText = typeof data.result === 'string' ? data.result : JSON.stringify(data)
-      const match = resultText.match(/iCloud Lock:\s*(?:<[^>]*>)?\s*(ON|OFF)/i)
-      const fmiStatus = match ? match[1].toUpperCase() : (status === 'error' ? 'ERROR' : 'UNKNOWN')
+      const fmiStatus = parseFmiStatus(resultText) ?? (status === 'error' ? 'ERROR' : 'UNKNOWN')
 
       // Update the MFN return
       await prisma.mFNReturn.update({

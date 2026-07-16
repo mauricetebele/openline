@@ -23,10 +23,10 @@ const SERVICE_CATALOG: Category[] = [
   {
     label: 'Apple',
     services: [
-      { id: 3,  name: 'iCloud ON/OFF',              price: '0.12' },
-      { id: 61, name: 'Carrier & FMI & Blacklist',  price: '0.30' },
-      { id: 30, name: 'Basic Info',                  price: '0.07' },
-      { id: 88, name: 'Activation',                  price: '0.15' },
+      { id: 3,   name: 'iCloud ON/OFF',                     price: '0.12' },
+      { id: 110, name: 'Macbook & iMac iCloud ON/OFF',      price: '1.50' },
+      { id: 61,  name: 'Carrier & FMI & Blacklist',         price: '0.30' },
+      { id: 88,  name: 'Activation',                        price: '0.15' },
       { id: 81, name: 'MDM Lock',                    price: '0.12' },
       { id: 40, name: 'MDM & iCloud',                price: '0.18' },
       { id: 8,  name: 'SIM-Lock',                    price: '0.15' },

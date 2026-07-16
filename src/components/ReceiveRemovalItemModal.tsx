@@ -2,17 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { X, CheckCircle2, AlertCircle, Loader2, Search, Printer } from 'lucide-react'
 import SickwCheckButton from './SickwCheckButton'
-
-/** Pick SICKW service based on device type:
- *  iPhone / Apple Watch → iCloud ON/OFF (id 3)
- *  MacBook / iPad       → Apple Basic Info (id 30)
- */
-function getFmiService(text: string): { serviceId: number; serviceName: string } | null {
-  const t = text.toLowerCase()
-  if (/iphone|apple\s*watch/.test(t)) return { serviceId: 3, serviceName: 'iCloud ON/OFF' }
-  if (/macbook|ipad/.test(t)) return { serviceId: 30, serviceName: 'Basic Info' }
-  return null
-}
+import { getFmiService } from '@/lib/sickw/fmi'
 import JsBarcode from 'jsbarcode'
 import { jsPDF } from 'jspdf'
 

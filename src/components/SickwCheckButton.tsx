@@ -2,15 +2,19 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Loader2, Smartphone, CheckCircle, XCircle, AlertTriangle, RefreshCcw, ChevronDown, Clock } from 'lucide-react'
+import { getFmiService, FMI_ICLOUD_ON_OFF } from '@/lib/sickw/fmi'
 
 interface SickwCheckButtonProps {
   serial: string
   /** Optional: compact mode for tight table cells */
   compact?: boolean
-  /** SICKW service ID to use (default: 3 = iCloud ON/OFF) */
+  /** Explicit SICKW service ID (overrides deviceHint routing) */
   serviceId?: number
-  /** SICKW service name (default: 'iCloud ON/OFF') */
+  /** Explicit SICKW service name (overrides deviceHint routing) */
   serviceName?: string
+  /** SKU / title text used to auto-route the FMI service by device type
+   *  (iPhone/iPad/Watch → iCloud ON/OFF; iMac/MacBook → Mac iCloud). */
+  deviceHint?: string
 }
 
 type CheckStatus = null | 'loading' | 'checking' | 'ON' | 'OFF' | 'ERROR' | 'UNKNOWN'
@@ -40,7 +44,14 @@ function parseCheckResult(resultStr: string): 'ON' | 'OFF' | 'UNKNOWN' {
   return 'UNKNOWN'
 }
 
-export default function SickwCheckButton({ serial, compact, serviceId = 30, serviceName = 'Basic Info' }: SickwCheckButtonProps) {
+export default function SickwCheckButton({ serial, compact, serviceId, serviceName, deviceHint }: SickwCheckButtonProps) {
+  // Resolve the SICKW service: explicit props win; otherwise route by device
+  // type from deviceHint; fall back to iCloud ON/OFF (service 3) for a generic
+  // Apple device (never the retired Basic Info / service 30).
+  const resolvedService =
+    serviceId != null && serviceName != null
+      ? { serviceId, serviceName }
+      : getFmiService(deviceHint) ?? FMI_ICLOUD_ON_OFF
   const [status, setStatus] = useState<CheckStatus>(null)
   const [history, setHistory] = useState<HistoricalCheck[]>([])
   const [showHistory, setShowHistory] = useState(false)
@@ -104,7 +115,7 @@ export default function SickwCheckButton({ serial, compact, serviceId = 30, serv
       const res = await fetch('/api/sickw/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imei: serial, serviceId, serviceName }),
+        body: JSON.stringify({ imei: serial, serviceId: resolvedService.serviceId, serviceName: resolvedService.serviceName }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Check failed')
