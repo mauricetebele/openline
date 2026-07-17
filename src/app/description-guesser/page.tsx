@@ -10,7 +10,7 @@ export default function DescriptionGuesserPage() {
           <h1 className="text-xl font-bold text-gray-900">Description Guessing</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             Paste new SKUs and get suggested product descriptions inferred from existing,
-            similarly-structured SKUs. Read-only — download the results as a spreadsheet.
+            similarly-structured SKUs. Correct any row (the tool learns), then create the ones you want.
           </p>
         </div>
         <DescriptionGuesser />

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useMemo } from 'react'
-import { Sparkles, Download, Loader2, AlertTriangle, Pencil, Check, X, GraduationCap } from 'lucide-react'
+import { Sparkles, Download, Loader2, AlertTriangle, Pencil, Check, X, GraduationCap, PackagePlus, CheckCircle2 } from 'lucide-react'
 import { clsx } from 'clsx'
 
 type Confidence = 'high' | 'low' | 'none'
@@ -43,6 +43,15 @@ export default function DescriptionGuesser() {
   const [draft, setDraft] = useState('')
   const [savingSku, setSavingSku] = useState<string | null>(null)
 
+  // Selection / create state
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [serializable, setSerializable] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [createdSkus, setCreatedSkus] = useState<Set<string>>(new Set())
+  const [createMsg, setCreateMsg] = useState<string | null>(null)
+
+  const isSelectable = (r: Row) => !!r.description && !createdSkus.has(r.sku)
+
   const stats = useMemo(() => {
     if (!rows) return null
     return {
@@ -53,12 +62,22 @@ export default function DescriptionGuesser() {
     }
   }, [rows])
 
+  const selectableRows = useMemo(() => (rows ?? []).filter(isSelectable), [rows, createdSkus])
+  const selectedCount = useMemo(
+    () => (rows ?? []).filter(r => selected.has(r.sku) && isSelectable(r)).length,
+    [rows, selected, createdSkus],
+  )
+  const allSelected = selectableRows.length > 0 && selectableRows.every(r => selected.has(r.sku))
+
   async function run() {
     setLoading(true)
     setErr(null)
     setRows(null)
     setMeta(null)
     setEditingSku(null)
+    setSelected(new Set())
+    setCreatedSkus(new Set())
+    setCreateMsg(null)
     try {
       const res = await fetch('/api/description-guesser', {
         method: 'POST',
@@ -67,13 +86,32 @@ export default function DescriptionGuesser() {
       })
       const json: GuessResponse = await res.json()
       if (!res.ok) throw new Error((json as unknown as { error?: string }).error ?? 'Failed to guess descriptions')
-      setRows(json.results.map(r => ({ ...r })))
+      const newRows: Row[] = json.results.map(r => ({ ...r }))
+      setRows(newRows)
       setMeta({ skippedExisting: json.skippedExisting })
+      // Pre-select the trustworthy rows (high confidence), leave Review/No-match unchecked.
+      setSelected(new Set(newRows.filter(r => r.confidence === 'high' && r.description).map(r => r.sku)))
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to guess descriptions')
     } finally {
       setLoading(false)
     }
+  }
+
+  function toggleRow(sku: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(sku)) next.delete(sku)
+      else next.add(sku)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    setSelected(prev => {
+      if (selectableRows.every(r => prev.has(r.sku))) return new Set()
+      return new Set(selectableRows.map(r => r.sku))
+    })
   }
 
   function startEdit(r: Row) {
@@ -93,14 +131,43 @@ export default function DescriptionGuesser() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Failed to save correction')
-      setRows(prev =>
-        (prev ?? []).map(r => (r.sku === sku ? { ...r, description, edited: true } : r)),
-      )
+      setRows(prev => (prev ?? []).map(r => (r.sku === sku ? { ...r, description, edited: true } : r)))
       setEditingSku(null)
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to save correction')
     } finally {
       setSavingSku(null)
+    }
+  }
+
+  async function createSelected() {
+    const items = (rows ?? [])
+      .filter(r => selected.has(r.sku) && isSelectable(r))
+      .map(r => ({ sku: r.sku, description: r.description }))
+    if (items.length === 0) return
+    setCreating(true)
+    setErr(null)
+    setCreateMsg(null)
+    try {
+      const res = await fetch('/api/description-guesser/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, isSerializable: serializable }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to create products')
+      const created: string[] = json.createdSkus ?? []
+      setCreatedSkus(prev => new Set([...Array.from(prev), ...created]))
+      setSelected(new Set())
+      const skipped = (json.skippedExisting ?? []).length
+      setCreateMsg(
+        `Created ${json.created} product${json.created === 1 ? '' : 's'}` +
+          (skipped ? ` · ${skipped} already existed (skipped)` : ''),
+      )
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to create products')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -111,9 +178,7 @@ export default function DescriptionGuesser() {
       <div className="px-6 py-5 max-w-4xl space-y-5">
         {/* Input */}
         <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-          <label className="block text-sm font-medium text-gray-700">
-            Paste SKUs — one per line
-          </label>
+          <label className="block text-sm font-medium text-gray-700">Paste SKUs — one per line</label>
           <textarea
             value={input}
             onChange={e => setInput(e.target.value)}
@@ -134,14 +199,20 @@ export default function DescriptionGuesser() {
             </button>
           </div>
           <p className="text-xs text-gray-400">
-            Read-only for your catalog — nothing is saved to Products. SKUs that already exist are
-            skipped. Guesses are best-effort; edit any row to correct it and the tool learns for next time.
+            SKUs that already exist are skipped. Edit any row to correct it (the tool learns for next time),
+            then tick the rows you want and click Create to add them to Products.
           </p>
         </div>
 
         {err && (
           <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
             <AlertTriangle size={16} /> {err}
+          </div>
+        )}
+
+        {createMsg && (
+          <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-4 py-3">
+            <CheckCircle2 size={16} /> {createMsg}
           </div>
         )}
 
@@ -172,6 +243,35 @@ export default function DescriptionGuesser() {
               </button>
             </div>
 
+            {/* Create action bar */}
+            {selectableRows.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-blue-50/60 border-b border-blue-100">
+                <span className="text-sm text-gray-600">
+                  <span className="font-semibold text-gray-900">{selectedCount}</span> selected
+                </span>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600 select-none cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={serializable}
+                      onChange={e => setSerializable(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue"
+                    />
+                    Serial-tracked
+                  </label>
+                  <button
+                    type="button"
+                    onClick={createSelected}
+                    disabled={creating || selectedCount === 0}
+                    className="flex items-center gap-2 bg-green-600 text-white text-sm font-medium px-4 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {creating ? <Loader2 size={15} className="animate-spin" /> : <PackagePlus size={15} />}
+                    Create {selectedCount} product{selectedCount === 1 ? '' : 's'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {rows.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-gray-500">
                 Nothing to guess — every SKU you entered already exists in the catalog.
@@ -181,6 +281,16 @@ export default function DescriptionGuesser() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
                     <tr>
+                      <th className="px-4 py-2 w-10">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={toggleAll}
+                          disabled={selectableRows.length === 0}
+                          className="h-4 w-4 rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue"
+                          aria-label="Select all"
+                        />
+                      </th>
                       <th className="text-left font-medium px-4 py-2">SKU</th>
                       <th className="text-left font-medium px-4 py-2">Guessed Description</th>
                       <th className="text-left font-medium px-4 py-2 w-24">Confidence</th>
@@ -190,8 +300,19 @@ export default function DescriptionGuesser() {
                   <tbody className="divide-y divide-gray-100">
                     {rows.map(r => {
                       const isEditing = editingSku === r.sku
+                      const created = createdSkus.has(r.sku)
                       return (
-                        <tr key={r.sku} className="hover:bg-gray-50 align-top">
+                        <tr key={r.sku} className={clsx('align-top', created ? 'bg-green-50/40' : 'hover:bg-gray-50')}>
+                          <td className="px-4 py-2">
+                            <input
+                              type="checkbox"
+                              checked={selected.has(r.sku) && isSelectable(r)}
+                              onChange={() => toggleRow(r.sku)}
+                              disabled={!isSelectable(r)}
+                              className="h-4 w-4 rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue disabled:opacity-40"
+                              aria-label={`Select ${r.sku}`}
+                            />
+                          </td>
                           <td className="px-4 py-2 font-mono text-xs text-gray-800 whitespace-nowrap">{r.sku}</td>
                           <td className="px-4 py-2 text-gray-800">
                             {isEditing ? (
@@ -210,7 +331,11 @@ export default function DescriptionGuesser() {
                             )}
                           </td>
                           <td className="px-4 py-2">
-                            {r.edited ? (
+                            {created ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                                <CheckCircle2 size={12} /> Created
+                              </span>
+                            ) : r.edited ? (
                               <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
                                 <GraduationCap size={12} /> Corrected
                               </span>
@@ -221,7 +346,7 @@ export default function DescriptionGuesser() {
                             )}
                           </td>
                           <td className="px-4 py-2 text-right whitespace-nowrap">
-                            {isEditing ? (
+                            {created ? null : isEditing ? (
                               <div className="inline-flex items-center gap-1">
                                 <button
                                   type="button"
