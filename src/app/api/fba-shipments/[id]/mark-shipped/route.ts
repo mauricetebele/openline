@@ -47,9 +47,9 @@ export async function POST(
 
   await prisma.$transaction(async tx => {
     // Batch: mark all IN_STOCK serials as OUT_OF_STOCK
-    const inStockSerialIds = shipment.serialAssignments
+    const inStockAssignments = shipment.serialAssignments
       .filter(sa => sa.inventorySerial.status === 'IN_STOCK')
-      .map(sa => sa.inventorySerial.id)
+    const inStockSerialIds = inStockAssignments.map(sa => sa.inventorySerial.id)
 
     if (inStockSerialIds.length > 0) {
       await tx.inventorySerial.updateMany({
@@ -70,7 +70,40 @@ export async function POST(
       })),
     })
 
-    // Release inventory reservations
+    // ── Reconcile aggregate qty with the serials actually shipped ──────────
+    // Normal path: assign-inventory already decremented InventoryItem.qty and
+    // created reservations covering every unit, so the shortfall below is 0 and
+    // this is a no-op. But if a shipment reached SHIPPED with scanned serials
+    // that were never covered by a reservation (assign-inventory skipped, or the
+    // reserved qty didn't match the scanned serials), the aggregate qty would
+    // stay too high while the serials flip to OUT_OF_STOCK — leaving shipped
+    // units still counted as in stock. Decrement qty for that shortfall so qty
+    // always tracks the IN_STOCK serial count. Keyed by the serial's actual
+    // product/location/grade and netted against reservations at the same key.
+    const shippedByKey = new Map<string, { productId: string; locationId: string; gradeId: string | null; qty: number }>()
+    for (const sa of inStockAssignments) {
+      const s = sa.inventorySerial
+      const key = `${s.productId}|${s.locationId}|${s.gradeId ?? ''}`
+      const cur = shippedByKey.get(key)
+      if (cur) cur.qty += 1
+      else shippedByKey.set(key, { productId: s.productId, locationId: s.locationId, gradeId: s.gradeId, qty: 1 })
+    }
+    const reservedByKey = new Map<string, number>()
+    for (const r of shipment.reservations) {
+      const key = `${r.productId}|${r.locationId}|${r.gradeId ?? ''}`
+      reservedByKey.set(key, (reservedByKey.get(key) ?? 0) + r.qtyReserved)
+    }
+    for (const [key, g] of Array.from(shippedByKey)) {
+      const shortfall = g.qty - (reservedByKey.get(key) ?? 0)
+      if (shortfall > 0) {
+        await tx.inventoryItem.updateMany({
+          where: { productId: g.productId, locationId: g.locationId, gradeId: g.gradeId ?? null },
+          data: { qty: { decrement: shortfall } },
+        })
+      }
+    }
+
+    // Release inventory reservations (qty for reserved units already subtracted)
     await tx.fbaInventoryReservation.deleteMany({
       where: { fbaShipmentId: id },
     })
