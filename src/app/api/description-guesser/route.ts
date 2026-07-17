@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { guessDescriptions } from '@/lib/description-guesser'
+import { guessDescriptions, normalizeSku } from '@/lib/description-guesser'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,12 +40,22 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Corpus = every existing product with a description. Read-only.
+  // Corpus = existing products + user-taught corrections. Both feed the pattern
+  // learner; only products count as "already exists" (corrections are returned
+  // as answers, not skipped). Read-only for products — corrections live in a
+  // separate table written only by the /learn endpoint.
   const products = await prisma.product.findMany({ select: { sku: true, description: true } })
-  const corpus = products
+  const productPairs = products
     .filter(p => p.description && p.description.trim().length > 0)
     .map(p => ({ sku: p.sku, description: p.description }))
 
-  const result = guessDescriptions(lines, corpus)
+  const learnings = await prisma.$queryRaw<{ sku: string; description: string }[]>`
+    SELECT sku, description FROM description_guess_learnings`
+
+  const existingSkus = new Set(productPairs.map(p => normalizeSku(p.sku)))
+  const overrides = new Map(learnings.map(l => [normalizeSku(l.sku), l.description]))
+  const corpus = [...productPairs, ...learnings]
+
+  const result = guessDescriptions(lines, corpus, { existingSkus, overrides })
   return NextResponse.json(result)
 }

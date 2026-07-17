@@ -194,17 +194,32 @@ export function buildModel(corpus: CorpusProduct[]): GuessModel {
   }
 }
 
+/**
+ * Fragment derived purely from a capacity-shaped token, for storage/RAM
+ * positions where the catalog never varied that attribute alone (so no pair
+ * could be learned). These map with total regularity:
+ *   256 → "256GB", 16 → "16GB", 1TB → "1TB", 1TBFUSION → "1TB Fusion".
+ */
+function derivedFrag(token: string): string[] | undefined {
+  if (/^\d+$/.test(token)) return [`${token}GB`]
+  const tb = token.match(/^(\d+)TB(FUSION)?$/)
+  if (tb) return tb[2] ? [`${tb[1]}TB`, 'Fusion'] : [`${tb[1]}TB`]
+  return undefined
+}
+
 /** Look up a token's fragment, preferring the model-specific (fine) dictionary. */
 function lookupFrag(
   model: GuessModel,
   tokens: string[],
   pos: number,
   token: string,
-): { frag: string[]; tier: 'fine' | 'coarse' } | undefined {
+): { frag: string[]; tier: 'fine' | 'coarse' | 'derived' } | undefined {
   const fine = model.fine.get(modelKey(tokens))?.get(pos)?.get(token)
   if (fine !== undefined) return { frag: fine, tier: 'fine' }
   const coarse = model.coarse.get(familyKey(tokens))?.get(pos)?.get(token)
   if (coarse !== undefined) return { frag: coarse, tier: 'coarse' }
+  const derived = derivedFrag(token)
+  if (derived !== undefined) return { frag: derived, tier: 'derived' }
   return undefined
 }
 
@@ -213,24 +228,33 @@ function reconstruct(
   tokens: string[],
   template: LearnedProduct,
   model: GuessModel,
-): { description: string; unknown: number; usedCoarse: boolean } {
+): { description: string; unknown: number; unresolved: number } {
   const words = template.words
   const out: string[] = []
   let cursor = 0
   let unknown = 0
-  let usedCoarse = false
+  let unresolved = 0
 
   for (let p = 1; p < tokens.length; p++) {
     const tmplTok = template.tokens[p]
+    const differs = tokens[p] !== tmplTok
     // Locate this position's fragment in the template, using the template's own
     // (fine) dictionary so model-specific naming is matched exactly.
     const tmplLookup = lookupFrag(model, template.tokens, p, tmplTok)
-    if (tmplLookup === undefined) continue // position not learned — leave words as separator
+    if (tmplLookup === undefined) {
+      // Can't locate this position's span. If the token differs, that difference
+      // is silently NOT applied (the template's value leaks through) — flag it.
+      if (differs) unresolved++
+      continue
+    }
     const tmplFrag = tmplLookup.frag
     const idx = indexOfSub(words, tmplFrag, cursor)
-    if (idx === -1) continue // not locatable in this template — skip substitution
+    if (idx === -1) {
+      if (differs) unresolved++
+      continue
+    }
     for (let k = cursor; k < idx; k++) out.push(words[k]) // separators
-    if (tokens[p] === tmplTok) {
+    if (!differs) {
       for (const w of tmplFrag) out.push(w) // unchanged
     } else {
       const sub = lookupFrag(model, tokens, p, tokens[p])
@@ -239,7 +263,6 @@ function reconstruct(
         const readable = readableToken(tokens[p])
         if (readable) out.push(readable)
       } else {
-        if (sub.tier === 'coarse') usedCoarse = true
         for (const w of sub.frag) out.push(w)
       }
     }
@@ -247,7 +270,7 @@ function reconstruct(
   }
   for (let k = cursor; k < words.length; k++) out.push(words[k])
 
-  return { description: out.join(' ').replace(/\s+/g, ' ').trim(), unknown, usedCoarse }
+  return { description: out.join(' ').replace(/\s+/g, ' ').trim(), unknown, unresolved }
 }
 
 /**
@@ -294,26 +317,55 @@ function guessOne(sku: string, model: GuessModel): GuessResult {
   }
   if (!best) return { sku: normalised, description: '', confidence: 'none' }
 
-  const { description, unknown } = reconstruct(tokens, best, model)
+  const { description, unknown, unresolved } = reconstruct(tokens, best, model)
   if (!description) return { sku: normalised, description: '', confidence: 'none' }
 
   // High confidence only when we filled in a new variant of a model we already
-  // know (template shares the exact model, every substituted token resolved,
-  // and the reconstruction passes sanity checks). Anything else is flagged for
-  // manual review — the guess is still shown, just not trusted.
+  // know: the template shares the exact model, EVERY differing attribute was
+  // successfully substituted (none skipped/unknown), and the reconstruction
+  // passes sanity checks. Anything else is flagged for manual review — the guess
+  // is still shown, just not trusted.
   const sameModel = best.tokens[1] === tokens[1]
   const clean = isCleanReconstruction(description, best.words.length)
-  const confidence: Confidence = unknown === 0 && sameModel && clean ? 'high' : 'low'
+  const confidence: Confidence =
+    unknown === 0 && unresolved === 0 && sameModel && clean ? 'high' : 'low'
   return { sku: normalised, description, confidence }
+}
+
+/** Normalise a raw SKU string the same way the engine keys everything. */
+export function normalizeSku(sku: string): string {
+  return tokenize(sku).join('-')
+}
+
+export type GuessOptions = {
+  /**
+   * SKUs to treat as already-existing and skip. Defaults to every SKU in the
+   * corpus. Pass the real catalog SKUs here so learned corrections (which are
+   * part of the corpus) are returned as answers rather than skipped.
+   */
+  existingSkus?: Set<string>
+  /**
+   * User-confirmed corrections (normalised SKU → description). When a guessed
+   * SKU has a correction it is returned verbatim with high confidence.
+   */
+  overrides?: Map<string, string>
 }
 
 /**
  * Guess descriptions for a list of raw SKU lines.
  * - Blank and duplicate lines are ignored.
  * - SKUs that already exist in the catalog are skipped (not in `results`).
+ * - Corrections learned from past edits are folded into the corpus (so similar
+ *   SKUs improve) and returned verbatim when guessed again.
  */
-export function guessDescriptions(rawInput: string[], corpus: CorpusProduct[]): GuessResponse {
+export function guessDescriptions(
+  rawInput: string[],
+  corpus: CorpusProduct[],
+  opts: GuessOptions = {},
+): GuessResponse {
   const model = buildModel(corpus)
+  const existingSkus = opts.existingSkus ?? model.existing
+  const overrides = opts.overrides
   const results: GuessResult[] = []
   const skippedExisting: string[] = []
   const seen = new Set<string>()
@@ -322,10 +374,15 @@ export function guessDescriptions(rawInput: string[], corpus: CorpusProduct[]): 
   for (const raw of rawInput) {
     const trimmed = raw.trim()
     if (!trimmed) { ignored++; continue }
-    const normalised = tokenize(trimmed).join('-')
+    const normalised = normalizeSku(trimmed)
     if (seen.has(normalised)) { ignored++; continue }
     seen.add(normalised)
-    if (model.existing.has(normalised)) { skippedExisting.push(normalised); continue }
+    if (existingSkus.has(normalised)) { skippedExisting.push(normalised); continue }
+    const override = overrides?.get(normalised)
+    if (override !== undefined) {
+      results.push({ sku: normalised, description: override, confidence: 'high' })
+      continue
+    }
     results.push(guessOne(normalised, model))
   }
 
