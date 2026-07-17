@@ -10,6 +10,7 @@ import {
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
   Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain, AlertCircle,
+  Sparkles,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -57,8 +58,9 @@ const NAV: NavItem[] = [
     label: 'Products',
     icon: Boxes,
     children: [
-      { href: '/products',        label: 'Products',            icon: Boxes },
-      { href: '/po-line-items',   label: 'Backfill Cost Codes', icon: ListTodo },
+      { href: '/products',            label: 'Products',            icon: Boxes },
+      { href: '/description-guesser',  label: 'Description Guessing', icon: Sparkles },
+      { href: '/po-line-items',       label: 'Backfill Cost Codes', icon: ListTodo },
     ],
   },
   { href: '/marketplace-skus', label: 'Marketplace SKUs', icon: Tags },
