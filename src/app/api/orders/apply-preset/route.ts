@@ -39,6 +39,11 @@ const UNIT_SINGULAR: Record<string, string> = {
   ounces: 'ounce', pounds: 'pound', grams: 'gram', kilograms: 'kilogram',
   inches: 'inch', centimeters: 'centimeter',
 }
+
+// FedEx One Rate covers boxes up to the FedEx Large Box, whose longest side is
+// 17.88". Only exclude One Rate services when a package is genuinely larger than
+// that — the previous 16" cutoff wrongly dropped valid Large Box shipments.
+const FEDEX_ONE_RATE_MAX_DIM_IN = 18
 function singularUnit(s: string): string {
   return UNIT_SINGULAR[s] ?? s.replace(/s$/, '')
 }
@@ -310,7 +315,7 @@ export async function POST(req: NextRequest) {
                 const maxDim = Math.max(preset.dimLength ?? 0, preset.dimWidth ?? 0, preset.dimHeight ?? 0)
                 const v2Rates = allRatesTyped
                   .filter(r => r.validation_status !== 'invalid')
-                  .filter(r => !(maxDim > 16 && /one rate/i.test(r.service_type || r.service_code)))
+                  .filter(r => !(maxDim > FEDEX_ONE_RATE_MAX_DIM_IN && /one rate/i.test(r.service_type || r.service_code)))
                 console.log('[apply-preset] order=%s v2 rates total=%d valid=%d attempt=%d',
                   order.amazonOrderId, allRatesTyped.length, v2Rates.length, attempt + 1)
                 const sorted = v2Rates.sort((a, b) =>

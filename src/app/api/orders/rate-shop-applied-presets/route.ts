@@ -31,6 +31,12 @@ const bodySchema = z.object({
 
 const CONCURRENCY = 4
 
+// FedEx One Rate covers boxes up to the FedEx Large Box, whose longest side is
+// 17.88". Only exclude One Rate services when a package is genuinely larger than
+// that — the previous 16" cutoff wrongly dropped valid Large Box shipments
+// (e.g. the "6 LB Large Box" preset at 17.5").
+const FEDEX_ONE_RATE_MAX_DIM_IN = 18
+
 const UNIT_SINGULAR: Record<string, string> = {
   ounces: 'ounce', pounds: 'pound', grams: 'gram', kilograms: 'kilogram',
   inches: 'inch', centimeters: 'centimeter',
@@ -219,6 +225,9 @@ export async function POST(req: NextRequest) {
 
             if (fedexDirectOnly && fedexCreds) {
               // ── FedEx Direct path — bypass ShipStation entirely ──────────────
+              console.log('[rate-shop-applied] order=%s FedEx preset=%s weight=%s%s dims=%sx%sx%s%s',
+                order.amazonOrderId, preset.name, preset.weightValue, preset.weightUnit,
+                preset.dimLength ?? 0, preset.dimWidth ?? 0, preset.dimHeight ?? 0, preset.dimUnit)
               const fedexWeightUnits: 'LB' | 'KG' =
                 preset.weightUnit === 'grams' || preset.weightUnit === 'kilograms' ? 'KG' : 'LB'
               let fedexWeightValue = preset.weightValue
@@ -272,6 +281,10 @@ export async function POST(req: NextRequest) {
                 throw new Error('Amazon carrier ID not configured — go to ShipStation Settings')
               }
 
+              console.log('[rate-shop-applied] order=%s preset=%s weight=%s%s dims=%sx%sx%s%s',
+                order.amazonOrderId, preset.name, preset.weightValue, preset.weightUnit,
+                preset.dimLength ?? 0, preset.dimWidth ?? 0, preset.dimHeight ?? 0, preset.dimUnit)
+
               const v2Payload: V2RatesRequest = {
                 rate_options: { carrier_ids: [amazonV2CarrierId] },
                 shipment: {
@@ -317,7 +330,7 @@ export async function POST(req: NextRequest) {
                 const maxDim = Math.max(preset.dimLength ?? 0, preset.dimWidth ?? 0, preset.dimHeight ?? 0)
                 const validRates = allRatesTyped
                   .filter(r => r.validation_status !== 'invalid')
-                  .filter(r => !(maxDim > 16 && /one rate/i.test(r.service_type || r.service_code)))
+                  .filter(r => !(maxDim > FEDEX_ONE_RATE_MAX_DIM_IN && /one rate/i.test(r.service_type || r.service_code)))
                   .sort((a, b) =>
                     (a.shipping_amount.amount + (a.insurance_amount?.amount ?? 0) + a.other_amount.amount) -
                     (b.shipping_amount.amount + (b.insurance_amount?.amount ?? 0) + b.other_amount.amount)
