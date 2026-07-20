@@ -50,6 +50,13 @@ interface ReceiptLineAPI {
   qtyReceived: number
 }
 
+// Parse a cost string ("$5", "5.00", "5") to integer cents for exact matching,
+// or null if it isn't a number.
+function costToCents(s: string): number | null {
+  const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''))
+  return Number.isFinite(n) ? Math.round(n * 100) : null
+}
+
 // ─── Error Banner ─────────────────────────────────────────────────────────────
 
 function ErrorBanner({ msg, onClose }: { msg: string; onClose: () => void }) {
@@ -224,7 +231,7 @@ export default function SpreadsheetReceiveModal({
       const alreadyReceived = receivedMap.get(line.id) ?? 0
       const remaining = line.qty - alreadyReceived
       for (let i = 0; i < remaining; i++) {
-        rows.push(`${line.product.sku},,`)
+        rows.push(`${line.product.sku},${line.unitCost},`)
       }
     }
     const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
@@ -261,10 +268,15 @@ export default function SpreadsheetReceiveModal({
     e.target.value = ''
   }
 
-  // Build SKU → PO line lookup
-  const skuToLine = new Map<string, POLine>()
+  // Build SKU → [PO lines] lookup. The same SKU can appear on several PO lines
+  // at different unit costs, so we keep ALL lines per SKU and disambiguate each
+  // uploaded row by its cost below.
+  const skuToLines = new Map<string, POLine[]>()
   for (const l of po.lines) {
-    skuToLine.set(l.product.sku.toLowerCase(), l)
+    const key = l.product.sku.toLowerCase()
+    const arr = skuToLines.get(key)
+    if (arr) arr.push(l)
+    else skuToLines.set(key, [l])
   }
 
   // Parse raw text into rows whenever it changes
@@ -293,21 +305,43 @@ export default function SpreadsheetReceiveModal({
         continue
       }
 
-      const matched = skuToLine.get(sku.toLowerCase()) ?? null
-      if (!matched) {
+      const candidates = skuToLines.get(sku.toLowerCase()) ?? []
+      if (candidates.length === 0) {
         rows.push({ sku, cost, serial, matchedLine: null, error: `SKU "${sku}" not found on this PO` })
         continue
       }
 
-      // Check remaining qty
-      const alreadyReceived = receivedMap.get(matched.id) ?? 0
-      const remaining = matched.qty - alreadyReceived
-      const used = qtyUsed.get(matched.id) ?? 0
-      if (used + 1 > remaining) {
-        rows.push({ sku, cost, serial, matchedLine: matched, error: `Exceeds remaining qty (${remaining}) for SKU "${sku}"` })
+      // When a SKU has multiple PO lines (different costs), use the row's cost to
+      // pick the right line. A single-line SKU matches regardless of cost.
+      let pool = candidates
+      if (candidates.length > 1) {
+        const costList = candidates.map(l => `$${l.unitCost}`).join(', ')
+        const cents = costToCents(cost)
+        if (cents === null) {
+          rows.push({ sku, cost, serial, matchedLine: null, error: `SKU "${sku}" has multiple costs (${costList}) — add the matching cost` })
+          continue
+        }
+        pool = candidates.filter(l => costToCents(l.unitCost) === cents)
+        if (pool.length === 0) {
+          rows.push({ sku, cost, serial, matchedLine: null, error: `Cost $${cost} doesn't match any line for "${sku}" (${costList})` })
+          continue
+        }
+      }
+
+      // Pick the first matching line that still has remaining capacity.
+      let matched: POLine | null = null
+      for (const l of pool) {
+        const remaining = l.qty - (receivedMap.get(l.id) ?? 0)
+        const used = qtyUsed.get(l.id) ?? 0
+        if (used + 1 <= remaining) { matched = l; break }
+      }
+      if (!matched) {
+        const label = candidates.length > 1 ? `SKU "${sku}" @ $${cost}` : `SKU "${sku}"`
+        const remaining = pool.reduce((s, l) => s + (l.qty - (receivedMap.get(l.id) ?? 0)), 0)
+        rows.push({ sku, cost, serial, matchedLine: pool[0], error: `Exceeds remaining qty (${remaining}) for ${label}` })
         continue
       }
-      qtyUsed.set(matched.id, used + 1)
+      qtyUsed.set(matched.id, (qtyUsed.get(matched.id) ?? 0) + 1)
 
       // Serial check (basic: must be non-empty for serializable products)
       if (matched.product.isSerializable && !serial) {
@@ -490,6 +524,7 @@ export default function SpreadsheetReceiveModal({
                   <div className="flex items-center justify-between bg-gray-50 px-4 py-2.5 border-b border-gray-200">
                     <div className="flex items-center gap-3">
                       <span className="font-mono text-sm font-semibold text-gray-800">{g.line.product.sku}</span>
+                      <span className="text-xs font-medium text-gray-600">${g.line.unitCost}</span>
                       <span className="text-xs text-gray-500">{g.line.product.description}</span>
                     </div>
                     <span className="text-sm font-semibold text-gray-700">
