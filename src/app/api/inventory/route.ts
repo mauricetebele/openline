@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const [items, reservationGroups, fbaReservationGroups, wholesaleReservationGroups, costRows, serialCostRows] = await Promise.all([
+  const [items, reservationGroups, fbaReservationGroups, wholesaleReservationGroups, costRows, serialCostRows, mpSalesRows] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: {
         ...(productId   ? { productId } : {}),
@@ -137,6 +137,31 @@ export async function GET(req: NextRequest) {
       WHERE "unitCost" IS NOT NULL AND status = 'IN_STOCK'
       GROUP BY "productId", "gradeId"
     `,
+    // Marketplace units sold in the last 3 days, per product+grade — feeds the
+    // "MP Sales Recent" column. Each order line is attributed to a product/grade
+    // via its seller-SKU mapping. Sales are aggregated by seller SKU first and
+    // the mapping is de-duplicated (DISTINCT ON) so a shared SKU can't fan out.
+    prisma.$queryRaw<{ productId: string; gradeId: string | null; units: number }[]>`
+      WITH sales AS (
+        SELECT oi."sellerSku" AS seller_sku, SUM(oi."quantityOrdered")::int AS units
+        FROM order_items oi
+        JOIN orders o ON o.id = oi."orderId"
+        WHERE o."orderSource" IN ('amazon','backmarket')
+          AND o."purchaseDate" >= NOW() - INTERVAL '3 days'
+          AND o."orderStatus" NOT IN ('Canceled','Cancelled')
+          AND oi."sellerSku" IS NOT NULL
+        GROUP BY oi."sellerSku"
+      ),
+      msku AS (
+        SELECT DISTINCT ON ("sellerSku") "sellerSku", "productId", "gradeId"
+        FROM product_grade_marketplace_skus
+        ORDER BY "sellerSku", "createdAt" ASC
+      )
+      SELECT m."productId" AS "productId", m."gradeId" AS "gradeId", SUM(s.units)::int AS units
+      FROM sales s
+      JOIN msku m ON m."sellerSku" = s.seller_sku
+      GROUP BY m."productId", m."gradeId"
+    `,
   ])
 
   // Build lookup: `${productId}:${locationId}:${gradeId ?? ''}` → reserved qty
@@ -192,6 +217,12 @@ export async function GET(req: NextRequest) {
     : []
   const fcMap = new Map(fcListings.map(l => [l.sku, l.fulfillmentChannel]))
 
+  // `${productId}:${gradeId ?? ''}` → marketplace units sold in the last 3 days
+  const mpSalesMap = new Map<string, number>()
+  for (const r of mpSalesRows) {
+    mpSalesMap.set(`${r.productId}:${r.gradeId ?? ''}`, Number(r.units))
+  }
+
   const data = items
     .map(item => {
       const key      = `${item.productId}:${item.locationId}:${item.gradeId ?? ''}`
@@ -211,7 +242,8 @@ export async function GET(req: NextRequest) {
           fulfillmentChannel: ms.marketplace === 'amazon' ? (fcMap.get(ms.sellerSku) ?? null) : null,
         })),
       }
-      return { ...item, product, reserved, onHand, unitCost }
+      const mpSalesRecent = mpSalesMap.get(`${item.productId}:${item.gradeId ?? ''}`) ?? 0
+      return { ...item, product, reserved, onHand, unitCost, mpSalesRecent }
     })
     .filter(item => item.onHand > 0 || item.reserved > 0)
 

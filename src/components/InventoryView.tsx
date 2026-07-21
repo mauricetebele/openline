@@ -8,7 +8,7 @@ import GradeBadge from '@/components/GradeBadge'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Warehouse { id: string; name: string }
-interface Location  { id: string; name: string; warehouseId: string; warehouse: Warehouse }
+interface Location  { id: string; name: string; warehouseId: string; warehouse: Warehouse; isFinishedGoods?: boolean }
 interface Product   { id: string; description: string; sku: string; isSerializable: boolean; marketplaceSkus?: { marketplace: string; gradeId: string | null; sellerSku: string; fulfillmentChannel: string | null }[] }
 
 interface InventoryGrade { id: string; grade: string; description: string | null }
@@ -22,6 +22,7 @@ interface InventoryItem {
   product: Product
   location: Location
   grade: InventoryGrade | null
+  mpSalesRecent?: number
 }
 
 interface Serial { id: string; serialNumber: string; binLocation: string | null; createdAt: string }
@@ -2290,6 +2291,136 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
 
 type OpenModal = 'add' | 'sn-lookup' | 'move' | 'convert' | 'regrade'
 
+// ─── MP Sales detail modal (hover/click from the "MP Sales Recent" column) ────
+
+interface MpOrder {
+  orderId: string
+  olmNumber: number | null
+  marketplace: string
+  sellerSku: string | null
+  price: number | null
+  qty: number
+  date: string
+}
+
+function MpSalesModal({
+  product, gradeId, gradeLabel, onClose,
+}: {
+  product: Product
+  gradeId: string | null
+  gradeLabel: string
+  onClose: () => void
+}) {
+  const [rangeKey, setRangeKey] = useState<'3' | '7' | '30' | 'custom'>('3')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [units, setUnits] = useState(0)
+  const [orders, setOrders] = useState<MpOrder[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
+
+  const load = useCallback(async () => {
+    if (rangeKey === 'custom' && (!from || !to)) return
+    setLoading(true); setErr('')
+    try {
+      const p = new URLSearchParams({ productId: product.id, gradeId: gradeId ?? 'none' })
+      if (rangeKey === 'custom') { p.set('from', from); p.set('to', to) }
+      else p.set('days', rangeKey)
+      const res = await fetch(`/api/inventory/mp-sales?${p.toString()}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to load sales')
+      setUnits(data.units ?? 0)
+      setOrders(data.orders ?? [])
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to load sales')
+    } finally {
+      setLoading(false)
+    }
+  }, [product.id, gradeId, rangeKey, from, to])
+
+  useEffect(() => { load() }, [load])
+
+  const mpLabel = (m: string) => (m === 'amazon' ? 'Amazon' : m === 'backmarket' ? 'BackMarket' : m)
+  const rangeBtn = (active: boolean) =>
+    `h-7 px-2.5 rounded-md text-xs font-medium ${active ? 'bg-amazon-blue text-white' : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'}`
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-[660px] max-h-[82vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-start justify-between px-5 py-4 border-b shrink-0">
+          <div>
+            <div className="flex items-center gap-2">
+              <ShoppingCart size={16} className="text-amazon-blue" />
+              <h3 className="text-sm font-semibold text-gray-900">Marketplace Sales — {product.sku}</h3>
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5 truncate max-w-[560px]">
+              {product.description} · Grade {gradeLabel}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+        </div>
+
+        {/* Timeframe filters */}
+        <div className="flex items-center flex-wrap gap-2 px-5 py-3 border-b bg-gray-50 shrink-0">
+          <button type="button" onClick={() => setRangeKey('3')} className={rangeBtn(rangeKey === '3')}>Last 3 Days</button>
+          <button type="button" onClick={() => setRangeKey('7')} className={rangeBtn(rangeKey === '7')}>Last 7 Days</button>
+          <button type="button" onClick={() => setRangeKey('30')} className={rangeBtn(rangeKey === '30')}>Last 30 Days</button>
+          <button type="button" onClick={() => setRangeKey('custom')} className={rangeBtn(rangeKey === 'custom')}>Custom</button>
+          {rangeKey === 'custom' && (
+            <span className="inline-flex items-center gap-1">
+              <input type="date" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)}
+                className="h-7 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue" />
+              <span className="text-gray-400 text-xs">to</span>
+              <input type="date" value={to} min={from || undefined} onChange={e => setTo(e.target.value)}
+                className="h-7 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-amazon-blue" />
+            </span>
+          )}
+          <span className="ml-auto text-xs text-gray-600">
+            Units sold: <span className="font-semibold text-gray-900 tabular-nums">{units}</span>
+          </span>
+        </div>
+
+        {/* Orders table */}
+        <div className="flex-1 overflow-y-auto px-5 py-3">
+          {err ? (
+            <div className="flex items-center gap-2 text-sm text-red-600"><AlertCircle size={14} /> {err}</div>
+          ) : loading ? (
+            <div className="py-10 text-center text-sm text-gray-400">Loading…</div>
+          ) : orders.length === 0 ? (
+            <div className="py-10 text-center text-sm text-gray-400">No marketplace sales in this range.</div>
+          ) : (
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
+                  <th className="py-1.5 pr-3 font-semibold">Order ID</th>
+                  <th className="py-1.5 pr-3 font-semibold">Marketplace</th>
+                  <th className="py-1.5 pr-3 font-semibold text-right">Price</th>
+                  <th className="py-1.5 pr-3 font-semibold text-right">Qty</th>
+                  <th className="py-1.5 font-semibold text-right">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {orders.map((o, i) => (
+                  <tr key={`${o.orderId}-${i}`} className="hover:bg-gray-50">
+                    <td className="py-1.5 pr-3 font-mono text-gray-800 whitespace-nowrap">{o.orderId}</td>
+                    <td className="py-1.5 pr-3 text-gray-600">{mpLabel(o.marketplace)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-gray-700">
+                      {o.price != null ? `$${o.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-gray-700">{o.qty}</td>
+                    <td className="py-1.5 text-right text-gray-500 whitespace-nowrap">{new Date(o.date).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function InventoryView({ openModal }: { openModal?: OpenModal } = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -2303,6 +2434,24 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   const [gradeId,      setGradeId]      = useState('')
   const [allGrades,    setAllGrades]    = useState<{ id: string; grade: string }[]>([])
   const [serialTarget,  setSerialTarget]  = useState<{ product: Product; location: Location; gradeId: string | null } | null>(null)
+  const [mpTarget,      setMpTarget]      = useState<{ product: Product; gradeId: string | null; gradeLabel: string } | null>(null)
+  const mpHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mpTargetFor = (item: InventoryItem) => ({
+    product: item.product, gradeId: item.grade?.id ?? null, gradeLabel: item.grade?.grade ?? 'none',
+  })
+  // Open the MP-sales detail on hover (short intent delay), or immediately on click.
+  function scheduleMpOpen(item: InventoryItem) {
+    if (mpTarget) return // don't hijack while a modal is already open
+    if (mpHoverTimer.current) clearTimeout(mpHoverTimer.current)
+    mpHoverTimer.current = setTimeout(() => setMpTarget(mpTargetFor(item)), 220)
+  }
+  function cancelMpOpen() {
+    if (mpHoverTimer.current) { clearTimeout(mpHoverTimer.current); mpHoverTimer.current = null }
+  }
+  function openMpNow(item: InventoryItem) {
+    cancelMpOpen()
+    setMpTarget(mpTargetFor(item))
+  }
   const [showLookup,    setShowLookup]    = useState(false)
   const [showMove,      setShowMove]      = useState(false)
   const [showConvert,   setShowConvert]   = useState(false)
@@ -2313,7 +2462,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   const prevFiltersRef = useRef<{ warehouseId: string; locationId: string } | null>(null)
 
   // Sort state
-  type SortKey = 'sku' | 'description' | 'grade' | 'warehouse' | 'location' | 'type' | 'onHand' | 'reserved' | 'available' | 'value' | 'marketplace' | 'avgCost'
+  type SortKey = 'sku' | 'description' | 'grade' | 'warehouse' | 'location' | 'type' | 'onHand' | 'reserved' | 'available' | 'mpSales' | 'value' | 'marketplace' | 'avgCost'
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
@@ -2342,6 +2491,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
         case 'onHand':      av = a.onHand; bv = b.onHand; break
         case 'reserved':    av = a.reserved; bv = b.reserved; break
         case 'available':   av = a.onHand - a.reserved; bv = b.onHand - b.reserved; break
+        case 'mpSales':     av = a.mpSalesRecent ?? 0; bv = b.mpSalesRecent ?? 0; break
         case 'value':       av = (a.unitCost ?? 0) * a.onHand; bv = (b.unitCost ?? 0) * b.onHand; break
         case 'marketplace': {
           const am = (a.product.marketplaceSkus ?? []).filter(s => (s.gradeId ?? null) === (a.grade?.id ?? null))
@@ -2580,6 +2730,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                   ['onHand', 'On Hand', 'text-right'],
                   ['reserved', 'Reserved', 'text-right'],
                   ['available', 'Available', 'text-right'],
+                  ['mpSales', 'MP Sales Recent', 'text-right'],
                   ['marketplace', 'Marketplace', 'text-center'],
                   ['avgCost', 'Avg Cost', 'text-right'],
                   ['value', 'Value', 'text-right'],
@@ -2643,6 +2794,26 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                   <td className="px-2 py-1 text-right font-semibold text-gray-900 tabular-nums">
                     {item.onHand - item.reserved}
                   </td>
+                  <td className="px-2 py-1 text-right tabular-nums">
+                    {item.location.isFinishedGoods ? (
+                      (item.mpSalesRecent ?? 0) > 0 ? (
+                        <button
+                          type="button"
+                          onMouseEnter={() => scheduleMpOpen(item)}
+                          onMouseLeave={cancelMpOpen}
+                          onClick={() => openMpNow(item)}
+                          title="Hover or click for order detail"
+                          className="font-semibold text-amazon-blue hover:underline tabular-nums"
+                        >
+                          {item.mpSalesRecent}
+                        </button>
+                      ) : (
+                        <span className="text-gray-300">0</span>
+                      )
+                    ) : (
+                      <span className="text-gray-300" title="Marketplace sales are shown for finished-goods locations">—</span>
+                    )}
+                  </td>
                   <td className="px-2 py-1 text-center">
                     {(() => {
                       const matched = (item.product.marketplaceSkus ?? []).filter(s => (s.gradeId ?? null) === (item.grade?.id ?? null))
@@ -2696,6 +2867,15 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
           location={serialTarget.location}
           gradeId={serialTarget.gradeId}
           onClose={() => setSerialTarget(null)}
+        />
+      )}
+
+      {mpTarget && (
+        <MpSalesModal
+          product={mpTarget.product}
+          gradeId={mpTarget.gradeId}
+          gradeLabel={mpTarget.gradeLabel}
+          onClose={() => setMpTarget(null)}
         />
       )}
 
