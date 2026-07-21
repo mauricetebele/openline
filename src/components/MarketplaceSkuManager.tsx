@@ -34,6 +34,7 @@ interface MarketplaceSku {
   fulfillmentChannel: string | null
   itemCondition: string | null
   bmListingId: string | null
+  createdAt: string
 }
 
 interface MarketplaceListing {
@@ -522,6 +523,7 @@ export default function MarketplaceSkuManager() {
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
   const [fetchingFnskuIds, setFetchingFnskuIds] = useState<Set<string>>(new Set())
   const [syncQtySort, setSyncQtySort] = useState<'none' | 'enabled' | 'disabled'>('none')
+  const [createdSort, setCreatedSort] = useState<'none' | 'newest' | 'oldest'>('none')
   const [syncPage, setSyncPage] = useState(1)
   const SYNC_PAGE_SIZE = 100
   const [qtyMap, setQtyMap] = useState<Record<string, QtyBreakdown>>({})
@@ -817,6 +819,11 @@ export default function MarketplaceSkuManager() {
     }
     return true
   }).sort((a, b) => {
+    if (createdSort !== 'none') {
+      const at = new Date(a.createdAt).getTime()
+      const bt = new Date(b.createdAt).getTime()
+      return createdSort === 'newest' ? bt - at : at - bt
+    }
     if (syncQtySort === 'enabled') return (b.syncQty ? 1 : 0) - (a.syncQty ? 1 : 0)
     if (syncQtySort === 'disabled') return (a.syncQty ? 1 : 0) - (b.syncQty ? 1 : 0)
     return 0
@@ -1120,8 +1127,17 @@ export default function MarketplaceSkuManager() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    <button onClick={() => { setCreatedSort(s => s === 'none' ? 'newest' : s === 'newest' ? 'oldest' : 'none'); setSyncQtySort('none') }}
+                      className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors uppercase tracking-wide">
+                      Created
+                      {createdSort === 'newest' && <span className="text-amazon-blue" title="Newest first">▼</span>}
+                      {createdSort === 'oldest' && <span className="text-amazon-blue" title="Oldest first">▲</span>}
+                      {createdSort === 'none' && <span className="text-gray-300">⇅</span>}
+                    </button>
+                  </th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    <button onClick={() => setSyncQtySort(s => s === 'none' ? 'enabled' : s === 'enabled' ? 'disabled' : 'none')}
+                    <button onClick={() => { setSyncQtySort(s => s === 'none' ? 'enabled' : s === 'enabled' ? 'disabled' : 'none'); setCreatedSort('none') }}
                       className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors">
                       Sync Qty
                       {syncQtySort === 'enabled' && <span className="text-green-600">▼</span>}
@@ -1175,6 +1191,9 @@ export default function MarketplaceSkuManager() {
                       </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.accountId ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap" title={new Date(s.createdAt).toLocaleString()}>
+                      {new Date(s.createdAt).toLocaleDateString()}
+                    </td>
                     <td className="px-4 py-3 text-center">
                       {s.fulfillmentChannel === 'FBA' ? (
                         <span className="text-[10px] text-gray-400" title="FBA inventory is managed by Amazon">N/A</span>
