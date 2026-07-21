@@ -750,9 +750,9 @@ export default function MarketplaceSkuManager() {
         })
       })
       loadQtyBreakdown()
-      setToast(value ? 'Set as default SKU for this group' : 'Removed default SKU')
+      setToast(value ? 'Last Unit Lean set for this SKU' : 'Last Unit Lean turned off')
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Failed to update default SKU')
+      setErr(e instanceof Error ? e.message : 'Failed to update Last Unit Lean')
     }
   }
 
@@ -1147,6 +1147,7 @@ export default function MarketplaceSkuManager() {
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Max Qty</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Pushing</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="When only the last unit remains, push it to this marketplace. Only one marketplace per product+grade can be enabled.">Last Unit Lean</th>
                   <th className="px-4 py-3 w-12" />
                 </tr>
               </thead>
@@ -1279,6 +1280,26 @@ export default function MarketplaceSkuManager() {
                       ) : (
                         <span className="text-xs text-gray-300">—</span>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={s.isDefaultSku}
+                        onClick={() => handleSetDefaultSku(s.id, !s.isDefaultSku)}
+                        title={s.isDefaultSku
+                          ? `On — last unit leans to this ${s.marketplace === 'backmarket' ? 'Back Market' : s.marketplace} SKU`
+                          : 'Off — click to lean the last unit to this SKU'}
+                        className={clsx(
+                          'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amazon-blue focus:ring-offset-1',
+                          s.isDefaultSku ? 'bg-amazon-blue' : 'bg-gray-200 hover:bg-gray-300',
+                        )}
+                      >
+                        <span className={clsx(
+                          'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                          s.isDefaultSku ? 'translate-x-4' : 'translate-x-0.5',
+                        )} />
+                      </button>
                     </td>
                     <td className="px-4 py-3">
                       <button
