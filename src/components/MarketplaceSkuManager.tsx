@@ -517,6 +517,7 @@ export default function MarketplaceSkuManager() {
   const [viewMode, setViewMode] = useState<ViewMode>('mapped')
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [filterText, setFilterText] = useState('')
+  const [gradeFilter, setGradeFilter] = useState<string>('all') // 'all' | 'none' | grade id
   const [syncing, setSyncing] = useState<string | null>(null)
   const [pushing, setPushing] = useState(false)
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null)
@@ -804,6 +805,8 @@ export default function MarketplaceSkuManager() {
   // Filter mapped SKUs by tab and search
   const filteredSkus = skus.filter(s => {
     if (tab !== 'all' && s.marketplace !== tab) return false
+    if (gradeFilter === 'none') { if (s.gradeId != null) return false }
+    else if (gradeFilter !== 'all') { if (s.gradeId !== gradeFilter) return false }
     if (filterText.trim()) {
       const q = filterText.toLowerCase()
       return (
@@ -887,6 +890,18 @@ export default function MarketplaceSkuManager() {
             className="h-9 w-64 rounded-md border border-gray-300 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
           />
         </div>
+        <select
+          value={gradeFilter}
+          onChange={e => setGradeFilter(e.target.value)}
+          title="Filter by grade"
+          className="h-9 rounded-md border border-gray-300 px-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+        >
+          <option value="all">All grades</option>
+          <option value="none">No grade</option>
+          {grades.map(g => (
+            <option key={g.id} value={g.id}>Grade {g.grade}</option>
+          ))}
+        </select>
         <div className="flex-1" />
 
         {/* Sync buttons */}
