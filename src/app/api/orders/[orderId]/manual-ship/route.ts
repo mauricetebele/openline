@@ -74,7 +74,18 @@ export async function POST(
       return NextResponse.json({ error: `Order item ${a.orderItemId} has no SKU` }, { status: 400 })
     }
 
-    const product = await prisma.product.findUnique({ where: { sku: orderItem.sellerSku } })
+    // Resolve the product: direct SKU match, then fall back to the marketplace
+    // SKU mapping (marketplace orders carry a seller SKU, not the product SKU).
+    // Trim + case-insensitive so a stray space/case can't cause a false miss.
+    const lookupSku = orderItem.sellerSku.trim()
+    let product = await prisma.product.findFirst({ where: { sku: { equals: lookupSku, mode: 'insensitive' } } })
+    if (!product) {
+      const msku = await prisma.productGradeMarketplaceSku.findFirst({
+        where: { sellerSku: { equals: lookupSku, mode: 'insensitive' } },
+        include: { product: true },
+      })
+      product = msku?.product ?? null
+    }
     if (!product) {
       return NextResponse.json(
         { error: `No product found for SKU "${orderItem.sellerSku}"` },

@@ -48,10 +48,12 @@ export async function POST(req: NextRequest) {
 
   let gradeId = rawGradeId?.trim() || null
 
-  // Resolve product
-  let expectedProduct = await prisma.product.findUnique({ where: { sku } })
+  // Resolve product — trim + case-insensitive so a stray space or case
+  // difference in the passed SKU can't cause a false "no product found".
+  const lookupSku = String(sku).trim()
+  let expectedProduct = await prisma.product.findFirst({ where: { sku: { equals: lookupSku, mode: 'insensitive' } } })
   const msku = await prisma.productGradeMarketplaceSku.findFirst({
-    where: { sellerSku: sku },
+    where: { sellerSku: { equals: lookupSku, mode: 'insensitive' } },
     include: { product: true },
   })
   if (!expectedProduct) {

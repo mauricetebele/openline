@@ -27,10 +27,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'sn and sku query params are required' }, { status: 400 })
   }
 
-  // Find the product for the expected SKU (direct match or marketplace SKU mapping)
-  let expectedProduct = await prisma.product.findUnique({ where: { sku } })
+  // Find the product for the expected SKU (direct match or marketplace SKU
+  // mapping). Case-insensitive so a case difference can't cause a false miss.
+  const lookupSku = sku.trim()
+  let expectedProduct = await prisma.product.findFirst({ where: { sku: { equals: lookupSku, mode: 'insensitive' } } })
   const msku = await prisma.productGradeMarketplaceSku.findFirst({
-    where: { sellerSku: sku },
+    where: { sellerSku: { equals: lookupSku, mode: 'insensitive' } },
     include: { product: true },
   })
   if (!expectedProduct) {
