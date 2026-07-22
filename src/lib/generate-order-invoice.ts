@@ -352,7 +352,7 @@ export async function generateOrderInvoicePDF(order: InvoiceOrder) {
   //  ROW 1 — Order Info (left) + Bill To (center) + Ship To (right)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const itemsSub = order.items.reduce((s, i) => s + (i.itemPrice ? parseFloat(i.itemPrice) * i.quantityOrdered : 0), 0)
+  const itemsSub = order.items.reduce((s, i) => s + (i.itemPrice ? parseFloat(i.itemPrice) : 0), 0) // itemPrice = line total
   const taxTotal = order.items.reduce((s, i) => s + (i.itemTax ? parseFloat(i.itemTax) : 0), 0)
   // Use customer-paid shipping (from order items) rather than our label cost
   const shipCost = order.items.reduce((s, i) => s + (i.shippingPrice ? parseFloat(i.shippingPrice) : 0), 0)
@@ -481,7 +481,9 @@ export async function generateOrderInvoicePDF(order: InvoiceOrder) {
   for (let i = 0; i < order.items.length; i++) {
     y = needsBreak(doc, y, 18)
     const item = order.items[i]
-    const ext = item.itemPrice ? parseFloat(item.itemPrice) * item.quantityOrdered : 0
+    // itemPrice is the LINE TOTAL (all units). Line total = itemPrice; unit = total / qty.
+    const ext = item.itemPrice ? parseFloat(item.itemPrice) : 0
+    const unit = ext / (item.quantityOrdered || 1)
 
     // Zebra stripe
     if (i % 2 === 0) {
@@ -498,7 +500,7 @@ export async function generateOrderInvoicePDF(order: InvoiceOrder) {
     // Qty
     tc(doc, C.dark); doc.text(String(item.quantityOrdered), c3, y + 11, { align: 'right' })
     // Unit price
-    tc(doc, C.muted); doc.text(fmt(item.itemPrice), c4 + 10, y + 11, { align: 'right' })
+    tc(doc, C.muted); doc.text(fmt(String(unit)), c4 + 10, y + 11, { align: 'right' })
     // Total
     doc.setFont('helvetica', 'bold'); tc(doc, C.dark)
     doc.text(fmt(String(ext)), c5, y + 11, { align: 'right' })

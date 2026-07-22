@@ -2842,7 +2842,8 @@ function OrderDetailModal({
 
   // ── Derived values ──────────────────────────────────────────────────────────
   const itemsSubtotal = order.items.reduce((s, i) => {
-    return s + (i.itemPrice ? parseFloat(i.itemPrice) * i.quantityOrdered : 0)
+    // itemPrice is the line total (all units) — sum directly, no × qty.
+    return s + (i.itemPrice ? parseFloat(i.itemPrice) : 0)
   }, 0)
   const taxSubtotal = order.items.reduce((s, i) => {
     return s + (i.itemTax ? parseFloat(i.itemTax) : 0)
@@ -3050,7 +3051,9 @@ function OrderDetailModal({
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {localItems.map(item => {
-                        const extPrice = item.itemPrice ? parseFloat(item.itemPrice) * item.quantityOrdered : 0
+                        // itemPrice is the LINE TOTAL (all units). Ext = line total; unit Price = total / qty.
+                        const lineTotal = item.itemPrice ? parseFloat(item.itemPrice) : 0
+                        const unitPrice = lineTotal / (item.quantityOrdered || 1)
                         const isEditingSku = editingSkuItemId === item.id
                         return (
                           <tr key={item.id} className="hover:bg-gray-50/60">
@@ -3192,11 +3195,11 @@ function OrderDetailModal({
                               </div>
                             </td>
                             <td className="px-4 py-2.5 text-right tabular-nums text-gray-700 whitespace-nowrap align-top">
-                              {item.itemPrice ? fmt(item.itemPrice, order.currency) : '—'}
+                              {item.itemPrice ? fmt(String(unitPrice), order.currency) : '—'}
                             </td>
                             <td className="px-4 py-2.5 text-right tabular-nums align-top font-semibold text-gray-900">{item.quantityOrdered}</td>
                             <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-gray-900 whitespace-nowrap align-top">
-                              {extPrice > 0 ? fmt(String(extPrice), order.currency) : '—'}
+                              {lineTotal > 0 ? fmt(String(lineTotal), order.currency) : '—'}
                             </td>
                           </tr>
                         )
@@ -6600,7 +6603,7 @@ export default function UnshippedOrders() {
   function orderTotal(order: Order) {
     if (order.orderTotal) return fmt(order.orderTotal, order.currency)
     let sum = 0
-    for (const item of order.items) if (item.itemPrice) sum += parseFloat(item.itemPrice) * item.quantityOrdered
+    for (const item of order.items) if (item.itemPrice) sum += parseFloat(item.itemPrice) // itemPrice = line total
     return sum > 0 ? fmt(String(sum), order.currency) : '—'
   }
 

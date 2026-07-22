@@ -141,7 +141,8 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
   )
 
   const isShipped = order.workflowStatus === 'SHIPPED'
-  const itemsSubtotal = order.items.reduce((s, i) => s + (i.itemPrice ? parseFloat(i.itemPrice) * i.quantityOrdered : 0), 0)
+  // itemPrice is the line total (all units), so sum it directly — no × qty.
+  const itemsSubtotal = order.items.reduce((s, i) => s + (i.itemPrice ? parseFloat(i.itemPrice) : 0), 0)
   const taxTotal = order.items.reduce((s, i) => s + (i.itemTax ? parseFloat(i.itemTax) : 0), 0)
   const shippingSubtotal = order.items.reduce((s, i) => s + (i.shippingPrice ? parseFloat(i.shippingPrice) : 0), 0)
   const orderTotalNum = order.orderTotal ? parseFloat(order.orderTotal) : itemsSubtotal + taxTotal + shippingSubtotal
@@ -335,15 +336,20 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                 </thead>
                 <tbody>
                   {order.items.map(item => {
-                    const extPrice = item.itemPrice ? parseFloat(item.itemPrice) * item.quantityOrdered : 0
+                    // itemPrice is stored as the LINE TOTAL (all units), matching
+                    // Amazon's SP-API ItemPrice and how BackMarket line prices sync.
+                    // Ext Price = line total; unit Price = line total / qty.
+                    const lineTotal = item.itemPrice ? parseFloat(item.itemPrice) : 0
+                    const qty = item.quantityOrdered || 1
+                    const unitPrice = lineTotal / qty
                     return (
                       <tr key={item.id} className="border-b border-gray-100 dark:border-white/5">
                         <td className="px-4 py-2 font-medium text-gray-900 dark:text-white whitespace-nowrap">{item.sellerSku ?? '—'}</td>
                         <td className="px-4 py-2 text-gray-600 dark:text-gray-400 max-w-[250px] truncate">{item.title ?? '—'}</td>
                         <td className="px-4 py-2 font-mono text-gray-500">{item.asin ?? '—'}</td>
                         <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">{item.quantityOrdered}</td>
-                        <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">{fmt(item.itemPrice)}</td>
-                        <td className="px-4 py-2 text-right font-medium text-gray-900 dark:text-white">{fmt(String(extPrice))}</td>
+                        <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">{item.itemPrice ? fmt(String(unitPrice)) : '—'}</td>
+                        <td className="px-4 py-2 text-right font-medium text-gray-900 dark:text-white">{item.itemPrice ? fmt(String(lineTotal)) : '—'}</td>
                       </tr>
                     )
                   })}
