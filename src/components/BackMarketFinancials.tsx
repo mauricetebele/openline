@@ -129,9 +129,9 @@ export default function BackMarketFinancials() {
           type="button"
           onClick={() => setNeedsReview(v => !v)}
           title="Show only refunds whose order exists but has no return (RMA), and that are either un-noted or flagged Problematic"
-          className={`flex items-center gap-1.5 h-9 px-3 rounded-md border text-sm font-medium ${needsReview ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          className={`flex items-center gap-1.5 h-9 px-3 rounded-md border text-sm font-medium shrink-0 whitespace-nowrap leading-none ${needsReview ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
         >
-          <AlertTriangle size={14} /> Unresolved Refund Without RMA
+          <AlertTriangle size={14} className="shrink-0" /> Unresolved Refund Without RMA
         </button>
         <div className="flex-1" />
         <div className="flex items-center gap-2 text-[10px] text-gray-400">
