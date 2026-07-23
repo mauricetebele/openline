@@ -49,7 +49,9 @@ const IGNORED_KEYS = new Set(['deferred_payout_retained', 'deferred_payout_relea
 
 /** invoice_keys that count as marketplace fees in profitability (whitelist). */
 export const FEE_KEYS = [
-  'sales_fees', 'payment_fees', 'ccbm_fees', 'credit_requests',
+  'sales_fees',
+  'payment_fees', 'affirm_fees', 'paypal_fees', 'klarna_fees', // payment-provider fees
+  'ccbm_fees', 'credit_requests',
   'deals_commission_discount', 'avoir_sales_fees',
   'sales_dp_adjustment', 'dp_adjustment_fee', 'dp_adjustment_fee_refund',
 ] as const

@@ -71,6 +71,9 @@ const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' 
 const FEE_KEY_LABEL: Record<string, string> = {
   sales_fees: 'Commission',
   payment_fees: 'Payment fee',
+  affirm_fees: 'Payment fee (Affirm)',
+  paypal_fees: 'Payment fee (PayPal)',
+  klarna_fees: 'Payment fee (Klarna)',
   ccbm_fees: 'Customer Care fee',
   deals_commission_discount: 'Commission discount',
   avoir_sales_fees: 'Commission refund',

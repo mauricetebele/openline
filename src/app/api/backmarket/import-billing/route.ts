@@ -17,7 +17,7 @@ import { Prisma } from '@prisma/client'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
-import { parseBmBilling, FEE_KEYS } from '@/lib/backmarket/parse-billing'
+import { parseBmBilling, FEE_KEYS, type BmBillingRow, type UnknownKeyFlag } from '@/lib/backmarket/parse-billing'
 import { randomUUID } from 'crypto'
 
 export const dynamic = 'force-dynamic'
@@ -35,22 +35,48 @@ export async function POST(req: NextRequest) {
   if (adminErr) return adminErr
 
   const body = await req.json().catch(() => null)
-  const csv = typeof body?.csv === 'string' ? body.csv : ''
-  const statementRef = typeof body?.statementRef === 'string' ? body.statementRef.trim() || null : null
-  if (!csv.trim()) return NextResponse.json({ error: 'csv is required' }, { status: 400 })
 
-  let parsed
-  try {
-    parsed = parseBmBilling(csv)
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed to parse CSV' }, { status: 400 })
+  // Accept one statement ({ csv, statementRef }) or many ({ statements: [{name, csv}] }).
+  const rawStatements: { name: string | null; csv: string }[] = Array.isArray(body?.statements)
+    ? body.statements.map((s: unknown) => ({
+        name: typeof (s as { name?: unknown })?.name === 'string' ? ((s as { name: string }).name.trim() || null) : null,
+        csv: typeof (s as { csv?: unknown })?.csv === 'string' ? (s as { csv: string }).csv : '',
+      }))
+    : typeof body?.csv === 'string'
+      ? [{ name: typeof body?.statementRef === 'string' ? body.statementRef.trim() || null : null, csv: body.csv }]
+      : []
+
+  const statements = rawStatements.filter(s => s.csv.trim())
+  if (statements.length === 0) return NextResponse.json({ error: 'No statement CSVs provided' }, { status: 400 })
+  if (statements.length > 50) return NextResponse.json({ error: 'Too many files — limit is 50 statements at once.' }, { status: 400 })
+
+  // Parse each statement; combine rows, merge the unknown-key flags.
+  const allRows: (BmBillingRow & { statementRef: string | null })[] = []
+  const unknownMap = new Map<string, UnknownKeyFlag>()
+  let rowsIgnored = 0
+  for (const st of statements) {
+    let parsed
+    try {
+      parsed = parseBmBilling(st.csv)
+    } catch (e) {
+      return NextResponse.json({ error: `${st.name ?? 'A file'}: ${e instanceof Error ? e.message : 'Failed to parse CSV'}` }, { status: 400 })
+    }
+    rowsIgnored += parsed.ignored
+    for (const r of parsed.rows) allRows.push({ ...r, statementRef: st.name })
+    for (const u of parsed.unknownKeys) {
+      const f = unknownMap.get(u.invoiceKey) ?? { invoiceKey: u.invoiceKey, count: 0, totalAmount: 0, sampleOrderIds: [] }
+      f.count += u.count
+      f.totalAmount = round2(f.totalAmount + u.totalAmount)
+      for (const oid of u.sampleOrderIds) if (f.sampleOrderIds.length < 5 && !f.sampleOrderIds.includes(oid)) f.sampleOrderIds.push(oid)
+      unknownMap.set(u.invoiceKey, f)
+    }
   }
-  if (parsed.rows.length === 0) {
-    return NextResponse.json({ error: 'No order-related billing rows found in the file.' }, { status: 400 })
+  if (allRows.length === 0) {
+    return NextResponse.json({ error: 'No order-related billing rows found in the file(s).' }, { status: 400 })
   }
 
   // 1. Upsert every parsed line (idempotent on dedupe_key).
-  const values = parsed.rows.map(r => Prisma.sql`(${randomUUID()}, ${r.invoiceKey}, ${r.valueDate ? new Date(r.valueDate) : null}, ${r.orderId}, ${r.sku}, ${r.designation}, ${r.amount}, ${r.currency}, ${statementRef}, ${dedupeKey(r)})`)
+  const values = allRows.map(r => Prisma.sql`(${randomUUID()}, ${r.invoiceKey}, ${r.valueDate ? new Date(r.valueDate) : null}, ${r.orderId}, ${r.sku}, ${r.designation}, ${r.amount}, ${r.currency}, ${r.statementRef}, ${dedupeKey(r)})`)
   // Chunk to keep parameter counts sane.
   const CHUNK = 500
   for (let i = 0; i < values.length; i += CHUNK) {
@@ -63,7 +89,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 2. Recompute affected orders from ALL stored entries (not just this file).
-  const orderIds = Array.from(new Set(parsed.rows.map(r => r.orderId)))
+  const orderIds = Array.from(new Set(allRows.map(r => r.orderId)))
 
   const salesRows = await prisma.$queryRaw<{ order_id: string; sku: string | null; sales: number }[]>`
     SELECT order_id, sku, SUM(amount)::float8 AS sales
@@ -136,9 +162,9 @@ export async function POST(req: NextRequest) {
   for (const oid of orderIds) if (!foundIds.has(oid)) unmatchedOrders.push(oid)
 
   return NextResponse.json({
-    statementRef,
-    rowsParsed: parsed.rows.length,
-    rowsIgnored: parsed.ignored,
+    statements: statements.length,
+    rowsParsed: allRows.length,
+    rowsIgnored,
     ordersInStatement: orderIds.length,
     ordersMatched: orders.length,
     ordersUpdated,
@@ -146,6 +172,6 @@ export async function POST(req: NextRequest) {
     unmatchedOrders: unmatchedOrders.slice(0, 100),
     unmatchedCount: unmatchedOrders.length,
     corrections: corrections.slice(0, 200),
-    unknownKeys: parsed.unknownKeys,
+    unknownKeys: Array.from(unknownMap.values()),
   })
 }

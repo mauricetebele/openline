@@ -15,7 +15,7 @@ type Entry = {
 }
 
 type ImportResult = {
-  statementRef: string | null
+  statements: number
   rowsParsed: number
   rowsIgnored: number
   ordersInStatement: number
@@ -33,6 +33,9 @@ const KEY_LABEL: Record<string, string> = {
   sales: 'Sale',
   sales_fees: 'Commission',
   payment_fees: 'Payment fee',
+  affirm_fees: 'Payment fee (Affirm)',
+  paypal_fees: 'Payment fee (PayPal)',
+  klarna_fees: 'Payment fee (Klarna)',
   ccbm_fees: 'Customer Care fee',
   deals_commission_discount: 'Commission discount',
   avoir_sales_fees: 'Commission refund',
@@ -161,20 +164,23 @@ export default function BackMarketFinancials() {
 }
 
 function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [csv, setCsv] = useState('')
-  const [fileName, setFileName] = useState('')
+  const [files, setFiles] = useState<{ name: string; csv: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   const [result, setResult] = useState<ImportResult | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0]
-    if (!f) return
-    setFileName(f.name)
-    const reader = new FileReader()
-    reader.onload = () => setCsv(reader.result as string)
-    reader.readAsText(f)
+  function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const list = Array.from(e.target.files ?? [])
+    if (list.length === 0) return
+    Promise.all(list.map(f => new Promise<{ name: string; csv: string }>(resolve => {
+      const reader = new FileReader()
+      reader.onload = () => resolve({ name: f.name, csv: reader.result as string })
+      reader.readAsText(f)
+    }))).then(loaded => setFiles(prev => {
+      const names = new Set(prev.map(p => p.name))
+      return [...prev, ...loaded.filter(l => !names.has(l.name))]
+    }))
     e.target.value = ''
   }
 
@@ -184,7 +190,7 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
       const res = await fetch('/api/backmarket/import-billing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csv, statementRef: fileName || undefined }),
+        body: JSON.stringify({ statements: files }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Import failed')
@@ -210,7 +216,7 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
             <div className="space-y-3">
               <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-4 py-3">
                 <CheckCircle2 size={16} />
-                Imported {result.rowsParsed} entries · {result.ordersMatched}/{result.ordersInStatement} orders matched · {result.itemsRepriced} item prices corrected
+                Imported {result.rowsParsed} entries from {result.statements} statement{result.statements === 1 ? '' : 's'} · {result.ordersMatched}/{result.ordersInStatement} orders matched · {result.itemsRepriced} item prices corrected
               </div>
               {result.unknownKeys.length > 0 && (
                 <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-3">
@@ -231,7 +237,7 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
                 </div>
               )}
               {result.unmatchedCount > 0 && (
-                <p className="text-xs text-amber-600">{result.unmatchedCount} order(s) in the statement weren&apos;t found in the system (not synced).</p>
+                <p className="text-xs text-gray-500">{result.unmatchedCount} order(s) aren&apos;t in the system — ignored for profitability, but their entries are stored and searchable in the Explorer.</p>
               )}
               {result.corrections.length > 0 && (
                 <div className="rounded-lg border border-gray-200 overflow-hidden">
@@ -262,11 +268,22 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => fileRef.current?.click()}
                   className="flex items-center gap-2 h-9 px-3 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">
-                  <Upload size={14} /> Choose CSV
+                  <Upload size={14} /> Choose CSV file(s)
                 </button>
-                {fileName && <span className="text-xs text-gray-500">{fileName}</span>}
-                <input ref={fileRef} type="file" accept=".csv,.txt" onChange={onFile} className="hidden" />
+                {files.length > 0 && <span className="text-xs text-gray-500">{files.length} file{files.length === 1 ? '' : 's'} selected</span>}
+                <input ref={fileRef} type="file" accept=".csv,.txt" multiple onChange={onFiles} className="hidden" />
               </div>
+              {files.length > 0 && (
+                <div className="rounded-lg border border-gray-200 divide-y divide-gray-100">
+                  {files.map(f => (
+                    <div key={f.name} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                      <span className="font-mono text-gray-600 truncate">{f.name}</span>
+                      <button type="button" onClick={() => setFiles(prev => prev.filter(p => p.name !== f.name))}
+                        className="text-gray-400 hover:text-red-500 shrink-0 ml-2"><X size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
               {err && <div className="flex items-center gap-2 text-sm text-red-600"><AlertTriangle size={14} /> {err}</div>}
             </>
           )}
@@ -278,7 +295,7 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
           ) : (
             <>
               <button type="button" onClick={onClose} className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-              <button type="button" onClick={run} disabled={saving || !csv.trim()}
+              <button type="button" onClick={run} disabled={saving || files.length === 0}
                 className="flex items-center gap-2 h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-medium hover:opacity-90 disabled:opacity-50">
                 {saving ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />} Import
               </button>
