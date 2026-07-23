@@ -14,6 +14,7 @@ type Entry = {
   amount: number
   currency: string | null
   statement_ref: string | null
+  rmaInfo?: { numbers: string[]; received: number; total: number } | null
 }
 
 type ImportResult = {
@@ -172,13 +173,14 @@ export default function BackMarketFinancials() {
                   </span>
                 </th>
               ))}
+              <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Return</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={7} className="px-3 py-10 text-center text-gray-400">Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400">
+              <tr><td colSpan={7} className="px-3 py-10 text-center text-gray-400">
                 {search ? 'No entries match your search.' : 'No billing entries yet — import a statement.'}
               </td></tr>
             ) : rows.map(r => (
@@ -201,6 +203,22 @@ export default function BackMarketFinancials() {
                 <td className="px-3 py-1.5 font-mono text-gray-500 max-w-[220px] truncate" title={r.designation ?? ''}>{r.sku ?? '—'}</td>
                 <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{r.value_date ? new Date(r.value_date).toLocaleDateString() : '—'}</td>
                 <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${r.amount < 0 ? 'text-red-600' : 'text-green-700'}`}>{fmt(r.amount)}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  {r.rmaInfo === undefined ? (
+                    <span className="text-gray-300">—</span>
+                  ) : r.rmaInfo === null ? (
+                    <span className="text-[11px] font-semibold text-red-600">No RMA Exists!</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-[11px]">
+                      <span
+                        className={`h-2 w-2 rounded-full shrink-0 ${r.rmaInfo.total > 0 && r.rmaInfo.received >= r.rmaInfo.total ? 'bg-green-500' : 'bg-amber-500'}`}
+                        title={r.rmaInfo.total > 0 && r.rmaInfo.received >= r.rmaInfo.total ? 'All units received' : 'Not all units received'}
+                      />
+                      <span className="font-mono text-gray-700">{r.rmaInfo.numbers.join(', ')}</span>
+                      <span className="text-gray-500">{r.rmaInfo.received}/{r.rmaInfo.total} Received</span>
+                    </span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

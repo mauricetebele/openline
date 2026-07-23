@@ -82,7 +82,46 @@ export async function GET(req: NextRequest) {
     ? await prisma.order.findMany({ where: { amazonOrderId: { in: pageOrderIds }, orderSource: 'backmarket' }, select: { amazonOrderId: true } })
     : []
   const existSet = new Set(existing.map(o => o.amazonOrderId))
-  const data = rows.map(r => ({ ...r, order_exists: r.order_id ? existSet.has(r.order_id) : null }))
+
+  // For refund rows whose order exists, look up the associated return (RMA) and
+  // its receive progress (units received / units returned).
+  const refundOrderIds = Array.from(new Set(
+    rows.filter(r => r.invoice_key === 'refunds' && r.order_id && existSet.has(r.order_id)).map(r => r.order_id),
+  ))
+  const rmaMap = new Map<string, { numbers: string[]; received: number; total: number }>()
+  if (refundOrderIds.length > 0) {
+    const rmaRows = await prisma.$queryRaw<{ order_id: string; rma_numbers: string[]; total_units: number; received: number }[]>`
+      WITH rma_orders AS (
+        SELECT o."amazonOrderId" AS order_id, o.id AS oid, r.id AS rma_id, r."rmaNumber"
+        FROM marketplace_rmas r JOIN orders o ON o.id = r."orderId"
+        WHERE o."amazonOrderId" = ANY(${refundOrderIds}::text[]) AND o."orderSource" = 'backmarket'
+      ),
+      qty AS ( -- denominator = total units SOLD on the order
+        SELECT ro.order_id, SUM(oi."quantityOrdered")::int AS total_units
+        FROM (SELECT DISTINCT order_id, oid FROM rma_orders) ro
+        JOIN order_items oi ON oi."orderId" = ro.oid
+        GROUP BY ro.order_id
+      ),
+      recv AS ( -- numerator = returned units received into the system
+        SELECT ro.order_id, COUNT(s.id) FILTER (WHERE s."receivedAt" IS NOT NULL)::int AS received
+        FROM rma_orders ro
+        JOIN marketplace_rma_items mi ON mi."rmaId" = ro.rma_id
+        JOIN marketplace_rma_serials s ON s."rmaItemId" = mi.id
+        GROUP BY ro.order_id
+      ),
+      nums AS (SELECT order_id, array_agg(DISTINCT "rmaNumber") AS rma_numbers FROM rma_orders GROUP BY order_id)
+      SELECT n.order_id, n.rma_numbers, COALESCE(q.total_units, 0) AS total_units, COALESCE(rc.received, 0) AS received
+      FROM nums n LEFT JOIN qty q ON q.order_id = n.order_id LEFT JOIN recv rc ON rc.order_id = n.order_id`
+    for (const rr of rmaRows) rmaMap.set(rr.order_id, { numbers: rr.rma_numbers, received: Number(rr.received), total: Number(rr.total_units) })
+  }
+
+  const data = rows.map(r => {
+    const base = { ...r, order_exists: r.order_id ? existSet.has(r.order_id) : null }
+    if (r.invoice_key === 'refunds' && r.order_id && existSet.has(r.order_id)) {
+      return { ...base, rmaInfo: rmaMap.get(r.order_id) ?? null }
+    }
+    return base
+  })
 
   return NextResponse.json({
     data,
