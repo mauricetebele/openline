@@ -17,7 +17,7 @@ import { Prisma } from '@prisma/client'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
-import { parseBmBilling } from '@/lib/backmarket/parse-billing'
+import { parseBmBilling, FEE_KEYS } from '@/lib/backmarket/parse-billing'
 import { randomUUID } from 'crypto'
 
 export const dynamic = 'force-dynamic'
@@ -70,13 +70,15 @@ export async function POST(req: NextRequest) {
     FROM bm_billing_entries
     WHERE invoice_key = 'sales' AND order_id = ANY(${orderIds}::text[])
     GROUP BY order_id, sku`
-  // `refunds` are intentionally excluded from the profitability fee figure for now
-  // (return/refund impact will be modelled separately). They are still stored in
-  // bm_billing_entries and shown in the Financial Explorer.
+  // Only KNOWN fee keys count toward the profitability fee figure (whitelist),
+  // so an unrecognised transaction type can never silently affect profit.
+  // `refunds` are deliberately left out for now (returns modelled separately);
+  // every entry is still stored in bm_billing_entries / the Financial Explorer.
+  const feeKeys = [...FEE_KEYS]
   const feeRows = await prisma.$queryRaw<{ order_id: string; net_fees: number }[]>`
     SELECT order_id, SUM(amount)::float8 AS net_fees
     FROM bm_billing_entries
-    WHERE invoice_key NOT IN ('sales', 'refunds') AND order_id = ANY(${orderIds}::text[])
+    WHERE invoice_key = ANY(${feeKeys}::text[]) AND order_id = ANY(${orderIds}::text[])
     GROUP BY order_id`
 
   const salesByOrderSku = new Map<string, number>() // `${orderId}|${sku}` -> sales
@@ -144,5 +146,6 @@ export async function POST(req: NextRequest) {
     unmatchedOrders: unmatchedOrders.slice(0, 100),
     unmatchedCount: unmatchedOrders.length,
     corrections: corrections.slice(0, 200),
+    unknownKeys: parsed.unknownKeys,
   })
 }

@@ -23,6 +23,7 @@ type ImportResult = {
   itemsRepriced: number
   unmatchedCount: number
   corrections: { orderId: string; oldTotal: number; newTotal: number }[]
+  unknownKeys: { invoiceKey: string; count: number; totalAmount: number; sampleOrderIds: string[] }[]
 }
 
 const fmt = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -211,6 +212,24 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
                 <CheckCircle2 size={16} />
                 Imported {result.rowsParsed} entries · {result.ordersMatched}/{result.ordersInStatement} orders matched · {result.itemsRepriced} item prices corrected
               </div>
+              {result.unknownKeys.length > 0 && (
+                <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-amber-800">
+                    <AlertTriangle size={16} /> Unknown transaction type{result.unknownKeys.length > 1 ? 's' : ''} found — not counted in profit
+                  </div>
+                  <p className="text-xs text-amber-700 mt-1">
+                    These weren&apos;t recognised, so they were stored but excluded from the fee/profit figures. Tell me how each should be treated and I&apos;ll add it.
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {result.unknownKeys.map(u => (
+                      <div key={u.invoiceKey} className="flex items-center justify-between text-xs font-mono text-amber-900">
+                        <span>{u.invoiceKey} <span className="text-amber-600">×{u.count}</span></span>
+                        <span className="tabular-nums">{fmt(u.totalAmount)}{u.sampleOrderIds[0] ? ` · e.g. #${u.sampleOrderIds[0]}` : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {result.unmatchedCount > 0 && (
                 <p className="text-xs text-amber-600">{result.unmatchedCount} order(s) in the statement weren&apos;t found in the system (not synced).</p>
               )}

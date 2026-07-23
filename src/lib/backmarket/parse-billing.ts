@@ -27,16 +27,37 @@ export type BmBillingRow = {
   currency: string | null
 }
 
+export type UnknownKeyFlag = {
+  invoiceKey: string
+  count: number
+  totalAmount: number
+  sampleOrderIds: string[]
+}
+
 export type ParsedBmBilling = {
   rows: BmBillingRow[]
   totalRows: number
   ignored: number
+  /** invoice_keys not in KNOWN_INVOICE_KEYS — surfaced so the user can review. */
+  unknownKeys: UnknownKeyFlag[]
 }
 
 /** invoice_keys whose order id lives at the end of the designation column. */
 const ORDER_ID_IN_DESIGNATION = new Set(['deals_commission_discount', 'avoir_sales_fees'])
 /** invoice_keys that are not order-related and must be skipped. */
 const IGNORED_KEYS = new Set(['deferred_payout_retained', 'deferred_payout_released'])
+
+/** invoice_keys that count as marketplace fees in profitability (whitelist). */
+export const FEE_KEYS = [
+  'sales_fees', 'payment_fees', 'ccbm_fees', 'credit_requests',
+  'deals_commission_discount', 'avoir_sales_fees',
+  'sales_dp_adjustment', 'dp_adjustment_fee', 'dp_adjustment_fee_refund',
+] as const
+
+/** Every recognised invoice_key. Anything else is flagged as unknown on import. */
+export const KNOWN_INVOICE_KEYS = new Set<string>([
+  'sales', 'refunds', 'deferred_payout_retained', 'deferred_payout_released', ...FEE_KEYS,
+])
 
 /** Split one CSV line, honouring double-quoted fields that may contain commas. */
 function splitCsvLine(line: string): string[] {
@@ -62,7 +83,7 @@ function splitCsvLine(line: string): string[] {
 
 export function parseBmBilling(csv: string): ParsedBmBilling {
   const lines = csv.split(/\r?\n/).filter(l => l.trim().length > 0)
-  if (lines.length === 0) return { rows: [], totalRows: 0, ignored: 0 }
+  if (lines.length === 0) return { rows: [], totalRows: 0, ignored: 0, unknownKeys: [] }
 
   const header = splitCsvLine(lines[0]).map(h => h.trim().toLowerCase())
   const col = {
@@ -79,6 +100,7 @@ export function parseBmBilling(csv: string): ParsedBmBilling {
   }
 
   const rows: BmBillingRow[] = []
+  const unknown = new Map<string, UnknownKeyFlag>()
   let ignored = 0
   for (let i = 1; i < lines.length; i++) {
     const c = splitCsvLine(lines[i])
@@ -93,6 +115,16 @@ export function parseBmBilling(csv: string): ParsedBmBilling {
       orderId = m ? m[1] : ''
     }
     const amount = parseFloat((c[col.amount] ?? '').trim())
+
+    // Flag any unrecognised transaction type so nothing is silently miscategorised.
+    if (!KNOWN_INVOICE_KEYS.has(invoiceKey)) {
+      const f = unknown.get(invoiceKey) ?? { invoiceKey, count: 0, totalAmount: 0, sampleOrderIds: [] }
+      f.count++
+      if (Number.isFinite(amount)) f.totalAmount = Math.round((f.totalAmount + amount) * 100) / 100
+      if (orderId && f.sampleOrderIds.length < 5 && !f.sampleOrderIds.includes(orderId)) f.sampleOrderIds.push(orderId)
+      unknown.set(invoiceKey, f)
+    }
+
     if (!orderId || !Number.isFinite(amount)) { ignored++; continue }
 
     rows.push({
@@ -106,7 +138,7 @@ export function parseBmBilling(csv: string): ParsedBmBilling {
     })
   }
 
-  return { rows, totalRows: lines.length - 1, ignored }
+  return { rows, totalRows: lines.length - 1, ignored, unknownKeys: Array.from(unknown.values()) }
 }
 
 /** Keys that represent revenue (the item sale price). */

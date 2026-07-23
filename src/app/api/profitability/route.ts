@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { Prisma } from '@prisma/client'
+import { FEE_KEYS } from '@/lib/backmarket/parse-billing'
 
 export async function GET(req: NextRequest) {
   const user = await getAuthUser()
@@ -618,7 +619,7 @@ export async function GET(req: NextRequest) {
     const bd = await prisma.$queryRaw<{ order_id: string; invoice_key: string; amount: number }[]>`
       SELECT order_id, invoice_key, SUM(amount)::float8 AS amount
       FROM bm_billing_entries
-      WHERE order_id = ANY(${bmIds}::text[]) AND invoice_key NOT IN ('sales', 'refunds')
+      WHERE order_id = ANY(${bmIds}::text[]) AND invoice_key = ANY(${[...FEE_KEYS]}::text[])
       GROUP BY order_id, invoice_key`
     const byOrder = new Map<string, { key: string; amount: number }[]>()
     for (const b of bd) {
