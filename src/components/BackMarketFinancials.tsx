@@ -7,6 +7,7 @@ type Entry = {
   invoice_key: string
   value_date: string | null
   order_id: string
+  order_exists: boolean | null
   orderline_id: string | null
   sku: string | null
   designation: string | null
@@ -103,7 +104,7 @@ export default function BackMarketFinancials() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search by order #, SKU, or type…"
+            placeholder="Search by order #, SKU, type, or $ amount…"
             className="h-9 w-80 rounded-md border border-gray-300 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
           />
         </div>
@@ -117,6 +118,10 @@ export default function BackMarketFinancials() {
           {types.map(t => <option key={t} value={t}>{KEY_LABEL[t] ?? t}</option>)}
         </select>
         <div className="flex-1" />
+        <div className="flex items-center gap-2 text-[10px] text-gray-400">
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" /> in system</span>
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> not in system</span>
+        </div>
         <div className="text-xs text-gray-500">
           {total.toLocaleString()} entr{total === 1 ? 'y' : 'ies'} · net {fmt(amountSum)}
         </div>
@@ -169,7 +174,17 @@ export default function BackMarketFinancials() {
               </td></tr>
             ) : rows.map(r => (
               <tr key={r.id} className="hover:bg-gray-50">
-                <td className="px-3 py-1.5 font-mono text-gray-800 whitespace-nowrap">{r.order_id || '—'}</td>
+                <td className="px-3 py-1.5 font-mono text-gray-800 whitespace-nowrap">
+                  {r.order_id ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span
+                        className={`inline-block h-2 w-2 rounded-full shrink-0 ${r.order_exists ? 'bg-green-500' : 'bg-red-500'}`}
+                        title={r.order_exists ? 'Order exists in system' : 'Order not in system'}
+                      />
+                      {r.order_id}
+                    </span>
+                  ) : '—'}
+                </td>
                 <td className="px-3 py-1.5 font-mono text-gray-500 whitespace-nowrap">{r.orderline_id ?? '—'}</td>
                 <td className="px-3 py-1.5 whitespace-nowrap">
                   <span className="text-gray-700" title={r.invoice_key}>{KEY_LABEL[r.invoice_key] ?? r.invoice_key}</span>

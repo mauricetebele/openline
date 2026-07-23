@@ -47,7 +47,15 @@ export async function GET(req: NextRequest) {
   const orderBy = Prisma.sql`ORDER BY ${Prisma.raw(sortCol)} ${dir} NULLS LAST, order_id`
 
   const conds: Prisma.Sql[] = []
-  if (search) conds.push(Prisma.sql`(order_id = ${search} OR orderline_id = ${search} OR order_id ILIKE ${'%' + search + '%'} OR orderline_id ILIKE ${'%' + search + '%'} OR sku ILIKE ${'%' + search + '%'} OR invoice_key ILIKE ${'%' + search + '%'})`)
+  if (search) {
+    // If the search is numeric, also match by amount magnitude (so "26" finds
+    // both +26 and −26). Strip $ and commas first.
+    const numeric = parseFloat(search.replace(/[$,\s]/g, ''))
+    const amountClause = Number.isFinite(numeric)
+      ? Prisma.sql` OR ABS(amount) = ${Math.abs(numeric)}`
+      : Prisma.empty
+    conds.push(Prisma.sql`(order_id = ${search} OR orderline_id = ${search} OR order_id ILIKE ${'%' + search + '%'} OR orderline_id ILIKE ${'%' + search + '%'} OR sku ILIKE ${'%' + search + '%'} OR invoice_key ILIKE ${'%' + search + '%'}${amountClause})`)
+  }
   if (type) conds.push(Prisma.sql`invoice_key = ${type}`)
   const where = conds.length > 0 ? Prisma.sql`WHERE ${Prisma.join(conds, ' AND ')}` : Prisma.empty
 
@@ -63,8 +71,16 @@ export async function GET(req: NextRequest) {
     prisma.$queryRaw<{ invoice_key: string }[]>`SELECT DISTINCT invoice_key FROM bm_billing_entries ORDER BY invoice_key`,
   ])
 
+  // Flag whether each entry's order exists in our system (BackMarket order).
+  const pageOrderIds = Array.from(new Set(rows.map(r => r.order_id).filter(Boolean)))
+  const existing = pageOrderIds.length > 0
+    ? await prisma.order.findMany({ where: { amazonOrderId: { in: pageOrderIds }, orderSource: 'backmarket' }, select: { amazonOrderId: true } })
+    : []
+  const existSet = new Set(existing.map(o => o.amazonOrderId))
+  const data = rows.map(r => ({ ...r, order_exists: r.order_id ? existSet.has(r.order_id) : null }))
+
   return NextResponse.json({
-    data: rows,
+    data,
     total: Number(countRows[0]?.total ?? 0),
     amountSum: sumRows[0]?.amount_sum ?? 0,
     types: typeRows.map(t => t.invoice_key),
