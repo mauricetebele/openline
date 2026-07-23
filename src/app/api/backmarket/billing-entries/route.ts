@@ -32,29 +32,42 @@ export async function GET(req: NextRequest) {
 
   const sp = req.nextUrl.searchParams
   const search = sp.get('search')?.trim() ?? ''
+  const type = sp.get('type')?.trim() ?? ''
   const page = Math.max(1, parseInt(sp.get('page') ?? '1', 10) || 1)
   const pageSize = Math.min(200, Math.max(1, parseInt(sp.get('pageSize') ?? '100', 10) || 100))
   const offset = (page - 1) * pageSize
 
-  const where = search
-    ? Prisma.sql`WHERE order_id = ${search} OR orderline_id = ${search} OR order_id ILIKE ${'%' + search + '%'} OR orderline_id ILIKE ${'%' + search + '%'} OR sku ILIKE ${'%' + search + '%'} OR invoice_key ILIKE ${'%' + search + '%'}`
-    : Prisma.empty
+  // Whitelisted sort columns (raw column name is safe — never user-supplied text).
+  const SORT_COLS: Record<string, string> = {
+    order_id: 'order_id', orderline_id: 'orderline_id', invoice_key: 'invoice_key',
+    sku: 'sku', value_date: 'value_date', amount: 'amount',
+  }
+  const sortCol = SORT_COLS[sp.get('sort') ?? ''] ?? 'value_date'
+  const dir = sp.get('dir') === 'asc' ? Prisma.raw('ASC') : Prisma.raw('DESC')
+  const orderBy = Prisma.sql`ORDER BY ${Prisma.raw(sortCol)} ${dir} NULLS LAST, order_id`
 
-  const [rows, countRows, sumRows] = await Promise.all([
+  const conds: Prisma.Sql[] = []
+  if (search) conds.push(Prisma.sql`(order_id = ${search} OR orderline_id = ${search} OR order_id ILIKE ${'%' + search + '%'} OR orderline_id ILIKE ${'%' + search + '%'} OR sku ILIKE ${'%' + search + '%'} OR invoice_key ILIKE ${'%' + search + '%'})`)
+  if (type) conds.push(Prisma.sql`invoice_key = ${type}`)
+  const where = conds.length > 0 ? Prisma.sql`WHERE ${Prisma.join(conds, ' AND ')}` : Prisma.empty
+
+  const [rows, countRows, sumRows, typeRows] = await Promise.all([
     prisma.$queryRaw<Entry[]>`
       SELECT id, invoice_key, value_date, order_id, orderline_id, sku, designation, amount::float8 AS amount, currency, statement_ref
       FROM bm_billing_entries
       ${where}
-      ORDER BY value_date DESC NULLS LAST, order_id
+      ${orderBy}
       LIMIT ${pageSize} OFFSET ${offset}`,
     prisma.$queryRaw<{ total: bigint }[]>`SELECT COUNT(*)::bigint AS total FROM bm_billing_entries ${where}`,
     prisma.$queryRaw<{ amount_sum: number | null }[]>`SELECT SUM(amount)::float8 AS amount_sum FROM bm_billing_entries ${where}`,
+    prisma.$queryRaw<{ invoice_key: string }[]>`SELECT DISTINCT invoice_key FROM bm_billing_entries ORDER BY invoice_key`,
   ])
 
   return NextResponse.json({
     data: rows,
     total: Number(countRows[0]?.total ?? 0),
     amountSum: sumRows[0]?.amount_sum ?? 0,
+    types: typeRows.map(t => t.invoice_key),
     page,
     pageSize,
   })

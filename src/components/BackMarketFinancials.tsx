@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Upload, X, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet } from 'lucide-react'
+import { Search, Upload, X, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 
 type Entry = {
   id: string
@@ -50,7 +50,11 @@ const KEY_LABEL: Record<string, string> = {
 
 export default function BackMarketFinancials() {
   const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [sortKey, setSortKey] = useState('value_date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [rows, setRows] = useState<Entry[]>([])
+  const [types, setTypes] = useState<string[]>([])
   const [total, setTotal] = useState(0)
   const [amountSum, setAmountSum] = useState(0)
   const [page, setPage] = useState(1)
@@ -59,27 +63,34 @@ export default function BackMarketFinancials() {
   const [showImport, setShowImport] = useState(false)
   const pageSize = 100
 
-  const load = useCallback(async (p: number, q: string) => {
+  const load = useCallback(async (p: number, q: string, t: string, sc: string, sd: string) => {
     setLoading(true); setErr('')
     try {
-      const params = new URLSearchParams({ page: String(p), pageSize: String(pageSize) })
+      const params = new URLSearchParams({ page: String(p), pageSize: String(pageSize), sort: sc, dir: sd })
       if (q.trim()) params.set('search', q.trim())
+      if (t) params.set('type', t)
       const res = await fetch(`/api/backmarket/billing-entries?${params}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to load')
       setRows(data.data); setTotal(data.total); setAmountSum(data.amountSum ?? 0)
+      if (data.types) setTypes(data.types)
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to load')
     } finally { setLoading(false) }
   }, [])
 
-  // Debounced search
+  // Filters/sort change → reset to page 1 (debounced for typing)
   useEffect(() => {
-    const t = setTimeout(() => { setPage(1); load(1, search) }, 250)
+    const t = setTimeout(() => { setPage(1); load(1, search, typeFilter, sortKey, sortDir) }, 250)
     return () => clearTimeout(t)
-  }, [search, load])
+  }, [search, typeFilter, sortKey, sortDir, load])
 
-  useEffect(() => { load(page, search) }, [page]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(page, search, typeFilter, sortKey, sortDir) }, [page]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function toggleSort(key: string) {
+    if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortKey(key); setSortDir('asc') }
+  }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
@@ -96,6 +107,15 @@ export default function BackMarketFinancials() {
             className="h-9 w-80 rounded-md border border-gray-300 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
           />
         </div>
+        <select
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+          title="Filter by transaction type"
+          className="h-9 rounded-md border border-gray-300 px-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+        >
+          <option value="">All types</option>
+          {types.map(t => <option key={t} value={t}>{KEY_LABEL[t] ?? t}</option>)}
+        </select>
         <div className="flex-1" />
         <div className="text-xs text-gray-500">
           {total.toLocaleString()} entr{total === 1 ? 'y' : 'ies'} · net {fmt(amountSum)}
@@ -120,12 +140,24 @@ export default function BackMarketFinancials() {
         <table className="min-w-full text-xs">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Order #</th>
-              <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Order Line #</th>
-              <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-              <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
-              <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Date</th>
-              <th className="px-3 py-2 text-right font-semibold text-gray-500 uppercase tracking-wide">Amount</th>
+              {([
+                ['order_id', 'Order #', 'text-left'],
+                ['orderline_id', 'Order Line #', 'text-left'],
+                ['invoice_key', 'Type', 'text-left'],
+                ['sku', 'SKU', 'text-left'],
+                ['value_date', 'Date', 'text-left'],
+                ['amount', 'Amount', 'text-right'],
+              ] as [string, string, string][]).map(([key, label, align]) => (
+                <th key={key} onClick={() => toggleSort(key)}
+                  className={`px-3 py-2 ${align} font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-gray-700`}>
+                  <span className={`inline-flex items-center gap-1 ${align === 'text-right' ? 'flex-row-reverse' : ''}`}>
+                    {label}
+                    {sortKey === key
+                      ? (sortDir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />)
+                      : <ChevronsUpDown size={11} className="text-gray-300" />}
+                  </span>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -162,7 +194,7 @@ export default function BackMarketFinancials() {
         </div>
       )}
 
-      {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); load(1, search); setPage(1) }} />}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); setPage(1); load(1, search, typeFilter, sortKey, sortDir) }} />}
     </div>
   )
 }
