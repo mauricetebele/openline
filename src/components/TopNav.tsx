@@ -93,6 +93,7 @@ const NAV: NavItem[] = [
     icon: BarChart2,
     children: [
       { href: '/profitability',      label: 'Profitability', icon: TrendingUp },
+      { href: '/backmarket-financials', label: 'BM Financials', icon: BookOpen },
       { href: '/sales-stats',        label: 'Sales Stats',   icon: BarChart2 },
       { href: '/return-rates',       label: 'Return Rates',  icon: RotateCcw },
       { href: '/fba-sales-report',   label: 'FBA Sales',     icon: BarChart2 },

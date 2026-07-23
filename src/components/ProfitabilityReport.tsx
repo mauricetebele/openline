@@ -24,6 +24,7 @@ interface ProfitRow {
   costCodeDeductions: number
   netProfit: number
   commissionSynced: boolean
+  feeBreakdown?: { key: string; amount: number }[]
 }
 
 interface LineItemRow extends ProfitRow {
@@ -66,6 +67,37 @@ type SortDir = 'asc' | 'desc'
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+
+const FEE_KEY_LABEL: Record<string, string> = {
+  sales_fees: 'Commission',
+  payment_fees: 'Payment fee',
+  ccbm_fees: 'Customer Care fee',
+  deals_commission_discount: 'Commission discount',
+  avoir_sales_fees: 'Commission refund',
+  credit_requests: 'Credit request',
+  sales_dp_adjustment: 'Adjustment (+)',
+  dp_adjustment_fee: 'Adjustment (−)',
+  dp_adjustment_fee_refund: 'Adjustment reversal',
+}
+
+/** Commission/fee cell — hover reveals the BackMarket fee breakdown when present. */
+function FeeCell({ amount, breakdown }: { amount: number; breakdown?: { key: string; amount: number }[] }) {
+  if (!breakdown || breakdown.length === 0) return <>{fmt.format(amount)}</>
+  return (
+    <span className="relative group inline-block cursor-help border-b border-dotted border-gray-400">
+      {fmt.format(amount)}
+      <span className="hidden group-hover:block absolute right-0 top-full z-30 mt-1 w-56 rounded-lg border border-gray-200 bg-white p-2 text-left shadow-xl dark:bg-gray-800 dark:border-gray-700">
+        <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">BackMarket fee breakdown</span>
+        {breakdown.map(b => (
+          <span key={b.key} className="flex justify-between gap-3 text-xs py-0.5">
+            <span className="text-gray-500 dark:text-gray-400">{FEE_KEY_LABEL[b.key] ?? b.key}</span>
+            <span className={clsx('tabular-nums', b.amount < 0 ? 'text-red-600' : 'text-green-700')}>{fmt.format(b.amount)}</span>
+          </span>
+        ))}
+      </span>
+    </span>
+  )
+}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -162,7 +194,7 @@ function ExpandableRow({ row, index, selected, onToggle }: { row: ProfitRow; ind
         <td className="px-3 py-1.5 text-right">{fmt.format(row.totalCogs)}</td>
         <td className="px-3 py-1.5 text-right">
           {row.commissionSynced
-            ? fmt.format(row.commission)
+            ? <FeeCell amount={row.commission} breakdown={row.feeBreakdown} />
             : <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300">Not synced</span>}
         </td>
         <td className="px-3 py-1.5 text-right">{fmt.format(row.customerShipping)}</td>

@@ -608,6 +608,30 @@ export async function GET(req: NextRequest) {
   const totalCount = finalRows.length
   const paged = finalRows.slice((page - 1) * pageSize, page * pageSize)
 
+  // Attach BackMarket per-fee breakdown (order-level) for hover display. The
+  // `commission` column already shows the net BM fee; this itemises it. Refunds
+  // are excluded (deferred to a future returns model), matching the fee figure.
+  const bmIds = Array.from(new Set(
+    paged.filter(r => r.source === 'backmarket').map(r => r.marketplaceOrderId).filter(Boolean),
+  ))
+  if (bmIds.length > 0) {
+    const bd = await prisma.$queryRaw<{ order_id: string; invoice_key: string; amount: number }[]>`
+      SELECT order_id, invoice_key, SUM(amount)::float8 AS amount
+      FROM bm_billing_entries
+      WHERE order_id = ANY(${bmIds}::text[]) AND invoice_key NOT IN ('sales', 'refunds')
+      GROUP BY order_id, invoice_key`
+    const byOrder = new Map<string, { key: string; amount: number }[]>()
+    for (const b of bd) {
+      const arr = byOrder.get(b.order_id) ?? []
+      arr.push({ key: b.invoice_key, amount: Math.round(b.amount * 100) / 100 })
+      byOrder.set(b.order_id, arr)
+    }
+    for (const r of paged) {
+      const bdRows = r.source === 'backmarket' ? byOrder.get(r.marketplaceOrderId) : undefined
+      if (bdRows) (r as unknown as { feeBreakdown?: unknown }).feeBreakdown = bdRows.sort((a, b) => a.amount - b.amount)
+    }
+  }
+
   return NextResponse.json({
     rows: paged,
     totalCount,
