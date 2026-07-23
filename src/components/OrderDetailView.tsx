@@ -118,7 +118,8 @@ const BM_KEY_LABEL: Record<string, string> = {
   affirm_fees: 'Payment fee (Affirm)', paypal_fees: 'Payment fee (PayPal)', klarna_fees: 'Payment fee (Klarna)',
   ccbm_fees: 'Customer Care fee', deals_commission_discount: 'Commission discount',
   avoir_sales_fees: 'Commission refund', credit_requests: 'Credit request', refunds: 'Refund',
-  monthly_fees: 'Monthly membership fee', sales_dp_adjustment: 'Adjustment (+)',
+  monthly_fees: 'Monthly membership fee', manual_reimbursement: 'Seller Compensation Reimbursement',
+  sales_dp_adjustment: 'Adjustment (+)',
   dp_adjustment_fee: 'Adjustment (−)', dp_adjustment_fee_refund: 'Adjustment reversal',
 }
 const bmMoney = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Upload, X, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { Search, Upload, X, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, ChevronUp, ChevronDown, ChevronsUpDown, Plus } from 'lucide-react'
 
 type Entry = {
   id: string
@@ -44,6 +44,7 @@ const KEY_LABEL: Record<string, string> = {
   credit_requests: 'Credit request',
   refunds: 'Refund',
   monthly_fees: 'Monthly membership fee',
+  manual_reimbursement: 'Seller Compensation Reimbursement',
   sales_dp_adjustment: 'Adjustment (+)',
   dp_adjustment_fee: 'Adjustment (-)',
   dp_adjustment_fee_refund: 'Adjustment reversal',
@@ -62,6 +63,7 @@ export default function BackMarketFinancials() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [showImport, setShowImport] = useState(false)
+  const [showReimb, setShowReimb] = useState(false)
   const pageSize = 100
 
   const load = useCallback(async (p: number, q: string, t: string, sc: string, sd: string) => {
@@ -125,6 +127,13 @@ export default function BackMarketFinancials() {
         <div className="text-xs text-gray-500">
           {total.toLocaleString()} entr{total === 1 ? 'y' : 'ies'} · net {fmt(amountSum)}
         </div>
+        <button
+          type="button"
+          onClick={() => setShowReimb(true)}
+          className="flex items-center gap-2 h-9 px-3 rounded-md border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+        >
+          <Plus size={14} /> Add Reimbursement
+        </button>
         <button
           type="button"
           onClick={() => setShowImport(true)}
@@ -210,6 +219,7 @@ export default function BackMarketFinancials() {
       )}
 
       {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); setPage(1); load(1, search, typeFilter, sortKey, sortDir) }} />}
+      {showReimb && <ReimbursementModal onClose={() => setShowReimb(false)} onDone={() => { setShowReimb(false); setPage(1); load(1, search, typeFilter, sortKey, sortDir) }} />}
     </div>
   )
 }
@@ -349,6 +359,95 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
               <button type="button" onClick={run} disabled={saving || files.length === 0}
                 className="flex items-center gap-2 h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-medium hover:opacity-90 disabled:opacity-50">
                 {saving ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />} Import
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ReimbursementModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [orderId, setOrderId] = useState('')
+  const [amount, setAmount] = useState('')
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  const [done, setDone] = useState<{ orderExists: boolean } | null>(null)
+
+  async function submit() {
+    const amt = parseFloat(amount)
+    if (!orderId.trim()) { setErr('Order # is required'); return }
+    if (!Number.isFinite(amt) || amt === 0) { setErr('Enter a non-zero amount'); return }
+    setSaving(true); setErr('')
+    try {
+      const res = await fetch('/api/backmarket/billing-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: orderId.trim(), amount: amt, date }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to save')
+      setDone({ orderExists: !!data.orderExists })
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to save')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-[420px] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
+          <div className="flex items-center gap-2">
+            <Plus size={16} className="text-amazon-blue" />
+            <h3 className="text-sm font-semibold text-gray-900">Add Seller Compensation Reimbursement</h3>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          {done ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-4 py-3">
+                <CheckCircle2 size={16} /> Reimbursement recorded for order {orderId.trim()}.
+              </div>
+              {!done.orderExists && (
+                <p className="text-xs text-amber-600">Note: this order isn&apos;t in the system, so the entry is stored but not applied to any order&apos;s profit.</p>
+              )}
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Order #</label>
+                <input value={orderId} onChange={e => setOrderId(e.target.value)} placeholder="e.g. 72508106"
+                  className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Amount ($)</label>
+                <input value={amount} onChange={e => setAmount(e.target.value)} type="number" step="0.01" placeholder="0.00"
+                  className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-amazon-blue" />
+                <p className="text-[11px] text-gray-400 mt-1">Positive = credit to you (increases profit).</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+                <input value={date} onChange={e => setDate(e.target.value)} type="date"
+                  className="w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue" />
+              </div>
+              {err && <div className="flex items-center gap-2 text-sm text-red-600"><AlertTriangle size={14} /> {err}</div>}
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t shrink-0">
+          {done ? (
+            <button type="button" onClick={onDone} className="h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-medium hover:opacity-90">Done</button>
+          ) : (
+            <>
+              <button type="button" onClick={onClose} className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+              <button type="button" onClick={submit} disabled={saving}
+                className="flex items-center gap-2 h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-medium hover:opacity-90 disabled:opacity-50">
+                {saving ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Save
               </button>
             </>
           )}

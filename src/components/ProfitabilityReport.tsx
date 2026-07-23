@@ -78,6 +78,7 @@ const FEE_KEY_LABEL: Record<string, string> = {
   deals_commission_discount: 'Commission discount',
   avoir_sales_fees: 'Commission refund',
   credit_requests: 'Credit request',
+  manual_reimbursement: 'Seller Compensation Reimbursement',
   sales_dp_adjustment: 'Adjustment (+)',
   dp_adjustment_fee: 'Adjustment (−)',
   dp_adjustment_fee_refund: 'Adjustment reversal',

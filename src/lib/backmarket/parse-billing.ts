@@ -61,6 +61,7 @@ export const FEE_KEYS = [
   'ccbm_fees', 'credit_requests',
   'deals_commission_discount', 'avoir_sales_fees',
   'sales_dp_adjustment', 'dp_adjustment_fee', 'dp_adjustment_fee_refund',
+  'manual_reimbursement', // manually-entered reimbursement (credit)
 ] as const
 
 /** Every recognised invoice_key. Anything else is flagged as unknown on import. */

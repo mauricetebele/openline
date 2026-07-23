@@ -9,9 +9,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { requireAdmin } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
+import { FEE_KEYS } from '@/lib/backmarket/parse-billing'
+import { randomUUID } from 'crypto'
 
 export const dynamic = 'force-dynamic'
+
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 type Entry = {
   id: string
@@ -87,4 +92,48 @@ export async function GET(req: NextRequest) {
     page,
     pageSize,
   })
+}
+
+/**
+ * POST /api/backmarket/billing-entries
+ * Manually record a Seller Compensation Reimbursement for an order.
+ * Body: { orderId: string, amount: number, date?: string (YYYY-MM-DD) }
+ */
+export async function POST(req: NextRequest) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const adminErr = requireAdmin(user)
+  if (adminErr) return adminErr
+
+  const body = await req.json().catch(() => null)
+  const orderId = typeof body?.orderId === 'string' ? body.orderId.trim() : ''
+  const amount = typeof body?.amount === 'number' ? body.amount : parseFloat(String(body?.amount ?? ''))
+  const dateStr = typeof body?.date === 'string' ? body.date.trim() : ''
+
+  if (!orderId) return NextResponse.json({ error: 'Order # is required' }, { status: 400 })
+  if (!Number.isFinite(amount) || amount === 0) return NextResponse.json({ error: 'A non-zero amount is required' }, { status: 400 })
+  const valueDate = dateStr ? new Date(`${dateStr}T00:00:00Z`) : new Date()
+  if (isNaN(valueDate.getTime())) return NextResponse.json({ error: 'Invalid date' }, { status: 400 })
+
+  const amt = round2(amount)
+  const id = randomUUID()
+  await prisma.$executeRaw`
+    INSERT INTO bm_billing_entries
+      (id, invoice_key, value_date, order_id, orderline_id, sku, designation, amount, currency, statement_ref, dedupe_key)
+    VALUES (${id}, 'manual_reimbursement', ${valueDate}, ${orderId}, NULL, NULL, 'Seller Compensation Reimbursement', ${amt}, 'USD', 'manual', ${'manual|' + id})`
+
+  // Recompute the order's marketplace fees so the reimbursement flows into profit.
+  const order = await prisma.order.findFirst({ where: { amazonOrderId: orderId, orderSource: 'backmarket' }, select: { id: true } })
+  if (order) {
+    const feeKeys = [...FEE_KEYS]
+    const rows = await prisma.$queryRaw<{ net: number | null }[]>`
+      SELECT SUM(amount)::float8 AS net FROM bm_billing_entries
+      WHERE order_id = ${orderId} AND invoice_key = ANY(${feeKeys}::text[])`
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { marketplaceCommission: round2(-(rows[0]?.net ?? 0)), commissionSyncedAt: new Date() },
+    })
+  }
+
+  return NextResponse.json({ ok: true, orderExists: !!order, amount: amt })
 }
