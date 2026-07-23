@@ -106,55 +106,58 @@ export default function BackMarketFinancials() {
   return (
     <div className="flex-1 overflow-auto px-6 py-4 space-y-4">
       {/* Toolbar */}
-      <div className="flex items-center gap-3">
-        <div className="relative">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by order #, SKU, type, or $ amount…"
-            className="h-9 w-80 rounded-md border border-gray-300 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-          />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search by order #, SKU, type, or $ amount…"
+              className="h-9 w-80 max-w-full rounded-md border border-gray-300 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+            />
+          </div>
+          <select
+            value={typeFilter}
+            onChange={e => setTypeFilter(e.target.value)}
+            title="Filter by transaction type"
+            className="h-9 rounded-md border border-gray-300 px-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+          >
+            <option value="">All types</option>
+            {types.map(t => <option key={t} value={t}>{KEY_LABEL[t] ?? t}</option>)}
+          </select>
+          <button
+            type="button"
+            onClick={() => setNeedsReview(v => !v)}
+            title="Show only refunds whose order exists but has no return (RMA), and that are either un-noted or flagged Problematic"
+            className={`flex items-center gap-1.5 h-9 px-3 rounded-md border text-sm font-medium shrink-0 whitespace-nowrap leading-none ${needsReview ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            <AlertTriangle size={14} className="shrink-0" /> Unresolved Refund Without RMA
+          </button>
         </div>
-        <select
-          value={typeFilter}
-          onChange={e => setTypeFilter(e.target.value)}
-          title="Filter by transaction type"
-          className="h-9 rounded-md border border-gray-300 px-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-        >
-          <option value="">All types</option>
-          {types.map(t => <option key={t} value={t}>{KEY_LABEL[t] ?? t}</option>)}
-        </select>
-        <button
-          type="button"
-          onClick={() => setNeedsReview(v => !v)}
-          title="Show only refunds whose order exists but has no return (RMA), and that are either un-noted or flagged Problematic"
-          className={`flex items-center gap-1.5 h-9 px-3 rounded-md border text-sm font-medium shrink-0 whitespace-nowrap leading-none ${needsReview ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-        >
-          <AlertTriangle size={14} className="shrink-0" /> Unresolved Refund Without RMA
-        </button>
-        <div className="flex-1" />
-        <div className="flex items-center gap-2 text-[10px] text-gray-400">
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" /> in system</span>
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> not in system</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-[10px] text-gray-400">
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" /> in system</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> not in system</span>
+          </div>
+          <div className="text-xs text-gray-500">
+            {total.toLocaleString()} entr{total === 1 ? 'y' : 'ies'} · net {fmt(amountSum)}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowReimb(true)}
+            className="flex items-center gap-2 h-9 px-3 rounded-md border border-gray-300 text-gray-700 text-sm font-medium shrink-0 whitespace-nowrap hover:bg-gray-50"
+          >
+            <Plus size={14} /> Add Reimbursement
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 h-9 px-3 rounded-md bg-amazon-blue text-white text-sm font-medium shrink-0 whitespace-nowrap hover:opacity-90"
+          >
+            <Upload size={14} /> Import Statement
+          </button>
         </div>
-        <div className="text-xs text-gray-500">
-          {total.toLocaleString()} entr{total === 1 ? 'y' : 'ies'} · net {fmt(amountSum)}
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowReimb(true)}
-          className="flex items-center gap-2 h-9 px-3 rounded-md border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
-        >
-          <Plus size={14} /> Add Reimbursement
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowImport(true)}
-          className="flex items-center gap-2 h-9 px-3 rounded-md bg-amazon-blue text-white text-sm font-medium hover:opacity-90"
-        >
-          <Upload size={14} /> Import Statement
-        </button>
       </div>
 
       {err && (
