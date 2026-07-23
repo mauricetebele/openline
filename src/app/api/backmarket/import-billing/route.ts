@@ -75,21 +75,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No order-related billing rows found in the file(s).' }, { status: 400 })
   }
 
-  // 1. Upsert every parsed line (idempotent on dedupe_key).
-  const values = allRows.map(r => Prisma.sql`(${randomUUID()}, ${r.invoiceKey}, ${r.valueDate ? new Date(r.valueDate) : null}, ${r.orderId}, ${r.sku}, ${r.designation}, ${r.amount}, ${r.currency}, ${r.statementRef}, ${dedupeKey(r)})`)
-  // Chunk to keep parameter counts sane.
+  // Resolve each identifier: an Order # (matches a BM order) is kept as-is; an
+  // OrderLine # (matches a BM order_item) is resolved to its parent order and the
+  // orderline recorded separately. Anything else is left as-is (order not in our
+  // system). Order-match takes priority so order-level rows are never re-resolved.
+  const rawIds = Array.from(new Set(allRows.map(r => r.orderId).filter(Boolean)))
+  const [orderIdRows, orderlineRows] = await Promise.all([
+    prisma.order.findMany({ where: { amazonOrderId: { in: rawIds }, orderSource: 'backmarket' }, select: { amazonOrderId: true } }),
+    prisma.orderItem.findMany({ where: { orderItemId: { in: rawIds }, order: { orderSource: 'backmarket' } }, select: { orderItemId: true, order: { select: { amazonOrderId: true } } } }),
+  ])
+  const orderSet = new Set(orderIdRows.map(o => o.amazonOrderId))
+  const orderlineMap = new Map(orderlineRows.map(oi => [oi.orderItemId, oi.order.amazonOrderId]))
+  const resolve = (raw: string): { orderId: string; orderlineId: string | null } => {
+    if (!raw || orderSet.has(raw)) return { orderId: raw, orderlineId: null }
+    const parent = orderlineMap.get(raw)
+    return parent ? { orderId: parent, orderlineId: raw } : { orderId: raw, orderlineId: null }
+  }
+
+  // 1. Upsert every parsed line (idempotent on dedupe_key, keyed by the raw id).
+  const values = allRows.map(r => {
+    const res = resolve(r.orderId)
+    return Prisma.sql`(${randomUUID()}, ${r.invoiceKey}, ${r.valueDate ? new Date(r.valueDate) : null}, ${res.orderId}, ${res.orderlineId}, ${r.sku}, ${r.designation}, ${r.amount}, ${r.currency}, ${r.statementRef}, ${dedupeKey(r)})`
+  })
   const CHUNK = 500
   for (let i = 0; i < values.length; i += CHUNK) {
     const slice = values.slice(i, i + CHUNK)
     await prisma.$executeRaw`
       INSERT INTO bm_billing_entries
-        (id, invoice_key, value_date, order_id, sku, designation, amount, currency, statement_ref, dedupe_key)
+        (id, invoice_key, value_date, order_id, orderline_id, sku, designation, amount, currency, statement_ref, dedupe_key)
       VALUES ${Prisma.join(slice)}
       ON CONFLICT (dedupe_key) DO NOTHING`
   }
 
-  // 2. Recompute affected orders from ALL stored entries (not just this file).
-  const orderIds = Array.from(new Set(allRows.map(r => r.orderId)))
+  // 2. Recompute affected orders from ALL stored entries (using resolved order #s).
+  const orderIds = Array.from(new Set(allRows.map(r => resolve(r.orderId).orderId).filter(Boolean)))
 
   const salesRows = await prisma.$queryRaw<{ order_id: string; sku: string | null; sales: number }[]>`
     SELECT order_id, sku, SUM(amount)::float8 AS sales

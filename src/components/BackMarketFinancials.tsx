@@ -7,6 +7,7 @@ type Entry = {
   invoice_key: string
   value_date: string | null
   order_id: string
+  orderline_id: string | null
   sku: string | null
   designation: string | null
   amount: number
@@ -120,6 +121,7 @@ export default function BackMarketFinancials() {
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Order #</th>
+              <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Order Line #</th>
               <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Type</th>
               <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
               <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Date</th>
@@ -128,14 +130,15 @@ export default function BackMarketFinancials() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={5} className="px-3 py-10 text-center text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400">Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={5} className="px-3 py-10 text-center text-gray-400">
+              <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400">
                 {search ? 'No entries match your search.' : 'No billing entries yet — import a statement.'}
               </td></tr>
             ) : rows.map(r => (
               <tr key={r.id} className="hover:bg-gray-50">
-                <td className="px-3 py-1.5 font-mono text-gray-800 whitespace-nowrap">{r.order_id}</td>
+                <td className="px-3 py-1.5 font-mono text-gray-800 whitespace-nowrap">{r.order_id || '—'}</td>
+                <td className="px-3 py-1.5 font-mono text-gray-500 whitespace-nowrap">{r.orderline_id ?? '—'}</td>
                 <td className="px-3 py-1.5 whitespace-nowrap">
                   <span className="text-gray-700" title={r.invoice_key}>{KEY_LABEL[r.invoice_key] ?? r.invoice_key}</span>
                 </td>

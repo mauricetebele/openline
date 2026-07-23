@@ -18,6 +18,7 @@ type Entry = {
   invoice_key: string
   value_date: string | null
   order_id: string
+  orderline_id: string | null
   sku: string | null
   designation: string | null
   amount: number
@@ -36,12 +37,12 @@ export async function GET(req: NextRequest) {
   const offset = (page - 1) * pageSize
 
   const where = search
-    ? Prisma.sql`WHERE order_id = ${search} OR order_id ILIKE ${'%' + search + '%'} OR sku ILIKE ${'%' + search + '%'} OR invoice_key ILIKE ${'%' + search + '%'}`
+    ? Prisma.sql`WHERE order_id = ${search} OR orderline_id = ${search} OR order_id ILIKE ${'%' + search + '%'} OR orderline_id ILIKE ${'%' + search + '%'} OR sku ILIKE ${'%' + search + '%'} OR invoice_key ILIKE ${'%' + search + '%'}`
     : Prisma.empty
 
   const [rows, countRows, sumRows] = await Promise.all([
     prisma.$queryRaw<Entry[]>`
-      SELECT id, invoice_key, value_date, order_id, sku, designation, amount::float8 AS amount, currency, statement_ref
+      SELECT id, invoice_key, value_date, order_id, orderline_id, sku, designation, amount::float8 AS amount, currency, statement_ref
       FROM bm_billing_entries
       ${where}
       ORDER BY value_date DESC NULLS LAST, order_id

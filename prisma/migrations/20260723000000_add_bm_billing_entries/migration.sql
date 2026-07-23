@@ -14,8 +14,12 @@ CREATE TABLE IF NOT EXISTS "bm_billing_entries" (
   "currency"      TEXT,
   "statement_ref" TEXT,
   "dedupe_key"    TEXT NOT NULL,
+  -- Set when the statement referenced an order LINE (order_item) rather than the
+  -- parent order; order_id then holds the resolved parent order.
+  "orderline_id"  TEXT,
   "created_at"    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "bm_billing_entries_dedupe_key_idx" ON "bm_billing_entries" ("dedupe_key");
 CREATE INDEX IF NOT EXISTS "bm_billing_entries_order_id_idx" ON "bm_billing_entries" ("order_id");
 CREATE INDEX IF NOT EXISTS "bm_billing_entries_invoice_key_idx" ON "bm_billing_entries" ("invoice_key");
+CREATE INDEX IF NOT EXISTS "bm_billing_entries_orderline_id_idx" ON "bm_billing_entries" ("orderline_id");
