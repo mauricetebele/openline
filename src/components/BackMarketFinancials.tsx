@@ -41,6 +41,7 @@ const KEY_LABEL: Record<string, string> = {
   avoir_sales_fees: 'Commission refund',
   credit_requests: 'Credit request',
   refunds: 'Refund',
+  monthly_fees: 'Monthly membership fee',
   sales_dp_adjustment: 'Adjustment (+)',
   dp_adjustment_fee: 'Adjustment (-)',
   dp_adjustment_fee_refund: 'Adjustment reversal',

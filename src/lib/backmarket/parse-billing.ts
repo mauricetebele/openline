@@ -44,8 +44,15 @@ export type ParsedBmBilling = {
 
 /** invoice_keys whose order id lives at the end of the designation column. */
 const ORDER_ID_IN_DESIGNATION = new Set(['deals_commission_discount', 'avoir_sales_fees'])
-/** invoice_keys that are not order-related and must be skipped. */
+/** invoice_keys that are not order-related and must be skipped entirely. */
 const IGNORED_KEYS = new Set(['deferred_payout_retained', 'deferred_payout_released'])
+
+/**
+ * Known account-level keys (not tied to a specific order). These are STILL
+ * stored (searchable in the Financial Explorer) even when they carry no order
+ * id, but they never count toward per-order profitability.
+ */
+const ACCOUNT_LEVEL_KEYS = new Set(['monthly_fees'])
 
 /** invoice_keys that count as marketplace fees in profitability (whitelist). */
 export const FEE_KEYS = [
@@ -58,7 +65,7 @@ export const FEE_KEYS = [
 
 /** Every recognised invoice_key. Anything else is flagged as unknown on import. */
 export const KNOWN_INVOICE_KEYS = new Set<string>([
-  'sales', 'refunds', 'deferred_payout_retained', 'deferred_payout_released', ...FEE_KEYS,
+  'sales', 'refunds', 'monthly_fees', 'deferred_payout_retained', 'deferred_payout_released', ...FEE_KEYS,
 ])
 
 /** Split one CSV line, honouring double-quoted fields that may contain commas. */
@@ -127,7 +134,11 @@ export function parseBmBilling(csv: string): ParsedBmBilling {
       unknown.set(invoiceKey, f)
     }
 
-    if (!orderId || !Number.isFinite(amount)) { ignored++; continue }
+    if (!Number.isFinite(amount)) { ignored++; continue }
+    // Account-level entries (e.g. monthly membership fee) may have no order id —
+    // still stored (Explorer), just never applied to an order. Order-level rows
+    // without an order id are data anomalies and skipped.
+    if (!orderId && !ACCOUNT_LEVEL_KEYS.has(invoiceKey)) { ignored++; continue }
 
     rows.push({
       invoiceKey,
