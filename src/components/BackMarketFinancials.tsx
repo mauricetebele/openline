@@ -58,6 +58,7 @@ export default function BackMarketFinancials() {
   const [typeFilter, setTypeFilter] = useState('')
   const [sortKey, setSortKey] = useState('value_date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [needsReview, setNeedsReview] = useState(false)
   const [rows, setRows] = useState<Entry[]>([])
   const [types, setTypes] = useState<string[]>([])
   const [total, setTotal] = useState(0)
@@ -70,12 +71,13 @@ export default function BackMarketFinancials() {
   const [noteTarget, setNoteTarget] = useState<Entry | null>(null)
   const pageSize = 100
 
-  const load = useCallback(async (p: number, q: string, t: string, sc: string, sd: string) => {
+  const load = useCallback(async (p: number, q: string, t: string, sc: string, sd: string, nr: boolean) => {
     setLoading(true); setErr('')
     try {
       const params = new URLSearchParams({ page: String(p), pageSize: String(pageSize), sort: sc, dir: sd })
       if (q.trim()) params.set('search', q.trim())
       if (t) params.set('type', t)
+      if (nr) params.set('needsReview', '1')
       const res = await fetch(`/api/backmarket/billing-entries?${params}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to load')
@@ -88,11 +90,11 @@ export default function BackMarketFinancials() {
 
   // Filters/sort change → reset to page 1 (debounced for typing)
   useEffect(() => {
-    const t = setTimeout(() => { setPage(1); load(1, search, typeFilter, sortKey, sortDir) }, 250)
+    const t = setTimeout(() => { setPage(1); load(1, search, typeFilter, sortKey, sortDir, needsReview) }, 250)
     return () => clearTimeout(t)
-  }, [search, typeFilter, sortKey, sortDir, load])
+  }, [search, typeFilter, sortKey, sortDir, needsReview, load])
 
-  useEffect(() => { load(page, search, typeFilter, sortKey, sortDir) }, [page]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(page, search, typeFilter, sortKey, sortDir, needsReview) }, [page]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleSort(key: string) {
     if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
@@ -123,6 +125,14 @@ export default function BackMarketFinancials() {
           <option value="">All types</option>
           {types.map(t => <option key={t} value={t}>{KEY_LABEL[t] ?? t}</option>)}
         </select>
+        <button
+          type="button"
+          onClick={() => setNeedsReview(v => !v)}
+          title="Show only refunds whose order exists but has no return (RMA), and that are either un-noted or flagged Problematic"
+          className={`flex items-center gap-1.5 h-9 px-3 rounded-md border text-sm font-medium ${needsReview ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+        >
+          <AlertTriangle size={14} /> Unresolved Refund Without RMA
+        </button>
         <div className="flex-1" />
         <div className="flex items-center gap-2 text-[10px] text-gray-400">
           <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" /> in system</span>
@@ -211,7 +221,7 @@ export default function BackMarketFinancials() {
                     <span className="text-gray-300">—</span>
                   ) : r.rmaInfo === null ? (
                     <span className="inline-flex items-center gap-2">
-                      <span className="text-[11px] font-semibold text-red-600">No RMA Exists!</span>
+                      <span className={`text-[11px] font-semibold ${r.note && !r.problematic ? 'text-green-600' : 'text-red-600'}`}>No RMA Exists!</span>
                       {r.note ? (
                         <button type="button" onClick={() => setNoteTarget(r)} title={r.note}
                           className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${r.problematic ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
@@ -252,9 +262,9 @@ export default function BackMarketFinancials() {
         </div>
       )}
 
-      {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); setPage(1); load(1, search, typeFilter, sortKey, sortDir) }} />}
-      {showReimb && <ReimbursementModal onClose={() => setShowReimb(false)} onDone={() => { setShowReimb(false); setPage(1); load(1, search, typeFilter, sortKey, sortDir) }} />}
-      {noteTarget && <NoteModal entry={noteTarget} onClose={() => setNoteTarget(null)} onDone={() => { setNoteTarget(null); load(page, search, typeFilter, sortKey, sortDir) }} />}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); setPage(1); load(1, search, typeFilter, sortKey, sortDir, needsReview) }} />}
+      {showReimb && <ReimbursementModal onClose={() => setShowReimb(false)} onDone={() => { setShowReimb(false); setPage(1); load(1, search, typeFilter, sortKey, sortDir, needsReview) }} />}
+      {noteTarget && <NoteModal entry={noteTarget} onClose={() => setNoteTarget(null)} onDone={() => { setNoteTarget(null); load(page, search, typeFilter, sortKey, sortDir, needsReview) }} />}
     </div>
   )
 }

@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams
   const search = sp.get('search')?.trim() ?? ''
   const type = sp.get('type')?.trim() ?? ''
+  const needsReview = sp.get('needsReview') === '1'
   const page = Math.max(1, parseInt(sp.get('page') ?? '1', 10) || 1)
   const pageSize = Math.min(200, Math.max(1, parseInt(sp.get('pageSize') ?? '100', 10) || 100))
   const offset = (page - 1) * pageSize
@@ -64,6 +65,14 @@ export async function GET(req: NextRequest) {
     conds.push(Prisma.sql`(order_id = ${search} OR orderline_id = ${search} OR order_id ILIKE ${'%' + search + '%'} OR orderline_id ILIKE ${'%' + search + '%'} OR sku ILIKE ${'%' + search + '%'} OR invoice_key ILIKE ${'%' + search + '%'}${amountClause})`)
   }
   if (type) conds.push(Prisma.sql`invoice_key = ${type}`)
+  if (needsReview) {
+    // "Unresolved Refund Without RMA": a refund whose order exists, has no return
+    // (RMA), and is either un-noted OR flagged problematic.
+    conds.push(Prisma.sql`(bm_billing_entries.invoice_key = 'refunds'
+      AND EXISTS (SELECT 1 FROM orders o WHERE o."amazonOrderId" = bm_billing_entries.order_id AND o."orderSource" = 'backmarket')
+      AND NOT EXISTS (SELECT 1 FROM marketplace_rmas r JOIN orders o2 ON o2.id = r."orderId" WHERE o2."amazonOrderId" = bm_billing_entries.order_id AND o2."orderSource" = 'backmarket')
+      AND (bm_billing_entries.note IS NULL OR bm_billing_entries.problematic = TRUE))`)
+  }
   const where = conds.length > 0 ? Prisma.sql`WHERE ${Prisma.join(conds, ' AND ')}` : Prisma.empty
 
   const [rows, countRows, sumRows, typeRows] = await Promise.all([
