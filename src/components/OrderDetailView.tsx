@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Package, MapPin, Truck, Hash, FileText, Printer,
-  CheckCircle2, AlertCircle, Loader2, RotateCcw,
+  CheckCircle2, AlertCircle, Loader2, RotateCcw, Landmark,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
@@ -111,6 +111,18 @@ function fmt(amount: string | null | undefined): string {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
+type BmEntry = { order_id: string; orderline_id: string | null; invoice_key: string; amount: number }
+
+const BM_KEY_LABEL: Record<string, string> = {
+  sales: 'Sale', sales_fees: 'Commission', payment_fees: 'Payment fee',
+  affirm_fees: 'Payment fee (Affirm)', paypal_fees: 'Payment fee (PayPal)', klarna_fees: 'Payment fee (Klarna)',
+  ccbm_fees: 'Customer Care fee', deals_commission_discount: 'Commission discount',
+  avoir_sales_fees: 'Commission refund', credit_requests: 'Credit request', refunds: 'Refund',
+  monthly_fees: 'Monthly membership fee', sales_dp_adjustment: 'Adjustment (+)',
+  dp_adjustment_fee: 'Adjustment (−)', dp_adjustment_fee_refund: 'Adjustment reversal',
+}
+const bmMoney = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
 export default function OrderDetailView({ orderId }: { orderId: string }) {
   const router = useRouter()
   const [order, setOrder] = useState<FullOrder | null>(null)
@@ -118,6 +130,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [returnModalOrder, setReturnModalOrder] = useState<OrderSearchResult | null>(null)
   const [returnLoading, setReturnLoading] = useState(false)
+  const [bmEntries, setBmEntries] = useState<BmEntry[]>([])
 
   useEffect(() => {
     fetch(`/api/orders/${orderId}`)
@@ -126,6 +139,16 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }, [orderId])
+
+  // Load this order's BackMarket accounting entries (for the Financials panel).
+  useEffect(() => {
+    if (order?.orderSource !== 'backmarket' || !order.amazonOrderId) return
+    const oid = order.amazonOrderId
+    fetch(`/api/backmarket/billing-entries?search=${encodeURIComponent(oid)}&pageSize=200`)
+      .then(r => r.json())
+      .then(d => setBmEntries((d.data ?? []).filter((e: BmEntry) => e.order_id === oid)))
+      .catch(() => {})
+  }, [order?.orderSource, order?.amazonOrderId])
 
   if (loading) return (
     <div className="flex items-center justify-center h-64 gap-2 text-gray-500">
@@ -295,6 +318,26 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
               </div>
             </div>
           </Section>
+
+          {/* BackMarket accounting entries for this order */}
+          {order.orderSource === 'backmarket' && bmEntries.length > 0 && (
+            <Section title="BackMarket Financials" icon={<Landmark size={12} />}>
+              <div className="space-y-0.5">
+                {bmEntries.map((e, i) => (
+                  <div key={i} className="flex justify-between gap-2 text-[11px] py-0.5">
+                    <span className="text-gray-500 dark:text-gray-400 truncate" title={e.orderline_id ? `Line #${e.orderline_id}` : e.invoice_key}>
+                      {BM_KEY_LABEL[e.invoice_key] ?? e.invoice_key}
+                    </span>
+                    <span className={clsx('tabular-nums shrink-0', e.amount < 0 ? 'text-red-600' : 'text-green-700')}>{bmMoney(e.amount)}</span>
+                  </div>
+                ))}
+                <div className="border-t border-gray-200 dark:border-white/10 mt-1 pt-1 flex justify-between text-[11px] font-bold">
+                  <span className="text-gray-700 dark:text-gray-300">Net Payout</span>
+                  <span className="text-gray-900 dark:text-white tabular-nums">{bmMoney(bmEntries.reduce((s, e) => s + e.amount, 0))}</span>
+                </div>
+              </div>
+            </Section>
+          )}
         </div>
 
         {/* Main content */}
