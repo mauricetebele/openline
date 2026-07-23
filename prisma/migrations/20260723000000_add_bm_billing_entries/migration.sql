@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS "bm_billing_entries" (
   -- Set when the statement referenced an order LINE (order_item) rather than the
   -- parent order; order_id then holds the resolved parent order.
   "orderline_id"  TEXT,
+  -- Manual annotation (e.g. justifying a refund with no return) + a
+  -- problematic/non-problematic flag.
+  "note"          TEXT,
+  "problematic"   BOOLEAN,
   "created_at"    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "bm_billing_entries_dedupe_key_idx" ON "bm_billing_entries" ("dedupe_key");

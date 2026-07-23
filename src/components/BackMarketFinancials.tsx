@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Upload, X, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, ChevronUp, ChevronDown, ChevronsUpDown, Plus } from 'lucide-react'
+import { Search, Upload, X, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, ChevronUp, ChevronDown, ChevronsUpDown, Plus, StickyNote } from 'lucide-react'
 
 type Entry = {
   id: string
@@ -14,6 +14,8 @@ type Entry = {
   amount: number
   currency: string | null
   statement_ref: string | null
+  note: string | null
+  problematic: boolean | null
   rmaInfo?: { numbers: string[]; received: number; total: number } | null
 }
 
@@ -65,6 +67,7 @@ export default function BackMarketFinancials() {
   const [err, setErr] = useState('')
   const [showImport, setShowImport] = useState(false)
   const [showReimb, setShowReimb] = useState(false)
+  const [noteTarget, setNoteTarget] = useState<Entry | null>(null)
   const pageSize = 100
 
   const load = useCallback(async (p: number, q: string, t: string, sc: string, sd: string) => {
@@ -207,7 +210,20 @@ export default function BackMarketFinancials() {
                   {r.rmaInfo === undefined ? (
                     <span className="text-gray-300">—</span>
                   ) : r.rmaInfo === null ? (
-                    <span className="text-[11px] font-semibold text-red-600">No RMA Exists!</span>
+                    <span className="inline-flex items-center gap-2">
+                      <span className="text-[11px] font-semibold text-red-600">No RMA Exists!</span>
+                      {r.note ? (
+                        <button type="button" onClick={() => setNoteTarget(r)} title={r.note}
+                          className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${r.problematic ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                          <StickyNote size={10} /> {r.problematic ? 'Problematic' : 'OK'}
+                        </button>
+                      ) : (
+                        <button type="button" onClick={() => setNoteTarget(r)}
+                          className="inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-amazon-blue">
+                          <StickyNote size={10} /> Add note
+                        </button>
+                      )}
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 text-[11px]">
                       <span
@@ -238,6 +254,7 @@ export default function BackMarketFinancials() {
 
       {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); setPage(1); load(1, search, typeFilter, sortKey, sortDir) }} />}
       {showReimb && <ReimbursementModal onClose={() => setShowReimb(false)} onDone={() => { setShowReimb(false); setPage(1); load(1, search, typeFilter, sortKey, sortDir) }} />}
+      {noteTarget && <NoteModal entry={noteTarget} onClose={() => setNoteTarget(null)} onDone={() => { setNoteTarget(null); load(page, search, typeFilter, sortKey, sortDir) }} />}
     </div>
   )
 }
@@ -469,6 +486,77 @@ function ReimbursementModal({ onClose, onDone }: { onClose: () => void; onDone: 
               </button>
             </>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NoteModal({ entry, onClose, onDone }: { entry: Entry; onClose: () => void; onDone: () => void }) {
+  const [note, setNote] = useState(entry.note ?? '')
+  const [problematic, setProblematic] = useState<boolean>(entry.problematic ?? false)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function save() {
+    setSaving(true); setErr('')
+    try {
+      const res = await fetch('/api/backmarket/billing-entries', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: entry.id, note: note.trim(), problematic }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to save')
+      onDone()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to save')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-[460px] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
+          <div className="flex items-center gap-2">
+            <StickyNote size={16} className="text-amazon-blue" />
+            <h3 className="text-sm font-semibold text-gray-900">Refund Note — Order {entry.order_id}</h3>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <p className="text-xs text-gray-500">
+            This refund has no return (RMA). Add a note to justify it — e.g. BackMarket reimbursed us, or an adjustment refund for a minor issue.
+          </p>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Note</label>
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={4} autoFocus
+              placeholder="e.g. BackMarket reimbursed us for a damaged-in-transit claim; no unit returned."
+              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue resize-y" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">Classification</label>
+            <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+              <button type="button" onClick={() => setProblematic(false)}
+                className={`px-3 py-1.5 text-xs font-medium ${!problematic ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                Non-Problematic
+              </button>
+              <button type="button" onClick={() => setProblematic(true)}
+                className={`px-3 py-1.5 text-xs font-medium border-l border-gray-300 ${problematic ? 'bg-red-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                Problematic
+              </button>
+            </div>
+          </div>
+          {err && <div className="flex items-center gap-2 text-sm text-red-600"><AlertTriangle size={14} /> {err}</div>}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t shrink-0">
+          <button type="button" onClick={onClose} className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+          <button type="button" onClick={save} disabled={saving}
+            className="flex items-center gap-2 h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-medium hover:opacity-90 disabled:opacity-50">
+            {saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />} Save
+          </button>
         </div>
       </div>
     </div>

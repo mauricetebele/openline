@@ -29,6 +29,8 @@ type Entry = {
   amount: number
   currency: string | null
   statement_ref: string | null
+  note: string | null
+  problematic: boolean | null
 }
 
 export async function GET(req: NextRequest) {
@@ -66,7 +68,7 @@ export async function GET(req: NextRequest) {
 
   const [rows, countRows, sumRows, typeRows] = await Promise.all([
     prisma.$queryRaw<Entry[]>`
-      SELECT id, invoice_key, value_date, order_id, orderline_id, sku, designation, amount::float8 AS amount, currency, statement_ref
+      SELECT id, invoice_key, value_date, order_id, orderline_id, sku, designation, amount::float8 AS amount, currency, statement_ref, note, problematic
       FROM bm_billing_entries
       ${where}
       ${orderBy}
@@ -175,4 +177,25 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, orderExists: !!order, amount: amt })
+}
+
+/**
+ * PATCH /api/backmarket/billing-entries
+ * Attach/update a note + problematic flag on a billing entry (e.g. to justify a
+ * refund that has no return). Body: { id, note?, problematic? }
+ */
+export async function PATCH(req: NextRequest) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json().catch(() => null)
+  const id = typeof body?.id === 'string' ? body.id : ''
+  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
+  const note = typeof body?.note === 'string' ? (body.note.trim() || null) : null
+  const problematic = typeof body?.problematic === 'boolean' ? body.problematic : null
+
+  const n = await prisma.$executeRaw`
+    UPDATE bm_billing_entries SET note = ${note}, problematic = ${problematic} WHERE id = ${id}`
+  if (n === 0) return NextResponse.json({ error: 'Entry not found' }, { status: 404 })
+  return NextResponse.json({ ok: true, note, problematic })
 }
