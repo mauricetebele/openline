@@ -150,7 +150,7 @@ function AmazonCaseModal({
   }
 
   return (
-    <ModalShell title={`Amazon Case Created · REMOVALCASE-${rc.caseNumber}`} onClose={onClose}>
+    <ModalShell title={`Enter Amazon Case ID · REMOVALCASE-${rc.caseNumber}`} onClose={onClose}>
       <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Amazon Case ID</label>
       <input
         autoFocus
@@ -263,39 +263,6 @@ function ResolveModal({
       </div>
     </ModalShell>
   )
-}
-
-/** The contextual action button(s) for a case, based on its status. */
-function CaseActions({
-  rc,
-  onCreateCase,
-  onResolve,
-}: {
-  rc: RemovalCase
-  onCreateCase: (rc: RemovalCase) => void
-  onResolve: (rc: RemovalCase) => void
-}) {
-  if (rc.status === 'CASE_NOT_CREATED') {
-    return (
-      <button
-        onClick={(e) => { e.stopPropagation(); onCreateCase(rc) }}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-amazon-blue text-white hover:bg-amazon-blue/90 whitespace-nowrap"
-      >
-        <FilePlus2 size={12} /> Amazon Case Created
-      </button>
-    )
-  }
-  if (rc.status === 'CASE_CREATED') {
-    return (
-      <button
-        onClick={(e) => { e.stopPropagation(); onResolve(rc) }}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700 whitespace-nowrap"
-      >
-        <CheckCircle2 size={12} /> Resolve
-      </button>
-    )
-  }
-  return <span className="text-gray-400">—</span>
 }
 
 /* ─── Detail Modal ──────────────────────────────────────────────────────────── */
@@ -484,7 +451,7 @@ function RemovalCaseDetailModal({
                     onClick={() => setShowCaseModal(true)}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amazon-blue text-white hover:bg-amazon-blue/90"
                   >
-                    <FilePlus2 size={12} /> Amazon Case Created
+                    <FilePlus2 size={12} /> Enter Case Info
                   </button>
                 )}
                 {rc.status === 'CASE_CREATED' && (
@@ -618,8 +585,6 @@ export default function RemovalCaseView() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<RemovalCaseStatus | ''>('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [caseModalFor, setCaseModalFor] = useState<RemovalCase | null>(null)
-  const [resolveModalFor, setResolveModalFor] = useState<RemovalCase | null>(null)
 
   const fetchCases = useCallback(async (page = 1) => {
     setLoading(true)
@@ -696,7 +661,6 @@ export default function RemovalCaseView() {
                 <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Reimb. Amt</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Created By</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Created At</th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -721,9 +685,6 @@ export default function RemovalCaseView() {
                   <td className="px-3 py-1.5 text-right font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{fmtMoney(c.reimbursementAmount)}</td>
                   <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{c.createdBy?.name ?? '—'}</td>
                   <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
-                  <td className="px-3 py-1.5 whitespace-nowrap">
-                    <CaseActions rc={c} onCreateCase={setCaseModalFor} onResolve={setResolveModalFor} />
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -750,22 +711,6 @@ export default function RemovalCaseView() {
           caseId={selectedId}
           onClose={() => setSelectedId(null)}
           onUpdated={() => fetchCases(pagination.page)}
-        />
-      )}
-
-      {/* Row-level workflow modals */}
-      {caseModalFor && (
-        <AmazonCaseModal
-          rc={caseModalFor}
-          onClose={() => setCaseModalFor(null)}
-          onDone={() => { setCaseModalFor(null); fetchCases(pagination.page) }}
-        />
-      )}
-      {resolveModalFor && (
-        <ResolveModal
-          rc={resolveModalFor}
-          onClose={() => setResolveModalFor(null)}
-          onDone={() => { setResolveModalFor(null); fetchCases(pagination.page) }}
         />
       )}
     </div>
