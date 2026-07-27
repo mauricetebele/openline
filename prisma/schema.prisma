@@ -2488,6 +2488,16 @@ model RemovalShipmentItem {
 
 // ─── FBA Removal Cases ──────────────────────────────────────────────────────
 
+// Removal-case administration lifecycle:
+//   CASE_NOT_CREATED (default) → CASE_CREATED (Amazon case id entered)
+//     → RESOLVED_REIMBURSED (reimbursement id + amount) OR REIMBURSEMENT_DENIED
+enum RemovalCaseStatus {
+  CASE_NOT_CREATED
+  CASE_CREATED
+  REIMBURSEMENT_DENIED
+  RESOLVED_REIMBURSED
+}
+
 model FbaRemovalCase {
   id                    String               @id @default(cuid())
   caseNumber            Int                  @unique @default(autoincrement())
@@ -2499,6 +2509,10 @@ model FbaRemovalCase {
   productTitle          String?
   note                  String?              @db.Text
   images                Json                 @default("[]")
+  status                RemovalCaseStatus    @default(CASE_NOT_CREATED)
+  amazonCaseId          String?
+  reimbursementId       String?
+  reimbursementAmount   Decimal?             @db.Decimal(12, 2)
   removalShipmentId     String?
   removalShipment       RemovalShipment?     @relation(fields: [removalShipmentId], references: [id])
   removalShipmentItemId String?
@@ -2509,6 +2523,7 @@ model FbaRemovalCase {
 
   @@index([removalShipmentId])
   @@index([removalShipmentItemId])
+  @@index([status])
   @@map("fba_removal_cases")
 }
 

@@ -1,6 +1,7 @@
 'use client'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, AlertCircle, X, Upload, Trash2, Save, Loader2, Download } from 'lucide-react'
+import { toast } from 'sonner'
+import { Search, AlertCircle, X, Upload, Trash2, Save, Loader2, Download, FilePlus2, CheckCircle2 } from 'lucide-react'
 
 interface ImageAttachment {
   url: string
@@ -8,6 +9,12 @@ interface ImageAttachment {
   contentType: string
   size: number
 }
+
+type RemovalCaseStatus =
+  | 'CASE_NOT_CREATED'
+  | 'CASE_CREATED'
+  | 'REIMBURSEMENT_DENIED'
+  | 'RESOLVED_REIMBURSED'
 
 interface RemovalCase {
   id: string
@@ -20,6 +27,10 @@ interface RemovalCase {
   productTitle: string | null
   note: string | null
   images: ImageAttachment[]
+  status: RemovalCaseStatus
+  amazonCaseId: string | null
+  reimbursementId: string | null
+  reimbursementAmount: string | null // Prisma Decimal serializes to a string
   createdBy: { name: string } | null
   createdAt: string
 }
@@ -31,9 +42,260 @@ interface Pagination {
   totalPages: number
 }
 
+const STATUS_LABEL: Record<RemovalCaseStatus, string> = {
+  CASE_NOT_CREATED: 'Case Not Yet Created',
+  CASE_CREATED: 'Case Created',
+  REIMBURSEMENT_DENIED: 'Reimbursement Denied',
+  RESOLVED_REIMBURSED: 'Resolved & Reimbursed',
+}
+
+const STATUS_BADGE: Record<RemovalCaseStatus, string> = {
+  CASE_NOT_CREATED: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
+  CASE_CREATED: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  REIMBURSEMENT_DENIED: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+  RESOLVED_REIMBURSED: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+}
+
+const STATUS_ORDER: RemovalCaseStatus[] = [
+  'CASE_NOT_CREATED',
+  'CASE_CREATED',
+  'REIMBURSEMENT_DENIED',
+  'RESOLVED_REIMBURSED',
+]
+
 function fmtDate(d: string | null) {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function fmtMoney(v: string | null) {
+  if (v == null || v === '') return '—'
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+}
+
+function StatusBadge({ status }: { status: RemovalCaseStatus }) {
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap ${STATUS_BADGE[status]}`}>
+      {STATUS_LABEL[status]}
+    </span>
+  )
+}
+
+/** PATCH a removal case; on failure surfaces a toast and returns null. */
+async function patchRemovalCase(id: string, body: Record<string, unknown>): Promise<RemovalCase | null> {
+  try {
+    const res = await fetch(`/api/removal-cases/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      toast.error(d.error || `Update failed (${res.status})`)
+      return null
+    }
+    const data = await res.json()
+    return { ...data, images: Array.isArray(data.images) ? data.images : [] }
+  } catch {
+    toast.error('Network error')
+    return null
+  }
+}
+
+/* ─── Workflow Modals ───────────────────────────────────────────────────────── */
+
+function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-md flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b dark:border-gray-700">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+        <div className="px-5 py-4">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+function AmazonCaseModal({
+  rc,
+  onClose,
+  onDone,
+}: {
+  rc: RemovalCase
+  onClose: () => void
+  onDone: (updated: RemovalCase) => void
+}) {
+  const [caseId, setCaseId] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    const trimmed = caseId.trim()
+    if (!trimmed || saving) return
+    setSaving(true)
+    const updated = await patchRemovalCase(rc.id, { action: 'CREATE_CASE', amazonCaseId: trimmed })
+    setSaving(false)
+    if (updated) {
+      toast.success(`Case created for REMOVALCASE-${rc.caseNumber}`)
+      onDone(updated)
+    }
+  }
+
+  return (
+    <ModalShell title={`Amazon Case Created · REMOVALCASE-${rc.caseNumber}`} onClose={onClose}>
+      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Amazon Case ID</label>
+      <input
+        autoFocus
+        value={caseId}
+        onChange={(e) => setCaseId(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
+        placeholder="e.g. 12345678901"
+        className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+      />
+      <div className="mt-4 flex justify-end gap-2">
+        <button onClick={onClose} className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
+          Cancel
+        </button>
+        <button
+          onClick={submit}
+          disabled={!caseId.trim() || saving}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amazon-blue text-white hover:bg-amazon-blue/90 disabled:opacity-50"
+        >
+          {saving ? <Loader2 size={12} className="animate-spin" /> : <FilePlus2 size={12} />}
+          Confirm Case Created
+        </button>
+      </div>
+    </ModalShell>
+  )
+}
+
+function ResolveModal({
+  rc,
+  onClose,
+  onDone,
+}: {
+  rc: RemovalCase
+  onClose: () => void
+  onDone: (updated: RemovalCase) => void
+}) {
+  const [denied, setDenied] = useState(false)
+  const [reimbId, setReimbId] = useState('')
+  const [amount, setAmount] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const amountNum = Number(amount)
+  const reimbValid = reimbId.trim().length > 0 && Number.isFinite(amountNum) && amountNum > 0
+  const canConfirm = denied || reimbValid
+
+  const submit = async () => {
+    if (!canConfirm || saving) return
+    setSaving(true)
+    const body = denied
+      ? { action: 'DENY_REIMBURSEMENT' }
+      : { action: 'RESOLVE_REIMBURSED', reimbursementId: reimbId.trim(), reimbursementAmount: amountNum }
+    const updated = await patchRemovalCase(rc.id, body)
+    setSaving(false)
+    if (updated) {
+      toast.success(denied ? 'Marked as Reimbursement Denied' : 'Marked as Resolved & Reimbursed')
+      onDone(updated)
+    }
+  }
+
+  return (
+    <ModalShell title={`Resolve · REMOVALCASE-${rc.caseNumber}`} onClose={onClose}>
+      <div className={`space-y-3 transition-opacity ${denied ? 'opacity-40 pointer-events-none' : ''}`}>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Reimbursement ID</label>
+          <input
+            autoFocus
+            value={reimbId}
+            onChange={(e) => setReimbId(e.target.value)}
+            disabled={denied}
+            placeholder="e.g. 987654321"
+            className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Reimbursement Amount (USD)</label>
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            disabled={denied}
+            inputMode="decimal"
+            placeholder="0.00"
+            className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+          />
+        </div>
+      </div>
+
+      <label className="mt-4 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={denied}
+          onChange={(e) => setDenied(e.target.checked)}
+          className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+        />
+        Reimbursement Denied
+      </label>
+
+      <div className="mt-4 flex justify-end gap-2">
+        <button onClick={onClose} className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
+          Cancel
+        </button>
+        <button
+          onClick={submit}
+          disabled={!canConfirm || saving}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md text-white disabled:opacity-50 ${
+            denied ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
+          }`}
+        >
+          {saving ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+          {denied ? 'Mark Denied' : 'Confirm Reimbursement'}
+        </button>
+      </div>
+    </ModalShell>
+  )
+}
+
+/** The contextual action button(s) for a case, based on its status. */
+function CaseActions({
+  rc,
+  onCreateCase,
+  onResolve,
+}: {
+  rc: RemovalCase
+  onCreateCase: (rc: RemovalCase) => void
+  onResolve: (rc: RemovalCase) => void
+}) {
+  if (rc.status === 'CASE_NOT_CREATED') {
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); onCreateCase(rc) }}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-amazon-blue text-white hover:bg-amazon-blue/90 whitespace-nowrap"
+      >
+        <FilePlus2 size={12} /> Amazon Case Created
+      </button>
+    )
+  }
+  if (rc.status === 'CASE_CREATED') {
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); onResolve(rc) }}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700 whitespace-nowrap"
+      >
+        <CheckCircle2 size={12} /> Resolve
+      </button>
+    )
+  }
+  return <span className="text-gray-400">—</span>
 }
 
 /* ─── Detail Modal ──────────────────────────────────────────────────────────── */
@@ -54,6 +316,8 @@ function RemovalCaseDetailModal({
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showCaseModal, setShowCaseModal] = useState(false)
+  const [showResolveModal, setShowResolveModal] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const fetchCase = useCallback(async () => {
@@ -71,6 +335,11 @@ function RemovalCaseDetailModal({
   }, [caseId])
 
   useEffect(() => { fetchCase() }, [fetchCase])
+
+  const applyUpdate = (updated: RemovalCase) => {
+    setRc({ ...updated, images: Array.isArray(updated.images) ? updated.images : [] })
+    onUpdated()
+  }
 
   const saveNote = async () => {
     if (!rc) return
@@ -161,9 +430,12 @@ function RemovalCaseDetailModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b dark:border-gray-700">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {rc ? `REMOVALCASE-${rc.caseNumber}` : 'Loading...'}
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              {rc ? `REMOVALCASE-${rc.caseNumber}` : 'Loading...'}
+            </h2>
+            {rc && <StatusBadge status={rc.status} />}
+          </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={18} className="text-gray-500" />
           </button>
@@ -194,6 +466,35 @@ function RemovalCaseDetailModal({
                 <InfoField label="Product Title" value={rc.productTitle || '—'} />
                 <InfoField label="Created By" value={rc.createdBy?.name || '—'} />
                 <InfoField label="Created At" value={fmtDate(rc.createdAt)} />
+              </div>
+
+              {/* Case administration */}
+              <div className="rounded-md border border-gray-200 dark:border-gray-700 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Case Administration</span>
+                  <StatusBadge status={rc.status} />
+                </div>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm mb-3">
+                  <InfoField label="Amazon Case ID" value={rc.amazonCaseId || '—'} mono />
+                  <InfoField label="Reimbursement ID" value={rc.reimbursementId || '—'} mono />
+                  <InfoField label="Reimbursement Amount" value={fmtMoney(rc.reimbursementAmount)} />
+                </div>
+                {rc.status === 'CASE_NOT_CREATED' && (
+                  <button
+                    onClick={() => setShowCaseModal(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amazon-blue text-white hover:bg-amazon-blue/90"
+                  >
+                    <FilePlus2 size={12} /> Amazon Case Created
+                  </button>
+                )}
+                {rc.status === 'CASE_CREATED' && (
+                  <button
+                    onClick={() => setShowResolveModal(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700"
+                  >
+                    <CheckCircle2 size={12} /> Resolve
+                  </button>
+                )}
               </div>
 
               {/* Editable note */}
@@ -280,6 +581,21 @@ function RemovalCaseDetailModal({
           )}
         </div>
       </div>
+
+      {rc && showCaseModal && (
+        <AmazonCaseModal
+          rc={rc}
+          onClose={() => setShowCaseModal(false)}
+          onDone={(u) => { applyUpdate(u); setShowCaseModal(false) }}
+        />
+      )}
+      {rc && showResolveModal && (
+        <ResolveModal
+          rc={rc}
+          onClose={() => setShowResolveModal(false)}
+          onDone={(u) => { applyUpdate(u); setShowResolveModal(false) }}
+        />
+      )}
     </div>
   )
 }
@@ -300,20 +616,24 @@ export default function RemovalCaseView() {
   const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 25, total: 0, totalPages: 0 })
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<RemovalCaseStatus | ''>('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [caseModalFor, setCaseModalFor] = useState<RemovalCase | null>(null)
+  const [resolveModalFor, setResolveModalFor] = useState<RemovalCase | null>(null)
 
   const fetchCases = useCallback(async (page = 1) => {
     setLoading(true)
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: '25' })
       if (search) params.set('search', search)
+      if (statusFilter) params.set('status', statusFilter)
       const res = await fetch(`/api/removal-cases?${params}`)
       const json = await res.json()
       setCases(json.data ?? [])
       setPagination(json.pagination ?? { page: 1, pageSize: 25, total: 0, totalPages: 0 })
     } catch { /* ignore */ }
     setLoading(false)
-  }, [search])
+  }, [search, statusFilter])
 
   useEffect(() => { fetchCases(1) }, [fetchCases])
 
@@ -330,6 +650,17 @@ export default function RemovalCaseView() {
             className="h-9 pl-8 pr-3 w-72 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
           />
         </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as RemovalCaseStatus | '')}
+          title="Filter by case status"
+          className="h-9 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+        >
+          <option value="">All statuses</option>
+          {STATUS_ORDER.map((s) => (
+            <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+          ))}
+        </select>
         {pagination.total > 0 && (
           <span className="text-xs text-gray-400">
             {pagination.total} case{pagination.total !== 1 ? 's' : ''}
@@ -345,7 +676,7 @@ export default function RemovalCaseView() {
           <div className="py-20 text-center">
             <AlertCircle size={36} className="mx-auto text-gray-200 dark:text-gray-600 mb-3" />
             <p className="text-sm font-medium text-gray-400">
-              {search ? 'No cases match your search' : 'No removal cases created yet'}
+              {search || statusFilter ? 'No cases match your filters' : 'No removal cases created yet'}
             </p>
           </div>
         ) : (
@@ -353,15 +684,19 @@ export default function RemovalCaseView() {
             <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
               <tr>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Case #</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Status</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Removal Order ID</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Tracking #</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">LPN</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">FNSKU</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Merchant SKU</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Product Title</th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Note</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Amazon Case ID</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Reimb. ID</th>
+                <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Reimb. Amt</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Created By</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Created At</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -374,15 +709,21 @@ export default function RemovalCaseView() {
                   }`}
                 >
                   <td className="px-3 py-1.5 font-mono font-semibold text-amazon-blue whitespace-nowrap">REMOVALCASE-{c.caseNumber}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap"><StatusBadge status={c.status} /></td>
                   <td className="px-3 py-1.5 font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{c.removalOrderId}</td>
                   <td className="px-3 py-1.5 font-mono font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">{c.trackingNumber}</td>
                   <td className="px-3 py-1.5 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{c.lpnNumber || '—'}</td>
                   <td className="px-3 py-1.5 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{c.fnsku}</td>
                   <td className="px-3 py-1.5 font-mono text-gray-800 dark:text-gray-200 whitespace-nowrap">{c.sellerSku}</td>
                   <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400 max-w-[200px] truncate" title={c.productTitle ?? ''}>{c.productTitle ?? '—'}</td>
-                  <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={c.note ?? ''}>{c.note || '—'}</td>
+                  <td className="px-3 py-1.5 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{c.amazonCaseId || '—'}</td>
+                  <td className="px-3 py-1.5 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{c.reimbursementId || '—'}</td>
+                  <td className="px-3 py-1.5 text-right font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{fmtMoney(c.reimbursementAmount)}</td>
                   <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{c.createdBy?.name ?? '—'}</td>
                   <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap">
+                    <CaseActions rc={c} onCreateCase={setCaseModalFor} onResolve={setResolveModalFor} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -409,6 +750,22 @@ export default function RemovalCaseView() {
           caseId={selectedId}
           onClose={() => setSelectedId(null)}
           onUpdated={() => fetchCases(pagination.page)}
+        />
+      )}
+
+      {/* Row-level workflow modals */}
+      {caseModalFor && (
+        <AmazonCaseModal
+          rc={caseModalFor}
+          onClose={() => setCaseModalFor(null)}
+          onDone={() => { setCaseModalFor(null); fetchCases(pagination.page) }}
+        />
+      )}
+      {resolveModalFor && (
+        <ResolveModal
+          rc={resolveModalFor}
+          onClose={() => setResolveModalFor(null)}
+          onDone={() => { setResolveModalFor(null); fetchCases(pagination.page) }}
         />
       )}
     </div>

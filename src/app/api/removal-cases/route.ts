@@ -3,9 +3,11 @@
  * POST /api/removal-cases — Create a new removal case
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { Prisma } from '@prisma/client'
+import { Prisma, RemovalCaseStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+
+const REMOVAL_CASE_STATUSES = Object.values(RemovalCaseStatus)
 
 export async function GET(req: NextRequest) {
   const user = await getAuthUser()
@@ -17,6 +19,11 @@ export async function GET(req: NextRequest) {
   const skip = (page - 1) * pageSize
 
   const where: Prisma.FbaRemovalCaseWhereInput = {}
+
+  const status = searchParams.get('status')?.trim()
+  if (status && (REMOVAL_CASE_STATUSES as string[]).includes(status)) {
+    where.status = status as RemovalCaseStatus
+  }
 
   const search = searchParams.get('search')?.trim()
   if (search) {
@@ -83,7 +90,7 @@ export async function POST(req: NextRequest) {
       note: note || null,
       removalShipmentId: removalShipmentId || null,
       removalShipmentItemId: removalShipmentItemId || null,
-      createdById: user.id,
+      createdById: user.dbId,
     },
   })
 
