@@ -1,8 +1,15 @@
 /**
  * GET /api/orders/match-by-sku?sku=X&accountId=Y&gradeId=Z
- * Finds the oldest single-qty AWAITING_VERIFICATION order that needs the given SKU.
+ * Finds the oldest single-qty AWAITING_VERIFICATION order that needs the given SKU
+ * AND whose resolved grade matches the scanned serial's grade.
  * Supports both direct sellerSku matches and graded items via marketplace SKU mappings.
- * When gradeId is provided, only matches marketplace SKUs for that specific grade.
+ *
+ * Grade matching mirrors the serialize/validate routes: an order item's expected grade
+ * is orderItem.gradeId, falling back to the grade of its marketplace-SKU mapping. A scan
+ * resolves only to an order whose expected grade equals the scanned grade — both null
+ * (ungraded ↔ ungraded) or the same gradeId (e.g. GRADE C ↔ GRADE C). This prevents a
+ * graded scan from resolving to an ungraded order (or vice versa) when multiple orders
+ * exist for the same product across different grades.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
@@ -20,25 +27,34 @@ export async function GET(req: NextRequest) {
   if (!sku) return NextResponse.json({ error: 'Missing sku parameter' }, { status: 400 })
   if (!accountId) return NextResponse.json({ error: 'Missing accountId parameter' }, { status: 400 })
 
-  // Build the set of sellerSkus to match:
-  // 1. The SKU itself (direct match for ungraded items)
-  // 2. Marketplace SKUs mapped to the product, filtered by grade when provided
-  const skusToMatch = [sku]
-
+  // Build the set of sellerSkus that could belong to this product, across ALL grades:
+  // 1. The SKU itself (direct match, typically the ungraded listing)
+  // 2. Every marketplace SKU mapped to the product (each carries its own gradeId)
+  // We intentionally gather all grades here and filter by grade below, per-order — the
+  // candidate query alone cannot distinguish grades because the base SKU can appear on
+  // an ungraded order regardless of what grade was scanned.
   const mappings = await prisma.productGradeMarketplaceSku.findMany({
-    where: {
-      product: { sku },
-      ...(gradeId ? { gradeId } : {}),
-    },
-    select: { sellerSku: true },
+    where: { product: { sku } },
+    select: { sellerSku: true, gradeId: true },
   })
-  for (const m of mappings) {
-    if (!skusToMatch.includes(m.sellerSku)) skusToMatch.push(m.sellerSku)
+  // sellerSku -> gradeId (null gradeId means the mapping is ungraded)
+  const skuToGradeId = new Map<string, string | null>()
+  for (const m of mappings) skuToGradeId.set(m.sellerSku, m.gradeId)
+
+  const skusToMatch = Array.from(new Set([sku, ...mappings.map(m => m.sellerSku)]))
+
+  // Resolve an order item's expected grade the same way the serialize/validate routes do:
+  // prefer the item's own gradeId, else the grade of its marketplace-SKU mapping, else null.
+  const resolveItemGradeId = (item: { gradeId: string | null; sellerSku: string | null }): string | null => {
+    if (item.gradeId) return item.gradeId
+    if (item.sellerSku && skuToGradeId.has(item.sellerSku)) return skuToGradeId.get(item.sellerSku) ?? null
+    return null
   }
 
   // Find the oldest AWAITING_VERIFICATION order where:
   // 1. Has an item with matching sellerSku (direct or via marketplace mapping)
   // 2. Single-qty order (only one item with qty 1)
+  // 3. Resolved grade matches the scanned serial's grade
   const candidates = await prisma.order.findMany({
     where: {
       accountId,
@@ -70,10 +86,14 @@ export async function GET(req: NextRequest) {
     orderBy: { purchaseDate: 'asc' },
   })
 
-  // Filter to single-qty orders (total quantityOrdered across all items = 1)
+  // Filter to single-qty orders whose resolved grade matches the scanned grade.
   const match = candidates.find(order => {
     const totalQty = order.items.reduce((sum, item) => sum + item.quantityOrdered, 0)
-    return totalQty === 1
+    if (totalQty !== 1) return false
+    // Identify the line item that corresponds to this product, then compare grades.
+    const item = order.items.find(i => i.sellerSku != null && skusToMatch.includes(i.sellerSku))
+    if (!item) return false
+    return resolveItemGradeId(item) === gradeId
   })
 
   return NextResponse.json({ match: match ?? null })

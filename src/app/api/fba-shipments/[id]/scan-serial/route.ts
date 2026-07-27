@@ -112,13 +112,20 @@ export async function POST(
     }
 
     if (!matchedItem) {
+      // Derive an accurate reason. Prefer the line matching BOTH product and grade so a
+      // full grade-C line isn't misreported as a grade mismatch when an ungraded line for
+      // the same product also exists (and vice versa).
+      const sameGradeItem = shipment.items.find(
+        i => i.msku?.productId === serial.productId && (i.msku?.gradeId ?? null) === serial.gradeId,
+      )
       const itemByProduct = shipment.items.find(i => i.msku?.productId === serial.productId)
-      if (!itemByProduct) {
+      if (sameGradeItem) {
+        // A line for this exact grade exists, so the only reason we didn't match is capacity.
+        errors.push(`"${sn}" — all units for "${serial.product.sku}" (grade "${serial.grade?.grade ?? 'No grade'}") already scanned`)
+      } else if (!itemByProduct) {
         errors.push(`"${sn}" SKU "${serial.product.sku}" not in shipment`)
-      } else if (itemByProduct.msku && itemByProduct.msku.gradeId !== serial.gradeId) {
-        errors.push(`"${sn}" grade "${serial.grade?.grade ?? 'No grade'}", expected "${itemByProduct.msku.grade?.grade ?? 'No grade'}"`)
       } else {
-        errors.push(`"${sn}" — all units for "${serial.product.sku}" already scanned`)
+        errors.push(`"${sn}" grade "${serial.grade?.grade ?? 'No grade'}", expected "${itemByProduct.msku?.grade?.grade ?? 'No grade'}"`)
       }
       continue
     }
