@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
+import { pickGradeMatchedOrder } from '@/lib/serial-grade-match'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,14 +43,6 @@ export async function GET(req: NextRequest) {
   for (const m of mappings) skuToGradeId.set(m.sellerSku, m.gradeId)
 
   const skusToMatch = Array.from(new Set([sku, ...mappings.map(m => m.sellerSku)]))
-
-  // Resolve an order item's expected grade the same way the serialize/validate routes do:
-  // prefer the item's own gradeId, else the grade of its marketplace-SKU mapping, else null.
-  const resolveItemGradeId = (item: { gradeId: string | null; sellerSku: string | null }): string | null => {
-    if (item.gradeId) return item.gradeId
-    if (item.sellerSku && skuToGradeId.has(item.sellerSku)) return skuToGradeId.get(item.sellerSku) ?? null
-    return null
-  }
 
   // Find the oldest AWAITING_VERIFICATION order where:
   // 1. Has an item with matching sellerSku (direct or via marketplace mapping)
@@ -87,14 +80,7 @@ export async function GET(req: NextRequest) {
   })
 
   // Filter to single-qty orders whose resolved grade matches the scanned grade.
-  const match = candidates.find(order => {
-    const totalQty = order.items.reduce((sum, item) => sum + item.quantityOrdered, 0)
-    if (totalQty !== 1) return false
-    // Identify the line item that corresponds to this product, then compare grades.
-    const item = order.items.find(i => i.sellerSku != null && skusToMatch.includes(i.sellerSku))
-    if (!item) return false
-    return resolveItemGradeId(item) === gradeId
-  })
+  const match = pickGradeMatchedOrder(candidates, skusToMatch, skuToGradeId, gradeId)
 
   return NextResponse.json({ match: match ?? null })
 }
