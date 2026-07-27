@@ -56,7 +56,7 @@ export async function PATCH(
       data.amazonCaseId = amazonCaseId
     } else if (action === 'DENY_REIMBURSEMENT') {
       if (current.status !== 'CASE_CREATED') {
-        return NextResponse.json({ error: 'Case must be in "Case Created" status to resolve' }, { status: 409 })
+        return NextResponse.json({ error: 'Case must be in "Awaiting Reply" status to resolve' }, { status: 409 })
       }
       data.status = 'REIMBURSEMENT_DENIED'
       data.reimbursementId = null
@@ -72,7 +72,7 @@ export async function PATCH(
         return NextResponse.json({ error: 'A valid reimbursement amount greater than 0 is required' }, { status: 400 })
       }
       if (current.status !== 'CASE_CREATED') {
-        return NextResponse.json({ error: 'Case must be in "Case Created" status to resolve' }, { status: 409 })
+        return NextResponse.json({ error: 'Case must be in "Awaiting Reply" status to resolve' }, { status: 409 })
       }
       data.status = 'RESOLVED_REIMBURSED'
       data.reimbursementId = reimbursementId

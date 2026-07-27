@@ -44,7 +44,7 @@ interface Pagination {
 
 const STATUS_LABEL: Record<RemovalCaseStatus, string> = {
   CASE_NOT_CREATED: 'Case Not Yet Created',
-  CASE_CREATED: 'Case Created',
+  CASE_CREATED: 'Awaiting Reply',
   REIMBURSEMENT_DENIED: 'Reimbursement Denied',
   RESOLVED_REIMBURSED: 'Resolved & Reimbursed',
 }
