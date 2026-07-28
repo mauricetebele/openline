@@ -126,7 +126,6 @@ const NAV: NavItem[] = [
       { href: '/outbound-label',     label: 'Outbound Label',     icon: Printer },
       { href: '/create-listing',      label: 'Create Listing',     icon: PlusCircle },
       { href: '/bulk-listing',       label: 'Bulk Listing',       icon: List },
-      { href: '/active-listings',    label: 'Active Listings',    icon: List },
       { href: '/pricing-rules',      label: 'Pricing Rules',      icon: Tag },
       { href: '/sickw',             label: 'SICKW',              icon: Smartphone },
       { href: '/audit',              label: 'Audit Log',          icon: ClipboardList },

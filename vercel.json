@@ -10,7 +10,6 @@
     { "path": "/api/cron/sync-replacements", "schedule": "30 */6 * * *" },
     { "path": "/api/cron/sync-fba-orders", "schedule": "0 */12 * * *" },
     { "path": "/api/cron/sync-mfn-returns", "schedule": "0 6 * * *" },
-    { "path": "/api/cron/sync-listings", "schedule": "40 */6 * * *" },
     { "path": "/api/cron/sync-transactions", "schedule": "50 */6 * * *" }
   ]
 }

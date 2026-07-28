@@ -1,7 +1,7 @@
 'use client'
 import { createPortal } from 'react-dom'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package } from 'lucide-react'
+import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -35,6 +35,9 @@ interface MarketplaceSku {
   itemCondition: string | null
   bmListingId: string | null
   createdAt: string
+  price: string | null
+  minPrice: string | null
+  maxPrice: string | null
 }
 
 interface MarketplaceListing {
@@ -529,6 +532,67 @@ export default function MarketplaceSkuManager() {
   const SYNC_PAGE_SIZE = 100
   const [qtyMap, setQtyMap] = useState<Record<string, QtyBreakdown>>({})
 
+  // Pricing (Current Price column): live pull + inline edit
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(null)
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null)
+  const [priceEditValue, setPriceEditValue] = useState('')
+  const [priceError, setPriceError] = useState<string | null>(null)
+  const [savingPriceId, setSavingPriceId] = useState<string | null>(null)
+  const [refreshingPriceId, setRefreshingPriceId] = useState<string | null>(null)
+  const priceInputRef = useRef<HTMLInputElement>(null)
+
+  const accountIdFor = (s: MarketplaceSku): string | null => s.accountId ?? activeAccountId
+
+  function startPriceEdit(s: MarketplaceSku) {
+    setEditingPriceId(s.id)
+    setPriceEditValue(s.price != null ? parseFloat(s.price).toFixed(2) : '')
+    setPriceError(null)
+    setTimeout(() => priceInputRef.current?.select(), 0)
+  }
+  function cancelPriceEdit() {
+    setEditingPriceId(null)
+    setPriceEditValue('')
+    setPriceError(null)
+  }
+
+  async function savePrice(s: MarketplaceSku) {
+    const newPrice = parseFloat(priceEditValue)
+    if (isNaN(newPrice) || newPrice <= 0) { setPriceError('Enter a valid price'); return }
+    const min = s.minPrice != null ? parseFloat(s.minPrice) : null
+    const max = s.maxPrice != null ? parseFloat(s.maxPrice) : null
+    if (min != null && !isNaN(min) && newPrice < min) { setPriceError(`Below min $${min.toFixed(2)}`); return }
+    if (max != null && !isNaN(max) && newPrice > max) { setPriceError(`Above max $${max.toFixed(2)}`); return }
+    const accountId = accountIdFor(s)
+    if (!accountId) { setErr('No Amazon account resolved for this SKU'); return }
+    setSavingPriceId(s.id)
+    setEditingPriceId(null)
+    setPriceError(null)
+    try {
+      await apiPost('/api/listings/update-price', { accountId, sku: s.sellerSku, price: newPrice })
+      setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price: String(newPrice) } : x)))
+      setToast(`Updated ${s.sellerSku} → $${newPrice.toFixed(2)}`)
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Price update failed')
+    } finally {
+      setSavingPriceId(null)
+    }
+  }
+
+  async function refreshPrice(s: MarketplaceSku) {
+    const accountId = accountIdFor(s)
+    if (!accountId) { setErr('No Amazon account resolved for this SKU'); return }
+    setRefreshingPriceId(s.id)
+    try {
+      const res = await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku })
+      const price = res.price != null ? String(res.price) : null
+      setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price } : x)))
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Price refresh failed')
+    } finally {
+      setRefreshingPriceId(null)
+    }
+  }
+
   // Add form state
   const [showForm, setShowForm] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<ProductSearchResult | null>(null)
@@ -538,6 +602,16 @@ export default function MarketplaceSkuManager() {
   const [formAccountId, setFormAccountId] = useState('')
   const [formSellerSku, setFormSellerSku] = useState('')
   const [adding, setAdding] = useState(false)
+
+  useEffect(() => {
+    apiFetch('/api/accounts')
+      .then((d: { data?: { id: string; isActive: boolean }[] } | { id: string; isActive: boolean }[]) => {
+        const list = Array.isArray(d) ? d : (d.data ?? [])
+        const active = list.find(a => a.isActive)
+        if (active) setActiveAccountId(active.id)
+      })
+      .catch(() => {})
+  }, [])
 
   const loadSkus = useCallback(async () => {
     try {
@@ -1139,6 +1213,7 @@ export default function MarketplaceSkuManager() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Parent SKU</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Current Amazon listing price. Click to edit (pushes to Amazon); use the refresh icon to pull the live price.">Current Price</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
@@ -1190,6 +1265,52 @@ export default function MarketplaceSkuManager() {
                     <td className="px-4 py-3 font-mono text-xs text-gray-700">{s.product.sku}</td>
                     <td className="px-4 py-3 text-xs text-gray-600">{s.grade?.grade ?? '—'}</td>
                     <td className="px-4 py-3 text-xs text-gray-500">{s.itemCondition ?? '—'}</td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      {s.marketplace !== 'amazon' ? (
+                        <span className="text-gray-300 text-xs">—</span>
+                      ) : editingPriceId === s.id ? (
+                        <div className="inline-flex items-center gap-1 justify-end">
+                          <span className="text-gray-400 text-xs">$</span>
+                          <input
+                            ref={priceInputRef}
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            value={priceEditValue}
+                            onChange={(e) => { setPriceEditValue(e.target.value); setPriceError(null) }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') savePrice(s); if (e.key === 'Escape') cancelPriceEdit() }}
+                            className={clsx(
+                              'w-20 text-right text-xs font-mono border rounded px-1.5 py-0.5 focus:outline-none focus:ring-2',
+                              priceError ? 'border-red-300 focus:ring-red-300' : 'border-amazon-blue focus:ring-amazon-blue/30',
+                            )}
+                            autoFocus
+                          />
+                          <button onClick={() => savePrice(s)} className="text-green-600 hover:text-green-800 p-0.5" title="Save (pushes to Amazon)"><Check size={14} /></button>
+                          <button onClick={cancelPriceEdit} className="text-gray-400 hover:text-gray-600 p-0.5" title="Cancel"><X size={14} /></button>
+                          {priceError && <span className="text-[10px] text-red-500">{priceError}</span>}
+                        </div>
+                      ) : savingPriceId === s.id ? (
+                        <Loader2 size={13} className="animate-spin text-gray-400 inline" />
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5 justify-end">
+                          <button
+                            onClick={() => startPriceEdit(s)}
+                            className="font-mono text-xs text-gray-900 hover:text-amazon-blue hover:underline"
+                            title="Click to edit price (pushes to Amazon)"
+                          >
+                            {s.price != null ? `$${parseFloat(s.price).toFixed(2)}` : '—'}
+                          </button>
+                          <button
+                            onClick={() => refreshPrice(s)}
+                            disabled={refreshingPriceId === s.id}
+                            className="text-gray-400 hover:text-amazon-blue p-0.5 disabled:opacity-50"
+                            title="Pull the current live price from Amazon"
+                          >
+                            <RefreshCw size={12} className={clsx(refreshingPriceId === s.id && 'animate-spin')} />
+                          </button>
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-xs text-gray-600 max-w-[200px] truncate" title={s.product.description}>{s.product.description}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">

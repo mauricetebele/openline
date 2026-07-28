@@ -355,6 +355,7 @@ export async function resolveTemplateGroupId(
 interface ListingItemResponse {
   summaries?: { marketplaceId: string; productType?: string; asin?: string; conditionType?: string }[]
   attributes?: Record<string, unknown>
+  offers?: { marketplaceId?: string; offerType?: string; price?: { currencyCode?: string; amount?: string | number } }[]
 }
 
 interface ListingsPatchResponse {
@@ -764,6 +765,57 @@ export async function updateListingPrice(
     where: { accountId, sku },
     data: { price: newPrice, updatedAt: new Date() },
   })
+}
+
+// ─── fetchLiveListingPrice ─────────────────────────────────────────────────
+
+/** Extract the current price from a listing's purchasable_offer attribute. */
+function priceFromPurchasableOffer(
+  attrs: Record<string, unknown> | undefined,
+  marketplaceId: string,
+): number | null {
+  const po = attrs?.['purchasable_offer']
+  if (!Array.isArray(po)) return null
+  const entry =
+    (po as Record<string, unknown>[]).find(p => p?.['marketplace_id'] === marketplaceId) ?? po[0]
+  const ourPrice = (entry as Record<string, unknown> | undefined)?.['our_price']
+  const schedule = Array.isArray(ourPrice) ? (ourPrice[0] as Record<string, unknown>)?.['schedule'] : undefined
+  const value = Array.isArray(schedule) ? (schedule[0] as Record<string, unknown>)?.['value_with_tax'] : undefined
+  return value != null && Number.isFinite(Number(value)) ? Number(value) : null
+}
+
+/**
+ * Live per-SKU price pull from Amazon (Listings Items API). Reads the CURRENT
+ * offer price — reflecting changes made directly on Amazon outside this app —
+ * and mirrors it into SellerListing.price. Returns the price, or null if the
+ * listing has no resolvable price.
+ */
+export async function fetchLiveListingPrice(accountId: string, sku: string): Promise<number | null> {
+  const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
+  const client = new SpApiClient(accountId)
+  const encodedSku = encodeURIComponent(sku)
+
+  const listingItem = await client.get<ListingItemResponse>(
+    `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
+    { marketplaceIds: account.marketplaceId, includedData: 'offers,attributes' },
+  )
+
+  // Prefer the live offer price; fall back to the purchasable_offer attribute.
+  const offer =
+    listingItem.offers?.find(o => o.marketplaceId === account.marketplaceId) ?? listingItem.offers?.[0]
+  const offerAmount = offer?.price?.amount
+  let price: number | null =
+    offerAmount != null && Number.isFinite(Number(offerAmount)) ? Number(offerAmount) : null
+  if (price == null) price = priceFromPurchasableOffer(listingItem.attributes, account.marketplaceId)
+
+  if (price != null && Number.isFinite(price)) {
+    await prisma.sellerListing.updateMany({
+      where: { accountId, sku },
+      data: { price, updatedAt: new Date() },
+    })
+    return price
+  }
+  return null
 }
 
 // ─── updateListingQuantity ─────────────────────────────────────────────────

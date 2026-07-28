@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     const sellerListings = amazonSkus.length > 0
       ? await prisma.sellerListing.findMany({
           where: { sku: { in: amazonSkus } },
-          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true },
+          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true },
           distinct: ['sku'],
         })
       : []
@@ -39,6 +39,10 @@ export async function GET(req: NextRequest) {
     const fnskuMap = new Map(sellerListings.filter(l => l.fnsku).map(l => [l.sku, l.fnsku]))
     const slFcMap = new Map(sellerListings.filter(l => l.fulfillmentChannel).map(l => [l.sku, l.fulfillmentChannel]))
     const conditionMap = new Map(sellerListings.filter(l => l.condition).map(l => [l.sku, l.condition]))
+    // Decimal → string over JSON; null when unpriced/unsynced
+    const priceMap = new Map(sellerListings.map(l => [l.sku, l.price != null ? l.price.toString() : null]))
+    const minPriceMap = new Map(sellerListings.map(l => [l.sku, l.minPrice != null ? l.minPrice.toString() : null]))
+    const maxPriceMap = new Map(sellerListings.map(l => [l.sku, l.maxPrice != null ? l.maxPrice.toString() : null]))
 
     const mskuIds = skus.map(s => s.id)
     const mpListings = mskuIds.length > 0

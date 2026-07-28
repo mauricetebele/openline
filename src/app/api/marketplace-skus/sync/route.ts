@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
     const count = await prisma.sellerListing.count()
     if (count === 0) {
       return NextResponse.json(
-        { error: 'No Amazon catalog data found. Go to Active Listings and click "Sync Catalog" first, then try again.' },
+        { error: 'No Amazon catalog data found yet. Run an Amazon sync first, then try again.' },
         { status: 400 },
       )
     }
