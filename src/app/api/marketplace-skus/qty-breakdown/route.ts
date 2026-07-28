@@ -20,6 +20,7 @@ export const dynamic = 'force-dynamic'
 export interface QtyBreakdown {
   mskuId: string
   onHand: number
+  readyForSale: number
   reserved: number
   pendingOrders: number
   pendingPayment: number
@@ -50,6 +51,8 @@ export async function GET() {
       sellerSku: true,
       maxQty: true,
       isDefaultSku: true,
+      seeSaw: true,
+      seeSawActive: true,
       createdAt: true,
     },
   })
@@ -162,10 +165,19 @@ export async function GET() {
     // Per-SKU available (for display purposes)
     const available = Math.max(0, availableInInventory - pendingOrders - pendingPayment - wholesaleReserved)
 
-    // Find default SKU index: explicit isDefaultSku flag, else earliest createdAt
-    const defaultIdx = group.findIndex(m => m.isDefaultSku)
-    const bufferIdx = defaultIdx >= 0 ? defaultIdx : group.reduce((best, m, i) =>
-      m.createdAt < group[best].createdAt ? i : best, 0)
+    // Which SKU receives the single last-unit buffer allocation:
+    //   Last Unit Lean → that SKU; else SEE-SAW → the currently-active side
+    //   (or first participant); else legacy earliest-created.
+    const leanIdx = group.findIndex(m => m.isDefaultSku)
+    let bufferIdx: number
+    if (leanIdx >= 0) {
+      bufferIdx = leanIdx
+    } else if (group.some(m => m.seeSaw)) {
+      const activeIdx = group.findIndex(m => m.seeSaw && m.seeSawActive)
+      bufferIdx = activeIdx >= 0 ? activeIdx : group.findIndex(m => m.seeSaw)
+    } else {
+      bufferIdx = group.reduce((best, m, i) => (m.createdAt < group[best].createdAt ? i : best), 0)
+    }
     const myIdx = group.indexOf(msku)
 
     // Group-level low-stock buffer
@@ -183,7 +195,8 @@ export async function GET() {
     const splitPct = groupSize > 0 ? Math.round(100 / groupSize) : 100
 
     return {
-      mskuId: msku.id, onHand, reserved, pendingOrders, pendingPayment,
+      mskuId: msku.id, onHand, readyForSale: availableInInventory,
+      reserved, pendingOrders, pendingPayment,
       available, maxQty: msku.maxQty, pushing, lowStockBuffer,
       groupSize, splitPct, isDefaultSku: msku.isDefaultSku,
     }

@@ -14,11 +14,13 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { syncQty, maxQty, isDefaultSku } = body as { syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean }
+  const { syncQty, maxQty, isDefaultSku, seeSaw } = body as {
+    syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean; seeSaw?: boolean
+  }
 
   // At least one field must be provided
-  if (typeof syncQty !== 'boolean' && maxQty === undefined && typeof isDefaultSku !== 'boolean') {
-    return NextResponse.json({ error: 'syncQty, maxQty, or isDefaultSku is required' }, { status: 400 })
+  if (typeof syncQty !== 'boolean' && maxQty === undefined && typeof isDefaultSku !== 'boolean' && typeof seeSaw !== 'boolean') {
+    return NextResponse.json({ error: 'syncQty, maxQty, isDefaultSku, or seeSaw is required' }, { status: 400 })
   }
 
   const msku = await prisma.productGradeMarketplaceSku.findUnique({
@@ -28,19 +30,44 @@ export async function PATCH(
     return NextResponse.json({ error: 'Marketplace SKU not found' }, { status: 404 })
   }
 
-  // When setting isDefaultSku=true, unset all other defaults in the same (productId, gradeId) group
+  const group = { productId: msku.productId, gradeId: msku.gradeId ?? null }
+
+  // Last Unit Lean and SEE-SAW are mutually exclusive within a (productId, gradeId)
+  // group. SEE-SAW is the default: setting a lean turns it off; clearing the lean
+  // restores it. SEE-SAW is a group-level strategy, so it's applied group-wide.
   if (isDefaultSku === true) {
+    // One lean per group; enabling it disables see-saw group-wide.
     await prisma.productGradeMarketplaceSku.updateMany({
-      where: {
-        productId: msku.productId,
-        gradeId: msku.gradeId ?? null,
-        id: { not: msku.id },
-        isDefaultSku: true,
-      },
+      where: { ...group, id: { not: msku.id }, isDefaultSku: true },
       data: { isDefaultSku: false },
+    })
+    await prisma.productGradeMarketplaceSku.updateMany({
+      where: { ...group },
+      data: { seeSaw: false, seeSawActive: false, seeSawFlippedAt: null },
+    })
+  } else if (isDefaultSku === false) {
+    // Clearing the lean restores the see-saw default for the group.
+    await prisma.productGradeMarketplaceSku.updateMany({
+      where: { ...group },
+      data: { seeSaw: true, seeSawActive: false, seeSawFlippedAt: null },
     })
   }
 
+  if (seeSaw === true) {
+    // Enable see-saw group-wide, clear any lean, reset the rotation.
+    await prisma.productGradeMarketplaceSku.updateMany({
+      where: { ...group },
+      data: { seeSaw: true, isDefaultSku: false, seeSawActive: false, seeSawFlippedAt: null },
+    })
+  } else if (seeSaw === false) {
+    // Disable see-saw group-wide (falls back to the legacy last-unit default).
+    await prisma.productGradeMarketplaceSku.updateMany({
+      where: { ...group },
+      data: { seeSaw: false, seeSawActive: false, seeSawFlippedAt: null },
+    })
+  }
+
+  // Target-row fields (group-wide see-saw changes already applied above).
   const data: { syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean } = {}
   if (typeof syncQty === 'boolean') data.syncQty = syncQty
   if (maxQty !== undefined) data.maxQty = maxQty

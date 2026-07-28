@@ -1,6 +1,6 @@
 'use client'
 import { createPortal } from 'react-dom'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2, DollarSign } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -31,6 +31,8 @@ interface MarketplaceSku {
   syncQty: boolean
   maxQty: number | null
   isDefaultSku: boolean
+  seeSaw: boolean
+  seeSawActive: boolean
   fulfillmentChannel: string | null
   itemCondition: string | null
   bmListingId: string | null
@@ -70,6 +72,7 @@ interface GradeOption {
 interface QtyBreakdown {
   mskuId: string
   onHand: number
+  readyForSale: number
   reserved: number
   pendingOrders: number
   pendingPayment: number
@@ -849,27 +852,66 @@ export default function MarketplaceSkuManager() {
     }
   }
 
+  const sameGroupAs = (target: MarketplaceSku) => (s: MarketplaceSku) =>
+    s.productId === target.productId && (s.gradeId ?? null) === (target.gradeId ?? null)
+
   async function handleSetDefaultSku(id: string, value: boolean) {
     try {
       await apiPatch(`/api/marketplace-skus/${id}`, { isDefaultSku: value })
-      // Update local state: when setting true, unset others in same group
+      // Last Unit Lean ↔ SEE-SAW are mutually exclusive (see-saw is the default).
       setSkus(prev => {
         const target = prev.find(s => s.id === id)
         if (!target) return prev
+        const inGroup = sameGroupAs(target)
         return prev.map(s => {
-          if (s.id === id) return { ...s, isDefaultSku: value }
-          if (value && s.productId === target.productId && (s.gradeId ?? null) === (target.gradeId ?? null)) {
-            return { ...s, isDefaultSku: false }
-          }
+          if (s.id === id) return { ...s, isDefaultSku: value, seeSaw: !value, seeSawActive: false }
+          if (inGroup(s)) return { ...s, isDefaultSku: value ? false : s.isDefaultSku, seeSaw: !value, seeSawActive: false }
           return s
         })
       })
       loadQtyBreakdown()
-      setToast(value ? 'Last Unit Lean set for this SKU' : 'Last Unit Lean turned off')
+      setToast(value ? 'Last Unit Lean set — SEE-SAW disabled for this product/grade' : 'Last Unit Lean off — SEE-SAW restored')
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to update Last Unit Lean')
     }
   }
+
+  async function handleSetSeeSaw(id: string, value: boolean) {
+    try {
+      await apiPatch(`/api/marketplace-skus/${id}`, { seeSaw: value })
+      setSkus(prev => {
+        const target = prev.find(s => s.id === id)
+        if (!target) return prev
+        const inGroup = sameGroupAs(target)
+        return prev.map(s => inGroup(s)
+          ? { ...s, seeSaw: value, seeSawActive: false, isDefaultSku: value ? false : s.isDefaultSku }
+          : s)
+      })
+      loadQtyBreakdown()
+      setToast(value ? 'SEE-SAW enabled for this product/grade' : 'SEE-SAW disabled')
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to update SEE-SAW')
+    }
+  }
+
+  // Product+grade groups actively pushing on >1 marketplace — the only place the
+  // last-unit strategy toggles (SEE-SAW / Last Unit Lean) are meaningful. Shown
+  // regardless of current stock (we're configuring behaviour for when it hits 1 unit).
+  const multiMarketplaceGroups = useMemo(() => {
+    const byGroup = new Map<string, Set<string>>()
+    for (const s of skus) {
+      if (!s.syncQty) continue
+      const key = `${s.productId}::${s.gradeId ?? 'null'}`
+      const set = byGroup.get(key) ?? new Set<string>()
+      set.add(s.marketplace)
+      byGroup.set(key, set)
+    }
+    const multi = new Set<string>()
+    byGroup.forEach((mps, key) => { if (mps.size > 1) multi.add(key) })
+    return multi
+  }, [skus])
+  const showStrategyToggles = (s: MarketplaceSku) =>
+    multiMarketplaceGroups.has(`${s.productId}::${s.gradeId ?? 'null'}`)
 
   async function handlePushQty() {
     setPushing(true)
@@ -1289,8 +1331,10 @@ export default function MarketplaceSkuManager() {
                     </button>
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Max Qty</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Physical quantity on hand in the finished-goods (Ready for Sale) location for this product + grade.">Ready for Sale</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Pushing</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="When only the last unit remains, push it to this marketplace. Only one marketplace per product+grade can be enabled.">Last Unit Lean</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="SEE-SAW: when down to the last unit, alternate which marketplace gets it every 12 hours. Default on; mutually exclusive with Last Unit Lean. Shown only for product/grades pushing on more than one marketplace.">SEE-SAW</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Last Unit Lean: when only the last unit remains, always push it to this marketplace. One marketplace per product+grade; mutually exclusive with SEE-SAW.">Last Unit Lean</th>
                   <th className="px-4 py-3 w-12" />
                 </tr>
               </thead>
@@ -1437,6 +1481,14 @@ export default function MarketplaceSkuManager() {
                       />
                       )}
                     </td>
+                    {/* Ready for Sale (finished-goods on-hand) */}
+                    <td className="px-4 py-3 text-center">
+                      {qtyMap[s.id] ? (
+                        <span className="font-mono text-xs text-gray-700">{qtyMap[s.id].readyForSale}</span>
+                      ) : (
+                        <span className="text-[10px] text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-center">
                       {s.fulfillmentChannel === 'FBA' ? (
                         <span className="text-[10px] text-gray-400">—</span>
@@ -1470,25 +1522,60 @@ export default function MarketplaceSkuManager() {
                         <span className="text-xs text-gray-300">—</span>
                       )}
                     </td>
+                    {/* SEE-SAW */}
                     <td className="px-4 py-3 text-center">
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={s.isDefaultSku}
-                        onClick={() => handleSetDefaultSku(s.id, !s.isDefaultSku)}
-                        title={s.isDefaultSku
-                          ? `On — last unit leans to this ${s.marketplace === 'backmarket' ? 'Back Market' : s.marketplace} SKU`
-                          : 'Off — click to lean the last unit to this SKU'}
-                        className={clsx(
-                          'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amazon-blue focus:ring-offset-1',
-                          s.isDefaultSku ? 'bg-amazon-blue' : 'bg-gray-200 hover:bg-gray-300',
-                        )}
-                      >
-                        <span className={clsx(
-                          'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
-                          s.isDefaultSku ? 'translate-x-4' : 'translate-x-0.5',
-                        )} />
-                      </button>
+                      {showStrategyToggles(s) ? (
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={s.seeSaw}
+                            onClick={() => handleSetSeeSaw(s.id, !s.seeSaw)}
+                            title={s.seeSaw
+                              ? 'On — the last unit alternates between marketplaces every 12h'
+                              : 'Off — click to alternate the last unit between marketplaces'}
+                            className={clsx(
+                              'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-1',
+                              s.seeSaw ? 'bg-purple-500' : 'bg-gray-200 hover:bg-gray-300',
+                            )}
+                          >
+                            <span className={clsx(
+                              'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                              s.seeSaw ? 'translate-x-4' : 'translate-x-0.5',
+                            )} />
+                          </button>
+                          {s.seeSaw && s.seeSawActive && (
+                            <span className="inline-flex items-center rounded-full bg-purple-100 px-1.5 py-0.5 text-[9px] font-semibold text-purple-700" title="Currently the active side — this marketplace holds the last unit right now">LIVE</span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
+                    </td>
+                    {/* Last Unit Lean */}
+                    <td className="px-4 py-3 text-center">
+                      {showStrategyToggles(s) ? (
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={s.isDefaultSku}
+                          onClick={() => handleSetDefaultSku(s.id, !s.isDefaultSku)}
+                          title={s.isDefaultSku
+                            ? `On — last unit leans to this ${s.marketplace === 'backmarket' ? 'Back Market' : s.marketplace} SKU`
+                            : 'Off — click to lean the last unit to this SKU'}
+                          className={clsx(
+                            'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amazon-blue focus:ring-offset-1',
+                            s.isDefaultSku ? 'bg-amazon-blue' : 'bg-gray-200 hover:bg-gray-300',
+                          )}
+                        >
+                          <span className={clsx(
+                            'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                            s.isDefaultSku ? 'translate-x-4' : 'translate-x-0.5',
+                          )} />
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <button

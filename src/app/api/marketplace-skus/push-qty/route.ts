@@ -147,6 +147,8 @@ function computeGroupAvailable(
 
 // ─── Compute per-MSKU quantities for a group (with split + buffer + maxQty) ──
 
+const SEESAW_INTERVAL_MS = 12 * 60 * 60 * 1000
+
 interface GroupMsku {
   id: string
   productId: string
@@ -155,40 +157,99 @@ interface GroupMsku {
   sellerSku: string
   maxQty: number | null
   isDefaultSku: boolean
+  seeSaw: boolean
+  seeSawActive: boolean
+  seeSawFlippedAt: Date | null
   createdAt: Date
 }
 
+export interface SeeSawFlip { id: string; seeSawActive: boolean; seeSawFlippedAt: Date | null }
+
+/**
+ * Pick the recipient of the single last-unit buffer allocation, and advance the
+ * SEE-SAW rotation if 12h have elapsed. Precedence:
+ *   1. Last Unit Lean (isDefaultSku) — fixed marketplace, no rotation.
+ *   2. SEE-SAW (seeSaw participants) — alternates the recipient every 12h.
+ *   3. Legacy fallback — earliest-created SKU.
+ * Returns the recipient index into `mskus` plus any rotation-state changes to persist.
+ */
+function pickBufferRecipient(
+  mskus: GroupMsku[],
+  now: number,
+): { recipientIdx: number; flips: SeeSawFlip[] } {
+  const flips: SeeSawFlip[] = []
+
+  // 1. Last Unit Lean wins if set.
+  const leanIdx = mskus.findIndex(m => m.isDefaultSku)
+  if (leanIdx >= 0) return { recipientIdx: leanIdx, flips }
+
+  // 2. SEE-SAW: rotate among participants deterministically.
+  const participants = mskus
+    .map((m, i) => ({ m, i }))
+    .filter(x => x.m.seeSaw)
+    .sort((a, b) => a.m.marketplace.localeCompare(b.m.marketplace) || a.m.sellerSku.localeCompare(b.m.sellerSku))
+
+  if (participants.length === 0) {
+    // 3. Legacy fallback — earliest createdAt.
+    const idx = mskus.reduce((best, m, i) => (m.createdAt < mskus[best].createdAt ? i : best), 0)
+    return { recipientIdx: idx, flips }
+  }
+
+  let activePos = participants.findIndex(p => p.m.seeSawActive)
+  const flippedAt = activePos >= 0 ? participants[activePos].m.seeSawFlippedAt?.getTime() ?? null : null
+
+  if (activePos < 0) {
+    activePos = 0
+    flips.push({ id: participants[0].m.id, seeSawActive: true, seeSawFlippedAt: new Date(now) })
+  } else if (flippedAt == null) {
+    // Active but never timestamped — stamp now, don't advance yet.
+    flips.push({ id: participants[activePos].m.id, seeSawActive: true, seeSawFlippedAt: new Date(now) })
+  } else if (now - flippedAt >= SEESAW_INTERVAL_MS) {
+    const nextPos = (activePos + 1) % participants.length
+    if (nextPos !== activePos) {
+      flips.push({ id: participants[activePos].m.id, seeSawActive: false, seeSawFlippedAt: null })
+    }
+    flips.push({ id: participants[nextPos].m.id, seeSawActive: true, seeSawFlippedAt: new Date(now) })
+    activePos = nextPos
+  }
+
+  return { recipientIdx: participants[activePos].i, flips }
+}
+
+/**
+ * Per-MSKU quantities for a (productId, gradeId) group. Plenty of stock → even
+ * split across marketplaces. Last-unit buffer (available 1–3) → a single unit to
+ * one marketplace, chosen by Last Unit Lean or the SEE-SAW rotation (see
+ * pickBufferRecipient). Returns quantities plus any SEE-SAW state changes to persist.
+ */
 export function calculateGroupQuantities(
   mskus: GroupMsku[],
   bulk: BulkQuantities,
-): Map<string, number> {
-  const result = new Map<string, number>()
-  if (mskus.length === 0) return result
+  now: number,
+): { qtys: Map<string, number>; flips: SeeSawFlip[] } {
+  const qtys = new Map<string, number>()
+  if (mskus.length === 0) return { qtys, flips: [] }
 
   const available = computeGroupAvailable(mskus, bulk)
 
-  // Find the default SKU: explicit isDefaultSku flag, else earliest createdAt
-  const defaultIdx = mskus.findIndex(m => m.isDefaultSku)
-  const bufferIdx = defaultIdx >= 0 ? defaultIdx : mskus.reduce((best, m, i) =>
-    m.createdAt < mskus[best].createdAt ? i : best, 0)
-
-  // Group-level low-stock buffer: if available ≤3 && >0, push 1 to default SKU, 0 to rest
+  // Low-stock buffer: push 1 unit to a single marketplace, 0 to the rest.
   if (available > 0 && available <= 3) {
+    const { recipientIdx, flips } = pickBufferRecipient(mskus, now)
     for (let i = 0; i < mskus.length; i++) {
-      const allocated = i === bufferIdx ? 1 : 0
+      const allocated = i === recipientIdx ? 1 : 0
       const finalQty = mskus[i].maxQty != null ? Math.min(allocated, mskus[i].maxQty!) : allocated
-      result.set(mskus[i].id, finalQty)
+      qtys.set(mskus[i].id, finalQty)
     }
-    return result
+    return { qtys, flips }
   }
 
-  // Even split
+  // Even split (see-saw not applicable when there's more than the buffer).
   const allocations = splitQtyForGroup(available, mskus.length)
   for (let i = 0; i < mskus.length; i++) {
     const finalQty = mskus[i].maxQty != null ? Math.min(allocations[i], mskus[i].maxQty!) : allocations[i]
-    result.set(mskus[i].id, finalQty)
+    qtys.set(mskus[i].id, finalQty)
   }
-  return result
+  return { qtys, flips: [] }
 }
 
 // ─── Back Market client init ────────────────────────────────────────────────
@@ -278,12 +339,23 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[] }> {
     else groups.set(key, [msku])
   }
 
-  // Compute per-MSKU quantities using group-aware split
+  // Compute per-MSKU quantities using group-aware split (+ see-saw rotation)
   const qtyMap = new Map<string, number>()
+  const seeSawFlips: SeeSawFlip[] = []
+  const nowMs = Date.now()
   groups.forEach(group => {
-    const groupQtys = calculateGroupQuantities(group, bulk)
-    groupQtys.forEach((qty, id) => qtyMap.set(id, qty))
+    const { qtys, flips } = calculateGroupQuantities(group, bulk, nowMs)
+    qtys.forEach((qty, id) => qtyMap.set(id, qty))
+    if (flips.length) seeSawFlips.push(...flips)
   })
+
+  // Persist see-saw rotation changes (active side + flip timestamp) before pushing.
+  for (const f of seeSawFlips) {
+    await prisma.productGradeMarketplaceSku.update({
+      where: { id: f.id },
+      data: { seeSawActive: f.seeSawActive, seeSawFlippedAt: f.seeSawFlippedAt },
+    }).catch(() => {})
+  }
 
   // Build work queue — filter out skipped SKUs
   interface WorkItem {
@@ -415,9 +487,15 @@ export async function pushSingleQuantity(mskuId: string): Promise<PushResult> {
     return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: 0 }
   }
 
-  // Compute split quantities for the whole group
+  // Compute split quantities for the whole group (+ see-saw rotation)
   const bulk = await computeBulkQuantities(group)
-  const qtyMap = calculateGroupQuantities(group, bulk)
+  const { qtys: qtyMap, flips } = calculateGroupQuantities(group, bulk, Date.now())
+  for (const f of flips) {
+    await prisma.productGradeMarketplaceSku.update({
+      where: { id: f.id },
+      data: { seeSawActive: f.seeSawActive, seeSawFlippedAt: f.seeSawFlippedAt },
+    }).catch(() => {})
+  }
 
   // Push all siblings (not just the toggled one) so they all get correct split
   const { bmClient, bmListingsCache } = await getBmContext(group)

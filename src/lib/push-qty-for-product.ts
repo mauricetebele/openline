@@ -14,7 +14,7 @@ import {
   getBmContext,
   calculateGroupQuantities,
 } from '@/app/api/marketplace-skus/push-qty/route'
-import type { BulkQuantities } from '@/app/api/marketplace-skus/push-qty/route'
+import type { BulkQuantities, SeeSawFlip } from '@/app/api/marketplace-skus/push-qty/route'
 import { updateListingQuantity as updateAmazonQty } from '@/lib/amazon/listings'
 
 function pgKey(productId: string, gradeId: string | null | undefined): string {
@@ -100,12 +100,21 @@ export function pushQtyForProducts(productIds: string[]): void {
 
       const bulk: BulkQuantities = { inventoryMap, pendingMap, wholesaleMap }
 
-      // Compute split quantities per group
+      // Compute split quantities per group (+ see-saw rotation)
       const qtyMap = new Map<string, number>()
+      const seeSawFlips: SeeSawFlip[] = []
+      const nowMs = Date.now()
       groups.forEach(group => {
-        const groupQtys = calculateGroupQuantities(group, bulk)
-        groupQtys.forEach((qty, id) => qtyMap.set(id, qty))
+        const { qtys, flips } = calculateGroupQuantities(group, bulk, nowMs)
+        qtys.forEach((qty, id) => qtyMap.set(id, qty))
+        if (flips.length) seeSawFlips.push(...flips)
       })
+      for (const f of seeSawFlips) {
+        await prisma.productGradeMarketplaceSku.update({
+          where: { id: f.id },
+          data: { seeSawActive: f.seeSawActive, seeSawFlippedAt: f.seeSawFlippedAt },
+        }).catch(() => {})
+      }
 
       // Push each MSKU with its split quantity
       const { bmClient, bmListingsCache } = await getBmContext(filtered)
