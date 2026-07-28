@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown, Barcode } from 'lucide-react'
+import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown, Barcode, Store } from 'lucide-react'
 import SNLookupModal from './SNLookupModal'
 import GradeBadge from '@/components/GradeBadge'
 
@@ -2421,6 +2421,95 @@ function MpSalesModal({
   )
 }
 
+type MpFacet = 'amazon' | 'backmarket' | 'none'
+const MP_FACETS: { key: MpFacet; label: string }[] = [
+  { key: 'amazon', label: 'Amazon' },
+  { key: 'backmarket', label: 'Back Market' },
+  { key: 'none', label: 'None' },
+]
+
+/**
+ * Which marketplaces a SKU (at its specific grade) is live on. Mirrors the
+ * Marketplace column cell: a mapping is matched only when its gradeId equals
+ * the row's grade (both-null included). "none" = live on neither marketplace.
+ */
+function marketplaceFlags(item: InventoryItem) {
+  const matched = (item.product.marketplaceSkus ?? []).filter(
+    s => (s.gradeId ?? null) === (item.grade?.id ?? null),
+  )
+  const amazon = matched.some(s => s.marketplace === 'amazon')
+  const backmarket = matched.some(s => s.marketplace === 'backmarket')
+  return { amazon, backmarket, none: !amazon && !backmarket }
+}
+
+/** Checkbox dropdown to filter rows by which marketplace(s) a SKU is live on. */
+function MarketplaceFilter({
+  selected,
+  onToggle,
+  onClear,
+}: {
+  selected: Set<MpFacet>
+  onToggle: (f: MpFacet) => void
+  onClear: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [open])
+
+  const count = selected.size
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-1.5 h-9 px-3 rounded-md border text-sm font-medium transition-colors ${
+          count > 0
+            ? 'bg-amazon-blue/5 border-amazon-blue text-amazon-blue'
+            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+        }`}
+      >
+        <Store size={14} />
+        Marketplace{count > 0 ? ` (${count})` : ''}
+        <ChevronDown size={12} />
+      </button>
+      {open && (
+        <div className="absolute left-0 z-20 mt-1 w-44 rounded-md border border-gray-200 bg-white shadow-lg p-1">
+          {MP_FACETS.map(f => (
+            <label
+              key={f.key}
+              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm text-gray-700"
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(f.key)}
+                onChange={() => onToggle(f.key)}
+                className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue"
+              />
+              {f.label}
+            </label>
+          ))}
+          {count > 0 && (
+            <button
+              type="button"
+              onClick={onClear}
+              className="mt-1 w-full text-left px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function InventoryView({ openModal }: { openModal?: OpenModal } = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -2433,6 +2522,14 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   const [search,       setSearch]       = useState(searchParams.get('search') ?? '')
   const [gradeId,      setGradeId]      = useState('')
   const [allGrades,    setAllGrades]    = useState<{ id: string; grade: string }[]>([])
+  // Client-side "live on marketplace" filter (union of checked facets; empty = show all)
+  const [mpFilter,     setMpFilter]     = useState<Set<MpFacet>>(new Set())
+  const toggleMpFacet = (f: MpFacet) => setMpFilter(prev => {
+    const next = new Set(prev)
+    if (next.has(f)) next.delete(f)
+    else next.add(f)
+    return next
+  })
   const [serialTarget,  setSerialTarget]  = useState<{ product: Product; location: Location; gradeId: string | null } | null>(null)
   const [mpTarget,      setMpTarget]      = useState<{ product: Product; gradeId: string | null; gradeLabel: string } | null>(null)
   const mpHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -2475,9 +2572,20 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
     }
   }
 
+  // Apply the marketplace facet filter (union). Empty selection = show everything.
+  const visibleItems = useMemo(() => {
+    if (mpFilter.size === 0) return items
+    return items.filter(item => {
+      const f = marketplaceFlags(item)
+      return (mpFilter.has('amazon') && f.amazon)
+        || (mpFilter.has('backmarket') && f.backmarket)
+        || (mpFilter.has('none') && f.none)
+    })
+  }, [items, mpFilter])
+
   const sortedItems = useMemo(() => {
-    if (!sortKey) return items
-    const sorted = [...items]
+    if (!sortKey) return visibleItems
+    const sorted = [...visibleItems]
     const dir = sortDir === 'asc' ? 1 : -1
     sorted.sort((a, b) => {
       let av: string | number, bv: string | number
@@ -2505,7 +2613,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
       return ((av as number) - (bv as number)) * dir
     })
     return sorted
-  }, [items, sortKey, sortDir])
+  }, [visibleItems, sortKey, sortDir])
 
   // Auto-open modal when navigating to a sub-route
   useEffect(() => {
@@ -2559,9 +2667,9 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
     return () => clearTimeout(t)
   }, [load, search])
 
-  const totalOnHand    = items.reduce((s, i) => s + i.onHand, 0)
-  const totalReserved  = items.reduce((s, i) => s + i.reserved, 0)
-  const totalAvailable = items.reduce((s, i) => s + (i.onHand - i.reserved), 0)
+  const totalOnHand    = visibleItems.reduce((s, i) => s + i.onHand, 0)
+  const totalReserved  = visibleItems.reduce((s, i) => s + i.reserved, 0)
+  const totalAvailable = visibleItems.reduce((s, i) => s + (i.onHand - i.reserved), 0)
 
   return (
     <div className="flex-1 overflow-auto px-6 py-4">
@@ -2597,6 +2705,8 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
             <option value="none">Ungraded</option>
           </select>
         )}
+
+        <MarketplaceFilter selected={mpFilter} onToggle={toggleMpFacet} onClear={() => setMpFilter(new Set())} />
 
         <button
           type="button"
@@ -2644,7 +2754,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
 
         {items.length > 0 && (
           <span className="text-xs text-gray-400">
-            {items.length} SKU{items.length !== 1 ? 's' : ''} ·{' '}
+            {visibleItems.length} SKU{visibleItems.length !== 1 ? 's' : ''} ·{' '}
             <span className="font-medium text-gray-600">{totalOnHand.toLocaleString()} on hand</span>
             {totalReserved > 0 && (
               <> · <span className="text-amber-600">{totalReserved.toLocaleString()} reserved</span> · {totalAvailable.toLocaleString()} available</>
@@ -2856,6 +2966,13 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                 </tr>
                 )
               })}
+              {sortedItems.length === 0 && (
+                <tr>
+                  <td colSpan={13} className="px-2 py-8 text-center text-sm text-gray-400">
+                    No SKUs match the selected marketplace filter.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
