@@ -18,6 +18,7 @@ interface Order {
   orderNumber: string
   invoiceNumber?: string | null
   customer: { id: string; companyName: string }
+  customerPoNumber?: string | null
   items: { id: string }[]
   total: number
   balance: number
@@ -101,6 +102,7 @@ export default function WholesaleOrdersManager() {
                 <th className="text-left px-5 py-3">Order #</th>
                 <th className="text-left px-5 py-3">Date</th>
                 <th className="text-left px-5 py-3">Customer</th>
+                <th className="text-left px-5 py-3">Customer PO #</th>
                 <th className="text-right px-5 py-3">Items</th>
                 <th className="text-right px-5 py-3">Total</th>
                 <th className="text-right px-5 py-3">Balance</th>
@@ -118,6 +120,7 @@ export default function WholesaleOrdersManager() {
                   <td className="px-5 py-3 font-mono text-orange-600">{o.invoiceNumber ?? o.orderNumber}</td>
                   <td className="px-5 py-3 text-gray-500">{new Date(o.orderDate).toLocaleDateString()}</td>
                   <td className="px-5 py-3 font-medium">{o.customer.companyName}</td>
+                  <td className="px-5 py-3 font-mono text-gray-600">{o.customerPoNumber || '—'}</td>
                   <td className="px-5 py-3 text-right text-gray-500">{o.items.length}</td>
                   <td className="px-5 py-3 text-right">{fmt(Number(o.total))}</td>
                   <td className="px-5 py-3 text-right font-semibold">{fmt(Number(o.balance))}</td>
