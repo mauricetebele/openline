@@ -454,16 +454,16 @@ function InlineMappingRow({
 
   return (
     <tr className="hover:bg-gray-50 bg-amber-50/30">
-      <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{listing.sellerSku}</td>
-      <td className="px-4 py-3">
+      <td className="px-3 py-2 font-mono text-xs font-medium text-gray-900">{listing.sellerSku}</td>
+      <td className="px-3 py-2">
         <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700">
           Unmapped
         </span>
       </td>
-      <td className="px-4 py-3 text-xs text-gray-500 max-w-[200px] truncate" title={listing.title ?? ''}>
+      <td className="px-3 py-2 text-xs text-gray-500 max-w-[200px] truncate" title={listing.title ?? ''}>
         {listing.title ?? '—'}
       </td>
-      <td className="px-4 py-3">
+      <td className="px-3 py-2">
         <span className={clsx(
           'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
           listing.marketplace === 'amazon' && 'bg-orange-100 text-orange-700',
@@ -472,10 +472,10 @@ function InlineMappingRow({
           {listing.marketplace === 'backmarket' ? 'Back Market' : listing.marketplace}
         </span>
       </td>
-      <td className="px-4 py-3">
+      <td className="px-3 py-2">
         <FulfillmentBadge channel={listing.fulfillmentChannel} />
       </td>
-      <td className="px-4 py-3 font-mono text-xs text-gray-500">{listing.accountId ?? '—'}</td>
+      <td className="px-3 py-2 font-mono text-xs text-gray-500">{listing.accountId ?? '—'}</td>
       {/* Inline mapping controls */}
       <td className="px-4 py-2" colSpan={2}>
         <div className="flex items-center gap-2">
@@ -1321,18 +1321,18 @@ export default function MarketplaceSkuManager() {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN / BMID</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">FNSKU</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Parent SKU</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Current Amazon listing price. Click to edit (pushes to Amazon); use the refresh icon to pull the live price.">Current Price</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Amazon listing status. Green = Active, Red = Inactive. Refreshed together with the price.">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN / BMID</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">FNSKU</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Parent SKU</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Current Amazon listing price. Click to edit (pushes to Amazon); use the refresh icon to pull the live price.">Current Price</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Amazon listing status. Green = Active, Red = Inactive. Refreshed together with the price.">Status</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
                     <button onClick={() => { setCreatedSort(s => s === 'none' ? 'newest' : s === 'newest' ? 'oldest' : 'none'); setSyncQtySort('none') }}
                       className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors uppercase tracking-wide">
                       Created
@@ -1341,7 +1341,7 @@ export default function MarketplaceSkuManager() {
                       {createdSort === 'none' && <span className="text-gray-300">⇅</span>}
                     </button>
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
                     <button onClick={() => { setSyncQtySort(s => s === 'none' ? 'enabled' : s === 'enabled' ? 'disabled' : 'none'); setCreatedSort('none') }}
                       className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors">
                       Sync Qty
@@ -1350,21 +1350,21 @@ export default function MarketplaceSkuManager() {
                       {syncQtySort === 'none' && <span className="text-gray-300">⇅</span>}
                     </button>
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Max Qty</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Physical quantity on hand in the finished-goods (Ready for Sale) location for this product + grade.">Ready for Sale</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Pushing</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="SEE-SAW: when down to the last unit, alternate which marketplace gets it every 12 hours. Default on; mutually exclusive with Last Unit Lean. Shown only for product/grades pushing on more than one marketplace.">SEE-SAW</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Last Unit Lean: when only the last unit remains, always push it to this marketplace. One marketplace per product+grade; mutually exclusive with SEE-SAW.">Last Unit Lean</th>
-                  <th className="px-4 py-3 w-12" />
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Max Qty</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Physical quantity on hand in the finished-goods (Ready for Sale) location for this product + grade.">Ready for Sale</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Pushing</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="SEE-SAW: when down to the last unit, alternate which marketplace gets it every 12 hours. Default on; mutually exclusive with Last Unit Lean. Shown only for product/grades pushing on more than one marketplace.">SEE-SAW</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Last Unit Lean: when only the last unit remains, always push it to this marketplace. One marketplace per product+grade; mutually exclusive with SEE-SAW.">Last Unit Lean</th>
+                  <th className="px-3 py-2 w-12" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredSkus.map(s => (
-                  <tr key={s.id} className={clsx('group', s.fulfillmentChannel === 'FBA' ? 'bg-blue-50/60 hover:bg-blue-100/60' : 'hover:bg-gray-50')}>
-                    <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{s.asin ?? s.bmListingId ?? '—'}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                      {s.fnsku ? s.fnsku : s.marketplace === 'amazon' && s.accountId ? (
+                  <tr key={s.id} className={clsx('group align-top transition-colors', s.fulfillmentChannel === 'FBA' ? 'bg-blue-50/60 hover:bg-blue-100/70' : 'odd:bg-white even:bg-gray-50/50 hover:bg-amazon-blue/5')}>
+                    <td className="px-3 py-2 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-600">{s.asin ?? s.bmListingId ?? '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-600">
+                      {s.fnsku ? s.fnsku : s.marketplace === 'amazon' && s.accountId && s.fulfillmentChannel === 'FBA' ? (
                         <button
                           type="button"
                           disabled={fetchingFnskuIds.has(s.id)}
@@ -1379,10 +1379,10 @@ export default function MarketplaceSkuManager() {
                         </button>
                       ) : '—'}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{s.product.sku}</td>
-                    <td className="px-4 py-3 text-xs text-gray-600">{s.grade?.grade ?? '—'}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500">{s.itemCondition ?? '—'}</td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <td className="px-3 py-2 font-mono text-xs text-gray-700">{s.product.sku}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600">{s.grade?.grade ?? '—'}</td>
+                    <td className="px-3 py-2 text-xs text-gray-500">{s.itemCondition ?? '—'}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
                       {s.marketplace !== 'amazon' ? (
                         <span className="text-gray-300 text-xs">—</span>
                       ) : editingPriceId === s.id ? (
@@ -1429,7 +1429,7 @@ export default function MarketplaceSkuManager() {
                       )}
                     </td>
                     {/* Amazon listing status — red/green light */}
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2 text-center">
                       {s.marketplace !== 'amazon' ? (
                         <span className="text-xs text-gray-300">—</span>
                       ) : (
@@ -1454,8 +1454,8 @@ export default function MarketplaceSkuManager() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-600 max-w-[200px] truncate" title={s.product.description}>{s.product.description}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2 text-xs text-gray-600 max-w-[240px] whitespace-normal break-words leading-snug align-top">{s.product.description}</td>
+                    <td className="px-3 py-2">
                       <div className="flex items-center gap-1.5">
                         <span className={clsx(
                           'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
@@ -1470,11 +1470,11 @@ export default function MarketplaceSkuManager() {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.accountId ?? '—'}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap" title={new Date(s.createdAt).toLocaleString()}>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-500">{s.accountId ?? '—'}</td>
+                    <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap" title={new Date(s.createdAt).toLocaleString()}>
                       {new Date(s.createdAt).toLocaleDateString()}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2 text-center">
                       {s.fulfillmentChannel === 'FBA' ? (
                         <span className="text-[10px] text-gray-400" title="FBA inventory is managed by Amazon">N/A</span>
                       ) : (
@@ -1496,7 +1496,7 @@ export default function MarketplaceSkuManager() {
                       </button>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2 text-center">
                       {s.fulfillmentChannel === 'FBA' ? (
                         <span className="text-[10px] text-gray-400">—</span>
                       ) : (
@@ -1528,14 +1528,14 @@ export default function MarketplaceSkuManager() {
                       )}
                     </td>
                     {/* Ready for Sale (finished-goods on-hand) */}
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2 text-center">
                       {qtyMap[s.id] ? (
                         <span className="font-mono text-xs text-gray-700">{qtyMap[s.id].readyForSale}</span>
                       ) : (
                         <span className="text-[10px] text-gray-400">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2 text-center">
                       {s.fulfillmentChannel === 'FBA' ? (
                         <span className="text-[10px] text-gray-400">—</span>
                       ) : s.syncQty && qtyMap[s.id] ? (
@@ -1569,7 +1569,7 @@ export default function MarketplaceSkuManager() {
                       )}
                     </td>
                     {/* SEE-SAW */}
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2 text-center">
                       {showStrategyToggles(s) ? (
                         <div className="inline-flex items-center gap-1.5">
                           <button
@@ -1599,7 +1599,7 @@ export default function MarketplaceSkuManager() {
                       )}
                     </td>
                     {/* Last Unit Lean */}
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2 text-center">
                       {showStrategyToggles(s) ? (
                         <button
                           type="button"
@@ -1623,7 +1623,7 @@ export default function MarketplaceSkuManager() {
                         <span className="text-xs text-gray-300">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <button
                         type="button"
                         onClick={() => handleDelete(s.id)}
@@ -1659,13 +1659,13 @@ export default function MarketplaceSkuManager() {
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Title / Product</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Fulfillment</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide" colSpan={2}>Mapping</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Title / Product</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Fulfillment</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide" colSpan={2}>Mapping</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -1679,18 +1679,18 @@ export default function MarketplaceSkuManager() {
                       />
                     ) : (
                       <tr key={l.id} className="hover:bg-gray-50 group">
-                        <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{l.sellerSku}</td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2 font-mono text-xs font-medium text-gray-900">{l.sellerSku}</td>
+                        <td className="px-3 py-2">
                           <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-green-100 text-green-700">
                             Mapped
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-xs text-gray-600">
+                        <td className="px-3 py-2 text-xs text-gray-600">
                           <span className="font-mono text-gray-700">{l.msku?.product.sku}</span>
                           {l.msku?.grade && <span className="ml-1.5 text-gray-400">({l.msku.grade.grade})</span>}
                           <span className="ml-2 text-gray-400 truncate">{l.msku?.product.description}</span>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2">
                           <span className={clsx(
                             'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
                             l.marketplace === 'amazon' && 'bg-orange-100 text-orange-700',
@@ -1699,11 +1699,11 @@ export default function MarketplaceSkuManager() {
                             {l.marketplace === 'backmarket' ? 'Back Market' : l.marketplace}
                           </span>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2">
                           <FulfillmentBadge channel={l.fulfillmentChannel} />
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs text-gray-500">{l.accountId ?? '—'}</td>
-                        <td className="px-4 py-3" colSpan={2}>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-500">{l.accountId ?? '—'}</td>
+                        <td className="px-3 py-2" colSpan={2}>
                           <button
                             type="button"
                             onClick={() => {
