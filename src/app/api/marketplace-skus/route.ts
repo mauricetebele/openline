@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     const sellerListings = amazonSkus.length > 0
       ? await prisma.sellerListing.findMany({
           where: { sku: { in: amazonSkus } },
-          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true },
+          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true, listingStatus: true },
           distinct: ['sku'],
         })
       : []
@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
     const priceMap = new Map(sellerListings.map(l => [l.sku, l.price != null ? l.price.toString() : null]))
     const minPriceMap = new Map(sellerListings.map(l => [l.sku, l.minPrice != null ? l.minPrice.toString() : null]))
     const maxPriceMap = new Map(sellerListings.map(l => [l.sku, l.maxPrice != null ? l.maxPrice.toString() : null]))
+    const statusMap = new Map(sellerListings.map(l => [l.sku, l.listingStatus ?? null]))
 
     const mskuIds = skus.map(s => s.id)
     const mpListings = mskuIds.length > 0
@@ -76,6 +77,7 @@ export async function GET(req: NextRequest) {
       price: s.marketplace === 'amazon' ? (priceMap.get(s.sellerSku) ?? null) : null,
       minPrice: s.marketplace === 'amazon' ? (minPriceMap.get(s.sellerSku) ?? null) : null,
       maxPrice: s.marketplace === 'amazon' ? (maxPriceMap.get(s.sellerSku) ?? null) : null,
+      listingStatus: s.marketplace === 'amazon' ? (statusMap.get(s.sellerSku) ?? null) : null,
     }))
 
     return NextResponse.json({ data: enriched })

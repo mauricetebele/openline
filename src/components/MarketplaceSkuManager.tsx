@@ -40,6 +40,7 @@ interface MarketplaceSku {
   price: string | null
   minPrice: string | null
   maxPrice: string | null
+  listingStatus: string | null
 }
 
 interface MarketplaceListing {
@@ -524,6 +525,7 @@ export default function MarketplaceSkuManager() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [filterText, setFilterText] = useState('')
   const [gradeFilter, setGradeFilter] = useState<string>('all') // 'all' | 'none' | grade id
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all') // Amazon listing status
   const [syncing, setSyncing] = useState<string | null>(null)
   const [pushing, setPushing] = useState(false)
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null)
@@ -590,7 +592,7 @@ export default function MarketplaceSkuManager() {
     try {
       const res = await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku })
       const price = res.price != null ? String(res.price) : null
-      setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price } : x)))
+      setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price, listingStatus: res.listingStatus ?? x.listingStatus } : x)))
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Price refresh failed')
     } finally {
@@ -620,7 +622,7 @@ export default function MarketplaceSkuManager() {
         try {
           const res = await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku })
           const price = res.price != null ? String(res.price) : null
-          setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price } : x)))
+          setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price, listingStatus: res.listingStatus ?? x.listingStatus } : x)))
         } catch {
           failed++
         }
@@ -696,7 +698,7 @@ export default function MarketplaceSkuManager() {
   useEffect(() => { loadAll() }, [loadAll])
 
   // Reset synced listings page when filters change
-  useEffect(() => { setSyncPage(1) }, [tab, filterText, viewMode])
+  useEffect(() => { setSyncPage(1) }, [tab, filterText, viewMode, statusFilter, gradeFilter])
 
   // Load global grades on mount
   useEffect(() => {
@@ -963,6 +965,13 @@ export default function MarketplaceSkuManager() {
     if (tab !== 'all' && s.marketplace !== tab) return false
     if (gradeFilter === 'none') { if (s.gradeId != null) return false }
     else if (gradeFilter !== 'all') { if (s.gradeId !== gradeFilter) return false }
+    if (statusFilter !== 'all') {
+      // Listing status is Amazon-only; active = listingStatus 'Active'.
+      if (s.marketplace !== 'amazon') return false
+      const active = (s.listingStatus ?? '') === 'Active'
+      if (statusFilter === 'active' && !active) return false
+      if (statusFilter === 'inactive' && active) return false
+    }
     if (filterText.trim()) {
       const q = filterText.toLowerCase()
       return (
@@ -1057,6 +1066,16 @@ export default function MarketplaceSkuManager() {
           {grades.map(g => (
             <option key={g.id} value={g.id}>Grade {g.grade}</option>
           ))}
+        </select>
+        <select
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
+          title="Filter by Amazon listing status"
+          className="h-9 rounded-md border border-gray-300 px-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+        >
+          <option value="all">All statuses</option>
+          <option value="active">Active only</option>
+          <option value="inactive">Inactive only</option>
         </select>
         <div className="flex-1" />
 
@@ -1309,6 +1328,7 @@ export default function MarketplaceSkuManager() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Current Amazon listing price. Click to edit (pushes to Amazon); use the refresh icon to pull the live price.">Current Price</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Amazon listing status. Green = Active, Red = Inactive. Refreshed together with the price.">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
@@ -1406,6 +1426,32 @@ export default function MarketplaceSkuManager() {
                             <RefreshCw size={12} className={clsx(refreshingPriceId === s.id && 'animate-spin')} />
                           </button>
                         </div>
+                      )}
+                    </td>
+                    {/* Amazon listing status — red/green light */}
+                    <td className="px-4 py-3 text-center">
+                      {s.marketplace !== 'amazon' ? (
+                        <span className="text-xs text-gray-300">—</span>
+                      ) : (
+                        <span
+                          className="inline-flex items-center gap-1.5"
+                          title={s.listingStatus ? `Amazon: ${s.listingStatus}` : 'Status unknown — refresh price to fetch'}
+                        >
+                          <span className={clsx(
+                            'inline-block h-2.5 w-2.5 rounded-full',
+                            s.listingStatus === 'Active' ? 'bg-green-500'
+                              : s.listingStatus == null ? 'bg-gray-300'
+                              : 'bg-red-500',
+                          )} />
+                          <span className={clsx(
+                            'text-[11px] font-medium',
+                            s.listingStatus === 'Active' ? 'text-green-700'
+                              : s.listingStatus == null ? 'text-gray-400'
+                              : 'text-red-600',
+                          )}>
+                            {s.listingStatus ?? '—'}
+                          </span>
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600 max-w-[200px] truncate" title={s.product.description}>{s.product.description}</td>

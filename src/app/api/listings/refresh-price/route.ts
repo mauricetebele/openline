@@ -43,8 +43,8 @@ export async function POST(req: NextRequest) {
       accountId = active.id
     }
 
-    const price = await fetchLiveListingPrice(accountId, sku)
-    return NextResponse.json({ sku, price })
+    const { price, listingStatus } = await fetchLiveListingPrice(accountId, sku)
+    return NextResponse.json({ sku, price, listingStatus })
   } catch (err) {
     console.error('[refresh-price]', err)
     return NextResponse.json(

@@ -353,7 +353,7 @@ export async function resolveTemplateGroupId(
 // ─── updateShippingTemplate ───────────────────────────────────────────────────
 
 interface ListingItemResponse {
-  summaries?: { marketplaceId: string; productType?: string; asin?: string; conditionType?: string }[]
+  summaries?: { marketplaceId: string; productType?: string; asin?: string; conditionType?: string; status?: string[] }[]
   attributes?: Record<string, unknown>
   offers?: { marketplaceId?: string; offerType?: string; price?: { currencyCode?: string; amount?: string | number } }[]
 }
@@ -785,19 +785,22 @@ function priceFromPurchasableOffer(
 }
 
 /**
- * Live per-SKU price pull from Amazon (Listings Items API). Reads the CURRENT
- * offer price — reflecting changes made directly on Amazon outside this app —
- * and mirrors it into SellerListing.price. Returns the price, or null if the
- * listing has no resolvable price.
+ * Live per-SKU pull from Amazon (Listings Items API) of the CURRENT offer price
+ * AND listing status (Active/Inactive) — reflecting changes made directly on
+ * Amazon outside this app — mirrored into SellerListing. Both are read from the
+ * same GET so status stays in sync with price. Returns the resolved values.
  */
-export async function fetchLiveListingPrice(accountId: string, sku: string): Promise<number | null> {
+export async function fetchLiveListingPrice(
+  accountId: string,
+  sku: string,
+): Promise<{ price: number | null; listingStatus: string | null }> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
   const encodedSku = encodeURIComponent(sku)
 
   const listingItem = await client.get<ListingItemResponse>(
     `/listings/2021-08-01/items/${account.sellerId}/${encodedSku}`,
-    { marketplaceIds: account.marketplaceId, includedData: 'offers,attributes' },
+    { marketplaceIds: account.marketplaceId, includedData: 'summaries,offers,attributes' },
   )
 
   // Prefer the live offer price; fall back to the purchasable_offer attribute.
@@ -808,14 +811,17 @@ export async function fetchLiveListingPrice(accountId: string, sku: string): Pro
     offerAmount != null && Number.isFinite(Number(offerAmount)) ? Number(offerAmount) : null
   if (price == null) price = priceFromPurchasableOffer(listingItem.attributes, account.marketplaceId)
 
-  if (price != null && Number.isFinite(price)) {
-    await prisma.sellerListing.updateMany({
-      where: { accountId, sku },
-      data: { price, updatedAt: new Date() },
-    })
-    return price
-  }
-  return null
+  // Listing status from the summary — "BUYABLE" means the offer is live/active.
+  const summary =
+    listingItem.summaries?.find(s => s.marketplaceId === account.marketplaceId) ?? listingItem.summaries?.[0]
+  const listingStatus = summary ? (summary.status?.includes('BUYABLE') ? 'Active' : 'Inactive') : null
+
+  const data: { price?: number; listingStatus?: string; updatedAt: Date } = { updatedAt: new Date() }
+  if (price != null && Number.isFinite(price)) data.price = price
+  if (listingStatus != null) data.listingStatus = listingStatus
+  await prisma.sellerListing.updateMany({ where: { accountId, sku }, data })
+
+  return { price: price != null && Number.isFinite(price) ? price : null, listingStatus }
 }
 
 // ─── updateListingQuantity ─────────────────────────────────────────────────
