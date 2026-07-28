@@ -73,6 +73,9 @@ export async function GET(req: NextRequest) {
         ? (bmConditionMap.get(s.sellerSku) ?? null)
         : (conditionMap.get(s.sellerSku) ?? null),
       bmListingId: s.marketplace === 'backmarket' ? (bmIdMap.get(s.sellerSku) ?? null) : null,
+      price: s.marketplace === 'amazon' ? (priceMap.get(s.sellerSku) ?? null) : null,
+      minPrice: s.marketplace === 'amazon' ? (minPriceMap.get(s.sellerSku) ?? null) : null,
+      maxPrice: s.marketplace === 'amazon' ? (maxPriceMap.get(s.sellerSku) ?? null) : null,
     }))
 
     return NextResponse.json({ data: enriched })
