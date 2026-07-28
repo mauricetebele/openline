@@ -1,7 +1,7 @@
 'use client'
 import { createPortal } from 'react-dom'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2 } from 'lucide-react'
+import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2, DollarSign } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -539,6 +539,8 @@ export default function MarketplaceSkuManager() {
   const [priceError, setPriceError] = useState<string | null>(null)
   const [savingPriceId, setSavingPriceId] = useState<string | null>(null)
   const [refreshingPriceId, setRefreshingPriceId] = useState<string | null>(null)
+  const [refreshingAllPrices, setRefreshingAllPrices] = useState(false)
+  const [priceProgress, setPriceProgress] = useState<{ done: number; total: number } | null>(null)
   const priceInputRef = useRef<HTMLInputElement>(null)
 
   const accountIdFor = (s: MarketplaceSku): string | null => s.accountId ?? activeAccountId
@@ -591,6 +593,44 @@ export default function MarketplaceSkuManager() {
     } finally {
       setRefreshingPriceId(null)
     }
+  }
+
+  // Bulk: pull the live current price from Amazon for every Amazon SKU and fill
+  // the Current Price column. Runs a bounded client-side pool (one request per
+  // SKU) so it scales without hitting a serverless timeout; updates each cell as
+  // results arrive.
+  async function refreshAllPrices() {
+    const targets = skus.filter(s => s.marketplace === 'amazon')
+    if (targets.length === 0) { setToast('No Amazon SKUs to refresh'); return }
+    setRefreshingAllPrices(true)
+    setErr('')
+    let done = 0
+    let failed = 0
+    setPriceProgress({ done: 0, total: targets.length })
+    let idx = 0
+    const CONCURRENCY = 5
+    const worker = async () => {
+      while (idx < targets.length) {
+        const s = targets[idx++]
+        const accountId = accountIdFor(s)
+        if (!accountId) { failed++; done++; setPriceProgress({ done, total: targets.length }); continue }
+        try {
+          const res = await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku })
+          const price = res.price != null ? String(res.price) : null
+          setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price } : x)))
+        } catch {
+          failed++
+        }
+        done++
+        setPriceProgress({ done, total: targets.length })
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, worker))
+    setRefreshingAllPrices(false)
+    setPriceProgress(null)
+    setToast(failed > 0
+      ? `Pricing refreshed — ${targets.length - failed} updated, ${failed} failed`
+      : `Pricing refreshed for ${targets.length} Amazon SKU${targets.length === 1 ? '' : 's'}`)
   }
 
   // Add form state
@@ -1019,6 +1059,19 @@ export default function MarketplaceSkuManager() {
         >
           <Upload size={14} className={clsx(pushing && 'animate-pulse')} />
           {pushing ? 'Pushing…' : 'Push Quantities'}
+        </button>
+
+        <button
+          type="button"
+          onClick={refreshAllPrices}
+          disabled={refreshingAllPrices}
+          title="Pull the current live price from Amazon for every Amazon SKU and fill the Current Price column"
+          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-amazon-blue text-amazon-blue text-sm font-medium hover:bg-amazon-blue/5 disabled:opacity-50"
+        >
+          <DollarSign size={14} className={clsx(refreshingAllPrices && 'animate-pulse')} />
+          {refreshingAllPrices && priceProgress
+            ? `Getting pricing… ${priceProgress.done}/${priceProgress.total}`
+            : 'Get Current Pricing'}
         </button>
 
         <button
