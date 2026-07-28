@@ -143,9 +143,11 @@ export async function syncListings(accountId: string, jobId: string): Promise<vo
     const shippingTemplate = fulfillmentChannel === 'MFN'
       ? (col(row, 'merchant-shipping-group') || null)
       : null
-    const listingStatus = col(row, 'status') || null
     const quantityRaw = parseInt(col(row, 'quantity'), 10)
     const quantity = isNaN(quantityRaw) ? 0 : quantityRaw
+    // A listing with 0 fulfillable quantity isn't actually sellable — treat as Inactive.
+    let listingStatus = col(row, 'status') || null
+    if (listingStatus === 'Active' && quantity <= 0) listingStatus = 'Inactive'
     const priceRaw = parseFloat(col(row, 'price'))
     const price = isNaN(priceRaw) ? null : priceRaw
     const minPriceRaw = parseFloat(col(row, 'minimum-seller-allowed-price'))
@@ -769,6 +771,19 @@ export async function updateListingPrice(
 
 // ─── fetchLiveListingPrice ─────────────────────────────────────────────────
 
+/** Total fulfillable quantity from a listing's fulfillment_availability attribute. */
+function fulfillmentQtyFromAttributes(attrs: Record<string, unknown> | undefined): number | null {
+  const fa = attrs?.['fulfillment_availability']
+  if (!Array.isArray(fa)) return null
+  let total = 0
+  let found = false
+  for (const entry of fa as Record<string, unknown>[]) {
+    const q = entry?.['quantity']
+    if (typeof q === 'number') { total += q; found = true }
+  }
+  return found ? total : null
+}
+
 /** Extract the current price from a listing's purchasable_offer attribute. */
 function priceFromPurchasableOffer(
   attrs: Record<string, unknown> | undefined,
@@ -811,14 +826,20 @@ export async function fetchLiveListingPrice(
     offerAmount != null && Number.isFinite(Number(offerAmount)) ? Number(offerAmount) : null
   if (price == null) price = priceFromPurchasableOffer(listingItem.attributes, account.marketplaceId)
 
-  // Listing status from the summary — "BUYABLE" means the offer is live/active.
+  // Listing status: "BUYABLE" means a live offer exists, but a listing with 0
+  // fulfillable quantity isn't actually sellable — treat that as Inactive.
   const summary =
     listingItem.summaries?.find(s => s.marketplaceId === account.marketplaceId) ?? listingItem.summaries?.[0]
-  const listingStatus = summary ? (summary.status?.includes('BUYABLE') ? 'Active' : 'Inactive') : null
+  const buyable = summary?.status?.includes('BUYABLE') ?? false
+  const fulfillQty = fulfillmentQtyFromAttributes(listingItem.attributes)
+  const listingStatus = summary
+    ? (buyable && (fulfillQty == null || fulfillQty > 0) ? 'Active' : 'Inactive')
+    : null
 
-  const data: { price?: number; listingStatus?: string; updatedAt: Date } = { updatedAt: new Date() }
+  const data: { price?: number; listingStatus?: string; quantity?: number; updatedAt: Date } = { updatedAt: new Date() }
   if (price != null && Number.isFinite(price)) data.price = price
   if (listingStatus != null) data.listingStatus = listingStatus
+  if (fulfillQty != null) data.quantity = fulfillQty
   await prisma.sellerListing.updateMany({ where: { accountId, sku }, data })
 
   return { price: price != null && Number.isFinite(price) ? price : null, listingStatus }
