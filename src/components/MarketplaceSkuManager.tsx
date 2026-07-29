@@ -535,6 +535,7 @@ export default function MarketplaceSkuManager() {
   const [fetchingFnskuIds, setFetchingFnskuIds] = useState<Set<string>>(new Set())
   const [syncQtySort, setSyncQtySort] = useState<'none' | 'enabled' | 'disabled'>('none')
   const [createdSort, setCreatedSort] = useState<'none' | 'newest' | 'oldest'>('none')
+  const [readyForSaleSort, setReadyForSaleSort] = useState<'none' | 'desc' | 'asc'>('none')
   const [syncPage, setSyncPage] = useState(1)
   const SYNC_PAGE_SIZE = 100
   const [qtyMap, setQtyMap] = useState<Record<string, QtyBreakdown>>({})
@@ -1065,6 +1066,11 @@ export default function MarketplaceSkuManager() {
     }
     return true
   }).sort((a, b) => {
+    if (readyForSaleSort !== 'none') {
+      const av = qtyMap[a.id]?.readyForSale ?? 0
+      const bv = qtyMap[b.id]?.readyForSale ?? 0
+      return readyForSaleSort === 'desc' ? bv - av : av - bv
+    }
     if (createdSort !== 'none') {
       const at = new Date(a.createdAt).getTime()
       const bt = new Date(b.createdAt).getTime()
@@ -1475,7 +1481,7 @@ export default function MarketplaceSkuManager() {
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    <button onClick={() => { setCreatedSort(s => s === 'none' ? 'newest' : s === 'newest' ? 'oldest' : 'none'); setSyncQtySort('none') }}
+                    <button onClick={() => { setCreatedSort(s => s === 'none' ? 'newest' : s === 'newest' ? 'oldest' : 'none'); setSyncQtySort('none'); setReadyForSaleSort('none') }}
                       className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors uppercase tracking-wide">
                       Created
                       {createdSort === 'newest' && <span className="text-amazon-blue" title="Newest first">▼</span>}
@@ -1484,7 +1490,7 @@ export default function MarketplaceSkuManager() {
                     </button>
                   </th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    <button onClick={() => { setSyncQtySort(s => s === 'none' ? 'enabled' : s === 'enabled' ? 'disabled' : 'none'); setCreatedSort('none') }}
+                    <button onClick={() => { setSyncQtySort(s => s === 'none' ? 'enabled' : s === 'enabled' ? 'disabled' : 'none'); setCreatedSort('none'); setReadyForSaleSort('none') }}
                       className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors">
                       Sync Qty
                       {syncQtySort === 'enabled' && <span className="text-green-600">▼</span>}
@@ -1493,7 +1499,15 @@ export default function MarketplaceSkuManager() {
                     </button>
                   </th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Max Qty</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Physical quantity on hand in the finished-goods (Ready for Sale) location for this product + grade.">Ready for Sale</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Physical quantity on hand in the finished-goods (Ready for Sale) location for this product + grade. Click to sort.">
+                    <button onClick={() => { setReadyForSaleSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none'); setCreatedSort('none'); setSyncQtySort('none') }}
+                      className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors uppercase tracking-wide">
+                      Ready for Sale
+                      {readyForSaleSort === 'desc' && <span className="text-amazon-blue" title="Most first">▼</span>}
+                      {readyForSaleSort === 'asc' && <span className="text-amazon-blue" title="Least first">▲</span>}
+                      {readyForSaleSort === 'none' && <span className="text-gray-300">⇅</span>}
+                    </button>
+                  </th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Pushing</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="SEE-SAW: when down to the last unit, alternate which marketplace gets it every 12 hours. Default on; mutually exclusive with Last Unit Lean. Shown only for product/grades pushing on more than one marketplace.">SEE-SAW</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Last Unit Lean: when only the last unit remains, always push it to this marketplace. One marketplace per product+grade; mutually exclusive with SEE-SAW.">Last Unit Lean</th>
