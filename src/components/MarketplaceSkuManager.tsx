@@ -1474,7 +1474,6 @@ export default function MarketplaceSkuManager() {
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Merchant shipping template (FBM/MFN only). Change per row, or select multiple rows and bulk-change from the bar above the table.">Shipping Template</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
                     <button onClick={() => { setCreatedSort(s => s === 'none' ? 'newest' : s === 'newest' ? 'oldest' : 'none'); setSyncQtySort('none') }}
                       className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors uppercase tracking-wide">
@@ -1648,7 +1647,6 @@ export default function MarketplaceSkuManager() {
                         )}
                       </div>
                     </td>
-                    <td className="px-3 py-2 font-mono text-xs text-gray-500">{s.accountId ?? '—'}</td>
                     <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap" title={new Date(s.createdAt).toLocaleString()}>
                       {new Date(s.createdAt).toLocaleDateString()}
                     </td>
