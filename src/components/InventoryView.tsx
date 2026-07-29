@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo, Fragment } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown, Barcode, Store } from 'lucide-react'
 import SNLookupModal from './SNLookupModal'
@@ -2421,11 +2421,13 @@ function MpSalesModal({
   )
 }
 
-type MpFacet = 'amazon' | 'backmarket' | 'none'
-const MP_FACETS: { key: MpFacet; label: string }[] = [
+type MpFacet = 'amazon' | 'backmarket' | 'none' | 'not_amazon' | 'not_backmarket'
+const MP_FACETS: { key: MpFacet; label: string; divider?: boolean }[] = [
   { key: 'amazon', label: 'Amazon' },
   { key: 'backmarket', label: 'Back Market' },
   { key: 'none', label: 'None' },
+  { key: 'not_amazon', label: 'Not on Amazon', divider: true },
+  { key: 'not_backmarket', label: 'Not on Back Market' },
 ]
 
 /**
@@ -2482,18 +2484,18 @@ function MarketplaceFilter({
       {open && (
         <div className="absolute left-0 z-20 mt-1 w-44 rounded-md border border-gray-200 bg-white shadow-lg p-1">
           {MP_FACETS.map(f => (
-            <label
-              key={f.key}
-              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm text-gray-700"
-            >
-              <input
-                type="checkbox"
-                checked={selected.has(f.key)}
-                onChange={() => onToggle(f.key)}
-                className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue"
-              />
-              {f.label}
-            </label>
+            <Fragment key={f.key}>
+              {f.divider && <div className="my-1 border-t border-gray-100" />}
+              <label className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={selected.has(f.key)}
+                  onChange={() => onToggle(f.key)}
+                  className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue"
+                />
+                {f.label}
+              </label>
+            </Fragment>
           ))}
           {count > 0 && (
             <button
@@ -2580,6 +2582,8 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
       return (mpFilter.has('amazon') && f.amazon)
         || (mpFilter.has('backmarket') && f.backmarket)
         || (mpFilter.has('none') && f.none)
+        || (mpFilter.has('not_amazon') && !f.amazon)
+        || (mpFilter.has('not_backmarket') && !f.backmarket)
     })
   }, [items, mpFilter])
 
