@@ -966,8 +966,8 @@ export default function MarketplaceSkuManager() {
     if (gradeFilter === 'none') { if (s.gradeId != null) return false }
     else if (gradeFilter !== 'all') { if (s.gradeId !== gradeFilter) return false }
     if (statusFilter !== 'all') {
-      // Listing status is Amazon-only; active = listingStatus 'Active'.
-      if (s.marketplace !== 'amazon') return false
+      // Listing status applies to Amazon + Back Market rows.
+      if (s.marketplace !== 'amazon' && s.marketplace !== 'backmarket') return false
       const active = (s.listingStatus ?? '') === 'Active'
       if (statusFilter === 'active' && !active) return false
       if (statusFilter === 'inactive' && active) return false
@@ -1430,12 +1430,14 @@ export default function MarketplaceSkuManager() {
                     </td>
                     {/* Amazon listing status — red/green light */}
                     <td className="px-3 py-2 text-center">
-                      {s.marketplace !== 'amazon' ? (
+                      {s.marketplace !== 'amazon' && s.marketplace !== 'backmarket' ? (
                         <span className="text-xs text-gray-300">—</span>
                       ) : (
                         <span
                           className="inline-flex items-center gap-1.5"
-                          title={s.listingStatus ? `Amazon: ${s.listingStatus}` : 'Status unknown — refresh price to fetch'}
+                          title={s.listingStatus
+                            ? `${s.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'}: ${s.listingStatus}`
+                            : (s.marketplace === 'backmarket' ? 'Status unknown — sync Back Market to fetch' : 'Status unknown — refresh price to fetch')}
                         >
                           <span className={clsx(
                             'inline-block h-2.5 w-2.5 rounded-full',

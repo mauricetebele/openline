@@ -61,6 +61,7 @@ interface BackMarketListing {
   listing_id?: number
   backmarket_id?: number
   grade?: string
+  quantity?: number // current BM stock; a listing with 0 stock is not for sale
 }
 
 export async function POST(req: NextRequest) {
@@ -214,6 +215,12 @@ async function syncBackMarket() {
     const sku = bm.sku
     if (!sku) continue
 
+    // Active iff there's stock on Back Market (0 stock = not for sale). Unknown
+    // quantity leaves status untouched rather than guessing.
+    const listingStatus = typeof bm.quantity === 'number'
+      ? (bm.quantity > 0 ? 'Active' : 'Inactive')
+      : undefined
+
     const existing = await prisma.marketplaceListing.findFirst({
       where: {
         marketplace: 'backmarket',
@@ -229,6 +236,7 @@ async function syncBackMarket() {
           title: bm.title || bm.product || null,
           externalId: bm.backmarket_id != null ? String(bm.backmarket_id) : null,
           condition: bm.grade || null,
+          ...(listingStatus !== undefined ? { listingStatus } : {}),
           lastSyncedAt: new Date(),
         },
       })
@@ -241,6 +249,7 @@ async function syncBackMarket() {
           title: bm.title || bm.product || null,
           externalId: bm.backmarket_id != null ? String(bm.backmarket_id) : null,
           condition: bm.grade || null,
+          listingStatus: listingStatus ?? null,
         },
       })
       newCount++
