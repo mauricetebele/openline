@@ -85,6 +85,14 @@ export class BackMarketClient {
   }
 
   /**
+   * Update the price for a Back Market listing by its listing ID.
+   */
+  async updateListingPrice(listingId: number, price: number): Promise<void> {
+    await this.post(`/listings/${listingId}`, { price })
+    console.log(`[BackMarket] Updated listing ${listingId} price to ${price}`)
+  }
+
+  /**
    * Create new listings on BackMarket via CSV-style POST /ws/listings.
    */
   async createListings(rows: { sku: string; backmarketId: number; price: number; quantity: number; state: number }[]) {

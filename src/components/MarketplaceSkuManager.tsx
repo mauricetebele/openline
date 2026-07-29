@@ -618,13 +618,20 @@ export default function MarketplaceSkuManager() {
     const max = s.maxPrice != null ? parseFloat(s.maxPrice) : null
     if (min != null && !isNaN(min) && newPrice < min) { setPriceError(`Below min $${min.toFixed(2)}`); return }
     if (max != null && !isNaN(max) && newPrice > max) { setPriceError(`Above max $${max.toFixed(2)}`); return }
-    const accountId = accountIdFor(s)
-    if (!accountId) { setErr('No Amazon account resolved for this SKU'); return }
+    let accountId: string | null = null
+    if (s.marketplace === 'amazon') {
+      accountId = accountIdFor(s)
+      if (!accountId) { setErr('No Amazon account resolved for this SKU'); return }
+    }
     setSavingPriceId(s.id)
     setEditingPriceId(null)
     setPriceError(null)
     try {
-      await apiPost('/api/listings/update-price', { accountId, sku: s.sellerSku, price: newPrice })
+      if (s.marketplace === 'backmarket') {
+        await apiPost('/api/marketplace-skus/backmarket-price', { sellerSku: s.sellerSku, price: newPrice })
+      } else {
+        await apiPost('/api/listings/update-price', { accountId, sku: s.sellerSku, price: newPrice })
+      }
       setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price: String(newPrice) } : x)))
       setToast(`Updated ${s.sellerSku} → $${newPrice.toFixed(2)}`)
     } catch (e: unknown) {
@@ -1462,7 +1469,7 @@ export default function MarketplaceSkuManager() {
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Parent SKU</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Current Amazon listing price. Click to edit (pushes to Amazon); use the refresh icon to pull the live price.">Current Price</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Current listing price (Amazon & Back Market). Click to edit — the change is pushed to that marketplace. Amazon rows also have a live-refresh icon.">Current Price</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Amazon listing status. Green = Active, Red = Inactive. Refreshed together with the price.">Status</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Merchant shipping template (FBM/MFN only). Change per row, or select multiple rows and bulk-change from the bar above the table.">Shipping Template</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
@@ -1530,7 +1537,7 @@ export default function MarketplaceSkuManager() {
                     <td className="px-3 py-2 text-xs text-gray-600">{s.grade?.grade ?? '—'}</td>
                     <td className="px-3 py-2 text-xs text-gray-500">{s.itemCondition ?? '—'}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
-                      {s.marketplace !== 'amazon' ? (
+                      {s.marketplace !== 'amazon' && s.marketplace !== 'backmarket' ? (
                         <span className="text-gray-300 text-xs">—</span>
                       ) : editingPriceId === s.id ? (
                         <div className="inline-flex items-center gap-1 justify-end">
@@ -1549,7 +1556,7 @@ export default function MarketplaceSkuManager() {
                             )}
                             autoFocus
                           />
-                          <button onClick={() => savePrice(s)} className="text-green-600 hover:text-green-800 p-0.5" title="Save (pushes to Amazon)"><Check size={14} /></button>
+                          <button onClick={() => savePrice(s)} className="text-green-600 hover:text-green-800 p-0.5" title={`Save (pushes to ${s.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'})`}><Check size={14} /></button>
                           <button onClick={cancelPriceEdit} className="text-gray-400 hover:text-gray-600 p-0.5" title="Cancel"><X size={14} /></button>
                           {priceError && <span className="text-[10px] text-red-500">{priceError}</span>}
                         </div>
@@ -1560,18 +1567,20 @@ export default function MarketplaceSkuManager() {
                           <button
                             onClick={() => startPriceEdit(s)}
                             className="font-mono text-xs text-gray-900 hover:text-amazon-blue hover:underline"
-                            title="Click to edit price (pushes to Amazon)"
+                            title={`Click to edit price (pushes to ${s.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'})`}
                           >
                             {s.price != null ? `$${parseFloat(s.price).toFixed(2)}` : '—'}
                           </button>
-                          <button
-                            onClick={() => refreshPrice(s)}
-                            disabled={refreshingPriceId === s.id}
-                            className="text-gray-400 hover:text-amazon-blue p-0.5 disabled:opacity-50"
-                            title="Pull the current live price from Amazon"
-                          >
-                            <RefreshCw size={12} className={clsx(refreshingPriceId === s.id && 'animate-spin')} />
-                          </button>
+                          {s.marketplace === 'amazon' && (
+                            <button
+                              onClick={() => refreshPrice(s)}
+                              disabled={refreshingPriceId === s.id}
+                              className="text-gray-400 hover:text-amazon-blue p-0.5 disabled:opacity-50"
+                              title="Pull the current live price from Amazon"
+                            >
+                              <RefreshCw size={12} className={clsx(refreshingPriceId === s.id && 'animate-spin')} />
+                            </button>
+                          )}
                         </div>
                       )}
                     </td>

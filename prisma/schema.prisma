@@ -1050,6 +1050,8 @@ model MarketplaceListing {
   externalId         String? // BM backmarket_id (product catalog ID) or other marketplace-specific ID
   condition          String? // BM grade (e.g. "EXCELLENT", "GOOD")
   listingStatus      String? // "Active" | "Inactive" — for BM, derived from stock qty > 0
+  price              Decimal? @db.Decimal(12, 2) // BM current listing price (from sync)
+  bmListingRef       Int? // BM listing_id — needed to push price/qty updates
   lastSyncedAt       DateTime @default(now())
   createdAt          DateTime @default(now())
 

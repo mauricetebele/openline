@@ -62,6 +62,7 @@ interface BackMarketListing {
   backmarket_id?: number
   grade?: string
   quantity?: number // current BM stock; a listing with 0 stock is not for sale
+  price?: number // current BM listing price
 }
 
 export async function POST(req: NextRequest) {
@@ -229,6 +230,9 @@ async function syncBackMarket() {
       },
     })
 
+    const price = typeof bm.price === 'number' && Number.isFinite(bm.price) ? bm.price : undefined
+    const bmListingRef = typeof bm.listing_id === 'number' ? bm.listing_id : undefined
+
     if (existing) {
       await prisma.marketplaceListing.update({
         where: { id: existing.id },
@@ -237,6 +241,8 @@ async function syncBackMarket() {
           externalId: bm.backmarket_id != null ? String(bm.backmarket_id) : null,
           condition: bm.grade || null,
           ...(listingStatus !== undefined ? { listingStatus } : {}),
+          ...(price !== undefined ? { price } : {}),
+          ...(bmListingRef !== undefined ? { bmListingRef } : {}),
           lastSyncedAt: new Date(),
         },
       })
@@ -250,6 +256,8 @@ async function syncBackMarket() {
           externalId: bm.backmarket_id != null ? String(bm.backmarket_id) : null,
           condition: bm.grade || null,
           listingStatus: listingStatus ?? null,
+          price: price ?? null,
+          bmListingRef: bmListingRef ?? null,
         },
       })
       newCount++

@@ -84,12 +84,13 @@ export async function GET(req: NextRequest) {
     const bmListings = bmSkus.length > 0
       ? await prisma.marketplaceListing.findMany({
           where: { marketplace: 'backmarket', sellerSku: { in: bmSkus } },
-          select: { sellerSku: true, externalId: true, condition: true, listingStatus: true },
+          select: { sellerSku: true, externalId: true, condition: true, listingStatus: true, price: true },
         })
       : []
     const bmIdMap = new Map(bmListings.filter(l => l.externalId).map(l => [l.sellerSku, l.externalId]))
     const bmConditionMap = new Map(bmListings.filter(l => l.condition).map(l => [l.sellerSku, l.condition]))
     const bmStatusMap = new Map(bmListings.map(l => [l.sellerSku, l.listingStatus ?? null]))
+    const bmPriceMap = new Map(bmListings.map(l => [l.sellerSku, l.price != null ? l.price.toString() : null]))
 
     const enriched = skus.map(s => ({
       ...s,
@@ -100,7 +101,11 @@ export async function GET(req: NextRequest) {
         ? (bmConditionMap.get(s.sellerSku) ?? null)
         : (conditionMap.get(s.sellerSku) ?? null),
       bmListingId: s.marketplace === 'backmarket' ? (bmIdMap.get(s.sellerSku) ?? null) : null,
-      price: s.marketplace === 'amazon' ? (priceMap.get(s.sellerSku) ?? null) : null,
+      price: s.marketplace === 'amazon'
+        ? (priceMap.get(s.sellerSku) ?? null)
+        : s.marketplace === 'backmarket'
+          ? (bmPriceMap.get(s.sellerSku) ?? null)
+          : null,
       minPrice: s.marketplace === 'amazon' ? (minPriceMap.get(s.sellerSku) ?? null) : null,
       maxPrice: s.marketplace === 'amazon' ? (maxPriceMap.get(s.sellerSku) ?? null) : null,
       listingStatus: s.marketplace === 'amazon'
