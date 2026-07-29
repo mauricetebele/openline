@@ -679,6 +679,8 @@ export default function MarketplaceSkuManager() {
       }
     }
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, worker))
+    // Refetch so resolved shipping-template names (from the captured group ids) show.
+    await loadSkus()
     setRefreshingAllPrices(false)
     setPriceProgress(null)
     setToast(failed > 0

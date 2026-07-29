@@ -771,6 +771,20 @@ export async function updateListingPrice(
 
 // ─── fetchLiveListingPrice ─────────────────────────────────────────────────
 
+/** Merchant shipping group id (+ name if Amazon returns it) from attributes. */
+function shippingGroupFromAttributes(
+  attrs: Record<string, unknown> | undefined,
+  marketplaceId: string,
+): { id: string | null; name: string | null } {
+  const g = attrs?.['merchant_shipping_group']
+  if (!Array.isArray(g)) return { id: null, name: null }
+  const arr = g as Record<string, unknown>[]
+  const entry = arr.find(e => e?.['marketplace_id'] === marketplaceId) ?? arr[0]
+  const id = typeof entry?.['value'] === 'string' ? (entry['value'] as string) : null
+  const name = typeof entry?.['name'] === 'string' ? (entry['name'] as string) : null
+  return { id, name }
+}
+
 /** Total fulfillable quantity from a listing's fulfillment_availability attribute. */
 function fulfillmentQtyFromAttributes(attrs: Record<string, unknown> | undefined): number | null {
   const fa = attrs?.['fulfillment_availability']
@@ -808,7 +822,7 @@ function priceFromPurchasableOffer(
 export async function fetchLiveListingPrice(
   accountId: string,
   sku: string,
-): Promise<{ price: number | null; listingStatus: string | null }> {
+): Promise<{ price: number | null; listingStatus: string | null; shippingTemplateGroupId: string | null }> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
   const encodedSku = encodeURIComponent(sku)
@@ -836,13 +850,26 @@ export async function fetchLiveListingPrice(
     ? (buyable && (fulfillQty == null || fulfillQty > 0) ? 'Active' : 'Inactive')
     : null
 
-  const data: { price?: number; listingStatus?: string; quantity?: number; updatedAt: Date } = { updatedAt: new Date() }
+  // Merchant shipping template (FBM/MFN) — capture the group id; use Amazon's name
+  // directly if provided, otherwise the group id is resolved to a name downstream.
+  const shipGroup = shippingGroupFromAttributes(listingItem.attributes, account.marketplaceId)
+
+  const data: {
+    price?: number; listingStatus?: string; quantity?: number
+    shippingTemplateGroupId?: string; shippingTemplate?: string; updatedAt: Date
+  } = { updatedAt: new Date() }
   if (price != null && Number.isFinite(price)) data.price = price
   if (listingStatus != null) data.listingStatus = listingStatus
   if (fulfillQty != null) data.quantity = fulfillQty
+  if (shipGroup.id != null) data.shippingTemplateGroupId = shipGroup.id
+  if (shipGroup.name != null) data.shippingTemplate = shipGroup.name
   await prisma.sellerListing.updateMany({ where: { accountId, sku }, data })
 
-  return { price: price != null && Number.isFinite(price) ? price : null, listingStatus }
+  return {
+    price: price != null && Number.isFinite(price) ? price : null,
+    listingStatus,
+    shippingTemplateGroupId: shipGroup.id,
+  }
 }
 
 // ─── updateListingQuantity ─────────────────────────────────────────────────

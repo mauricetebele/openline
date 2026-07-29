@@ -408,7 +408,8 @@ model SellerListing {
   sku              String
   asin             String?
   productTitle     String?
-  shippingTemplate String?
+  shippingTemplate String? // display name (from catalog report or resolved from group id)
+  shippingTemplateGroupId String? // Amazon merchant_shipping_group id (UUID) from the live pull
   listingStatus    String?
   quantity         Int           @default(0)
   price            Decimal?      @db.Decimal(12, 2)

@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     const sellerListings = amazonSkus.length > 0
       ? await prisma.sellerListing.findMany({
           where: { sku: { in: amazonSkus } },
-          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true, listingStatus: true, shippingTemplate: true },
+          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true, listingStatus: true, shippingTemplate: true, shippingTemplateGroupId: true },
           distinct: ['sku'],
         })
       : []
@@ -44,7 +44,20 @@ export async function GET(req: NextRequest) {
     const minPriceMap = new Map(sellerListings.map(l => [l.sku, l.minPrice != null ? l.minPrice.toString() : null]))
     const maxPriceMap = new Map(sellerListings.map(l => [l.sku, l.maxPrice != null ? l.maxPrice.toString() : null]))
     const statusMap = new Map(sellerListings.map(l => [l.sku, l.listingStatus ?? null]))
-    const templateMap = new Map(sellerListings.map(l => [l.sku, l.shippingTemplate ?? null]))
+
+    // Resolve shipping-template display names. Listings missing the name (not in the
+    // stale catalog report) still have the group id from the live pull; map it to a
+    // name learned from any listing that has both.
+    const groupNamePairs = await prisma.sellerListing.findMany({
+      where: { shippingTemplate: { not: null }, shippingTemplateGroupId: { not: null } },
+      select: { shippingTemplate: true, shippingTemplateGroupId: true },
+      distinct: ['shippingTemplateGroupId'],
+    })
+    const uuidToName = new Map(groupNamePairs.map(r => [r.shippingTemplateGroupId!, r.shippingTemplate!]))
+    const templateMap = new Map(sellerListings.map(l => [
+      l.sku,
+      l.shippingTemplate ?? (l.shippingTemplateGroupId ? uuidToName.get(l.shippingTemplateGroupId) ?? null : null),
+    ]))
 
     // Distinct shipping-template names in use (for the bulk/inline template picker).
     const templateRows = await prisma.sellerListing.findMany({
