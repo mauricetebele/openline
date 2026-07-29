@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     const sellerListings = amazonSkus.length > 0
       ? await prisma.sellerListing.findMany({
           where: { sku: { in: amazonSkus } },
-          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true, listingStatus: true },
+          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true, listingStatus: true, shippingTemplate: true },
           distinct: ['sku'],
         })
       : []
@@ -44,6 +44,18 @@ export async function GET(req: NextRequest) {
     const minPriceMap = new Map(sellerListings.map(l => [l.sku, l.minPrice != null ? l.minPrice.toString() : null]))
     const maxPriceMap = new Map(sellerListings.map(l => [l.sku, l.maxPrice != null ? l.maxPrice.toString() : null]))
     const statusMap = new Map(sellerListings.map(l => [l.sku, l.listingStatus ?? null]))
+    const templateMap = new Map(sellerListings.map(l => [l.sku, l.shippingTemplate ?? null]))
+
+    // Distinct shipping-template names in use (for the bulk/inline template picker).
+    const templateRows = await prisma.sellerListing.findMany({
+      where: { shippingTemplate: { not: null } },
+      select: { shippingTemplate: true },
+      distinct: ['shippingTemplate'],
+      orderBy: { shippingTemplate: 'asc' },
+    })
+    const shippingTemplates = templateRows
+      .map(r => r.shippingTemplate)
+      .filter((t): t is string => t != null)
 
     const mskuIds = skus.map(s => s.id)
     const mpListings = mskuIds.length > 0
@@ -83,9 +95,10 @@ export async function GET(req: NextRequest) {
         : s.marketplace === 'backmarket'
           ? (bmStatusMap.get(s.sellerSku) ?? null)
           : null,
+      shippingTemplate: s.marketplace === 'amazon' ? (templateMap.get(s.sellerSku) ?? null) : null,
     }))
 
-    return NextResponse.json({ data: enriched })
+    return NextResponse.json({ data: enriched, shippingTemplates })
   } catch (err) {
     console.error('[marketplace-skus GET]', err)
     return NextResponse.json(

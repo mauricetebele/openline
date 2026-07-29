@@ -41,6 +41,7 @@ interface MarketplaceSku {
   minPrice: string | null
   maxPrice: string | null
   listingStatus: string | null
+  shippingTemplate: string | null
 }
 
 interface MarketplaceListing {
@@ -550,6 +551,53 @@ export default function MarketplaceSkuManager() {
 
   const accountIdFor = (s: MarketplaceSku): string | null => s.accountId ?? activeAccountId
 
+  // ── Shipping template (FBM/MFN): display + per-row + bulk change ──
+  const [shippingTemplates, setShippingTemplates] = useState<string[]>([])
+  const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set())
+  const [bulkTemplate, setBulkTemplate] = useState('')
+  const [changingTemplate, setChangingTemplate] = useState(false)
+  const [templateJob, setTemplateJob] = useState<{ processed: number; total: number; updated: number; status: string } | null>(null)
+
+  // Only FBM/MFN Amazon listings have a merchant shipping template.
+  const isTemplateRow = (s: MarketplaceSku) => s.marketplace === 'amazon' && s.fulfillmentChannel !== 'FBA'
+  const toggleSkuSelected = (sku: string) => setSelectedSkus(prev => {
+    const next = new Set(prev)
+    if (next.has(sku)) next.delete(sku)
+    else next.add(sku)
+    return next
+  })
+
+  async function changeTemplates(skus: string[], templateName: string, accountId: string | null) {
+    if (skus.length === 0 || !templateName || changingTemplate) return
+    if (!accountId) { setErr('No Amazon account resolved for the shipping-template change'); return }
+    setChangingTemplate(true)
+    setTemplateJob({ processed: 0, total: skus.length, updated: 0, status: 'RUNNING' })
+    try {
+      const res = await apiPost('/api/listings/update-template', { accountId, skus, templateName })
+      const jobId = res.jobId ?? res.id
+      if (!jobId) throw new Error('No job id returned')
+      for (;;) {
+        await new Promise(r => setTimeout(r, 2500))
+        const job = await apiFetch(`/api/listings/update-template?jobId=${jobId}`)
+        setTemplateJob({ processed: job.processed ?? 0, total: job.totalSkus ?? skus.length, updated: job.updated ?? 0, status: job.status ?? 'RUNNING' })
+        if (job.status === 'COMPLETED' || job.status === 'FAILED') {
+          const failed = new Set<string>((job.failedSkus ?? []).map((f: { sku: string }) => f.sku))
+          const ok = skus.filter(sk => !failed.has(sk))
+          setSkus(prev => prev.map(x => ok.includes(x.sellerSku) ? { ...x, shippingTemplate: templateName } : x))
+          setSelectedSkus(new Set())
+          if (job.status === 'FAILED') setErr(job.errorMessage || 'Shipping template update failed')
+          else setToast(`Shipping template applied to ${job.updated}/${skus.length} SKU${skus.length === 1 ? '' : 's'}${failed.size ? ` (${failed.size} failed)` : ''}`)
+          break
+        }
+      }
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Shipping template update failed')
+    } finally {
+      setChangingTemplate(false)
+      setTimeout(() => setTemplateJob(null), 4000)
+    }
+  }
+
   function startPriceEdit(s: MarketplaceSku) {
     setEditingPriceId(s.id)
     setPriceEditValue(s.price != null ? parseFloat(s.price).toFixed(2) : '')
@@ -662,6 +710,7 @@ export default function MarketplaceSkuManager() {
     try {
       const data = await apiFetch('/api/marketplace-skus')
       setSkus(data.data ?? [])
+      setShippingTemplates(data.shippingTemplates ?? [])
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to load')
     }
@@ -997,6 +1046,16 @@ export default function MarketplaceSkuManager() {
     return 0
   })
 
+  // Selection (bulk shipping-template) — only FBM/MFN Amazon rows are selectable.
+  const selectableVisibleSkus = filteredSkus.filter(isTemplateRow).map(s => s.sellerSku)
+  const allVisibleSelected = selectableVisibleSkus.length > 0 && selectableVisibleSkus.every(sku => selectedSkus.has(sku))
+  const toggleAllVisible = () => setSelectedSkus(prev => {
+    const next = new Set(prev)
+    if (allVisibleSelected) selectableVisibleSkus.forEach(sku => next.delete(sku))
+    else selectableVisibleSkus.forEach(sku => next.add(sku))
+    return next
+  })
+
   // Filter synced listings
   const unmappedListings = listings.filter(l => {
     if (l.mskuId) return false // already mapped
@@ -1317,10 +1376,64 @@ export default function MarketplaceSkuManager() {
             )}
           </div>
         ) : (
+          <>
+          {(selectedSkus.size > 0 || templateJob) && (
+            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-amazon-blue/30 bg-amazon-blue/5 px-4 py-2.5">
+              <span className="text-sm font-medium text-gray-700">
+                {selectedSkus.size} FBM SKU{selectedSkus.size === 1 ? '' : 's'} selected
+              </span>
+              <span className="text-xs text-gray-500">→ set shipping template:</span>
+              <select
+                value={bulkTemplate}
+                onChange={(e) => setBulkTemplate(e.target.value)}
+                disabled={changingTemplate}
+                className="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:opacity-50"
+              >
+                <option value="">Choose template…</option>
+                {shippingTemplates.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <button
+                type="button"
+                onClick={() => changeTemplates(Array.from(selectedSkus), bulkTemplate, activeAccountId)}
+                disabled={changingTemplate || !bulkTemplate || selectedSkus.size === 0}
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50"
+              >
+                {changingTemplate ? <RefreshCw size={14} className="animate-spin" /> : <Tags size={14} />}
+                Apply to {selectedSkus.size}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedSkus(new Set())}
+                disabled={changingTemplate}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Clear
+              </button>
+              {templateJob && (
+                <span className="ml-auto text-xs font-medium text-gray-600">
+                  {templateJob.status === 'COMPLETED'
+                    ? `Done — ${templateJob.updated}/${templateJob.total} updated`
+                    : templateJob.status === 'FAILED'
+                      ? 'Failed'
+                      : `Applying… ${templateJob.processed}/${templateJob.total}`}
+                </span>
+              )}
+            </div>
+          )}
           <div className="overflow-visible rounded-lg border border-gray-200 bg-white">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="px-2 py-2 w-8 text-center">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      disabled={selectableVisibleSkus.length === 0}
+                      title="Select all FBM listings on this page"
+                      className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue disabled:opacity-40"
+                    />
+                  </th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN / BMID</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">FNSKU</th>
@@ -1329,6 +1442,7 @@ export default function MarketplaceSkuManager() {
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Current Amazon listing price. Click to edit (pushes to Amazon); use the refresh icon to pull the live price.">Current Price</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Amazon listing status. Green = Active, Red = Inactive. Refreshed together with the price.">Status</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Merchant shipping template (FBM/MFN only). Change per row, or select multiple rows and bulk-change from the bar above the table.">Shipping Template</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Account ID</th>
@@ -1361,6 +1475,16 @@ export default function MarketplaceSkuManager() {
               <tbody className="divide-y divide-gray-100">
                 {filteredSkus.map(s => (
                   <tr key={s.id} className={clsx('group align-top transition-colors', s.fulfillmentChannel === 'FBA' ? 'bg-blue-50/60 hover:bg-blue-100/70' : 'odd:bg-white even:bg-gray-50/50 hover:bg-amazon-blue/5')}>
+                    <td className="px-2 py-2 text-center">
+                      {isTemplateRow(s) && (
+                        <input
+                          type="checkbox"
+                          checked={selectedSkus.has(s.sellerSku)}
+                          onChange={() => toggleSkuSelected(s.sellerSku)}
+                          className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue"
+                        />
+                      )}
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600">{s.asin ?? s.bmListingId ?? '—'}</td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600">
@@ -1454,6 +1578,26 @@ export default function MarketplaceSkuManager() {
                             {s.listingStatus ?? '—'}
                           </span>
                         </span>
+                      )}
+                    </td>
+                    {/* Shipping template (FBM/MFN) */}
+                    <td className="px-3 py-2 align-top">
+                      {!isTemplateRow(s) ? (
+                        <span className="text-xs text-gray-300">—</span>
+                      ) : (
+                        <select
+                          value={s.shippingTemplate ?? ''}
+                          disabled={changingTemplate}
+                          onChange={(e) => { const v = e.target.value; if (v && v !== s.shippingTemplate) changeTemplates([s.sellerSku], v, accountIdFor(s)) }}
+                          title={s.shippingTemplate ?? 'No template set'}
+                          className="max-w-[170px] rounded border border-gray-300 bg-white px-1.5 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-amazon-blue disabled:opacity-50"
+                        >
+                          {!s.shippingTemplate && <option value="">— none —</option>}
+                          {s.shippingTemplate && !shippingTemplates.includes(s.shippingTemplate) && (
+                            <option value={s.shippingTemplate}>{s.shippingTemplate}</option>
+                          )}
+                          {shippingTemplates.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
                       )}
                     </td>
                     <td className="px-3 py-2 text-xs text-gray-600 max-w-[240px] whitespace-normal break-words leading-snug align-top">{s.product.description}</td>
@@ -1640,6 +1784,7 @@ export default function MarketplaceSkuManager() {
               </tbody>
             </table>
           </div>
+          </>
         )
       ) : (
         /* ─── Synced Listings View ─── */
