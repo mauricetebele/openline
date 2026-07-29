@@ -160,6 +160,7 @@ interface GroupMsku {
   seeSaw: boolean
   seeSawActive: boolean
   seeSawFlippedAt: Date | null
+  simulList: boolean
   createdAt: Date
 }
 
@@ -232,8 +233,18 @@ export function calculateGroupQuantities(
 
   const available = computeGroupAvailable(mskus, bulk)
 
-  // Low-stock buffer: push 1 unit to a single marketplace, 0 to the rest.
+  // Low-stock buffer (last unit): only 1 unit is listed. This is the ONLY place the
+  // last-unit strategies apply:
+  //   SIMUL-LIST → list that unit on EVERY marketplace at once (oversell risk);
+  //   otherwise Last Unit Lean / SEE-SAW → send it to a single marketplace.
+  // Above the buffer, the normal even split already lists on every marketplace.
   if (available > 0 && available <= 3) {
+    if (mskus.some(m => m.simulList)) {
+      for (const m of mskus) {
+        qtys.set(m.id, m.maxQty != null ? Math.min(1, m.maxQty) : 1)
+      }
+      return { qtys, flips: [] }
+    }
     const { recipientIdx, flips } = pickBufferRecipient(mskus, now)
     for (let i = 0; i < mskus.length; i++) {
       const allocated = i === recipientIdx ? 1 : 0

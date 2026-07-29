@@ -33,6 +33,7 @@ interface MarketplaceSku {
   isDefaultSku: boolean
   seeSaw: boolean
   seeSawActive: boolean
+  simulList: boolean
   fulfillmentChannel: string | null
   itemCondition: string | null
   bmListingId: string | null
@@ -917,8 +918,8 @@ export default function MarketplaceSkuManager() {
         if (!target) return prev
         const inGroup = sameGroupAs(target)
         return prev.map(s => {
-          if (s.id === id) return { ...s, isDefaultSku: value, seeSaw: !value, seeSawActive: false }
-          if (inGroup(s)) return { ...s, isDefaultSku: value ? false : s.isDefaultSku, seeSaw: !value, seeSawActive: false }
+          if (s.id === id) return { ...s, isDefaultSku: value, seeSaw: !value, seeSawActive: false, simulList: false }
+          if (inGroup(s)) return { ...s, isDefaultSku: value ? false : s.isDefaultSku, seeSaw: !value, seeSawActive: false, simulList: false }
           return s
         })
       })
@@ -937,13 +938,32 @@ export default function MarketplaceSkuManager() {
         if (!target) return prev
         const inGroup = sameGroupAs(target)
         return prev.map(s => inGroup(s)
-          ? { ...s, seeSaw: value, seeSawActive: false, isDefaultSku: value ? false : s.isDefaultSku }
+          ? { ...s, seeSaw: value, seeSawActive: false, simulList: false, isDefaultSku: value ? false : s.isDefaultSku }
           : s)
       })
       loadQtyBreakdown()
       setToast(value ? 'SEE-SAW enabled for this product/grade' : 'SEE-SAW disabled')
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to update SEE-SAW')
+    }
+  }
+
+  async function handleSetSimulList(id: string, value: boolean) {
+    try {
+      await apiPatch(`/api/marketplace-skus/${id}`, { simulList: value })
+      setSkus(prev => {
+        const target = prev.find(s => s.id === id)
+        if (!target) return prev
+        const inGroup = sameGroupAs(target)
+        // Enabling clears lean + see-saw group-wide; disabling restores the see-saw default.
+        return prev.map(s => inGroup(s)
+          ? { ...s, simulList: value, seeSaw: !value, seeSawActive: false, isDefaultSku: value ? false : s.isDefaultSku }
+          : s)
+      })
+      loadQtyBreakdown()
+      setToast(value ? 'SIMUL-LIST enabled — last unit lists on all marketplaces' : 'SIMUL-LIST disabled — SEE-SAW restored')
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to update SIMUL-LIST')
     }
   }
 
@@ -1471,6 +1491,7 @@ export default function MarketplaceSkuManager() {
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Pushing</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="SEE-SAW: when down to the last unit, alternate which marketplace gets it every 12 hours. Default on; mutually exclusive with Last Unit Lean. Shown only for product/grades pushing on more than one marketplace.">SEE-SAW</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Last Unit Lean: when only the last unit remains, always push it to this marketplace. One marketplace per product+grade; mutually exclusive with SEE-SAW.">Last Unit Lean</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="SIMUL-LIST: the opposite of Last Unit Lean — when down to the last unit, list it on ALL marketplaces at once (risks oversell, maximizes velocity). Mutually exclusive with Last Unit Lean and SEE-SAW.">SIMUL-LIST</th>
                   <th className="px-3 py-2 w-12" />
                 </tr>
               </thead>
@@ -1765,6 +1786,31 @@ export default function MarketplaceSkuManager() {
                           <span className={clsx(
                             'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
                             s.isDefaultSku ? 'translate-x-4' : 'translate-x-0.5',
+                          )} />
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
+                    </td>
+                    {/* SIMUL-LIST */}
+                    <td className="px-3 py-2 text-center">
+                      {showStrategyToggles(s) ? (
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={s.simulList}
+                          onClick={() => handleSetSimulList(s.id, !s.simulList)}
+                          title={s.simulList
+                            ? 'On — the last unit is listed on all marketplaces at once'
+                            : 'Off — click to list the last unit on all marketplaces at once'}
+                          className={clsx(
+                            'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1',
+                            s.simulList ? 'bg-teal-500' : 'bg-gray-200 hover:bg-gray-300',
+                          )}
+                        >
+                          <span className={clsx(
+                            'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                            s.simulList ? 'translate-x-4' : 'translate-x-0.5',
                           )} />
                         </button>
                       ) : (

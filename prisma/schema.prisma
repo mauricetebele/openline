@@ -1019,6 +1019,11 @@ model ProductGradeMarketplaceSku {
   seeSaw         Boolean   @default(true) // participates in the last-unit see-saw rotation
   seeSawActive   Boolean   @default(false) // currently the active side (gets the last unit)
   seeSawFlippedAt DateTime? // when this side became active (drives the 12h flip)
+  // SIMUL-LIST: the opposite of Last Unit Lean. When down to the last unit, instead
+  // of sending it to a single marketplace, list it on EVERY marketplace at once —
+  // maximizing velocity at the risk of oversell. Only affects last-unit logic.
+  // Mutually exclusive with isDefaultSku and seeSaw within a (productId, gradeId) group.
+  simulList     Boolean   @default(false)
   isSynced      Boolean   @default(false) // true = came from marketplace sync
   fnsku         String? // Fulfillment Network SKU (for FBA shipments)
   lastPushedQty Int? // last quantity successfully pushed to marketplace

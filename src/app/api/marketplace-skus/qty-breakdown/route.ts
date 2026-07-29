@@ -53,6 +53,7 @@ export async function GET() {
       isDefaultSku: true,
       seeSaw: true,
       seeSawActive: true,
+      simulList: true,
       createdAt: true,
     },
   })
@@ -180,11 +181,13 @@ export async function GET() {
     }
     const myIdx = group.indexOf(msku)
 
-    // Group-level low-stock buffer
+    // Group-level low-stock buffer. SIMUL-LIST lists the last unit on every
+    // marketplace (1 each); otherwise only the chosen recipient gets it.
     const lowStockBuffer = groupAvailable > 0 && groupAvailable <= 3
+    const groupSimul = group.some(m => m.simulList)
     let pushing: number
     if (lowStockBuffer) {
-      const allocated = myIdx === bufferIdx ? 1 : 0
+      const allocated = groupSimul ? 1 : (myIdx === bufferIdx ? 1 : 0)
       pushing = msku.maxQty != null ? Math.min(allocated, msku.maxQty) : allocated
     } else {
       const allocations = splitQtyForGroup(groupAvailable, groupSize)
