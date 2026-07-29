@@ -58,11 +58,11 @@ interface BackMarketListing {
   sku: string
   title?: string
   product?: string
-  listing_id?: number
-  backmarket_id?: number
+  listing_id?: number | string
+  backmarket_id?: number | string
   grade?: string
-  quantity?: number // current BM stock; a listing with 0 stock is not for sale
-  price?: number // current BM listing price
+  quantity?: number | string // current BM stock; a listing with 0 stock is not for sale
+  price?: number | string // current BM listing price
 }
 
 export async function POST(req: NextRequest) {
@@ -216,11 +216,18 @@ async function syncBackMarket() {
     const sku = bm.sku
     if (!sku) continue
 
+    // BM numeric fields can come back as strings — parse defensively.
+    const qtyNum = bm.quantity != null ? Number(bm.quantity) : NaN
+    const priceNum = bm.price != null ? Number(bm.price) : NaN
+    const refNum = bm.listing_id != null ? Number(bm.listing_id) : NaN
+
     // Active iff there's stock on Back Market (0 stock = not for sale). Unknown
     // quantity leaves status untouched rather than guessing.
-    const listingStatus = typeof bm.quantity === 'number'
-      ? (bm.quantity > 0 ? 'Active' : 'Inactive')
+    const listingStatus = Number.isFinite(qtyNum)
+      ? (qtyNum > 0 ? 'Active' : 'Inactive')
       : undefined
+    const price = Number.isFinite(priceNum) ? priceNum : undefined
+    const bmListingRef = Number.isFinite(refNum) ? Math.trunc(refNum) : undefined
 
     const existing = await prisma.marketplaceListing.findFirst({
       where: {
@@ -229,9 +236,6 @@ async function syncBackMarket() {
         accountId: null,
       },
     })
-
-    const price = typeof bm.price === 'number' && Number.isFinite(bm.price) ? bm.price : undefined
-    const bmListingRef = typeof bm.listing_id === 'number' ? bm.listing_id : undefined
 
     if (existing) {
       await prisma.marketplaceListing.update({
