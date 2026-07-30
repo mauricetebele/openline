@@ -70,6 +70,19 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/cases', req.url))
   }
 
+  // REVIEWER role — restricted to the Removal Cases feature only
+  if (role === 'REVIEWER') {
+    if (
+      pathname.startsWith('/removal-cases') ||
+      pathname.startsWith('/api/removal-cases') ||
+      pathname === '/api/cases/upload' ||
+      pathname.startsWith('/api/auth/')
+    ) {
+      return NextResponse.next()
+    }
+    return NextResponse.redirect(new URL('/removal-cases', req.url))
+  }
+
   // Internal users cannot access /client/* or /vendor/* portal pages
   if (pathname.startsWith('/client')) {
     return NextResponse.redirect(new URL('/inventory', req.url))

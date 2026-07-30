@@ -2230,7 +2230,7 @@ function UsersSection() {
                 onChange={e => setFormRole(e.target.value as 'REVIEWER' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR')}
                 className="input"
               >
-                <option value="REVIEWER">Reviewer</option>
+                <option value="REVIEWER">Reviewer (Removal Cases)</option>
                 <option value="ADMIN">Admin</option>
                 <option value="CLIENT">Client</option>
                 <option value="RESOLUTION_PROVIDER">Resolution Provider</option>
@@ -2392,7 +2392,7 @@ function UsersSection() {
                           : 'bg-gray-100 text-gray-600'
                 }`}
               >
-                <option value="REVIEWER">Reviewer</option>
+                <option value="REVIEWER">Reviewer (Removal Cases)</option>
                 <option value="ADMIN">Admin</option>
                 <option value="CLIENT">Client</option>
                 <option value="RESOLUTION_PROVIDER">Resolution Provider</option>

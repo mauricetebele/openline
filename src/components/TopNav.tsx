@@ -312,10 +312,12 @@ export default function TopNav() {
   // Close mobile menu on route change
   useEffect(() => { setMobileOpen(false) }, [pathname])
 
-  // Filter OLI nav item if user doesn't have access
-  const filteredNav = user?.canAccessOli
-    ? NAV
-    : NAV.filter(i => !('href' in i && i.href === '/oli'))
+  // REVIEWER role sees only Removal Cases; otherwise filter the OLI item by access.
+  const filteredNav: NavItem[] = user?.role === 'REVIEWER'
+    ? [{ href: '/removal-cases', label: 'Removal Cases', icon: AlertCircle }]
+    : user?.canAccessOli
+      ? NAV
+      : NAV.filter(i => !('href' in i && i.href === '/oli'))
 
   // Separate items before and after the Wholesale divider
   const dividerIdx = filteredNav.findIndex(i => 'divider' in i)
