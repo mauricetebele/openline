@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2, DollarSign } from 'lucide-react'
 import { clsx } from 'clsx'
+import { feesFor, computeTargetPrice, marginBreakdown } from '@/lib/target-margin'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,7 @@ interface MarketplaceSku {
   seeSaw: boolean
   seeSawActive: boolean
   simulList: boolean
+  targetMarginPct: string | null
   fulfillmentChannel: string | null
   itemCondition: string | null
   bmListingId: string | null
@@ -76,6 +78,7 @@ interface QtyBreakdown {
   mskuId: string
   onHand: number
   readyForSale: number
+  avgCost: number | null
   reserved: number
   pendingOrders: number
   pendingPayment: number
@@ -514,6 +517,108 @@ function InlineMappingRow({
   )
 }
 
+// ─── Target Margin ────────────────────────────────────────────────────────────
+
+interface MarginTarget { row: MarketplaceSku; cost: number; margin: number; target: number }
+
+/** Per-row target-margin control: a % input plus the computed target price (click to apply). */
+function TargetMarginCell({ row, avgCost, onSetMargin, onApply }: {
+  row: MarketplaceSku
+  avgCost: number | null
+  onSetMargin: (id: string, val: number | null) => void
+  onApply: (t: MarginTarget) => void
+}) {
+  const margin = row.targetMarginPct != null ? parseFloat(row.targetMarginPct) : null
+  const fees = feesFor(row.marketplace, row.product.sku)
+  const target = margin != null && fees && avgCost != null ? computeTargetPrice(avgCost, fees, margin) : null
+  return (
+    <div className="inline-flex flex-col items-center gap-1">
+      <div className="inline-flex items-center gap-0.5">
+        <input
+          type="number"
+          step="0.5"
+          min={0}
+          max={95}
+          defaultValue={row.targetMarginPct ?? ''}
+          key={`${row.id}-${row.targetMarginPct ?? ''}`}
+          placeholder="—"
+          onBlur={(e) => { const raw = e.target.value.trim(); onSetMargin(row.id, raw === '' ? null : parseFloat(raw)) }}
+          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+          title="Target net margin %. Leave blank to disable."
+          className="w-14 text-center font-mono text-xs rounded border border-gray-300 px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+        />
+        <span className="text-[10px] text-gray-400">%</span>
+      </div>
+      {margin != null && (
+        !fees ? (
+          <span className="text-[10px] text-gray-300" title="No commission rule for this Back Market category">N/A</span>
+        ) : avgCost == null ? (
+          <span className="text-[10px] text-gray-300" title="No in-stock cost available for this SKU/grade">no cost</span>
+        ) : target == null ? (
+          <span className="text-[10px] text-red-400" title="Margin too high to reach a valid price">unreachable</span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onApply({ row, cost: avgCost, margin, target })}
+            className="font-mono text-[11px] text-emerald-700 hover:text-emerald-900 hover:underline"
+            title={`Target price for ${margin}% margin (avg cost $${avgCost.toFixed(2)}). Click to review & push.`}
+          >
+            ${target.toFixed(2)}
+          </button>
+        )
+      )}
+    </div>
+  )
+}
+
+/** Confirm dialog shown before a target-margin price is pushed to the marketplace. */
+function TargetMarginConfirmModal({ t, currentPrice, saving, onClose, onConfirm }: {
+  t: MarginTarget
+  currentPrice: string | null
+  saving: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const b = marginBreakdown(t.cost, t.row.marketplace, t.row.product.sku, t.margin)
+  const mp = t.row.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'
+  const cur = currentPrice != null ? `$${parseFloat(currentPrice).toFixed(2)}` : '—'
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <h3 className="text-sm font-semibold text-gray-900">Apply target-margin price</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100"><X size={18} className="text-gray-500" /></button>
+        </div>
+        <div className="px-5 py-4 space-y-3 text-sm">
+          <div className="font-mono text-xs text-gray-600">{t.row.sellerSku}</div>
+          <div className="flex items-center justify-center gap-3 text-base">
+            <span className="text-gray-500">{cur}</span>
+            <span className="text-gray-400">→</span>
+            <span className="font-semibold text-emerald-700">${t.target.toFixed(2)}</span>
+            <span className="text-xs text-gray-400">on {mp}</span>
+          </div>
+          {b && (
+            <dl className="rounded-md border border-gray-200 divide-y divide-gray-100 text-xs">
+              <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Avg landed cost</dt><dd className="font-mono">${b.cost.toFixed(2)}</dd></div>
+              <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Commission {b.fees.pct > 0 ? `(${(b.fees.pct * 100).toFixed(0)}%)` : '(flat)'}</dt><dd className="font-mono">${b.commission.toFixed(2)}</dd></div>
+              <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Shipping</dt><dd className="font-mono">${b.fees.shipping.toFixed(2)}</dd></div>
+              <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Target margin</dt><dd className="font-mono">{b.marginPct}%</dd></div>
+              <div className="flex justify-between px-3 py-1.5 bg-emerald-50"><dt className="text-gray-700 font-medium">Net profit</dt><dd className="font-mono font-semibold text-emerald-700">${b.netProfit.toFixed(2)}</dd></div>
+            </dl>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t">
+          <button onClick={onClose} disabled={saving} className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+          <button onClick={onConfirm} disabled={saving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
+            {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+            Confirm &amp; push ${t.target.toFixed(2)}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function MarketplaceSkuManager() {
@@ -553,6 +658,42 @@ export default function MarketplaceSkuManager() {
   const priceInputRef = useRef<HTMLInputElement>(null)
 
   const accountIdFor = (s: MarketplaceSku): string | null => s.accountId ?? activeAccountId
+
+  // ── Target margin ──
+  const [marginConfirm, setMarginConfirm] = useState<MarginTarget | null>(null)
+  const [applyingMargin, setApplyingMargin] = useState(false)
+
+  async function handleSetTargetMargin(id: string, val: number | null) {
+    try {
+      await apiPatch(`/api/marketplace-skus/${id}`, { targetMarginPct: val })
+      setSkus(prev => prev.map(x => (x.id === id ? { ...x, targetMarginPct: val != null ? String(val) : null } : x)))
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to update target margin')
+    }
+  }
+
+  async function applyTargetPrice() {
+    const t = marginConfirm
+    if (!t) return
+    const price = Math.round(t.target * 100) / 100
+    setApplyingMargin(true)
+    try {
+      if (t.row.marketplace === 'backmarket') {
+        await apiPost('/api/marketplace-skus/backmarket-price', { sellerSku: t.row.sellerSku, price })
+      } else {
+        const accountId = accountIdFor(t.row)
+        if (!accountId) throw new Error('No Amazon account resolved for this SKU')
+        await apiPost('/api/listings/update-price', { accountId, sku: t.row.sellerSku, price })
+      }
+      setSkus(prev => prev.map(x => (x.id === t.row.id ? { ...x, price: String(price) } : x)))
+      setToast(`Pushed $${price.toFixed(2)} to ${t.row.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'} (${t.margin}% margin)`)
+      setMarginConfirm(null)
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to push price')
+    } finally {
+      setApplyingMargin(false)
+    }
+  }
 
   // ── Shipping template (FBM/MFN): display + per-row + bulk change ──
   const [shippingTemplates, setShippingTemplates] = useState<string[]>([])
@@ -1254,6 +1395,16 @@ export default function MarketplaceSkuManager() {
       {err && <ErrorBanner msg={err} onClose={() => setErr('')} />}
       {toast && <SuccessToast msg={toast} onClose={() => setToast('')} />}
 
+      {marginConfirm && (
+        <TargetMarginConfirmModal
+          t={marginConfirm}
+          currentPrice={marginConfirm.row.price}
+          saving={applyingMargin}
+          onClose={() => setMarginConfirm(null)}
+          onConfirm={applyTargetPrice}
+        />
+      )}
+
       {/* Add form */}
       {showForm && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3">
@@ -1490,6 +1641,7 @@ export default function MarketplaceSkuManager() {
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Current listing price (Amazon & Back Market). Click to edit — the change is pushed to that marketplace. Amazon rows also have a live-refresh icon.">Current Price</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Amazon listing status. Green = Active, Red = Inactive. Refreshed together with the price.">Status</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Target net margin. Enter a % and the system computes the price that realizes it from avg landed cost + commission + shipping. Click the computed price to review & push.">Target Margin</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Merchant shipping template (FBM/MFN only). Change per row, or select multiple rows and bulk-change from the bar above the table.">Shipping Template</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
@@ -1636,6 +1788,19 @@ export default function MarketplaceSkuManager() {
                             {s.listingStatus ?? '—'}
                           </span>
                         </span>
+                      )}
+                    </td>
+                    {/* Target margin */}
+                    <td className="px-3 py-2 text-center align-top">
+                      {s.marketplace !== 'amazon' && s.marketplace !== 'backmarket' ? (
+                        <span className="text-xs text-gray-300">—</span>
+                      ) : (
+                        <TargetMarginCell
+                          row={s}
+                          avgCost={qtyMap[s.id]?.avgCost ?? null}
+                          onSetMargin={handleSetTargetMargin}
+                          onApply={setMarginConfirm}
+                        />
                       )}
                     </td>
                     {/* Shipping template (FBM/MFN) */}

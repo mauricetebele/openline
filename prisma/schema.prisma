@@ -1024,6 +1024,7 @@ model ProductGradeMarketplaceSku {
   // maximizing velocity at the risk of oversell. Only affects last-unit logic.
   // Mutually exclusive with isDefaultSku and seeSaw within a (productId, gradeId) group.
   simulList     Boolean   @default(false)
+  targetMarginPct Decimal? @db.Decimal(5, 2) // Target net margin % (e.g. 25.00); null = disabled
   isSynced      Boolean   @default(false) // true = came from marketplace sync
   fnsku         String? // Fulfillment Network SKU (for FBA shipments)
   lastPushedQty Int? // last quantity successfully pushed to marketplace
