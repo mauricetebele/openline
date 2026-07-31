@@ -635,6 +635,54 @@ function TargetMarginConfirmModal({ t, currentPrice, saving, onClose, onConfirm 
   )
 }
 
+interface MarginDetail {
+  row: MarketplaceSku
+  price: number
+  avgUnitCost: number
+  avgCostCode: number
+  fees: TemplateFees
+  readyForSale: number
+  templateName: string | null
+}
+
+/** Read-only breakdown of the net margin at a SKU's current selling price. */
+function MarginBreakdownModal({ d, onClose }: { d: MarginDetail; onClose: () => void }) {
+  const b = breakdownAtPrice(d.price, d.avgUnitCost, d.avgCostCode, d.fees)
+  const mp = d.row.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'
+  const marginColor = b.marginPct < 0 ? 'text-red-600' : b.marginPct < 10 ? 'text-amber-600' : 'text-emerald-700'
+  const profitColor = b.netProfit < 0 ? 'text-red-600' : 'text-emerald-700'
+  const profitBg = b.netProfit < 0 ? 'bg-red-50' : 'bg-emerald-50'
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <h3 className="text-sm font-semibold text-gray-900">Margin at current price</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100"><X size={18} className="text-gray-500" /></button>
+        </div>
+        <div className="px-5 py-4 space-y-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-xs text-gray-600">{d.row.sellerSku}</span>
+            <span className="text-xs text-gray-400">on {mp}</span>
+          </div>
+          {d.templateName && <div className="text-xs text-gray-500">Template: <span className="text-gray-700">{d.templateName}</span> · {d.readyForSale} in stock</div>}
+          <dl className="rounded-md border border-gray-200 divide-y divide-gray-100 text-xs">
+            <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-700 font-medium">Selling price</dt><dd className="font-mono font-medium">${b.price.toFixed(2)}</dd></div>
+            <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">− Avg unit cost (in stock)</dt><dd className="font-mono text-red-600">−${b.avgUnitCost.toFixed(2)}</dd></div>
+            <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">− Cost code</dt><dd className="font-mono text-red-600">−${b.avgCostCode.toFixed(2)}</dd></div>
+            <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">− Commission ({b.commissionPct}%)</dt><dd className="font-mono text-red-600">−${b.commission.toFixed(2)}</dd></div>
+            <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">− Shipping (preset)</dt><dd className="font-mono text-red-600">−${b.shipping.toFixed(2)}</dd></div>
+            <div className={clsx('flex justify-between px-3 py-2', profitBg)}><dt className="text-gray-700 font-medium">Net profit</dt><dd className={clsx('font-mono font-semibold', profitColor)}>${b.netProfit.toFixed(2)}</dd></div>
+            <div className="flex justify-between px-3 py-2"><dt className="text-gray-700 font-medium">Net margin</dt><dd className={clsx('font-mono font-semibold', marginColor)}>{b.marginPct.toFixed(1)}%</dd></div>
+          </dl>
+        </div>
+        <div className="flex justify-end px-5 py-3 border-t">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Close</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function MarketplaceSkuManager() {
@@ -677,6 +725,7 @@ export default function MarketplaceSkuManager() {
 
   // ── Target margin + calculation templates ──
   const [marginConfirm, setMarginConfirm] = useState<MarginTarget | null>(null)
+  const [marginDetail, setMarginDetail] = useState<MarginDetail | null>(null)
   const [applyingMargin, setApplyingMargin] = useState(false)
   const [calcTemplates, setCalcTemplates] = useState<CalcTemplate[]>([])
   const [showTemplates, setShowTemplates] = useState(false)
@@ -693,6 +742,28 @@ export default function MarketplaceSkuManager() {
       setSkus(prev => prev.map(x => (x.id === id ? { ...x, calculationTemplateId: templateId } : x)))
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to assign template')
+    }
+  }
+
+  async function bulkAssignCalcTemplate(ids: string[], templateId: string | null) {
+    if (ids.length === 0 || assigningCalc) return
+    setAssigningCalc(true)
+    setErr('')
+    try {
+      const results = await Promise.allSettled(
+        ids.map(id => apiPatch(`/api/marketplace-skus/${id}`, { calculationTemplateId: templateId })),
+      )
+      const ok = ids.filter((_, i) => results[i].status === 'fulfilled')
+      const okSet = new Set(ok)
+      setSkus(prev => prev.map(x => (okSet.has(x.id) ? { ...x, calculationTemplateId: templateId } : x)))
+      const failed = ids.length - ok.length
+      setToast(`Calculation template ${templateId ? 'assigned to' : 'cleared from'} ${ok.length} SKU${ok.length === 1 ? '' : 's'}${failed ? ` (${failed} failed)` : ''}`)
+      setSelectedIds(new Set())
+      setBulkCalcTemplate('')
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Bulk template assign failed')
+    } finally {
+      setAssigningCalc(false)
     }
   }
 
@@ -728,19 +799,22 @@ export default function MarketplaceSkuManager() {
     }
   }
 
-  // ── Shipping template (FBM/MFN): display + per-row + bulk change ──
+  // ── Bulk actions: unified row selection (by msku id) drives calc-template
+  //    assignment (all rows) and shipping-template change (FBM Amazon subset). ──
   const [shippingTemplates, setShippingTemplates] = useState<string[]>([])
-  const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set())
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkTemplate, setBulkTemplate] = useState('')
   const [changingTemplate, setChangingTemplate] = useState(false)
   const [templateJob, setTemplateJob] = useState<{ processed: number; total: number; updated: number; status: string } | null>(null)
+  const [bulkCalcTemplate, setBulkCalcTemplate] = useState('')
+  const [assigningCalc, setAssigningCalc] = useState(false)
 
   // Only FBM/MFN Amazon listings have a merchant shipping template.
   const isTemplateRow = (s: MarketplaceSku) => s.marketplace === 'amazon' && s.fulfillmentChannel !== 'FBA'
-  const toggleSkuSelected = (sku: string) => setSelectedSkus(prev => {
+  const toggleIdSelected = (id: string) => setSelectedIds(prev => {
     const next = new Set(prev)
-    if (next.has(sku)) next.delete(sku)
-    else next.add(sku)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
     return next
   })
 
@@ -761,7 +835,7 @@ export default function MarketplaceSkuManager() {
           const failed = new Set<string>((job.failedSkus ?? []).map((f: { sku: string }) => f.sku))
           const ok = skus.filter(sk => !failed.has(sk))
           setSkus(prev => prev.map(x => ok.includes(x.sellerSku) ? { ...x, shippingTemplate: templateName } : x))
-          setSelectedSkus(new Set())
+          setSelectedIds(new Set())
           if (job.status === 'FAILED') setErr(job.errorMessage || 'Shipping template update failed')
           else setToast(`Shipping template applied to ${job.updated}/${skus.length} SKU${skus.length === 1 ? '' : 's'}${failed.size ? ` (${failed.size} failed)` : ''}`)
           break
@@ -1260,15 +1334,17 @@ export default function MarketplaceSkuManager() {
     return 0
   })
 
-  // Selection (bulk shipping-template) — only FBM/MFN Amazon rows are selectable.
-  const selectableVisibleSkus = filteredSkus.filter(isTemplateRow).map(s => s.sellerSku)
-  const allVisibleSelected = selectableVisibleSkus.length > 0 && selectableVisibleSkus.every(sku => selectedSkus.has(sku))
-  const toggleAllVisible = () => setSelectedSkus(prev => {
+  // Unified selection (by msku id): every visible row is selectable. Calc-template
+  // assignment applies to all selected; shipping-template change to the FBM subset.
+  const visibleIds = filteredSkus.map(s => s.id)
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id))
+  const toggleAllVisible = () => setSelectedIds(prev => {
     const next = new Set(prev)
-    if (allVisibleSelected) selectableVisibleSkus.forEach(sku => next.delete(sku))
-    else selectableVisibleSkus.forEach(sku => next.add(sku))
+    if (allVisibleSelected) visibleIds.forEach(id => next.delete(id))
+    else visibleIds.forEach(id => next.add(id))
     return next
   })
+  const selectedFbmSkus = filteredSkus.filter(s => selectedIds.has(s.id) && isTemplateRow(s)).map(s => s.sellerSku)
 
   // Filter synced listings
   const unmappedListings = listings.filter(l => {
@@ -1445,6 +1521,10 @@ export default function MarketplaceSkuManager() {
           onClose={() => setMarginConfirm(null)}
           onConfirm={applyTargetPrice}
         />
+      )}
+
+      {marginDetail && (
+        <MarginBreakdownModal d={marginDetail} onClose={() => setMarginDetail(null)} />
       )}
 
       {showTemplates && (
@@ -1624,34 +1704,63 @@ export default function MarketplaceSkuManager() {
           </div>
         ) : (
           <>
-          {(selectedSkus.size > 0 || templateJob) && (
+          {(selectedIds.size > 0 || templateJob) && (
             <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-amazon-blue/30 bg-amazon-blue/5 px-4 py-2.5">
               <span className="text-sm font-medium text-gray-700">
-                {selectedSkus.size} FBM SKU{selectedSkus.size === 1 ? '' : 's'} selected
+                {selectedIds.size} SKU{selectedIds.size === 1 ? '' : 's'} selected
               </span>
-              <span className="text-xs text-gray-500">→ set shipping template:</span>
+
+              {/* Calc template — applies to every selected row, any marketplace */}
+              <span className="text-xs text-gray-500">→ calc template:</span>
               <select
-                value={bulkTemplate}
-                onChange={(e) => setBulkTemplate(e.target.value)}
-                disabled={changingTemplate}
+                value={bulkCalcTemplate}
+                onChange={(e) => setBulkCalcTemplate(e.target.value)}
+                disabled={assigningCalc}
                 className="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:opacity-50"
               >
                 <option value="">Choose template…</option>
-                {shippingTemplates.map(t => <option key={t} value={t}>{t}</option>)}
+                <option value="__none__">— None (clear) —</option>
+                {calcTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
               <button
                 type="button"
-                onClick={() => changeTemplates(Array.from(selectedSkus), bulkTemplate, activeAccountId)}
-                disabled={changingTemplate || !bulkTemplate || selectedSkus.size === 0}
+                onClick={() => bulkAssignCalcTemplate(Array.from(selectedIds), bulkCalcTemplate === '__none__' ? null : bulkCalcTemplate)}
+                disabled={assigningCalc || !bulkCalcTemplate || selectedIds.size === 0}
                 className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50"
               >
-                {changingTemplate ? <RefreshCw size={14} className="animate-spin" /> : <Tags size={14} />}
-                Apply to {selectedSkus.size}
+                {assigningCalc ? <RefreshCw size={14} className="animate-spin" /> : <Tags size={14} />}
+                Assign to {selectedIds.size}
               </button>
+
+              {/* Shipping template — FBM Amazon rows only */}
+              {selectedFbmSkus.length > 0 && (
+                <>
+                  <span className="text-xs text-gray-500 border-l border-gray-300 pl-3">→ shipping ({selectedFbmSkus.length} FBM):</span>
+                  <select
+                    value={bulkTemplate}
+                    onChange={(e) => setBulkTemplate(e.target.value)}
+                    disabled={changingTemplate}
+                    className="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:opacity-50"
+                  >
+                    <option value="">Choose template…</option>
+                    {shippingTemplates.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => changeTemplates(selectedFbmSkus, bulkTemplate, activeAccountId)}
+                    disabled={changingTemplate || !bulkTemplate || selectedFbmSkus.length === 0}
+                    className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-white border border-amazon-blue text-amazon-blue text-sm font-medium hover:bg-amazon-blue/10 disabled:opacity-50"
+                  >
+                    {changingTemplate ? <RefreshCw size={14} className="animate-spin" /> : <Tags size={14} />}
+                    Apply to {selectedFbmSkus.length}
+                  </button>
+                </>
+              )}
+
               <button
                 type="button"
-                onClick={() => setSelectedSkus(new Set())}
-                disabled={changingTemplate}
+                onClick={() => setSelectedIds(new Set())}
+                disabled={changingTemplate || assigningCalc}
                 className="text-xs text-gray-500 hover:text-gray-700"
               >
                 Clear
@@ -1676,8 +1785,8 @@ export default function MarketplaceSkuManager() {
                       type="checkbox"
                       checked={allVisibleSelected}
                       onChange={toggleAllVisible}
-                      disabled={selectableVisibleSkus.length === 0}
-                      title="Select all FBM listings on this page"
+                      disabled={visibleIds.length === 0}
+                      title="Select all listings on this page"
                       className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue disabled:opacity-40"
                     />
                   </th>
@@ -1743,14 +1852,12 @@ export default function MarketplaceSkuManager() {
                 {filteredSkus.map(s => (
                   <tr key={s.id} className={clsx('group align-top transition-colors', s.fulfillmentChannel === 'FBA' ? 'bg-blue-50/60 hover:bg-blue-100/70' : 'odd:bg-white even:bg-gray-50/50 hover:bg-amazon-blue/5')}>
                     <td className="px-2 py-2 text-center">
-                      {isTemplateRow(s) && (
-                        <input
-                          type="checkbox"
-                          checked={selectedSkus.has(s.sellerSku)}
-                          onChange={() => toggleSkuSelected(s.sellerSku)}
-                          className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue"
-                        />
-                      )}
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(s.id)}
+                        onChange={() => toggleIdSelected(s.id)}
+                        className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue"
+                      />
                     </td>
                     <td className="px-3 py-2 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600">{s.asin ?? s.bmListingId ?? '—'}</td>
@@ -1898,12 +2005,14 @@ export default function MarketplaceSkuManager() {
                         const m = marginAtPrice(price, b.avgUnitCost, b.avgCostCode ?? 0, fees)
                         if (m == null) return <span className="text-xs text-gray-300">—</span>
                         return (
-                          <span
-                            className={clsx('font-mono text-xs', m < 0 ? 'text-red-600' : m < 10 ? 'text-amber-600' : 'text-emerald-700')}
-                            title={`Net margin at current price $${price.toFixed(2)}`}
+                          <button
+                            type="button"
+                            onClick={() => setMarginDetail({ row: s, price, avgUnitCost: b.avgUnitCost!, avgCostCode: b.avgCostCode ?? 0, fees, readyForSale: b.readyForSale ?? 0, templateName: templateById(s.calculationTemplateId)?.name ?? null })}
+                            className={clsx('font-mono text-xs hover:underline', m < 0 ? 'text-red-600' : m < 10 ? 'text-amber-600' : 'text-emerald-700')}
+                            title={`Net margin at current price $${price.toFixed(2)} — click for full breakdown`}
                           >
                             {m.toFixed(1)}%
-                          </span>
+                          </button>
                         )
                       })()}
                     </td>
