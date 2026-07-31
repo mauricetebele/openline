@@ -872,8 +872,38 @@ model PackagePreset {
 
   products Product[] @relation("ProductDefaultPackagePreset")
   orders   Order[]
+  calcTemplateCosts CalculationTemplatePackageCost[]
 
   @@map("package_presets")
+}
+
+// ─── Calculation Templates (target-margin pricing) ────────────────────────────
+
+model CalculationTemplate {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  commissionPct Decimal  @db.Decimal(5, 2) // commission as a % of selling price
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  packageCosts CalculationTemplatePackageCost[]
+  mskus        ProductGradeMarketplaceSku[]
+
+  @@map("calculation_templates")
+}
+
+model CalculationTemplatePackageCost {
+  id              String              @id @default(cuid())
+  templateId      String
+  template        CalculationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  packagePresetId String
+  packagePreset   PackagePreset       @relation(fields: [packagePresetId], references: [id], onDelete: Cascade)
+  cost            Decimal             @db.Decimal(12, 2) // estimated shipping cost per unit for this preset
+
+  @@unique([templateId, packagePresetId])
+  @@index([templateId])
+  @@map("calculation_template_package_costs")
 }
 
 // ─── Label Batches ────────────────────────────────────────────────────────────
@@ -1025,6 +1055,8 @@ model ProductGradeMarketplaceSku {
   // Mutually exclusive with isDefaultSku and seeSaw within a (productId, gradeId) group.
   simulList     Boolean   @default(false)
   targetMarginPct Decimal? @db.Decimal(5, 2) // Target net margin % (e.g. 25.00); null = disabled
+  calculationTemplateId String?
+  calculationTemplate   CalculationTemplate? @relation(fields: [calculationTemplateId], references: [id], onDelete: SetNull)
   isSynced      Boolean   @default(false) // true = came from marketplace sync
   fnsku         String? // Fulfillment Network SKU (for FBA shipments)
   lastPushedQty Int? // last quantity successfully pushed to marketplace

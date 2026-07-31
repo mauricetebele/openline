@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     const skus = await prisma.productGradeMarketplaceSku.findMany({
       where: marketplace ? { marketplace } : undefined,
       include: {
-        product: { select: { id: true, sku: true, description: true } },
+        product: { select: { id: true, sku: true, description: true, defaultPackagePresetId: true } },
         grade: { select: { id: true, grade: true } },
       },
       orderBy: [{ marketplace: 'asc' }, { sellerSku: 'asc' }],

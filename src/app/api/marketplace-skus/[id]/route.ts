@@ -14,14 +14,14 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { syncQty, maxQty, isDefaultSku, seeSaw, simulList, targetMarginPct } = body as {
+  const { syncQty, maxQty, isDefaultSku, seeSaw, simulList, targetMarginPct, calculationTemplateId } = body as {
     syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean; seeSaw?: boolean; simulList?: boolean
-    targetMarginPct?: number | null
+    targetMarginPct?: number | null; calculationTemplateId?: string | null
   }
 
   // At least one field must be provided
-  if (typeof syncQty !== 'boolean' && maxQty === undefined && typeof isDefaultSku !== 'boolean' && typeof seeSaw !== 'boolean' && typeof simulList !== 'boolean' && targetMarginPct === undefined) {
-    return NextResponse.json({ error: 'syncQty, maxQty, isDefaultSku, seeSaw, simulList, or targetMarginPct is required' }, { status: 400 })
+  if (typeof syncQty !== 'boolean' && maxQty === undefined && typeof isDefaultSku !== 'boolean' && typeof seeSaw !== 'boolean' && typeof simulList !== 'boolean' && targetMarginPct === undefined && calculationTemplateId === undefined) {
+    return NextResponse.json({ error: 'a settable field is required' }, { status: 400 })
   }
 
   const msku = await prisma.productGradeMarketplaceSku.findUnique({
@@ -81,11 +81,12 @@ export async function PATCH(
   }
 
   // Target-row fields (group-wide strategy changes already applied above).
-  const data: { syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean; targetMarginPct?: number | null } = {}
+  const data: { syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean; targetMarginPct?: number | null; calculationTemplateId?: string | null } = {}
   if (typeof syncQty === 'boolean') data.syncQty = syncQty
   if (maxQty !== undefined) data.maxQty = maxQty
   if (typeof isDefaultSku === 'boolean') data.isDefaultSku = isDefaultSku
   if (targetMarginPct !== undefined) data.targetMarginPct = targetMarginPct
+  if (calculationTemplateId !== undefined) data.calculationTemplateId = calculationTemplateId || null
 
   const updated = await prisma.productGradeMarketplaceSku.update({
     where: { id: params.id },

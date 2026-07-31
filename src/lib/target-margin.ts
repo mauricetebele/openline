@@ -1,73 +1,94 @@
 /**
- * Target-margin pricing math shared by the API and the Marketplace SKUs UI.
+ * Target-margin pricing math (template-driven), shared by the Marketplace SKUs UI.
  *
- * Price that realizes a target net margin (profit ÷ price):
- *   margin = (P − cost − flat − pct·P − shipping) / P
- *   ⇒ P = (cost + flat + shipping) / (1 − pct − margin)
- * where `cost` is the average landed cost (unit cost + cost-code amount) of the
- * in-stock finished-goods units.
+ * A SKU's Calculation Template supplies the commission % and a per-package-preset
+ * shipping cost. Net margin = profit ÷ price, where
+ *   profit = price − commission(%·price) − avgUnitCost − avgCostCode − shipping
+ * Solving for the price that hits a target margin:
+ *   price = (avgUnitCost + avgCostCode + shipping) / (1 − commission% − targetMargin%)
  */
 
-export type MarginCategory = 'mac' | 'phone' | 'other'
-
-/** Category from the parent product SKU prefix (no Product.category field exists). */
-export function detectCategory(productSku: string | null | undefined): MarginCategory {
-  const s = (productSku ?? '').toUpperCase()
-  if (/^(IMAC|MBPRO|MBAIR|MACBOOK)/.test(s)) return 'mac'
-  if (/^(IPHONE|SAM)/.test(s)) return 'phone' // iPhone + Samsung phones
-  return 'other'
+export interface TemplateFees {
+  commissionPct: number // percent of selling price (e.g. 8)
+  shipping: number // flat shipping dollars for this SKU's package preset
 }
 
-export interface FeeStructure {
-  pct: number // commission as a fraction of price (e.g. 0.08)
-  flat: number // flat commission dollars
-  shipping: number // flat shipping dollars
+export interface CalcTemplate {
+  id: string
+  name: string
+  commissionPct: string | number
+  packageCosts: { packagePresetId: string; cost: string | number }[]
 }
 
 /**
- * Marketplace + category fee structure. Returns null when no commission rule applies
- * (e.g. Back Market SKUs that are neither Mac nor phone) — those get no target price.
+ * Resolve the fee structure for a row from its assigned template + the product's
+ * package preset. Returns null when there's no template (⇒ not eligible for target
+ * margin). Shipping is the template's cost for the preset, or 0 if the product has
+ * no preset / the template has no cost for it.
  */
-export function feesFor(marketplace: string, productSku: string | null | undefined): FeeStructure | null {
-  if (marketplace === 'amazon') return { pct: 0.08, flat: 0, shipping: 12 }
-  if (marketplace === 'backmarket') {
-    const cat = detectCategory(productSku)
-    if (cat === 'mac') return { pct: 0, flat: 14, shipping: 18 }
-    if (cat === 'phone') return { pct: 0.12, flat: 0, shipping: 18 }
-    return null // other Back Market categories — no rule
+export function resolveFees(
+  template: CalcTemplate | undefined | null,
+  packagePresetId: string | null | undefined,
+): TemplateFees | null {
+  if (!template) return null
+  const commissionPct = Number(template.commissionPct)
+  if (!Number.isFinite(commissionPct)) return null
+  let shipping = 0
+  if (packagePresetId) {
+    const pc = template.packageCosts.find((c) => c.packagePresetId === packagePresetId)
+    if (pc) shipping = Number(pc.cost)
   }
-  return null
+  return { commissionPct, shipping }
 }
 
-/** Price that hits `marginPct` (a percent, e.g. 25). Null if unreachable (margin too high). */
-export function computeTargetPrice(cost: number, fees: FeeStructure, marginPct: number): number | null {
-  const denom = 1 - fees.pct - marginPct / 100
+/** Price that realizes `marginPct` (a percent, e.g. 25). Null if unreachable. */
+export function computeTargetPrice(
+  avgUnitCost: number,
+  avgCostCode: number,
+  fees: TemplateFees,
+  marginPct: number,
+): number | null {
+  const cost = avgUnitCost + avgCostCode + fees.shipping
+  const denom = 1 - fees.commissionPct / 100 - marginPct / 100
   if (denom <= 0) return null
-  const price = (cost + fees.flat + fees.shipping) / denom
+  const price = cost / denom
   return Number.isFinite(price) && price > 0 ? price : null
 }
 
 export interface MarginBreakdown {
-  cost: number
-  fees: FeeStructure
-  marginPct: number
-  targetPrice: number
-  commission: number // resolved commission dollars at the target price
+  price: number
+  avgUnitCost: number
+  avgCostCode: number
+  commission: number
+  commissionPct: number
+  shipping: number
   netProfit: number
+  marginPct: number
 }
 
-/** Full breakdown for the confirm dialog / tooltip. Null if no fee rule or unreachable. */
-export function marginBreakdown(
-  cost: number,
-  marketplace: string,
-  productSku: string | null | undefined,
-  marginPct: number,
-): MarginBreakdown | null {
-  const fees = feesFor(marketplace, productSku)
-  if (!fees) return null
-  const targetPrice = computeTargetPrice(cost, fees, marginPct)
-  if (targetPrice == null) return null
-  const commission = fees.flat + fees.pct * targetPrice
-  const netProfit = targetPrice - cost - commission - fees.shipping
-  return { cost, fees, marginPct, targetPrice, commission, netProfit }
+/** Full breakdown at a given selling price. */
+export function breakdownAtPrice(
+  price: number,
+  avgUnitCost: number,
+  avgCostCode: number,
+  fees: TemplateFees,
+): MarginBreakdown {
+  const commission = (fees.commissionPct / 100) * price
+  const netProfit = price - commission - avgUnitCost - avgCostCode - fees.shipping
+  const marginPct = price > 0 ? (netProfit / price) * 100 : 0
+  return {
+    price, avgUnitCost, avgCostCode, commission,
+    commissionPct: fees.commissionPct, shipping: fees.shipping, netProfit, marginPct,
+  }
+}
+
+/** Net margin % realized at a given selling price. Null if price invalid. */
+export function marginAtPrice(
+  price: number,
+  avgUnitCost: number,
+  avgCostCode: number,
+  fees: TemplateFees,
+): number | null {
+  if (!(price > 0)) return null
+  return breakdownAtPrice(price, avgUnitCost, avgCostCode, fees).marginPct
 }

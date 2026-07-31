@@ -21,7 +21,8 @@ export interface QtyBreakdown {
   mskuId: string
   onHand: number
   readyForSale: number
-  avgCost: number | null // avg landed cost (unit cost + cost code) of in-stock FG units
+  avgUnitCost: number | null // avg unit cost (COGS) of in-stock FG units
+  avgCostCode: number | null // avg cost-code amount of in-stock FG units
   reserved: number
   pendingOrders: number
   pendingPayment: number
@@ -77,9 +78,10 @@ export async function GET() {
   // Average landed cost (unit cost + cost-code amount) of IN_STOCK finished-goods
   // serials, per product+grade. Cost comes from the serial's PO line (fallback to the
   // serial's own unitCost for migrated/direct receives).
-  const avgCostRows = await prisma.$queryRaw<{ productId: string; gradeId: string | null; avgCost: number }[]>`
+  const avgCostRows = await prisma.$queryRaw<{ productId: string; gradeId: string | null; avgUnitCost: number; avgCostCode: number }[]>`
     SELECT s."productId", s."gradeId",
-      AVG(COALESCE(pol."unitCost", s."unitCost", 0) + COALESCE(cc.amount, 0))::float8 AS "avgCost"
+      AVG(COALESCE(pol."unitCost", s."unitCost", 0))::float8 AS "avgUnitCost",
+      AVG(COALESCE(cc.amount, 0))::float8 AS "avgCostCode"
     FROM inventory_serials s
     JOIN locations loc ON loc.id = s."locationId" AND loc."isFinishedGoods" = true
     LEFT JOIN po_receipt_lines prl ON prl.id = s."receiptLineId"
@@ -88,8 +90,12 @@ export async function GET() {
     WHERE s.status = 'IN_STOCK'
     GROUP BY s."productId", s."gradeId"
   `
-  const avgCostMap = new Map<string, number>()
-  for (const r of avgCostRows) avgCostMap.set(pgKey(r.productId, r.gradeId), r.avgCost)
+  const avgUnitCostMap = new Map<string, number>()
+  const avgCostCodeMap = new Map<string, number>()
+  for (const r of avgCostRows) {
+    avgUnitCostMap.set(pgKey(r.productId, r.gradeId), r.avgUnitCost)
+    avgCostCodeMap.set(pgKey(r.productId, r.gradeId), r.avgCostCode)
+  }
 
   // Fallback for non-serialized products: latest PO-line cost + its cost code.
   const fallbackCostRows = await prisma.$queryRaw<{ productId: string; gradeId: string | null; unitCost: number; costCodeAmount: number | null }[]>`
@@ -99,8 +105,12 @@ export async function GET() {
     LEFT JOIN cost_codes cc ON cc.id = pol."costCodeId"
     ORDER BY pol."productId", pol."gradeId", pol."createdAt" DESC
   `
-  const fallbackCostMap = new Map<string, number>()
-  for (const r of fallbackCostRows) fallbackCostMap.set(pgKey(r.productId, r.gradeId), r.unitCost + (r.costCodeAmount ?? 0))
+  const fbUnitCostMap = new Map<string, number>()
+  const fbCostCodeMap = new Map<string, number>()
+  for (const r of fallbackCostRows) {
+    fbUnitCostMap.set(pgKey(r.productId, r.gradeId), r.unitCost)
+    fbCostCodeMap.set(pgKey(r.productId, r.gradeId), r.costCodeAmount ?? 0)
+  }
 
   // Batch: reservations grouped by productId + gradeId
   const resGroups = await prisma.orderInventoryReservation.groupBy({
@@ -228,7 +238,8 @@ export async function GET() {
 
     return {
       mskuId: msku.id, onHand, readyForSale: availableInInventory,
-      avgCost: avgCostMap.get(key) ?? fallbackCostMap.get(key) ?? null,
+      avgUnitCost: avgUnitCostMap.get(key) ?? fbUnitCostMap.get(key) ?? null,
+      avgCostCode: avgCostCodeMap.get(key) ?? fbCostCodeMap.get(key) ?? null,
       reserved, pendingOrders, pendingPayment,
       available, maxQty: msku.maxQty, pushing, lowStockBuffer,
       groupSize, splitPct, isDefaultSku: msku.isDefaultSku,

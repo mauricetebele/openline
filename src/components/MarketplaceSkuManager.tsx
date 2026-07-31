@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2, DollarSign } from 'lucide-react'
 import { clsx } from 'clsx'
-import { feesFor, computeTargetPrice, marginBreakdown } from '@/lib/target-margin'
+import { resolveFees, computeTargetPrice, breakdownAtPrice, marginAtPrice, type CalcTemplate, type TemplateFees } from '@/lib/target-margin'
+import CalculationTemplateManager from './CalculationTemplateManager'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +12,7 @@ interface MskuProduct {
   id: string
   sku: string
   description: string
+  defaultPackagePresetId: string | null
 }
 
 interface MskuGrade {
@@ -36,6 +38,7 @@ interface MarketplaceSku {
   seeSawActive: boolean
   simulList: boolean
   targetMarginPct: string | null
+  calculationTemplateId: string | null
   fulfillmentChannel: string | null
   itemCondition: string | null
   bmListingId: string | null
@@ -78,7 +81,8 @@ interface QtyBreakdown {
   mskuId: string
   onHand: number
   readyForSale: number
-  avgCost: number | null
+  avgUnitCost: number | null
+  avgCostCode: number | null
   reserved: number
   pendingOrders: number
   pendingPayment: number
@@ -519,18 +523,30 @@ function InlineMappingRow({
 
 // ─── Target Margin ────────────────────────────────────────────────────────────
 
-interface MarginTarget { row: MarketplaceSku; cost: number; margin: number; target: number }
+interface MarginTarget {
+  row: MarketplaceSku
+  avgUnitCost: number
+  avgCostCode: number
+  fees: TemplateFees
+  margin: number
+  target: number
+}
 
 /** Per-row target-margin control: a % input plus the computed target price (click to apply). */
-function TargetMarginCell({ row, avgCost, onSetMargin, onApply }: {
+function TargetMarginCell({ row, template, breakdown, onSetMargin, onApply }: {
   row: MarketplaceSku
-  avgCost: number | null
+  template: CalcTemplate | null
+  breakdown: QtyBreakdown | undefined
   onSetMargin: (id: string, val: number | null) => void
   onApply: (t: MarginTarget) => void
 }) {
   const margin = row.targetMarginPct != null ? parseFloat(row.targetMarginPct) : null
-  const fees = feesFor(row.marketplace, row.product.sku)
-  const target = margin != null && fees && avgCost != null ? computeTargetPrice(avgCost, fees, margin) : null
+  const fees = resolveFees(template, row.product.defaultPackagePresetId)
+  const avgUnitCost = breakdown?.avgUnitCost ?? null
+  const avgCostCode = breakdown?.avgCostCode ?? 0
+  const target = margin != null && fees && avgUnitCost != null
+    ? computeTargetPrice(avgUnitCost, avgCostCode, fees, margin)
+    : null
   return (
     <div className="inline-flex flex-col items-center gap-1">
       <div className="inline-flex items-center gap-0.5">
@@ -542,26 +558,27 @@ function TargetMarginCell({ row, avgCost, onSetMargin, onApply }: {
           defaultValue={row.targetMarginPct ?? ''}
           key={`${row.id}-${row.targetMarginPct ?? ''}`}
           placeholder="—"
+          disabled={!fees}
           onBlur={(e) => { const raw = e.target.value.trim(); onSetMargin(row.id, raw === '' ? null : parseFloat(raw)) }}
           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-          title="Target net margin %. Leave blank to disable."
-          className="w-14 text-center font-mono text-xs rounded border border-gray-300 px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+          title={fees ? 'Target net margin %. Leave blank to disable.' : 'Assign a Calculation Template to enable target margin'}
+          className="w-14 text-center font-mono text-xs rounded border border-gray-300 px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-amazon-blue disabled:bg-gray-50 disabled:text-gray-300"
         />
         <span className="text-[10px] text-gray-400">%</span>
       </div>
-      {margin != null && (
-        !fees ? (
-          <span className="text-[10px] text-gray-300" title="No commission rule for this Back Market category">N/A</span>
-        ) : avgCost == null ? (
+      {!fees ? (
+        <span className="text-[10px] text-gray-300" title="Assign a Calculation Template to enable target margin">no template</span>
+      ) : margin != null && (
+        avgUnitCost == null ? (
           <span className="text-[10px] text-gray-300" title="No in-stock cost available for this SKU/grade">no cost</span>
         ) : target == null ? (
           <span className="text-[10px] text-red-400" title="Margin too high to reach a valid price">unreachable</span>
         ) : (
           <button
             type="button"
-            onClick={() => onApply({ row, cost: avgCost, margin, target })}
+            onClick={() => onApply({ row, avgUnitCost, avgCostCode, fees, margin, target })}
             className="font-mono text-[11px] text-emerald-700 hover:text-emerald-900 hover:underline"
-            title={`Target price for ${margin}% margin (avg cost $${avgCost.toFixed(2)}). Click to review & push.`}
+            title={`Target price for ${margin}% margin. Click to review & push.`}
           >
             ${target.toFixed(2)}
           </button>
@@ -579,7 +596,7 @@ function TargetMarginConfirmModal({ t, currentPrice, saving, onClose, onConfirm 
   onClose: () => void
   onConfirm: () => void
 }) {
-  const b = marginBreakdown(t.cost, t.row.marketplace, t.row.product.sku, t.margin)
+  const b = breakdownAtPrice(t.target, t.avgUnitCost, t.avgCostCode, t.fees)
   const mp = t.row.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'
   const cur = currentPrice != null ? `$${parseFloat(currentPrice).toFixed(2)}` : '—'
   return (
@@ -597,15 +614,14 @@ function TargetMarginConfirmModal({ t, currentPrice, saving, onClose, onConfirm 
             <span className="font-semibold text-emerald-700">${t.target.toFixed(2)}</span>
             <span className="text-xs text-gray-400">on {mp}</span>
           </div>
-          {b && (
-            <dl className="rounded-md border border-gray-200 divide-y divide-gray-100 text-xs">
-              <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Avg landed cost</dt><dd className="font-mono">${b.cost.toFixed(2)}</dd></div>
-              <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Commission {b.fees.pct > 0 ? `(${(b.fees.pct * 100).toFixed(0)}%)` : '(flat)'}</dt><dd className="font-mono">${b.commission.toFixed(2)}</dd></div>
-              <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Shipping</dt><dd className="font-mono">${b.fees.shipping.toFixed(2)}</dd></div>
-              <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Target margin</dt><dd className="font-mono">{b.marginPct}%</dd></div>
-              <div className="flex justify-between px-3 py-1.5 bg-emerald-50"><dt className="text-gray-700 font-medium">Net profit</dt><dd className="font-mono font-semibold text-emerald-700">${b.netProfit.toFixed(2)}</dd></div>
-            </dl>
-          )}
+          <dl className="rounded-md border border-gray-200 divide-y divide-gray-100 text-xs">
+            <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Avg unit cost</dt><dd className="font-mono">${b.avgUnitCost.toFixed(2)}</dd></div>
+            <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Cost code</dt><dd className="font-mono">${b.avgCostCode.toFixed(2)}</dd></div>
+            <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Commission ({b.commissionPct}%)</dt><dd className="font-mono">${b.commission.toFixed(2)}</dd></div>
+            <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Shipping (preset)</dt><dd className="font-mono">${b.shipping.toFixed(2)}</dd></div>
+            <div className="flex justify-between px-3 py-1.5"><dt className="text-gray-500">Target margin</dt><dd className="font-mono">{t.margin}%</dd></div>
+            <div className="flex justify-between px-3 py-1.5 bg-emerald-50"><dt className="text-gray-700 font-medium">Net profit</dt><dd className="font-mono font-semibold text-emerald-700">${b.netProfit.toFixed(2)}</dd></div>
+          </dl>
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t">
           <button onClick={onClose} disabled={saving} className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
@@ -659,9 +675,26 @@ export default function MarketplaceSkuManager() {
 
   const accountIdFor = (s: MarketplaceSku): string | null => s.accountId ?? activeAccountId
 
-  // ── Target margin ──
+  // ── Target margin + calculation templates ──
   const [marginConfirm, setMarginConfirm] = useState<MarginTarget | null>(null)
   const [applyingMargin, setApplyingMargin] = useState(false)
+  const [calcTemplates, setCalcTemplates] = useState<CalcTemplate[]>([])
+  const [showTemplates, setShowTemplates] = useState(false)
+  const templateById = (id: string | null) => (id ? calcTemplates.find(t => t.id === id) ?? null : null)
+
+  const loadCalcTemplates = useCallback(async () => {
+    try { const d = await apiFetch('/api/calculation-templates'); setCalcTemplates(d.data ?? []) } catch { /* ignore */ }
+  }, [])
+  useEffect(() => { loadCalcTemplates() }, [loadCalcTemplates])
+
+  async function handleSetTemplate(id: string, templateId: string | null) {
+    try {
+      await apiPatch(`/api/marketplace-skus/${id}`, { calculationTemplateId: templateId })
+      setSkus(prev => prev.map(x => (x.id === id ? { ...x, calculationTemplateId: templateId } : x)))
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to assign template')
+    }
+  }
 
   async function handleSetTargetMargin(id: string, val: number | null) {
     try {
@@ -1377,6 +1410,15 @@ export default function MarketplaceSkuManager() {
 
         <button
           type="button"
+          onClick={() => setShowTemplates(true)}
+          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+        >
+          <Tags size={14} className="text-gray-500" />
+          Calculation Templates
+        </button>
+
+        <button
+          type="button"
           onClick={() => setShowForm(v => !v)}
           className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"
         >
@@ -1403,6 +1445,20 @@ export default function MarketplaceSkuManager() {
           onClose={() => setMarginConfirm(null)}
           onConfirm={applyTargetPrice}
         />
+      )}
+
+      {showTemplates && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowTemplates(false)}>
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b">
+              <h2 className="text-base font-semibold text-gray-900">Calculation Templates</h2>
+              <button onClick={() => setShowTemplates(false)} className="p-1 rounded hover:bg-gray-100"><X size={18} className="text-gray-500" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <CalculationTemplateManager onChanged={loadCalcTemplates} />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Add form */}
@@ -1641,7 +1697,10 @@ export default function MarketplaceSkuManager() {
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Current listing price (Amazon & Back Market). Click to edit — the change is pushed to that marketplace. Amazon rows also have a live-refresh icon.">Current Price</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Amazon listing status. Green = Active, Red = Inactive. Refreshed together with the price.">Status</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Target net margin. Enter a % and the system computes the price that realizes it from avg landed cost + commission + shipping. Click the computed price to review & push.">Target Margin</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Calculation Template (commission % + per-preset shipping). Required to enable Target Margin.">Calc Template</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Average landed cost (unit cost + cost code) of in-stock finished-goods units.">Avg Cost</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Target net margin. Enter a % and the system computes the price that realizes it from avg cost + template commission + shipping. Click the price to review & push.">Target Margin</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Net margin at the CURRENT selling price, using the assigned template.">Margin @ Price</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Merchant shipping template (FBM/MFN only). Change per row, or select multiple rows and bulk-change from the bar above the table.">Shipping Template</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
@@ -1790,6 +1849,31 @@ export default function MarketplaceSkuManager() {
                         </span>
                       )}
                     </td>
+                    {/* Calc template */}
+                    <td className="px-3 py-2 text-center align-top">
+                      {s.marketplace !== 'amazon' && s.marketplace !== 'backmarket' ? (
+                        <span className="text-xs text-gray-300">—</span>
+                      ) : (
+                        <select
+                          value={s.calculationTemplateId ?? ''}
+                          onChange={(e) => handleSetTemplate(s.id, e.target.value || null)}
+                          title="Assign a calculation template (enables Target Margin)"
+                          className="max-w-[130px] rounded border border-gray-300 bg-white px-1.5 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+                        >
+                          <option value="">— none —</option>
+                          {calcTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                      )}
+                    </td>
+                    {/* Avg cost of in-stock FG units */}
+                    <td className="px-3 py-2 text-right align-top">
+                      {(() => {
+                        const b = qtyMap[s.id]
+                        if (!b || b.avgUnitCost == null || (b.readyForSale ?? 0) <= 0) return <span className="text-xs text-gray-300">—</span>
+                        const cost = b.avgUnitCost + (b.avgCostCode ?? 0)
+                        return <span className="font-mono text-xs text-gray-700" title={`Unit $${b.avgUnitCost.toFixed(2)} + cost code $${(b.avgCostCode ?? 0).toFixed(2)}`}>${cost.toFixed(2)}</span>
+                      })()}
+                    </td>
                     {/* Target margin */}
                     <td className="px-3 py-2 text-center align-top">
                       {s.marketplace !== 'amazon' && s.marketplace !== 'backmarket' ? (
@@ -1797,11 +1881,31 @@ export default function MarketplaceSkuManager() {
                       ) : (
                         <TargetMarginCell
                           row={s}
-                          avgCost={qtyMap[s.id]?.avgCost ?? null}
+                          template={templateById(s.calculationTemplateId)}
+                          breakdown={qtyMap[s.id]}
                           onSetMargin={handleSetTargetMargin}
                           onApply={setMarginConfirm}
                         />
                       )}
+                    </td>
+                    {/* Margin @ current selling price */}
+                    <td className="px-3 py-2 text-right align-top">
+                      {(() => {
+                        const b = qtyMap[s.id]
+                        const fees = resolveFees(templateById(s.calculationTemplateId), s.product.defaultPackagePresetId)
+                        const price = s.price != null ? parseFloat(s.price) : null
+                        if (!fees || !b || b.avgUnitCost == null || price == null || (b.readyForSale ?? 0) <= 0) return <span className="text-xs text-gray-300">—</span>
+                        const m = marginAtPrice(price, b.avgUnitCost, b.avgCostCode ?? 0, fees)
+                        if (m == null) return <span className="text-xs text-gray-300">—</span>
+                        return (
+                          <span
+                            className={clsx('font-mono text-xs', m < 0 ? 'text-red-600' : m < 10 ? 'text-amber-600' : 'text-emerald-700')}
+                            title={`Net margin at current price $${price.toFixed(2)}`}
+                          >
+                            {m.toFixed(1)}%
+                          </span>
+                        )
+                      })()}
                     </td>
                     {/* Shipping template (FBM/MFN) */}
                     <td className="px-3 py-2 align-top">
