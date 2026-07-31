@@ -2076,6 +2076,7 @@ model SickwCheck {
   status      String // "success" | "error"
   result      String?  @db.Text // Full JSON response
   cost        Decimal? @db.Decimal(8, 4)
+  source      String? // "manual" | "auto_return"; null for historical checks
   createdAt   DateTime @default(now())
 
   @@index([imei])

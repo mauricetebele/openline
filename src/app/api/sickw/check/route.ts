@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
         status,
         result: JSON.stringify(data),
         cost: cost != null ? cost : null,
+        source: 'manual',
       },
     })
 
@@ -67,6 +68,7 @@ export async function POST(req: NextRequest) {
         serviceName,
         status: 'error',
         result: JSON.stringify({ error: message }),
+        source: 'manual',
       },
     })
 

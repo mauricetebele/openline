@@ -1,9 +1,9 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Package, MapPin, Truck, Hash, FileText, Printer,
-  CheckCircle2, AlertCircle, Loader2, RotateCcw, Landmark,
+  CheckCircle2, AlertCircle, Loader2, RotateCcw, Landmark, Smartphone, ChevronRight,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
@@ -64,6 +64,10 @@ interface RMA {
   id: string; rmaNumber: string; status: string; notes: string | null; createdAt: string
   items: RMAItem[]
 }
+interface SickwCheck {
+  id: string; imei: string; serviceName: string; status: string
+  result: string | null; cost: number | null; source: string | null; createdAt: string
+}
 interface FullOrder {
   id: string; olmNumber: number | null; amazonOrderId: string; orderSource: string
   orderStatus: string; workflowStatus: string; purchaseDate: string; lastUpdateDate: string
@@ -73,7 +77,7 @@ interface FullOrder {
   shipToCity: string | null; shipToState: string | null; shipToPostal: string | null
   shipToCountry: string | null; shipToPhone: string | null
   items: OrderItem[]; label: Label | null; serialAssignments: SerialAssignment[]
-  marketplaceRMAs: RMA[]
+  marketplaceRMAs: RMA[]; sickwChecks: SickwCheck[]
   customerPo?: string | null; shippedAt?: string | null; shipCarrier?: string | null; shipTracking?: string | null
 }
 
@@ -109,6 +113,51 @@ function fmt(amount: string | null | undefined): string {
   return isNaN(n) ? '$0.00' : `$${n.toFixed(2)}`
 }
 
+// ─── SICKW / FMI result parsing ──────────────────────────────────────────────
+
+/** Derive the iCloud/FMI verdict from a raw SICKW result string (same patterns
+ *  as SickwCheckButton, tolerating HTML-wrapped values). */
+function parseFmiVerdict(result: string): 'ON' | 'OFF' | 'UNKNOWN' {
+  const patterns = [
+    /iCloud Lock:\s*(?:<[^>]*>|\s)*(ON|OFF)/i,
+    /Find My (?:iPhone|iPad|Mac|iPod):\s*(?:<[^>]*>|\s)*(ON|OFF)/i,
+    /FMI:\s*(?:<[^>]*>|\s)*(ON|OFF)/i,
+    /Find My:\s*(?:<[^>]*>|\s)*(ON|OFF)/i,
+    /iCloud Status:\s*(?:<[^>]*>|\s)*(ON|OFF|Clean|Lost|Locked)/i,
+  ]
+  for (const pat of patterns) {
+    const m = result.match(pat)
+    if (m) {
+      const val = m[1].toUpperCase()
+      return val === 'CLEAN' || val === 'OFF' ? 'OFF' : 'ON'
+    }
+  }
+  return 'UNKNOWN'
+}
+
+/** Human-readable text from the stored JSON result (strips SICKW's HTML). */
+function extractResultText(raw: string | null): string {
+  if (!raw) return '—'
+  try {
+    const obj = JSON.parse(raw)
+    const inner = typeof obj?.result === 'string' ? obj.result
+      : typeof obj?.error === 'string' ? obj.error
+      : raw
+    return inner
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .trim() || raw
+  } catch {
+    return raw
+  }
+}
+
+const SICKW_SOURCE_LABEL: Record<string, { label: string; cls: string }> = {
+  manual:      { label: 'Manual',          cls: 'bg-blue-100 text-blue-800 border border-blue-200' },
+  auto_return: { label: 'Auto (Return)',   cls: 'bg-purple-100 text-purple-800 border border-purple-200' },
+}
+
 // ─── Main component ────────────────────────────────────────────────────────────
 
 type BmEntry = { order_id: string; orderline_id: string | null; invoice_key: string; amount: number }
@@ -132,6 +181,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
   const [returnModalOrder, setReturnModalOrder] = useState<OrderSearchResult | null>(null)
   const [returnLoading, setReturnLoading] = useState(false)
   const [bmEntries, setBmEntries] = useState<BmEntry[]>([])
+  const [expandedChecks, setExpandedChecks] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetch(`/api/orders/${orderId}`)
@@ -588,6 +638,79 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                     </div>
                   </div>
                 ))}
+              </div>
+            </Section>
+          )}
+
+          {/* SICKW / FMI Check History */}
+          {order.sickwChecks.length > 0 && (
+            <Section title={`SICKW Checks (${order.sickwChecks.length})`} icon={<Smartphone size={12} />}>
+              <div className="overflow-x-auto -mx-4">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 dark:border-white/10">
+                      <th className="px-4 py-2">When</th>
+                      <th className="px-4 py-2">Serial / IMEI</th>
+                      <th className="px-4 py-2">Service</th>
+                      <th className="px-4 py-2">Source</th>
+                      <th className="px-4 py-2">Result</th>
+                      <th className="px-4 py-2 text-right">Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {order.sickwChecks.map(c => {
+                      const verdict = c.status === 'error' ? 'ERROR' : parseFmiVerdict(c.result ?? '')
+                      const src = c.source ? SICKW_SOURCE_LABEL[c.source] : null
+                      const isOpen = expandedChecks.has(c.id)
+                      const verdictCls =
+                        verdict === 'ON' ? 'bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:text-red-400'
+                        : verdict === 'OFF' ? 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400'
+                        : 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400'
+                      const verdictLabel = verdict === 'ON' ? 'iCloud ON' : verdict === 'OFF' ? 'iCloud OFF' : verdict === 'ERROR' ? 'Error' : 'Unknown'
+                      return (
+                        <Fragment key={c.id}>
+                          <tr
+                            className="border-b border-gray-100 dark:border-white/5 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5"
+                            onClick={() => setExpandedChecks(prev => {
+                              const next = new Set(prev)
+                              if (next.has(c.id)) next.delete(c.id); else next.add(c.id)
+                              return next
+                            })}
+                          >
+                            <td className="px-4 py-2 whitespace-nowrap text-gray-600 dark:text-gray-400">
+                              <span className="inline-flex items-center gap-1">
+                                <ChevronRight size={11} className={clsx('text-gray-400 transition-transform', isOpen && 'rotate-90')} />
+                                {new Date(c.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 font-mono font-medium text-gray-900 dark:text-white">{c.imei}</td>
+                            <td className="px-4 py-2 text-gray-600 dark:text-gray-400">{c.serviceName}</td>
+                            <td className="px-4 py-2">
+                              {src
+                                ? <span className={clsx('text-[10px] px-1.5 py-0.5 rounded font-medium', src.cls)}>{src.label}</span>
+                                : <span className="text-gray-400">—</span>}
+                            </td>
+                            <td className="px-4 py-2">
+                              <span className={clsx('inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold border', verdictCls)}>
+                                {verdict === 'OFF' && <CheckCircle2 size={10} />}
+                                {(verdict === 'ERROR' || verdict === 'UNKNOWN') && <AlertCircle size={10} />}
+                                {verdictLabel}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 text-right text-gray-500 whitespace-nowrap">{c.cost != null ? `$${c.cost.toFixed(2)}` : '—'}</td>
+                          </tr>
+                          {isOpen && (
+                            <tr className="border-b border-gray-100 dark:border-white/5 bg-gray-50/60 dark:bg-white/5">
+                              <td colSpan={6} className="px-4 py-2">
+                                <pre className="whitespace-pre-wrap break-words text-[11px] text-gray-600 dark:text-gray-300 font-mono max-h-56 overflow-y-auto">{extractResultText(c.result)}</pre>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
             </Section>
           )}

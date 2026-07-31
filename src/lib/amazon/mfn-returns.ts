@@ -330,6 +330,7 @@ export async function autoCheckNewReturns(
           status,
           result: JSON.stringify(data),
           cost: (data as { cost?: number | string | null }).cost ?? null,
+          source: 'auto_return',
         },
       })
 
