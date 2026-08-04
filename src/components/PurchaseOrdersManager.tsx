@@ -54,6 +54,9 @@ interface FormLine {
   grades: Grade[]
   costCodeId: string | null
   qtyReceived: number
+  /** Optional "Multi PO" group from spreadsheet import — rows sharing a number
+   *  become one PO. null = ungrouped (single PO). */
+  poGroup: number | null
 }
 
 interface ReceiptSerial {
@@ -115,15 +118,17 @@ function ErrorBanner({ msg, onClose }: { msg: string; onClose: () => void }) {
 
 // ─── Dedup helper ─────────────────────────────────────────────────────────────
 
-function dedupKey(sku: string, unitCost: string, grade: string | null) {
-  return `${sku.toLowerCase()}|${unitCost}|${(grade || '').toLowerCase()}`
+function dedupKey(sku: string, unitCost: string, grade: string | null, poGroup: number | null) {
+  return `${sku.toLowerCase()}|${unitCost}|${(grade || '').toLowerCase()}|${poGroup ?? ''}`
 }
 
 function mergeFormLines(existing: FormLine[], incoming: FormLine[]): FormLine[] {
   const map = new Map<string, FormLine>()
+  // Dedup within a PO group only — the same SKU/cost/grade in two different
+  // Multi-PO groups must stay as separate lines so the split is preserved.
   for (const l of [...existing, ...incoming]) {
     if (!l.productId) continue
-    const k = dedupKey(l.sku, l.unitCost, l.gradeName)
+    const k = dedupKey(l.sku, l.unitCost, l.gradeName, l.poGroup)
     const prev = map.get(k)
     if (prev) {
       map.set(k, { ...prev, qty: prev.qty + l.qty })
@@ -132,6 +137,19 @@ function mergeFormLines(existing: FormLine[], incoming: FormLine[]): FormLine[] 
     }
   }
   return Array.from(map.values())
+}
+
+/** Split form lines into PO buckets by their Multi-PO group. Numeric groups in
+ *  ascending order; ungrouped lines form a final bucket. Returns a single bucket
+ *  when nothing is grouped (normal single-PO behavior). */
+function groupLinesForSave(lines: FormLine[]): { group: number | null; lines: FormLine[] }[] {
+  const hasGroups = lines.some(l => l.poGroup != null)
+  if (!hasGroups) return [{ group: null, lines }]
+  const numeric = Array.from(new Set(lines.filter(l => l.poGroup != null).map(l => l.poGroup as number))).sort((a, b) => a - b)
+  const buckets = numeric.map(g => ({ group: g as number | null, lines: lines.filter(l => l.poGroup === g) }))
+  const ungrouped = lines.filter(l => l.poGroup == null)
+  if (ungrouped.length) buckets.push({ group: null, lines: ungrouped })
+  return buckets
 }
 
 // ─── PO Form Modal ───────────────────────────────────────────────────────────
@@ -224,6 +242,7 @@ function POPanel({
         grades: globalGrades,
         costCodeId: l.costCodeId ?? null,
         qtyReceived: l.qtyReceived ?? 0,
+        poGroup: null,
       }))
       setLines(formLines)
       setLinesReady(true)
@@ -242,6 +261,11 @@ function POPanel({
   }
 
   const lineTotal = lines.reduce((sum, l) => sum + (Number(l.qty) || 0) * (Number(l.unitCost) || 0), 0)
+
+  // Multi-PO preview: when the imported sheet grouped rows, show how many POs
+  // will be created. Only applies when creating (not editing an existing PO).
+  const saveBuckets = useMemo(() => groupLinesForSave(lines), [lines])
+  const isMultiPo = !isEdit && saveBuckets.length > 1
 
   // ── SKU autocomplete ──────────────────────────────────────────────────────
   const [skuSearch, setSkuSearch]       = useState('')
@@ -282,6 +306,7 @@ function POPanel({
       grades: globalGrades,
       costCodeId: null,
       qtyReceived: 0,
+      poGroup: null,
     }])
   }
 
@@ -313,9 +338,9 @@ function POPanel({
 
     // Detect column mapping from header row (flexible order)
     let startIdx = 0
-    let colSku = 0, colCost = 1, colGrade = 2, colQty = 3
+    let colSku = 0, colCost = 1, colGrade = 2, colQty = 3, colGroup = 4
     const hdr = rows[0].map(h => h.toLowerCase().replace(/[^a-z]/g, ''))
-    const hasHeader = hdr.some(h => ['sku', 'cost', 'qty', 'grade', 'quantity', 'price', 'unitcost'].includes(h))
+    const hasHeader = hdr.some(h => ['sku', 'cost', 'qty', 'grade', 'quantity', 'price', 'unitcost', 'multipo', 'pogroup', 'group'].includes(h))
     if (hasHeader && rows.length > 1) {
       startIdx = 1
       const findCol = (...names: string[]) => hdr.findIndex(h => names.includes(h))
@@ -323,10 +348,12 @@ function POPanel({
       const c = findCol('cost', 'unitcost', 'price')
       const g = findCol('grade')
       const q = findCol('qty', 'quantity')
+      const m = findCol('multipo', 'multi', 'pogroup', 'group', 'grouping')
       if (s >= 0) colSku = s
       if (c >= 0) colCost = c
       if (g >= 0) colGrade = g
       if (q >= 0) colQty = q
+      colGroup = m // -1 when no Multi PO header present
     }
 
     const errors: string[] = []
@@ -370,6 +397,15 @@ function POPanel({
         gradeName = match.grade
       }
 
+      // Optional Multi PO group: a positive integer that splits rows into POs.
+      let poGroup: number | null = null
+      const rawGroup = (colGroup >= 0 ? (row[colGroup] ?? '') : '').trim()
+      if (rawGroup) {
+        const g = parseInt(rawGroup.replace(/[#\s]/g, ''), 10)
+        if (!Number.isFinite(g) || g < 1) { errors.push(`Row ${i + 1}: invalid Multi PO "${rawGroup}" (use a number like 1, 2, 3)`); continue }
+        poGroup = g
+      }
+
       parsed.push({
         productId: product.id,
         sku: product.sku,
@@ -381,6 +417,7 @@ function POPanel({
         grades: globalGrades,
         costCodeId: null,
         qtyReceived: 0,
+        poGroup,
       })
     }
 
@@ -393,8 +430,12 @@ function POPanel({
   }
 
   function downloadTemplate() {
-    const header = 'SKU,Cost,Grade,QTY'
-    const example = 'ABC-123,25.00,A,10'
+    const header = 'SKU,Cost,Grade,QTY,Multi PO'
+    const example = [
+      'ABC-123,25.00,A,10,1',
+      'DEF-456,15.50,B,5,1',
+      'GHI-789,30.00,A,8,2',
+    ].join('\n')
     const blob = new Blob([header + '\n' + example + '\n'], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -428,24 +469,39 @@ function POPanel({
 
     setSaving(true)
     try {
-      const payload = {
-        vendorId, date, notes: notes.trim() || null,
-        status: isEdit ? status : 'OPEN',
-        vendorInvoiceBase64: invoiceBase64,
-        vendorInvoiceFilename: invoiceFilename,
-        lines: lines.map(l => ({
-          ...(l.id ? { id: l.id } : {}),
-          productId: l.productId,
-          qty: Number(l.qty),
-          unitCost: Number(l.unitCost),
-          gradeId: l.gradeId || null,
-          costCodeId: l.costCodeId || null,
-        })),
-      }
-      if (isEdit) {
-        await apiFetch(`/api/purchase-orders/${editing.id}`, 'PUT', payload)
+      const toLinePayload = (ls: FormLine[], keepIds: boolean) => ls.map(l => ({
+        ...(keepIds && l.id ? { id: l.id } : {}),
+        productId: l.productId,
+        qty: Number(l.qty),
+        unitCost: Number(l.unitCost),
+        gradeId: l.gradeId || null,
+        costCodeId: l.costCodeId || null,
+      }))
+      const buckets = isEdit ? null : groupLinesForSave(lines)
+
+      if (!isEdit && buckets && buckets.length > 1) {
+        // Multi-PO: one atomic request creates N POs with consecutive numbers.
+        await apiFetch('/api/purchase-orders', 'POST', {
+          pos: buckets.map(b => ({
+            vendorId, date, notes: notes.trim() || null,
+            vendorInvoiceBase64: invoiceBase64,
+            vendorInvoiceFilename: invoiceFilename,
+            lines: toLinePayload(b.lines, false),
+          })),
+        })
       } else {
-        await apiFetch('/api/purchase-orders', 'POST', payload)
+        const payload = {
+          vendorId, date, notes: notes.trim() || null,
+          status: isEdit ? status : 'OPEN',
+          vendorInvoiceBase64: invoiceBase64,
+          vendorInvoiceFilename: invoiceFilename,
+          lines: toLinePayload(lines, isEdit),
+        }
+        if (isEdit) {
+          await apiFetch(`/api/purchase-orders/${editing.id}`, 'PUT', payload)
+        } else {
+          await apiFetch('/api/purchase-orders', 'POST', payload)
+        }
       }
       onSaved()
     } catch (e: unknown) {
@@ -606,17 +662,31 @@ function POPanel({
               )}
             </div>
 
+            {/* Multi-PO split preview */}
+            {isMultiPo && (
+              <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-purple-200 bg-purple-50 px-3 py-1.5 text-[11px] text-purple-800">
+                <span className="font-semibold">Multi-PO import:</span>
+                <span>{saveBuckets.length} separate POs will be created —</span>
+                {saveBuckets.map((b, i) => (
+                  <span key={i} className="rounded bg-white/70 border border-purple-200 px-1.5 py-0.5 font-medium">
+                    {b.group != null ? `PO ${b.group}` : 'Ungrouped'}: {b.lines.length} line{b.lines.length === 1 ? '' : 's'}
+                  </span>
+                ))}
+              </div>
+            )}
+
             {/* Spreadsheet paste area */}
             {showSpreadsheet && (
               <div className="mb-3 rounded-md border border-dashed border-purple-300 bg-purple-50/50 p-3 space-y-2">
                 <p className="text-[11px] text-gray-500">
                   Paste or upload CSV/TSV with columns: <span className="font-semibold">SKU, Cost, Grade, QTY</span>
+                  {' '}and optional <span className="font-semibold">Multi PO</span> — rows sharing a number (1, 2, 3…) become one PO, so one sheet can create several POs.
                 </p>
                 <textarea
                   value={pasteText}
                   onChange={e => setPasteText(e.target.value)}
                   rows={4}
-                  placeholder={"SKU\tCost\tGrade\tQTY\nABC-123\t25.00\tA\t10\nDEF-456\t15.50\tB\t5"}
+                  placeholder={"SKU\tCost\tGrade\tQTY\tMulti PO\nABC-123\t25.00\tA\t10\t1\nDEF-456\t15.50\tB\t5\t1\nGHI-789\t30.00\tA\t8\t2"}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"
                 />
                 {importErrors.length > 0 && (
@@ -717,8 +787,11 @@ function POPanel({
                   {lines.map((line, i) => (
                     <div key={i} className="grid gap-2 items-center grid-cols-[2fr_3fr_80px_100px_50px_80px_28px]">
                       {/* SKU (read-only) */}
-                      <span title={line.sku} className="h-9 flex items-center text-xs font-mono text-gray-700 truncate px-2 rounded-md bg-gray-50 border border-gray-200">
-                        {line.sku}
+                      <span title={line.sku} className="h-9 flex items-center gap-1 text-xs font-mono text-gray-700 truncate px-2 rounded-md bg-gray-50 border border-gray-200">
+                        {isMultiPo && line.poGroup != null && (
+                          <span className="shrink-0 rounded bg-purple-100 text-purple-700 text-[9px] font-semibold px-1 py-0.5" title={`Multi-PO group ${line.poGroup}`}>PO{line.poGroup}</span>
+                        )}
+                        <span className="truncate">{line.sku}</span>
                       </span>
 
                       {/* Description (read-only) */}
