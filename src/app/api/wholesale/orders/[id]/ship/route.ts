@@ -106,6 +106,17 @@ export async function POST(
       where: { salesOrderId: params.id },
     })
 
+    // Units actually flipped OUT_OF_STOCK, keyed by their real product/location/
+    // grade — populated inside the transaction, then used for shortfall
+    // reconciliation and the marketplace qty push.
+    const shippedByKey = new Map<string, { productId: string; locationId: string; gradeId: string | null; qty: number }>()
+    const addShipped = (productId: string, locationId: string, gradeId: string | null) => {
+      const key = `${productId}|${locationId}|${gradeId ?? ''}`
+      const cur = shippedByKey.get(key)
+      if (cur) cur.qty += 1
+      else shippedByKey.set(key, { productId, locationId, gradeId, qty: 1 })
+    }
+
     // Transaction: decrement inventory, mark serials, ship order
     await prisma.$transaction(async (tx) => {
       // Decrement inventory for each reservation
@@ -134,8 +145,9 @@ export async function POST(
           const serial = await tx.inventorySerial.update({
             where: { id: s.serialId },
             data: { status: 'OUT_OF_STOCK' },
-            select: { id: true, serialNumber: true, locationId: true },
+            select: { id: true, serialNumber: true, productId: true, locationId: true, gradeId: true },
           })
+          addShipped(serial.productId, serial.locationId, serial.gradeId)
           await tx.serialHistory.create({
             data: {
               inventorySerialId: serial.id,
@@ -158,8 +170,12 @@ export async function POST(
         // Pre-serialized flow: mark pre-assigned serials as OUT_OF_STOCK + record SALE history
         const preAssignedSerials = await tx.inventorySerial.findMany({
           where: { salesOrderAssignment: { salesOrderId: params.id } },
-          select: { id: true, serialNumber: true, locationId: true },
+          select: { id: true, serialNumber: true, productId: true, locationId: true, gradeId: true, status: true },
         })
+        // Only units that were still IN_STOCK count toward the shortfall.
+        for (const serial of preAssignedSerials) {
+          if (serial.status === 'IN_STOCK') addShipped(serial.productId, serial.locationId, serial.gradeId)
+        }
         await tx.inventorySerial.updateMany({
           where: { salesOrderAssignment: { salesOrderId: params.id } },
           data: { status: 'OUT_OF_STOCK' },
@@ -178,6 +194,31 @@ export async function POST(
         }
       }
 
+      // ── Reconcile aggregate qty with the serials actually shipped ──────────
+      // The reservation loop above decrements InventoryItem.qty from reservation
+      // rows. In the normal path those reservations exactly cover the shipped
+      // serials, so the shortfall below is 0 and this is a no-op. But if the order
+      // shipped with scanned/pre-assigned serials that reservations didn't fully
+      // cover (auto-process skipped, reserved qty < serials, or reserved at a
+      // different location/grade), qty would stay too high while the serials flip
+      // to OUT_OF_STOCK — leaving shipped units still counted as in stock (the
+      // View-Stock phantom). Decrement the shortfall at each serial's actual
+      // product/location/grade so qty always tracks the IN_STOCK serial count.
+      const reservedByKey = new Map<string, number>()
+      for (const r of reservations) {
+        const key = `${r.productId}|${r.locationId}|${r.gradeId ?? ''}`
+        reservedByKey.set(key, (reservedByKey.get(key) ?? 0) + r.qtyReserved)
+      }
+      for (const [key, g] of Array.from(shippedByKey)) {
+        const shortfall = g.qty - (reservedByKey.get(key) ?? 0)
+        if (shortfall > 0) {
+          await tx.inventoryItem.updateMany({
+            where: { productId: g.productId, locationId: g.locationId, gradeId: g.gradeId ?? null },
+            data: { qty: { decrement: shortfall } },
+          })
+        }
+      }
+
       // Ship the order
       await tx.salesOrder.update({
         where: { id: params.id },
@@ -191,8 +232,13 @@ export async function POST(
       })
     }, { timeout: 30000 })
 
-    // Push updated qty to marketplaces
-    const productIds = Array.from(new Set(reservations.map(r => r.productId)))
+    // Push updated qty to marketplaces — cover every product touched, whether
+    // its qty moved via a reservation or the shortfall reconciliation, so
+    // listings can't keep advertising units that just shipped.
+    const productIds = Array.from(new Set([
+      ...reservations.map(r => r.productId),
+      ...Array.from(shippedByKey.values()).map(g => g.productId),
+    ]))
     if (productIds.length > 0) pushQtyForProducts(productIds)
 
     return NextResponse.json({ ok: true })
