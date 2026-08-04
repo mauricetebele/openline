@@ -5,6 +5,7 @@ import { clsx } from 'clsx'
 import GradeBadge from '@/components/GradeBadge'
 import ReceiveModal from './ReceiveModal'
 import SpreadsheetReceiveModal from './SpreadsheetReceiveModal'
+import BulkSpreadsheetReceiveModal from './BulkSpreadsheetReceiveModal'
 import GenerateBillModal from './GenerateBillModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1296,6 +1297,7 @@ export default function PurchaseOrdersManager() {
   const [receiving, setReceiving] = useState<PurchaseOrder | null>(null)
   const [spreadsheetReceiving, setSpreadsheetReceiving] = useState<PurchaseOrder | null>(null)
   const [billing, setBilling] = useState<PurchaseOrder | null>(null)
+  const [bulkReceiving, setBulkReceiving] = useState(false)
   const [statusFilter, setStatusFilter] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
@@ -1381,6 +1383,14 @@ export default function PurchaseOrdersManager() {
         )}
 
         <div className="flex-1" />
+
+        <button
+          type="button"
+          onClick={() => setBulkReceiving(true)}
+          className="flex items-center gap-1.5 h-9 px-4 rounded-md border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+        >
+          <PackageCheck size={14} className="text-gray-500" /> Bulk Receive
+        </button>
 
         <button
           type="button"
@@ -1483,6 +1493,13 @@ export default function PurchaseOrdersManager() {
           po={billing}
           onClose={() => setBilling(null)}
           onSuccess={() => { setBilling(null); load() }}
+        />
+      )}
+
+      {bulkReceiving && (
+        <BulkSpreadsheetReceiveModal
+          onReceived={() => { setBulkReceiving(false); load() }}
+          onClose={() => setBulkReceiving(false)}
         />
       )}
     </div>
