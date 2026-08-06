@@ -73,13 +73,22 @@ export async function syncRemovalShipments(
 
   const reportType = 'GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA'
 
+  // Amazon filters this report by the removal order's REQUEST date, not its ship
+  // date, and returns every shipment for the matching orders regardless of how
+  // late they ship (request→ship can lag several weeks). Callers think in ship
+  // dates, so pad the start back by a buffer to capture orders that were
+  // requested earlier but shipped inside the intended window. The upsert is
+  // idempotent, so pulling extra older orders is harmless.
+  const REQUEST_DATE_BUFFER_DAYS = 45
+  const reportStart = new Date(startDate.getTime() - REQUEST_DATE_BUFFER_DAYS * 24 * 60 * 60 * 1000)
+
   // ── 1. Request a fresh report for the requested date range ────────────────
   let reportDocumentId: string | undefined
 
   const { reportId } = await client.post<CreateReportResponse>('/reports/2021-06-30/reports', {
     reportType,
     marketplaceIds: [account.marketplaceId],
-    dataStartTime: startDate.toISOString(),
+    dataStartTime: reportStart.toISOString(),
     dataEndTime: endDate.toISOString(),
   })
 
