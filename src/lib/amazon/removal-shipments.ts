@@ -82,38 +82,69 @@ export async function syncRemovalShipments(
   const REQUEST_DATE_BUFFER_DAYS = 45
   const reportStart = new Date(startDate.getTime() - REQUEST_DATE_BUFFER_DAYS * 24 * 60 * 60 * 1000)
 
-  // ── 1. Request a fresh report for the requested date range ────────────────
+  // Download a report document's raw text (handles GZIP), for both the data
+  // report and a FATAL report's error document.
+  const downloadDocument = async (documentId: string): Promise<string> => {
+    const meta = await client.get<GetReportDocumentResponse>(`/reports/2021-06-30/documents/${documentId}`)
+    const resp = await axios.get<ArrayBuffer>(meta.url, { responseType: 'arraybuffer' })
+    let buf = Buffer.from(resp.data)
+    if (meta.compressionAlgorithm === 'GZIP') buf = await gunzipAsync(buf)
+    return buf.toString('utf-8').replace(/^﻿/, '')
+  }
+
+  // ── 1. Request the report, retrying on FATAL/CANCELLED ────────────────────
+  // These FBA report jobs intermittently fail on Amazon's side and succeed on a
+  // fresh request, so retry a few times before giving up. On a terminal FATAL,
+  // surface Amazon's error document (a FATAL report exposes one) for diagnosis.
+  const MAX_REPORT_ATTEMPTS = 3
   let reportDocumentId: string | undefined
 
-  const { reportId } = await client.post<CreateReportResponse>('/reports/2021-06-30/reports', {
-    reportType,
-    marketplaceIds: [account.marketplaceId],
-    dataStartTime: reportStart.toISOString(),
-    dataEndTime: endDate.toISOString(),
-  })
+  for (let reportAttempt = 1; reportAttempt <= MAX_REPORT_ATTEMPTS; reportAttempt++) {
+    const { reportId } = await client.post<CreateReportResponse>('/reports/2021-06-30/reports', {
+      reportType,
+      marketplaceIds: [account.marketplaceId],
+      dataStartTime: reportStart.toISOString(),
+      dataEndTime: endDate.toISOString(),
+    })
 
-  for (let attempt = 0; attempt < 30; attempt++) {
-    await sleep(10_000)
-    const report = await client.get<GetReportResponse>(`/reports/2021-06-30/reports/${reportId}`)
-    if (report.processingStatus === 'DONE') {
-      reportDocumentId = report.reportDocumentId
-      break
+    let failedStatus: 'FATAL' | 'CANCELLED' | null = null
+    let failedDocId: string | undefined
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await sleep(10_000)
+      const report = await client.get<GetReportResponse>(`/reports/2021-06-30/reports/${reportId}`)
+      if (report.processingStatus === 'DONE') {
+        reportDocumentId = report.reportDocumentId
+        break
+      }
+      if (report.processingStatus === 'FATAL' || report.processingStatus === 'CANCELLED') {
+        failedStatus = report.processingStatus
+        failedDocId = report.reportDocumentId
+        break
+      }
     }
-    if (report.processingStatus === 'FATAL' || report.processingStatus === 'CANCELLED') {
-      throw new Error(`Removal shipment report ended with status: ${report.processingStatus}`)
+
+    if (reportDocumentId) break // DONE
+
+    if (failedStatus) {
+      let detail = ''
+      if (failedDocId) {
+        try { detail = (await downloadDocument(failedDocId)).slice(0, 500).trim() } catch { /* best effort */ }
+      }
+      console.warn(`[RemovalShipments] Report attempt ${reportAttempt}/${MAX_REPORT_ATTEMPTS} ended ${failedStatus}${detail ? `: ${detail}` : ''}`)
+      if (reportAttempt < MAX_REPORT_ATTEMPTS) { await sleep(5_000); continue }
+      throw new Error(`Removal shipment report ended with status: ${failedStatus}${detail ? ` — ${detail}` : ''}`)
+    }
+
+    // Timed out without a terminal status — retry if attempts remain.
+    console.warn(`[RemovalShipments] Report attempt ${reportAttempt}/${MAX_REPORT_ATTEMPTS} did not complete within the polling window`)
+    if (reportAttempt >= MAX_REPORT_ATTEMPTS) {
+      throw new Error('Removal shipment report did not complete within the polling window')
     }
   }
-  if (!reportDocumentId) throw new Error('Removal shipment report did not complete within the polling window')
+  if (!reportDocumentId) throw new Error('Removal shipment report did not complete')
 
   // ── 3. Download ────────────────────────────────────────────────────────────
-  const docMeta = await client.get<GetReportDocumentResponse>(
-    `/reports/2021-06-30/documents/${reportDocumentId}`,
-  )
-  const response = await axios.get<ArrayBuffer>(docMeta.url, { responseType: 'arraybuffer' })
-  let buffer = Buffer.from(response.data)
-  if (docMeta.compressionAlgorithm === 'GZIP') buffer = await gunzipAsync(buffer)
-
-  const tsvText = buffer.toString('utf-8').replace(/^\uFEFF/, '')
+  const tsvText = await downloadDocument(reportDocumentId)
 
   // ── 4. Parse TSV ───────────────────────────────────────────────────────────
   const lines = tsvText.split('\n')
