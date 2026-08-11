@@ -22,6 +22,7 @@ interface WarehouseWithLocations {
   postalCode?: string | null
   countryCode?: string
   phone?: string | null
+  isDefault?: boolean
   locations: Location[]
 }
 
@@ -222,12 +223,15 @@ function WarehouseCard({
   onChanged,
   onDeleted,
   onReload,
+  onSetDefault,
 }: {
   wh: WarehouseWithLocations
   onChanged: (updated: WarehouseWithLocations) => void
   onDeleted: () => void
   onReload: () => void
+  onSetDefault: (id: string) => void
 }) {
+  const [settingDefault, setSettingDefault] = useState(false)
   const [expanded,     setExpanded]     = useState(true)
   const [editingName,  setEditingName]  = useState(false)
   const [addingLoc,    setAddingLoc]    = useState(false)
@@ -320,6 +324,19 @@ function WarehouseCard({
     }
   }
 
+  async function setDefault() {
+    setSettingDefault(true)
+    setErr('')
+    try {
+      const res = await fetch(`/api/warehouses/${wh.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isDefault: true }),
+      })
+      if (!res.ok) throw new Error()
+      onSetDefault(wh.id)
+    } catch { setErr('Could not set default') }
+    finally { setSettingDefault(false) }
+  }
+
   function handleLocRenamed(locId: string, newName: string) {
     onChanged({ ...wh, locations: wh.locations.map(l => l.id === locId ? { ...l, name: newName } : l) })
   }
@@ -348,7 +365,11 @@ function WarehouseCard({
           </div>
         ) : (
           <>
-            <span className="font-semibold text-sm text-gray-800 flex-1">{wh.name}</span>
+            <span className="font-semibold text-sm text-gray-800">{wh.name}</span>
+            {wh.isDefault
+              ? <span className="ml-1.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-semibold px-1.5 py-0.5">Default ship-from</span>
+              : <button type="button" onClick={setDefault} disabled={settingDefault} className="ml-1.5 text-[10px] font-medium text-gray-400 hover:text-amazon-blue disabled:opacity-50">Set default</button>}
+            <span className="flex-1" />
             <span className="text-xs text-gray-400 mr-2">{wh.locations.length} location{wh.locations.length !== 1 ? 's' : ''}</span>
             {err && <span className="text-xs text-red-500 max-w-[200px] truncate mr-2">{err}</span>}
             {delConfirm ? (
@@ -524,6 +545,10 @@ export default function WarehouseManager() {
     setWarehouses(p => p.map(w => w.id === updated.id ? updated : w))
   }
 
+  function handleSetDefault(id: string) {
+    setWarehouses(p => p.map(w => ({ ...w, isDefault: w.id === id })))
+  }
+
   function handleDeleted(id: string) {
     setWarehouses(p => p.filter(w => w.id !== id))
   }
@@ -581,6 +606,7 @@ export default function WarehouseManager() {
         <div className={clsx('space-y-4 max-w-2xl')}>
           {warehouses.map(wh => (
             <WarehouseCard
+              onSetDefault={handleSetDefault}
               key={wh.id}
               wh={wh}
               onChanged={handleChanged}

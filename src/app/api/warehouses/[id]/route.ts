@@ -28,6 +28,20 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
+
+  // Default ship-from warehouse is exclusive: setting one clears the others.
+  if (typeof body.isDefault === 'boolean') {
+    if (body.isDefault) {
+      await prisma.warehouse.updateMany({ where: { id: { not: params.id } }, data: { isDefault: false } })
+    }
+    const wh = await prisma.warehouse.update({
+      where: { id: params.id },
+      data: { isDefault: body.isDefault },
+      include: { locations: { orderBy: { name: 'asc' } } },
+    })
+    return NextResponse.json(wh)
+  }
+
   const allowed = ['addressLine1', 'addressLine2', 'city', 'state', 'postalCode', 'countryCode', 'phone'] as const
   const data: Record<string, string | null> = {}
   for (const key of allowed) {

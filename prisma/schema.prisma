@@ -1287,6 +1287,7 @@ enum MFNReturnSyncStatus {
 model Warehouse {
   id           String   @id @default(cuid())
   name         String
+  isDefault    Boolean  @default(false) // default ship-from origin for labels
   addressLine1 String?
   addressLine2 String?
   city         String?
