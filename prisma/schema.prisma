@@ -676,6 +676,7 @@ model OrderLabel {
   ssShipmentId   String? // ShipStation shipmentId (V1 int or V2 "se-xxx") — required to void the label
   createdAt      DateTime @default(now())
 
+  @@index([trackingNumber])
   @@map("order_labels")
 }
 
@@ -1957,6 +1958,7 @@ model ReturnLabel {
   upsCredential    UpsCredential? @relation(fields: [upsCredentialId], references: [id], onDelete: SetNull)
   createdAt        DateTime       @default(now())
 
+  @@index([trackingNumber])
   @@map("return_labels")
 }
 

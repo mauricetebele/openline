@@ -1,11 +1,10 @@
 'use client'
-import { useCallback, useRef, useState } from 'react'
-import { Upload, FileSpreadsheet, X, AlertCircle, Search, DollarSign } from 'lucide-react'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { Upload, FileSpreadsheet, X, AlertCircle, Loader2, Download, ArrowLeft } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── CSV parsing ────────────────────────────────────────────────────────────
-// Proper CSV parser: handles quoted fields containing commas/newlines and
-// escaped double-quotes (""). Carrier billing files routinely include both.
+// Handles quoted fields with embedded commas/newlines and escaped quotes ("").
 function parseCsv(text: string): string[][] {
   const rows: string[][] = []
   let field = ''
@@ -14,110 +13,316 @@ function parseCsv(text: string): string[][] {
   for (let i = 0; i < text.length; i++) {
     const c = text[i]
     if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++ } else inQuotes = false
-      } else field += c
-    } else if (c === '"') {
-      inQuotes = true
-    } else if (c === ',') {
-      row.push(field); field = ''
-    } else if (c === '\r') {
-      // ignore — handled by \n
-    } else if (c === '\n') {
-      row.push(field); rows.push(row); row = []; field = ''
-    } else {
-      field += c
-    }
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++ } else inQuotes = false } else field += c
+    } else if (c === '"') inQuotes = true
+    else if (c === ',') { row.push(field); field = '' }
+    else if (c === '\r') { /* skip */ }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = '' }
+    else field += c
   }
   if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row) }
-  // drop fully-empty rows
   return rows.filter(r => r.some(c => c.trim() !== ''))
 }
 
-// Heuristics to surface likely columns for the eventual match (tracking #) and
-// the billed amount(s), just to jump-start the mapping discussion.
-const TRACKING_HINT = /(track|tracking|1z|pkg.*ref|package.*ref)/i
-const AMOUNT_HINT   = /(net|charge|amount|billed|total|price|cost|incentive|published|rate)/i
+const money = (s: string): number => {
+  const n = parseFloat(String(s).replace(/[$,\s]/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
+const normTracking = (s: string) => s.replace(/^["'\s]+|["'\s]+$/g, '').toUpperCase()
+const fmt = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toFixed(2)}`
 
+// ─── Types ──────────────────────────────────────────────────────────────────
 type Carrier = 'ups' | 'fedex' | 'usps'
+type Status = 'OVERCHARGE' | 'UNDERCHARGE' | 'MATCH' | 'NO_QUOTE' | 'UNMATCHED'
+
+interface LabelMatch {
+  source: 'order' | 'return'; quoted: number | null; carrier: string | null; serviceCode: string | null
+  olmNumber?: number | null; amazonOrderId?: string | null; orderSource?: string | null
+  shipToState?: string | null; shipToPostal?: string | null
+}
+interface AuditItem {
+  tracking: string; billed: number; lineCount: number
+  shpBilled: number; adjBilled: number // Column F: SHP (shipment) vs ADJ (adjustment)
+  invoiceNumber: string; invoiceDate: string; shipDate: string
+  service: string; weight: string; zone: string
+  quoted: number | null; matched: boolean; source: 'order' | 'return' | null
+  olmNumber: number | null; amazonOrderId: string | null
+  status: Status; variance: number | null
+}
+
+const TOL = 0.01 // dollars — within a penny counts as a match
+
+const STATUS_META: Record<Status, { label: string; badge: string }> = {
+  OVERCHARGE:  { label: 'Overcharge',  badge: 'bg-red-100 text-red-700 border border-red-200' },
+  UNDERCHARGE: { label: 'Undercharge', badge: 'bg-blue-100 text-blue-700 border border-blue-200' },
+  MATCH:       { label: 'Match',       badge: 'bg-emerald-100 text-emerald-700 border border-emerald-200' },
+  NO_QUOTE:    { label: 'No quote',    badge: 'bg-gray-100 text-gray-600 border border-gray-200' },
+  UNMATCHED:   { label: 'Unmatched',   badge: 'bg-amber-100 text-amber-700 border border-amber-200' },
+}
 
 export default function ShippingBillAuditManager() {
   const [carrier, setCarrier] = useState<Carrier>('ups')
   const [fileName, setFileName] = useState('')
-  const [headers, setHeaders] = useState<string[]>([])
-  const [dataRows, setDataRows] = useState<string[][]>([])
   const [err, setErr] = useState('')
   const [dragging, setDragging] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [items, setItems] = useState<AuditItem[] | null>(null)
+  const [view, setView] = useState<'MATCHES' | 'NONMATCHES'>('MATCHES')
+  const [subFilter, setSubFilter] = useState<'ALL' | 'OVERCHARGE' | 'UNDERCHARGE' | 'MATCH' | 'NO_QUOTE'>('ALL')
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const ingest = useCallback((text: string, name: string) => {
-    setErr('')
-    const parsed = parseCsv(text)
-    if (parsed.length === 0) { setErr('The file appears to be empty.'); return }
-    const [head, ...rest] = parsed
-    setHeaders(head.map(h => h.trim()))
-    setDataRows(rest)
-    setFileName(name)
+  const processUps = useCallback(async (rows: string[][], name: string) => {
+    if (rows.length < 2) { setErr('The file has no data rows.'); return }
+    const header = rows[0].map(h => h.trim().toLowerCase())
+    const col = (names: string[], fallback: number) => {
+      for (const n of names) { const i = header.indexOf(n); if (i >= 0) return i }
+      return fallback
+    }
+    const iTrack   = col(['tracking number'], 3)          // Column D
+    const iTotal   = col(['total charge'], 42)            // Column AQ
+    const iInvNo   = col(['invoice number'], 1)
+    const iInvDate = col(['invoice date'], 2)
+    const iShip    = col(['ship date'], 6)
+    const iService = col(['service'], 35)
+    const iWeight  = col(['actual weight'], 25)
+    const iWUnit   = col(['actual weight_unit', 'actual weight unit'], 26)
+    const iZone    = col(['zone'], 28)
+    const iSection = col(['invoice section'], 5)          // Column F: SHP vs ADJ
+
+    // Group line items by tracking number → sum Total Charge (and split by section).
+    const groups = new Map<string, AuditItem>()
+    for (const r of rows.slice(1)) {
+      const tracking = normTracking(r[iTrack] ?? '')
+      if (!tracking) continue
+      const charge = money(r[iTotal] ?? '')
+      const isAdj = (r[iSection] ?? '').trim().toUpperCase() === 'ADJ'
+      const g = groups.get(tracking)
+      if (g) {
+        g.billed += charge
+        g.lineCount++
+        if (isAdj) g.adjBilled += charge; else g.shpBilled += charge
+      } else {
+        groups.set(tracking, {
+          tracking, billed: charge, lineCount: 1,
+          shpBilled: isAdj ? 0 : charge, adjBilled: isAdj ? charge : 0,
+          invoiceNumber: (r[iInvNo] ?? '').trim(),
+          invoiceDate: (r[iInvDate] ?? '').trim(),
+          shipDate: (r[iShip] ?? '').trim(),
+          service: (r[iService] ?? '').trim(),
+          weight: `${(r[iWeight] ?? '').trim()}${(r[iWUnit] ?? '').trim() ? ' ' + (r[iWUnit] ?? '').trim() : ''}`,
+          zone: (r[iZone] ?? '').trim(),
+          quoted: null, matched: false, source: null, olmNumber: null, amazonOrderId: null,
+          status: 'UNMATCHED', variance: null,
+        })
+      }
+    }
+    const list = Array.from(groups.values())
+    if (list.length === 0) { setErr('No tracking numbers found in the file.'); return }
+
+    // Match against purchased labels by tracking number.
+    setLoading(true)
+    try {
+      const res = await fetch('/api/shipping-bill-audit/match', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackingNumbers: list.map(i => i.tracking) }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Match lookup failed')
+      const matches: Record<string, LabelMatch> = data.matches ?? {}
+
+      for (const it of list) {
+        const m = matches[it.tracking]
+        if (!m) { it.status = 'UNMATCHED'; continue }
+        it.matched = true
+        it.source = m.source
+        it.quoted = m.quoted
+        it.olmNumber = m.olmNumber ?? null
+        it.amazonOrderId = m.amazonOrderId ?? null
+        if (m.quoted == null) { it.status = 'NO_QUOTE'; continue }
+        it.variance = it.billed - m.quoted
+        it.status = it.variance > TOL ? 'OVERCHARGE' : it.variance < -TOL ? 'UNDERCHARGE' : 'MATCH'
+      }
+
+      // Overcharges first, then by billed desc.
+      const rank: Record<Status, number> = { OVERCHARGE: 0, UNMATCHED: 1, NO_QUOTE: 2, UNDERCHARGE: 3, MATCH: 4 }
+      list.sort((a, b) => rank[a.status] - rank[b.status] || b.billed - a.billed)
+      setItems(list)
+      setFileName(name)
+      setView('MATCHES'); setSubFilter('ALL')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Match lookup failed')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   const handleFile = useCallback((file: File | undefined) => {
     if (!file) return
-    const name = file.name.toLowerCase()
-    if (!/\.(csv|txt|tsv)$/.test(name)) { setErr('Please upload a .csv file.'); return }
+    setErr('')
+    if (!/\.(csv|txt|tsv)$/i.test(file.name)) { setErr('Please upload a .csv file.'); return }
     const reader = new FileReader()
-    reader.onload = () => { if (typeof reader.result === 'string') ingest(reader.result, file.name) }
+    reader.onload = () => { if (typeof reader.result === 'string') processUps(parseCsv(reader.result), file.name) }
     reader.onerror = () => setErr('Could not read the file.')
     reader.readAsText(file)
-  }, [ingest])
+  }, [processUps])
 
   function reset() {
-    setFileName(''); setHeaders([]); setDataRows([]); setErr('')
+    setItems(null); setFileName(''); setErr(''); setView('MATCHES'); setSubFilter('ALL')
     if (fileRef.current) fileRef.current.value = ''
   }
 
-  const trackingCols = headers.map((h, i) => ({ h, i })).filter(c => TRACKING_HINT.test(c.h))
-  const amountCols   = headers.map((h, i) => ({ h, i })).filter(c => AMOUNT_HINT.test(c.h))
-  const previewRows  = dataRows.slice(0, 25)
+  // ── Summary ──
+  const summary = useMemo(() => {
+    if (!items) return null
+    const totalBilled = items.reduce((s, i) => s + i.billed, 0)
+    const compared = items.filter(i => i.quoted != null)
+    const totalQuoted = compared.reduce((s, i) => s + (i.quoted ?? 0), 0)
+    const netVariance = compared.reduce((s, i) => s + (i.variance ?? 0), 0)
+    const overs = items.filter(i => i.status === 'OVERCHARGE')
+    const overAmount = overs.reduce((s, i) => s + (i.variance ?? 0), 0)
+    const unmatched = items.filter(i => i.status === 'UNMATCHED')
+    const invoices = Array.from(new Set(items.map(i => i.invoiceNumber).filter(Boolean)))
+    const dates = Array.from(new Set(items.map(i => i.invoiceDate).filter(Boolean)))
+    return {
+      totalBilled, totalQuoted, netVariance, overs: overs.length, overAmount,
+      unmatched: unmatched.length, unmatchedBilled: unmatched.reduce((s, i) => s + i.billed, 0),
+      compared: compared.length, shipments: items.length, invoices, dates,
+    }
+  }, [items])
 
+  const matched = useMemo(() => (items ?? []).filter(i => i.status !== 'UNMATCHED'), [items])
+  const nonMatched = useMemo(() => (items ?? []).filter(i => i.status === 'UNMATCHED'), [items])
+  const subCounts = useMemo(() => {
+    const c: Record<string, number> = { ALL: matched.length, OVERCHARGE: 0, UNDERCHARGE: 0, MATCH: 0, NO_QUOTE: 0 }
+    for (const i of matched) c[i.status]++
+    return c
+  }, [matched])
+  const shownMatched = matched.filter(i => subFilter === 'ALL' || i.status === subFilter)
+
+  function exportFlagged() {
+    const flagged = (items ?? []).filter(i => i.status === 'OVERCHARGE')
+    const head = ['Tracking', 'Invoice', 'Invoice Date', 'Order', 'Service', 'Ship Date', 'Quoted', 'Billed', 'Overcharge']
+    const lines = [head.join(',')]
+    for (const i of flagged) {
+      lines.push([
+        i.tracking, i.invoiceNumber, i.invoiceDate,
+        i.olmNumber ? `OLM-${i.olmNumber}` : (i.amazonOrderId ?? ''),
+        `"${i.service}"`, i.shipDate,
+        (i.quoted ?? 0).toFixed(2), i.billed.toFixed(2), (i.variance ?? 0).toFixed(2),
+      ].join(','))
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'shipping-overcharges.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // ─── Results view ─────────────────────────────────────────────────────────
+  if (items && summary) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <div className="max-w-7xl mx-auto px-6 py-6 space-y-5">
+          {/* File bar */}
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={reset} className="flex items-center gap-1.5 h-8 px-3 rounded-md border border-gray-300 text-xs text-gray-600 hover:bg-gray-50">
+              <ArrowLeft size={13} /> New file
+            </button>
+            <FileSpreadsheet size={16} className="text-amazon-blue shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-800 truncate">{fileName}</p>
+              <p className="text-xs text-gray-500">
+                {summary.shipments.toLocaleString()} shipments · Invoice {summary.invoices.join(', ') || '—'}
+                {summary.dates.length > 0 && ` · ${summary.dates.join(', ')}`}
+              </p>
+            </div>
+            <div className="flex-1" />
+            {summary.overs > 0 && (
+              <button type="button" onClick={exportFlagged} className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-red-600 text-white text-xs font-medium hover:bg-red-700">
+                <Download size={13} /> Export {summary.overs} overcharge{summary.overs !== 1 ? 's' : ''}
+              </button>
+            )}
+          </div>
+
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card label="Total billed" value={fmt(summary.totalBilled)} sub={`${summary.shipments} shipments`} />
+            <Card label="Quoted (matched)" value={fmt(summary.totalQuoted)} sub={`${summary.compared} compared`} />
+            <Card
+              label="Net variance" value={fmt(summary.netVariance)}
+              sub="billed − quoted" tone={summary.netVariance > TOL ? 'bad' : summary.netVariance < -TOL ? 'good' : 'neutral'}
+            />
+            <Card
+              label="Overcharges" value={fmt(summary.overAmount)}
+              sub={`${summary.overs} shipment${summary.overs !== 1 ? 's' : ''}`} tone={summary.overs > 0 ? 'bad' : 'good'}
+            />
+          </div>
+          {summary.unmatched > 0 && (
+            <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+              <AlertCircle size={13} className="shrink-0" />
+              {summary.unmatched} shipment{summary.unmatched !== 1 ? 's' : ''} ({fmt(summary.unmatchedBilled)}) on this bill had no matching label purchased through the system — review whether these are ours.
+            </div>
+          )}
+
+          {/* Matches / Non-Matches split — first question is "is this ours?" */}
+          <div className="flex gap-1 border-b border-gray-200">
+            {([{ id: 'MATCHES' as const, label: 'Matches', n: matched.length }, { id: 'NONMATCHES' as const, label: 'Non-Matches', n: nonMatched.length }]).map(t => (
+              <button key={t.id} type="button" onClick={() => setView(t.id)}
+                className={clsx('px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                  view === t.id ? 'border-amazon-blue text-amazon-blue' : 'border-transparent text-gray-500 hover:text-gray-700')}>
+                {t.label} <span className={clsx('ml-1 text-xs', view === t.id ? 'text-amazon-blue/70' : 'text-gray-400')}>{t.n}</span>
+              </button>
+            ))}
+          </div>
+
+          {view === 'MATCHES' ? (
+            <>
+              <p className="text-xs text-gray-500">Billed to a label we purchased through the system. Compare quoted vs billed; overcharges are flagged.</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(['ALL', 'OVERCHARGE', 'UNDERCHARGE', 'MATCH', 'NO_QUOTE'] as const).map(f => (
+                  <button key={f} type="button" onClick={() => setSubFilter(f)}
+                    className={clsx('h-8 px-3 rounded-md text-xs font-medium border transition-colors',
+                      subFilter === f ? 'bg-amazon-blue text-white border-amazon-blue' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50')}>
+                    {f === 'ALL' ? 'All' : STATUS_META[f].label} <span className={clsx('ml-1', subFilter === f ? 'text-white/80' : 'text-gray-400')}>{subCounts[f]}</span>
+                  </button>
+                ))}
+              </div>
+              <MatchedTable rows={shownMatched} />
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-gray-500">Billed by UPS but with no matching label purchased through the system — verify these belong to us before paying.</p>
+              <NonMatchedTable rows={nonMatched} />
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Upload view ──────────────────────────────────────────────────────────
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
-
-        {/* How it works */}
+      <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
         <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-500/10 dark:border-blue-500/20 px-4 py-3 text-sm text-blue-900 dark:text-blue-200">
           <p className="font-medium mb-1">How this works</p>
           <p className="text-blue-800 dark:text-blue-300/90 text-[13px] leading-relaxed">
-            Upload the billing CSV from your carrier. Each billed shipment is matched to the label we bought
-            through the system by <span className="font-semibold">tracking number</span>, then the amount the
-            carrier charged is compared to the price we were quoted at purchase. Discrepancies (overcharges,
-            surcharges, adjustments) get flagged for dispute. Start by uploading a UPS bill below.
+            Upload your UPS billing CSV. Each billed shipment is matched to the label we bought through the system
+            by <span className="font-semibold">tracking number</span> (quotes stripped), and the carrier&apos;s
+            charge — <span className="font-semibold">Total Charge</span>, summed across all line items for the same
+            tracking number — is compared to the price we were quoted at purchase. Overcharges are flagged for dispute.
           </p>
         </div>
 
-        {/* Carrier selector */}
         <div>
           <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Carrier</label>
           <div className="flex gap-2">
-            {([
-              { id: 'ups' as const, label: 'UPS', enabled: true },
-              { id: 'fedex' as const, label: 'FedEx', enabled: false },
-              { id: 'usps' as const, label: 'USPS', enabled: false },
-            ]).map(c => (
-              <button
-                key={c.id}
-                type="button"
-                disabled={!c.enabled}
-                onClick={() => c.enabled && setCarrier(c.id)}
-                className={clsx(
-                  'h-9 px-4 rounded-md text-sm font-medium border transition-colors',
-                  carrier === c.id
-                    ? 'bg-amazon-blue text-white border-amazon-blue'
-                    : c.enabled
-                      ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                      : 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed',
-                )}
-                title={c.enabled ? '' : 'Coming soon'}
-              >
+            {([{ id: 'ups' as const, label: 'UPS', enabled: true }, { id: 'fedex' as const, label: 'FedEx', enabled: false }, { id: 'usps' as const, label: 'USPS', enabled: false }]).map(c => (
+              <button key={c.id} type="button" disabled={!c.enabled} onClick={() => c.enabled && setCarrier(c.id)}
+                className={clsx('h-9 px-4 rounded-md text-sm font-medium border transition-colors',
+                  carrier === c.id ? 'bg-amazon-blue text-white border-amazon-blue'
+                    : c.enabled ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    : 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed')}
+                title={c.enabled ? '' : 'Coming soon'}>
                 {c.label}{!c.enabled && <span className="ml-1.5 text-[10px]">soon</span>}
               </button>
             ))}
@@ -132,103 +337,138 @@ export default function ShippingBillAuditManager() {
           </div>
         )}
 
-        {/* Upload dropzone */}
-        {!fileName ? (
-          <div
-            onDragOver={e => { e.preventDefault(); setDragging(true) }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files?.[0]) }}
-            onClick={() => fileRef.current?.click()}
-            className={clsx(
-              'rounded-xl border-2 border-dashed px-6 py-14 text-center cursor-pointer transition-colors',
-              dragging ? 'border-amazon-blue bg-amazon-blue/5' : 'border-gray-300 hover:border-gray-400 bg-gray-50/50',
-            )}
-          >
-            <Upload size={28} className="mx-auto text-gray-400 mb-3" />
-            <p className="text-sm font-medium text-gray-700">Drop your {carrier.toUpperCase()} billing CSV here, or click to browse</p>
-            <p className="text-xs text-gray-400 mt-1">.csv files up to a few thousand rows</p>
-            <input ref={fileRef} type="file" accept=".csv,.tsv,.txt" className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
-          </div>
-        ) : (
-          <>
-            {/* File summary */}
-            <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
-              <FileSpreadsheet size={18} className="text-amazon-blue shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-800 truncate">{fileName}</p>
-                <p className="text-xs text-gray-500">{dataRows.length.toLocaleString()} rows · {headers.length} columns · {carrier.toUpperCase()}</p>
-              </div>
-              <button type="button" onClick={reset} className="h-8 px-3 rounded-md border border-gray-300 text-xs text-gray-600 hover:bg-gray-50">Upload a different file</button>
-            </div>
-
-            {/* Detected columns (to jump-start mapping) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2"><Search size={12} /> Likely tracking-number column(s)</p>
-                {trackingCols.length > 0
-                  ? <div className="flex flex-wrap gap-1.5">{trackingCols.map(c => <span key={c.i} className="rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium px-2 py-0.5">{c.h}</span>)}</div>
-                  : <p className="text-xs text-gray-400">None auto-detected — we&apos;ll pick this together from the columns below.</p>}
-              </div>
-              <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2"><DollarSign size={12} /> Likely charge/amount column(s)</p>
-                {amountCols.length > 0
-                  ? <div className="flex flex-wrap gap-1.5">{amountCols.map(c => <span key={c.i} className="rounded bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium px-2 py-0.5">{c.h}</span>)}</div>
-                  : <p className="text-xs text-gray-400">None auto-detected — we&apos;ll pick this together from the columns below.</p>}
-              </div>
-            </div>
-
-            {/* All detected columns */}
-            <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">All {headers.length} columns</p>
-              <div className="flex flex-wrap gap-1.5">
-                {headers.map((h, i) => (
-                  <span key={i} className="rounded bg-gray-100 text-gray-600 text-[11px] font-mono px-1.5 py-0.5" title={`Column ${i + 1}`}>
-                    <span className="text-gray-400 mr-1">{i + 1}</span>{h || <span className="italic text-gray-400">(blank)</span>}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* Raw preview */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Preview — first {previewRows.length} of {dataRows.length.toLocaleString()} rows</p>
-              <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white max-h-[420px] overflow-y-auto">
-                <table className="min-w-full text-xs whitespace-nowrap">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200 sticky top-0">
-                      <th className="px-2 py-2 text-left font-semibold text-gray-400 w-8">#</th>
-                      {headers.map((h, i) => (
-                        <th key={i} className={clsx(
-                          'px-3 py-2 text-left font-semibold',
-                          TRACKING_HINT.test(h) ? 'text-emerald-700' : AMOUNT_HINT.test(h) ? 'text-amber-700' : 'text-gray-500',
-                        )}>{h || `col ${i + 1}`}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {previewRows.map((r, ri) => (
-                      <tr key={ri} className="hover:bg-gray-50">
-                        <td className="px-2 py-1.5 text-gray-300">{ri + 1}</td>
-                        {headers.map((_, ci) => (
-                          <td key={ci} className={clsx(
-                            'px-3 py-1.5',
-                            TRACKING_HINT.test(headers[ci]) ? 'font-mono text-gray-800' : AMOUNT_HINT.test(headers[ci]) ? 'text-right text-gray-700 font-mono' : 'text-gray-600',
-                          )}>{r[ci] ?? ''}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Next-step note */}
-            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-600">
-              <span className="font-medium text-gray-700">Next:</span> confirm which columns hold the <span className="text-emerald-700 font-medium">tracking number</span> and the <span className="text-amber-700 font-medium">billed amount</span> (the highlighted columns are my guesses). Once we lock the UPS format, this screen will match each row to its label, show <span className="font-medium">quoted vs. billed</span> side by side, and flag discrepancies to dispute.
-            </div>
-          </>
-        )}
+        <div
+          onDragOver={e => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files?.[0]) }}
+          onClick={() => !loading && fileRef.current?.click()}
+          className={clsx('rounded-xl border-2 border-dashed px-6 py-14 text-center transition-colors',
+            loading ? 'cursor-wait border-gray-200 bg-gray-50' : 'cursor-pointer',
+            dragging ? 'border-amazon-blue bg-amazon-blue/5' : !loading && 'border-gray-300 hover:border-gray-400 bg-gray-50/50')}
+        >
+          {loading ? (
+            <><Loader2 size={28} className="mx-auto text-amazon-blue mb-3 animate-spin" /><p className="text-sm font-medium text-gray-600">Matching against purchased labels…</p></>
+          ) : (
+            <>
+              <Upload size={28} className="mx-auto text-gray-400 mb-3" />
+              <p className="text-sm font-medium text-gray-700">Drop your UPS billing CSV here, or click to browse</p>
+              <p className="text-xs text-gray-400 mt-1">Tracking = Column D · Total Charge = Column AQ</p>
+            </>
+          )}
+          <input ref={fileRef} type="file" accept=".csv,.tsv,.txt" className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
+        </div>
       </div>
+    </div>
+  )
+}
+
+function Card({ label, value, sub, tone = 'neutral' }: { label: string; value: string; sub?: string; tone?: 'good' | 'bad' | 'neutral' }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+      <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+      <p className={clsx('text-xl font-bold mt-0.5', tone === 'bad' ? 'text-red-600' : tone === 'good' ? 'text-emerald-600' : 'text-gray-900')}>{value}</p>
+      {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
+    </div>
+  )
+}
+
+// Column F (Invoice Section): standard shipment vs adjustment.
+const chargeType = (i: AuditItem) =>
+  Math.abs(i.shpBilled) > 0.005 && Math.abs(i.adjBilled) > 0.005 ? 'Shipment + Adj'
+    : Math.abs(i.adjBilled) > 0.005 ? 'Adjustment' : 'Shipment'
+
+function BilledCell({ i }: { i: AuditItem }) {
+  return (
+    <td className="px-3 py-1.5 text-right font-mono text-gray-800">
+      {fmt(i.billed)}
+      {Math.abs(i.adjBilled) > 0.005 && <div className="text-[10px] text-gray-400 font-normal">incl. adj {fmt(i.adjBilled)}</div>}
+    </td>
+  )
+}
+
+function Tracking({ i }: { i: AuditItem }) {
+  return (
+    <td className="px-3 py-1.5 font-mono text-gray-800 whitespace-nowrap">
+      {i.tracking}
+      {i.lineCount > 1 && <span className="ml-1.5 text-[10px] text-gray-400">({i.lineCount} lines)</span>}
+    </td>
+  )
+}
+
+function MatchedTable({ rows }: { rows: AuditItem[] }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+      <table className="min-w-full text-xs">
+        <thead>
+          <tr className="bg-gray-50 border-b border-gray-200">
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Tracking</th>
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Order</th>
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Service</th>
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Ship Date</th>
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Wt / Zone</th>
+            <th className="px-3 py-2 text-right font-semibold text-gray-500">Quoted</th>
+            <th className="px-3 py-2 text-right font-semibold text-gray-500">Billed</th>
+            <th className="px-3 py-2 text-right font-semibold text-gray-500">Variance</th>
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {rows.map(i => (
+            <tr key={i.tracking} className="hover:bg-gray-50">
+              <Tracking i={i} />
+              <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">
+                {i.olmNumber ? `OLM-${i.olmNumber}` : i.amazonOrderId ? <span className="font-mono">{i.amazonOrderId}</span> : <span className="text-gray-300">—</span>}
+                {i.source === 'return' && <span className="ml-1 text-[10px] text-gray-400">(return)</span>}
+              </td>
+              <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{i.service || '—'}</td>
+              <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.shipDate || '—'}</td>
+              <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.weight || '—'}{i.zone ? ` · Z${i.zone}` : ''}</td>
+              <td className="px-3 py-1.5 text-right font-mono text-gray-600">{i.quoted != null ? fmt(i.quoted) : '—'}</td>
+              <BilledCell i={i} />
+              <td className={clsx('px-3 py-1.5 text-right font-mono font-medium',
+                i.variance == null ? 'text-gray-300' : i.variance > TOL ? 'text-red-600' : i.variance < -TOL ? 'text-blue-600' : 'text-gray-400')}>
+                {i.variance != null ? fmt(i.variance) : '—'}
+              </td>
+              <td className="px-3 py-1.5"><span className={clsx('inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', STATUS_META[i.status].badge)}>{STATUS_META[i.status].label}</span></td>
+            </tr>
+          ))}
+          {rows.length === 0 && <tr><td colSpan={9} className="px-3 py-8 text-center text-gray-400">No shipments in this view.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function NonMatchedTable({ rows }: { rows: AuditItem[] }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+      <table className="min-w-full text-xs">
+        <thead>
+          <tr className="bg-gray-50 border-b border-gray-200">
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Tracking</th>
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Type</th>
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Service</th>
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Ship Date</th>
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Wt / Zone</th>
+            <th className="px-3 py-2 text-right font-semibold text-gray-500">Billed</th>
+            <th className="px-3 py-2 text-left font-semibold text-gray-500">Invoice</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {rows.map(i => (
+            <tr key={i.tracking} className="hover:bg-gray-50">
+              <Tracking i={i} />
+              <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{chargeType(i)}</td>
+              <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{i.service || '—'}</td>
+              <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.shipDate || '—'}</td>
+              <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.weight || '—'}{i.zone ? ` · Z${i.zone}` : ''}</td>
+              <BilledCell i={i} />
+              <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.invoiceNumber || '—'}{i.invoiceDate ? ` · ${i.invoiceDate}` : ''}</td>
+            </tr>
+          ))}
+          {rows.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400">Every billed shipment matched a purchased label. 🎉</td></tr>}
+        </tbody>
+      </table>
     </div>
   )
 }
