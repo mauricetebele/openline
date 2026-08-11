@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
   const start = new Date(startDate + 'T00:00:00.000Z')
   const end = new Date(endDate + 'T23:59:59.999Z')
 
-  const [orders, wholesaleOrders] = await Promise.all([
+  const [orders, wholesaleOrders, vendorLabels] = await Promise.all([
     prisma.order.findMany({
       where: {
         workflowStatus: 'SHIPPED',
@@ -98,6 +98,15 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { shippedAt: 'desc' },
     }),
+    // Vendor Returns (RTV): one manifest row per purchased label piece.
+    prisma.vendorReturnLabel.findMany({
+      where: { voided: false, createdAt: { gte: start, lte: end } },
+      select: {
+        id: true, carrier: true, serviceLabel: true, serviceCode: true, trackingNumber: true, createdAt: true,
+        vendorRma: { select: { rmaNumber: true, vendor: { select: { name: true } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
   ])
 
   const rows = [
@@ -135,6 +144,23 @@ export async function GET(req: NextRequest) {
         serviceCode: null,
         shipDate: so.shippedAt,
         trackingNumber: so.shipTracking,
+      }
+    }),
+    ...vendorLabels.map((l) => {
+      const carrier = resolveCarrier(l.carrier === 'ups' ? 'UPS' : l.carrier === 'fedex' ? 'FedEx' : l.carrier, l.trackingNumber)
+      return {
+        id: l.id,
+        source: 'vendorRMA' as const,
+        olmNumber: null,
+        amazonOrderId: null as string | null,
+        orderSource: 'vendorRMA' as string,
+        orderRef: l.vendorRma.rmaNumber,       // Order # = VRMA number
+        customerName: l.vendorRma.vendor.name,
+        carrier,
+        carrierNorm: normalizeCarrier(carrier),
+        serviceCode: l.serviceLabel ?? l.serviceCode ?? null,
+        shipDate: l.createdAt,
+        trackingNumber: l.trackingNumber,
       }
     }),
   ].sort((a, b) => {
