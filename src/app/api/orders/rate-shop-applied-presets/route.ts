@@ -229,7 +229,10 @@ export async function POST(req: NextRequest) {
             // that misses the promise. BackMarket repurposes latestDeliveryDate as
             // a ship-by date, so it's excluded.
             const deliverBy = orderIsAmazon && order.latestDeliveryDate ? new Date(order.latestDeliveryDate) : null
-            const DELIVER_GRACE_MS = 24 * 60 * 60 * 1000
+            const utcDay = (d: Date) => d.toISOString().slice(0, 10)
+            // latestDeliveryDate is end-of-day in the buyer's tz (early next UTC
+            // day); shift back 12h so the deliver-by DAY is right, then compare days.
+            const deliverByDay = deliverBy ? utcDay(new Date(deliverBy.getTime() - 12 * 60 * 60 * 1000)) : null
             const estDeliveryDate = (deliveryDate?: string | null, transitDays?: number | null): Date | null => {
               if (deliveryDate) return new Date(deliveryDate)
               if (transitDays != null && transitDays > 0) {
@@ -240,7 +243,8 @@ export async function POST(req: NextRequest) {
               }
               return null
             }
-            const missesDeliverBy = (est: Date | null): boolean => !!(deliverBy && est && est.getTime() - deliverBy.getTime() > DELIVER_GRACE_MS)
+            const missesDeliverBy = (est: Date | null): boolean => !!(deliverByDay && est && utcDay(est) > deliverByDay)
+            const deliverByLabel = deliverByDay ?? ''
 
             if (fedexDirectOnly && fedexCreds) {
               // ── FedEx Direct path — bypass ShipStation entirely ──────────────
@@ -294,7 +298,7 @@ export async function POST(req: NextRequest) {
                 : sortedFx
               const cheapest = onTimeFx[0]
               if (!cheapest) {
-                throw new Error(`No FedEx method delivers by ${deliverBy!.toLocaleDateString('en-US')} — rate-shop this order individually`)
+                throw new Error(`No FedEx method delivers by ${deliverByLabel} — rate-shop this order individually`)
               }
 
               rateAmount  = cheapest.shipmentCost + cheapest.otherCost
@@ -380,7 +384,7 @@ export async function POST(req: NextRequest) {
               }
               if (!cheapest) {
                 if (hadValidButLate && deliverBy) {
-                  throw new Error(`No method delivers by ${deliverBy.toLocaleDateString('en-US')} — rate-shop this order individually`)
+                  throw new Error(`No method delivers by ${deliverByLabel} — rate-shop this order individually`)
                 }
                 const statuses = allRatesTyped.map(r => `${r.service_code}:${r.validation_status}`).join(', ')
                 throw new Error(`No valid rates returned (${allRatesTyped.length} total: ${statuses || 'none'})`)

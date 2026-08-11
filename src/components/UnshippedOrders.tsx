@@ -3832,7 +3832,11 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   // methods, hide any whose estimated delivery clearly misses latestDeliveryDate
   // (with a 24h grace for timezone slack). A toggle reveals them if needed.
   const deliverBy = order.orderSource !== 'backmarket' && order.latestDeliveryDate ? new Date(order.latestDeliveryDate) : null
-  const DELIVER_GRACE_MS = 24 * 60 * 60 * 1000
+  const utcDay = (d: Date) => d.toISOString().slice(0, 10)
+  // Amazon stores latestDeliveryDate as end-of-day in the buyer's timezone, which
+  // lands in the early hours of the next UTC day — shift back 12h so the
+  // deliver-by DAY (e.g. 8/13) is correct, then compare calendar days.
+  const deliverByDay = deliverBy ? utcDay(new Date(deliverBy.getTime() - 12 * 60 * 60 * 1000)) : null
   const estDateOfRate = (rate: SSRate): Date | null => {
     if (rate.deliveryDate) return new Date(rate.deliveryDate)
     if (rate.transitDays != null && rate.transitDays > 0) {
@@ -3842,8 +3846,8 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
     }
     return null
   }
-  const isLateDate = (est: Date | null): boolean => !!(deliverBy && est && est.getTime() - deliverBy.getTime() > DELIVER_GRACE_MS)
-  const deliverByLabel = deliverBy ? deliverBy.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
+  const isLateDate = (est: Date | null): boolean => !!(deliverByDay && est && utcDay(est) > deliverByDay)
+  const deliverByLabel = deliverBy ? new Date(deliverBy.getTime() - 12 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''
   const amazonLate = deliverBy && amazonServices ? amazonServices.filter(s => isLateDate(s.latestDeliveryDate ? new Date(s.latestDeliveryDate) : null)) : []
   const ratesLate = deliverBy && rates ? rates.filter(r => isLateDate(estDateOfRate(r))) : []
   const totalHiddenLate = amazonLate.length + ratesLate.length
