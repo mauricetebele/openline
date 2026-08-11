@@ -1909,11 +1909,44 @@ model VendorRMA {
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
-  items VendorRMAItem[]
+  items        VendorRMAItem[]
+  returnLabels VendorReturnLabel[]
 
   @@index([vendorId])
   @@index([status])
   @@map("vendor_rmas")
+}
+
+// Shipping labels purchased for a vendor return (RTV). Pieces bought together
+// share a labelSetId (one carrier purchase of N packages); an RTV can hold many
+// sets from different carriers. Each piece is one row / one manifest entry.
+model VendorReturnLabel {
+  id             String    @id @default(cuid())
+  vendorRmaId    String
+  vendorRma      VendorRMA  @relation(fields: [vendorRmaId], references: [id], onDelete: Cascade)
+  labelSetId     String    // groups pieces purchased together
+  carrier        String    // "ups" | "fedex"
+  serviceCode    String?
+  serviceLabel   String?
+  shipmentId     String?   // UPS master shipment id / FedEx master tracking
+  trackingNumber String
+  pieceNumber    Int       @default(1)
+  pieceCount     Int       @default(1)
+  labelData      String    @db.Text // base64 label (PDF)
+  labelFormat    String    @default("pdf")
+  shipmentCost   Decimal?  @db.Decimal(12, 2) // set total, stored on piece 1 only
+  currency       String?   @default("USD")
+  upsCredentialId String?
+  shipFrom       Json?     // origin snapshot used at purchase
+  shipTo         Json?     // destination snapshot used at purchase
+  voided         Boolean   @default(false)
+  voidedAt       DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([vendorRmaId])
+  @@index([labelSetId])
+  @@index([trackingNumber])
+  @@map("vendor_return_labels")
 }
 
 model VendorRMAItem {
