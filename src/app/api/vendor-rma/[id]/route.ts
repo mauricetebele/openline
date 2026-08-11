@@ -83,22 +83,32 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   const body = await req.json()
   const { notes, vendorApprovalNumber, carrier, trackingNumber } = body
 
-  // Tracking may arrive as a single value or an array; normalize both.
+  // Tracking + per-box carrier may arrive as single values or aligned arrays.
   const trackingProvided = body.trackingNumbers !== undefined || trackingNumber !== undefined
   const rawTrackings: string[] = Array.isArray(body.trackingNumbers)
     ? body.trackingNumbers
     : (trackingNumber !== undefined ? [trackingNumber] : [])
-  const trackings = Array.from(new Set(rawTrackings.map((t: unknown) => String(t).trim()).filter(Boolean)))
+  const rawCarriers: string[] = Array.isArray(body.carriers)
+    ? body.carriers
+    : (carrier !== undefined ? [carrier] : [])
+  const entries = rawTrackings
+    .map((t: unknown, i: number) => ({ tracking: String(t).trim(), carrier: String(rawCarriers[i] ?? rawCarriers[0] ?? carrier ?? '').trim() }))
+    .filter((e: { tracking: string }) => e.tracking)
+  const trackings = entries.map(e => e.tracking)
+  const carriers = entries.map(e => e.carrier || entries[0]?.carrier || '')
+  // Update `carrier` (primary) whenever tracking or carrier is provided.
+  const carrierProvided = trackingProvided || carrier !== undefined
 
   const rma = await prisma.vendorRMA.update({
     where: { id: params.id },
     data: {
       ...(notes !== undefined && { notes: notes?.trim() || null }),
       ...(vendorApprovalNumber !== undefined && { vendorApprovalNumber: vendorApprovalNumber?.trim() || null }),
-      ...(carrier !== undefined && { carrier: carrier?.trim() || null }),
+      ...(carrierProvided && { carrier: carriers[0] || carrier?.trim() || null }),
       ...(trackingProvided && {
         trackingNumber: trackings[0] ?? null,
         trackingNumbers: trackings,
+        carriers,
         carrierStatus: null,
         deliveredAt: null,
         estimatedDelivery: null,

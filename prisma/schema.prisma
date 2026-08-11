@@ -1900,7 +1900,8 @@ model VendorRMA {
   vendor               Vendor          @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   status               VendorRMAStatus @default(AWAITING_VENDOR_APPROVAL)
   vendorApprovalNumber String?
-  carrier              String?
+  carrier              String?   // primary carrier (first of carriers)
+  carriers             String[]  @default([]) // carrier per tracking # (aligned with trackingNumbers)
   trackingNumber       String?   // primary tracking # (first of trackingNumbers)
   trackingNumbers      String[]  @default([]) // all tracking #s for this return shipment
   carrierStatus        String?

@@ -16,12 +16,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const body = await req.json()
   const { newStatus, vendorApprovalNumber, carrier, trackingNumber } = body
-  // Accept one or many tracking numbers; normalize to a clean list + a primary.
+  // Accept one or many (carrier, tracking) pairs — a multi-box return can use
+  // different carriers. Align carriers[] with trackingNumbers[]; drop empty rows.
   const rawTrackings: string[] = Array.isArray(body.trackingNumbers)
     ? body.trackingNumbers
     : (trackingNumber ? [trackingNumber] : [])
-  const trackings = Array.from(new Set(rawTrackings.map((t: unknown) => String(t).trim()).filter(Boolean)))
+  const rawCarriers: string[] = Array.isArray(body.carriers)
+    ? body.carriers
+    : (carrier ? [carrier] : [])
+  const entries = rawTrackings
+    .map((t: unknown, i: number) => ({
+      tracking: String(t).trim(),
+      carrier: String(rawCarriers[i] ?? rawCarriers[0] ?? carrier ?? '').trim(),
+    }))
+    .filter((e: { tracking: string }) => e.tracking)
+  const trackings = entries.map(e => e.tracking)
+  const carriers = entries.map(e => e.carrier || entries[0]?.carrier || '')
   const primaryTracking = trackings[0] ?? ''
+  const primaryCarrier = carriers[0] ?? ''
 
   const rma = await prisma.vendorRMA.findUnique({
     where: { id: params.id },
@@ -37,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Vendor RMA approval number is required' }, { status: 400 })
   }
   if (newStatus === 'SHIPPED_AWAITING_CREDIT') {
-    if (!carrier?.trim()) return NextResponse.json({ error: 'Carrier is required' }, { status: 400 })
+    if (!primaryCarrier) return NextResponse.json({ error: 'Carrier is required' }, { status: 400 })
     if (trackings.length === 0) return NextResponse.json({ error: 'At least one tracking number is required' }, { status: 400 })
 
     // All serials must be scanned out before shipping
@@ -85,14 +97,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       else decrements.set(key, { productId: s.productId, locationId: inv.locationId, gradeId: inv.gradeId, count: 1 })
     }
 
-    const carrierTrimmed = carrier.trim()
-    const historyNote = `Vendor RMA ${rma.rmaNumber} shipped — ${carrierTrimmed} ${trackings.join(', ')}`
+    const historyNote = `Vendor RMA ${rma.rmaNumber} shipped — ${entries.map(e => `${e.carrier} ${e.tracking}`).join(', ')}`
 
     await prisma.$transaction(async (tx) => {
       // 1. Update RMA status
       await tx.vendorRMA.update({
         where: { id: params.id },
-        data: { status: newStatus, carrier: carrierTrimmed, trackingNumber: primaryTracking, trackingNumbers: trackings },
+        data: { status: newStatus, carrier: primaryCarrier, carriers, trackingNumber: primaryTracking, trackingNumbers: trackings },
       })
 
       // 2. Bulk mark matched serials as OUT_OF_STOCK
