@@ -45,9 +45,11 @@ interface AuditItem {
   shpBilled: number; adjBilled: number // Column F: SHP (shipment) vs ADJ (adjustment)
   invoiceNumber: string; invoiceDate: string; shipDate: string
   service: string; weight: string; zone: string
-  quoted: number | null; matched: boolean; source: 'order' | 'return' | null
+  quoted: number | null // raw system quote
+  expected: number | null // quote × (1 + reseller markup)
+  matched: boolean; source: 'order' | 'return' | null
   olmNumber: number | null; amazonOrderId: string | null
-  status: Status; variance: number | null
+  status: Status; variance: number | null // billed − expected
 }
 
 const TOL = 0.01 // dollars — within a penny counts as a match
@@ -62,6 +64,8 @@ const STATUS_META: Record<Status, { label: string; badge: string }> = {
 
 export default function ShippingBillAuditManager() {
   const [carrier, setCarrier] = useState<Carrier>('ups')
+  const [markup, setMarkup] = useState('10') // reseller markup % applied over the system quote
+  const [appliedMarkup, setAppliedMarkup] = useState(0)
   const [fileName, setFileName] = useState('')
   const [err, setErr] = useState('')
   const [dragging, setDragging] = useState(false)
@@ -71,7 +75,7 @@ export default function ShippingBillAuditManager() {
   const [subFilter, setSubFilter] = useState<'ALL' | 'OVERCHARGE' | 'UNDERCHARGE' | 'MATCH' | 'NO_QUOTE'>('ALL')
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const processUps = useCallback(async (rows: string[][], name: string) => {
+  const processUps = useCallback(async (rows: string[][], name: string, markupPct: number) => {
     if (rows.length < 2) { setErr('The file has no data rows.'); return }
     const header = rows[0].map(h => h.trim().toLowerCase())
     const col = (names: string[], fallback: number) => {
@@ -111,7 +115,7 @@ export default function ShippingBillAuditManager() {
           service: (r[iService] ?? '').trim(),
           weight: `${(r[iWeight] ?? '').trim()}${(r[iWUnit] ?? '').trim() ? ' ' + (r[iWUnit] ?? '').trim() : ''}`,
           zone: (r[iZone] ?? '').trim(),
-          quoted: null, matched: false, source: null, olmNumber: null, amazonOrderId: null,
+          quoted: null, expected: null, matched: false, source: null, olmNumber: null, amazonOrderId: null,
           status: 'UNMATCHED', variance: null,
         })
       }
@@ -139,7 +143,10 @@ export default function ShippingBillAuditManager() {
         it.olmNumber = m.olmNumber ?? null
         it.amazonOrderId = m.amazonOrderId ?? null
         if (m.quoted == null) { it.status = 'NO_QUOTE'; continue }
-        it.variance = it.billed - m.quoted
+        // Reseller bills the system quote plus their markup, so compare billed
+        // against the marked-up quote, not the raw quote.
+        it.expected = m.quoted * (1 + markupPct / 100)
+        it.variance = it.billed - it.expected
         it.status = it.variance > TOL ? 'OVERCHARGE' : it.variance < -TOL ? 'UNDERCHARGE' : 'MATCH'
       }
 
@@ -148,6 +155,7 @@ export default function ShippingBillAuditManager() {
       list.sort((a, b) => rank[a.status] - rank[b.status] || b.billed - a.billed)
       setItems(list)
       setFileName(name)
+      setAppliedMarkup(markupPct)
       setView('MATCHES'); setSubFilter('ALL')
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Match lookup failed')
@@ -159,12 +167,14 @@ export default function ShippingBillAuditManager() {
   const handleFile = useCallback((file: File | undefined) => {
     if (!file) return
     setErr('')
+    const mk = parseFloat(markup)
+    if (!Number.isFinite(mk) || mk < 0) { setErr('Enter a valid reseller markup % (e.g. 10) before uploading.'); return }
     if (!/\.(csv|txt|tsv)$/i.test(file.name)) { setErr('Please upload a .csv file.'); return }
     const reader = new FileReader()
-    reader.onload = () => { if (typeof reader.result === 'string') processUps(parseCsv(reader.result), file.name) }
+    reader.onload = () => { if (typeof reader.result === 'string') processUps(parseCsv(reader.result), file.name, mk) }
     reader.onerror = () => setErr('Could not read the file.')
     reader.readAsText(file)
-  }, [processUps])
+  }, [processUps, markup])
 
   function reset() {
     setItems(null); setFileName(''); setErr(''); setView('MATCHES'); setSubFilter('ALL')
@@ -175,8 +185,9 @@ export default function ShippingBillAuditManager() {
   const summary = useMemo(() => {
     if (!items) return null
     const totalBilled = items.reduce((s, i) => s + i.billed, 0)
-    const compared = items.filter(i => i.quoted != null)
+    const compared = items.filter(i => i.expected != null)
     const totalQuoted = compared.reduce((s, i) => s + (i.quoted ?? 0), 0)
+    const totalExpected = compared.reduce((s, i) => s + (i.expected ?? 0), 0)
     const netVariance = compared.reduce((s, i) => s + (i.variance ?? 0), 0)
     const overs = items.filter(i => i.status === 'OVERCHARGE')
     const overAmount = overs.reduce((s, i) => s + (i.variance ?? 0), 0)
@@ -184,7 +195,7 @@ export default function ShippingBillAuditManager() {
     const invoices = Array.from(new Set(items.map(i => i.invoiceNumber).filter(Boolean)))
     const dates = Array.from(new Set(items.map(i => i.invoiceDate).filter(Boolean)))
     return {
-      totalBilled, totalQuoted, netVariance, overs: overs.length, overAmount,
+      totalBilled, totalQuoted, totalExpected, netVariance, overs: overs.length, overAmount,
       unmatched: unmatched.length, unmatchedBilled: unmatched.reduce((s, i) => s + i.billed, 0),
       compared: compared.length, shipments: items.length, invoices, dates,
     }
@@ -201,14 +212,14 @@ export default function ShippingBillAuditManager() {
 
   function exportFlagged() {
     const flagged = (items ?? []).filter(i => i.status === 'OVERCHARGE')
-    const head = ['Tracking', 'Invoice', 'Invoice Date', 'Order', 'Service', 'Ship Date', 'Quoted', 'Billed', 'Overcharge']
+    const head = ['Tracking', 'Invoice', 'Invoice Date', 'Order', 'Service', 'Ship Date', 'Quoted', `Expected(+${appliedMarkup}%)`, 'Billed', 'Overcharge']
     const lines = [head.join(',')]
     for (const i of flagged) {
       lines.push([
         i.tracking, i.invoiceNumber, i.invoiceDate,
         i.olmNumber ? `OLM-${i.olmNumber}` : (i.amazonOrderId ?? ''),
         `"${i.service}"`, i.shipDate,
-        (i.quoted ?? 0).toFixed(2), i.billed.toFixed(2), (i.variance ?? 0).toFixed(2),
+        (i.quoted ?? 0).toFixed(2), (i.expected ?? 0).toFixed(2), i.billed.toFixed(2), (i.variance ?? 0).toFixed(2),
       ].join(','))
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
@@ -232,7 +243,7 @@ export default function ShippingBillAuditManager() {
               <p className="text-sm font-medium text-gray-800 truncate">{fileName}</p>
               <p className="text-xs text-gray-500">
                 {summary.shipments.toLocaleString()} shipments · Invoice {summary.invoices.join(', ') || '—'}
-                {summary.dates.length > 0 && ` · ${summary.dates.join(', ')}`}
+                {summary.dates.length > 0 && ` · ${summary.dates.join(', ')}`} · {appliedMarkup}% reseller markup
               </p>
             </div>
             <div className="flex-1" />
@@ -246,10 +257,10 @@ export default function ShippingBillAuditManager() {
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card label="Total billed" value={fmt(summary.totalBilled)} sub={`${summary.shipments} shipments`} />
-            <Card label="Quoted (matched)" value={fmt(summary.totalQuoted)} sub={`${summary.compared} compared`} />
+            <Card label={`Expected (+${appliedMarkup}%)`} value={fmt(summary.totalExpected)} sub={`quoted ${fmt(summary.totalQuoted)} · ${summary.compared} compared`} />
             <Card
               label="Net variance" value={fmt(summary.netVariance)}
-              sub="billed − quoted" tone={summary.netVariance > TOL ? 'bad' : summary.netVariance < -TOL ? 'good' : 'neutral'}
+              sub="billed − expected" tone={summary.netVariance > TOL ? 'bad' : summary.netVariance < -TOL ? 'good' : 'neutral'}
             />
             <Card
               label="Overcharges" value={fmt(summary.overAmount)}
@@ -286,7 +297,7 @@ export default function ShippingBillAuditManager() {
                   </button>
                 ))}
               </div>
-              <MatchedTable rows={shownMatched} />
+              <MatchedTable rows={shownMatched} markup={appliedMarkup} />
             </>
           ) : (
             <>
@@ -309,7 +320,7 @@ export default function ShippingBillAuditManager() {
             Upload your UPS billing CSV. Each billed shipment is matched to the label we bought through the system
             by <span className="font-semibold">tracking number</span> (quotes stripped), and the carrier&apos;s
             charge — <span className="font-semibold">Total Charge</span>, summed across all line items for the same
-            tracking number — is compared to the price we were quoted at purchase. Overcharges are flagged for dispute.
+            tracking number — is compared to the quoted price <span className="font-semibold">plus the reseller markup</span> below. Anything billed above that is flagged as an overcharge to dispute.
           </p>
         </div>
 
@@ -326,6 +337,25 @@ export default function ShippingBillAuditManager() {
                 {c.label}{!c.enabled && <span className="ml-1.5 text-[10px]">soon</span>}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Reseller markup — the bill = system quote + this % */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Reseller markup %</label>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <input
+                type="number" step="0.1" min={0} value={markup}
+                onChange={e => setMarkup(e.target.value)}
+                className="w-28 h-9 rounded-md border border-gray-300 pl-3 pr-7 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+              />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">%</span>
+            </div>
+            <p className="text-xs text-gray-500">
+              We&apos;re billed the system quote plus this markup — a $20.00 quote at {markup || '0'}% should bill{' '}
+              <span className="font-mono text-gray-700">${(20 * (1 + (parseFloat(markup) || 0) / 100)).toFixed(2)}</span> and count as a match.
+            </p>
           </div>
         </div>
 
@@ -395,7 +425,7 @@ function Tracking({ i }: { i: AuditItem }) {
   )
 }
 
-function MatchedTable({ rows }: { rows: AuditItem[] }) {
+function MatchedTable({ rows, markup }: { rows: AuditItem[]; markup: number }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
       <table className="min-w-full text-xs">
@@ -407,6 +437,7 @@ function MatchedTable({ rows }: { rows: AuditItem[] }) {
             <th className="px-3 py-2 text-left font-semibold text-gray-500">Ship Date</th>
             <th className="px-3 py-2 text-left font-semibold text-gray-500">Wt / Zone</th>
             <th className="px-3 py-2 text-right font-semibold text-gray-500">Quoted</th>
+            <th className="px-3 py-2 text-right font-semibold text-gray-500">Expected<span className="text-gray-400 font-normal"> +{markup}%</span></th>
             <th className="px-3 py-2 text-right font-semibold text-gray-500">Billed</th>
             <th className="px-3 py-2 text-right font-semibold text-gray-500">Variance</th>
             <th className="px-3 py-2 text-left font-semibold text-gray-500">Status</th>
@@ -423,7 +454,8 @@ function MatchedTable({ rows }: { rows: AuditItem[] }) {
               <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{i.service || '—'}</td>
               <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.shipDate || '—'}</td>
               <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.weight || '—'}{i.zone ? ` · Z${i.zone}` : ''}</td>
-              <td className="px-3 py-1.5 text-right font-mono text-gray-600">{i.quoted != null ? fmt(i.quoted) : '—'}</td>
+              <td className="px-3 py-1.5 text-right font-mono text-gray-400">{i.quoted != null ? fmt(i.quoted) : '—'}</td>
+              <td className="px-3 py-1.5 text-right font-mono text-gray-700">{i.expected != null ? fmt(i.expected) : '—'}</td>
               <BilledCell i={i} />
               <td className={clsx('px-3 py-1.5 text-right font-mono font-medium',
                 i.variance == null ? 'text-gray-300' : i.variance > TOL ? 'text-red-600' : i.variance < -TOL ? 'text-blue-600' : 'text-gray-400')}>
@@ -432,7 +464,7 @@ function MatchedTable({ rows }: { rows: AuditItem[] }) {
               <td className="px-3 py-1.5"><span className={clsx('inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', STATUS_META[i.status].badge)}>{STATUS_META[i.status].label}</span></td>
             </tr>
           ))}
-          {rows.length === 0 && <tr><td colSpan={9} className="px-3 py-8 text-center text-gray-400">No shipments in this view.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={10} className="px-3 py-8 text-center text-gray-400">No shipments in this view.</td></tr>}
         </tbody>
       </table>
     </div>
