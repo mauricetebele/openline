@@ -7,6 +7,7 @@ import { openLabel } from '@/lib/print-labels'
 export interface PackageInfo { weightValue?: number; weightUnit?: string; length?: number; width?: number; height?: number; dimUnit?: string }
 export interface PurchasedLabel {
   id: string; labelSetId: string; carrier: string; serviceLabel: string | null; serviceCode: string | null
+  shipmentId: string | null
   trackingNumber: string; pieceNumber: number; pieceCount: number; labelData: string; labelFormat: string
   packageInfo?: PackageInfo | null
   shipmentCost: number | null; currency: string | null; createdAt: string; voided: boolean

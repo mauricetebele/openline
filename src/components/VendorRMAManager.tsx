@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanLine, Search, CheckCircle2, Download, Loader2, ExternalLink, Barcode, Check, Pencil } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -125,61 +125,107 @@ function ApprovalModal({
 // ─── Shipping Modal ───────────────────────────────────────────────────────────
 
 function ShippingModal({
-  onConfirm, onCancel, saving,
-}: { onConfirm: (carrier: string, tracking: string) => void; onCancel: () => void; saving: boolean }) {
+  labels, onConfirm, onCancel, saving,
+}: { labels: PurchasedLabel[]; onConfirm: (carrier: string, tracking: string) => void; onCancel: () => void; saving: boolean }) {
+  const hasLabels = labels.length > 0
+  const [mode, setMode] = useState<'labels' | 'manual'>(hasLabels ? 'labels' : 'manual')
   const [carrier, setCarrier] = useState('UPS')
   const [customCarrier, setCustomCarrier] = useState('')
   const [tracking, setTracking] = useState('')
   const effectiveCarrier = carrier === 'Other' ? customCarrier : carrier
+
+  // Purchased labels grouped into sets (one carrier purchase each).
+  const sets = useMemo(() => {
+    const m = new Map<string, PurchasedLabel[]>()
+    for (const l of labels) { const a = m.get(l.labelSetId) ?? []; a.push(l); m.set(l.labelSetId, a) }
+    return Array.from(m.values()).map(r => r.sort((a, b) => a.pieceNumber - b.pieceNumber))
+  }, [labels])
+  const [setIdx, setSetIdx] = useState(0)
+  const chosen = sets[setIdx]
+
+  function confirmLabels() {
+    if (!chosen) return
+    const head = chosen[0]
+    const carrierName = head.carrier === 'ups' ? 'UPS' : head.carrier === 'fedex' ? 'FedEx' : head.carrier
+    onConfirm(carrierName, head.shipmentId ?? head.trackingNumber)
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
-        <h3 className="text-sm font-semibold text-gray-900 mb-1">Shipping Information</h3>
-        <p className="text-xs text-gray-500 mb-4">Enter the carrier and tracking number for this return shipment.</p>
-        <div className="space-y-3 mb-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Carrier</label>
-            <div className="flex flex-wrap gap-1.5">
-              {CARRIERS.map(c => (
-                <button
-                  key={c}
-                  onClick={() => setCarrier(c)}
-                  className={clsx(
-                    'px-3 py-1 rounded-full text-xs font-medium border transition-colors',
-                    carrier === c ? 'bg-amazon-blue text-white border-amazon-blue' : 'text-gray-600 border-gray-300 hover:bg-gray-50',
-                  )}
-                >{c}</button>
-              ))}
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+        <h3 className="text-sm font-semibold text-gray-900 mb-1">Mark as Shipped</h3>
+        <p className="text-xs text-gray-500 mb-4">Record the tracking for this return shipment.</p>
+
+        {hasLabels && (
+          <div className="flex gap-1.5 mb-4">
+            {(['labels', 'manual'] as const).map(m => (
+              <button key={m} onClick={() => setMode(m)}
+                className={clsx('flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                  mode === m ? 'bg-amazon-blue text-white border-amazon-blue' : 'text-gray-600 border-gray-300 hover:bg-gray-50')}>
+                {m === 'labels' ? 'Use purchased labels' : 'Enter manually'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {mode === 'labels' && hasLabels ? (
+          <div className="space-y-2 mb-4">
+            {sets.map((rows, i) => {
+              const head = rows[0]
+              const carrierName = head.carrier === 'ups' ? 'UPS' : head.carrier === 'fedex' ? 'FedEx' : head.carrier
+              return (
+                <label key={head.labelSetId} className={clsx('block rounded-lg border px-3 py-2 cursor-pointer', setIdx === i ? 'border-amazon-blue bg-amazon-blue/5' : 'border-gray-200 hover:bg-gray-50')}>
+                  <div className="flex items-center gap-2">
+                    {sets.length > 1 && <input type="radio" checked={setIdx === i} onChange={() => setSetIdx(i)} className="accent-amazon-blue" />}
+                    <span className="text-xs font-semibold text-gray-700">{carrierName}</span>
+                    <span className="text-xs text-gray-500">{head.serviceLabel ?? head.serviceCode}</span>
+                    <span className="text-[11px] text-gray-400">{rows.length} pc</span>
+                  </div>
+                  <div className="mt-1 space-y-0.5">
+                    {rows.map(pc => <div key={pc.id} className="font-mono text-[11px] text-gray-700">{pc.trackingNumber}</div>)}
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="space-y-3 mb-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Carrier</label>
+              <div className="flex flex-wrap gap-1.5">
+                {CARRIERS.map(c => (
+                  <button key={c} onClick={() => setCarrier(c)}
+                    className={clsx('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
+                      carrier === c ? 'bg-amazon-blue text-white border-amazon-blue' : 'text-gray-600 border-gray-300 hover:bg-gray-50')}
+                  >{c}</button>
+                ))}
+              </div>
+              {carrier === 'Other' && (
+                <input autoFocus className="mt-2 w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                  placeholder="Carrier name…" value={customCarrier} onChange={e => setCustomCarrier(e.target.value)} />
+              )}
             </div>
-            {carrier === 'Other' && (
-              <input
-                autoFocus
-                className="mt-2 w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                placeholder="Carrier name…"
-                value={customCarrier}
-                onChange={e => setCustomCarrier(e.target.value)}
-              />
-            )}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Tracking Number</label>
+              <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                placeholder="e.g. 1Z999AA10123456784" value={tracking} onChange={e => setTracking(e.target.value)} />
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Tracking Number</label>
-            <input
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-              placeholder="e.g. 1Z999AA10123456784"
-              value={tracking}
-              onChange={e => setTracking(e.target.value)}
-            />
-          </div>
-        </div>
+        )}
+
         <div className="flex gap-2 justify-end">
           <button onClick={onCancel} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-          <button
-            onClick={() => onConfirm(effectiveCarrier, tracking.trim())}
-            disabled={!effectiveCarrier || !tracking.trim() || saving}
-            className="px-3 py-1.5 text-sm bg-amazon-blue text-white rounded-lg hover:opacity-90 disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : 'Confirm'}
-          </button>
+          {mode === 'labels' && hasLabels ? (
+            <button onClick={confirmLabels} disabled={!chosen || saving}
+              className="px-3 py-1.5 text-sm bg-amazon-blue text-white rounded-lg hover:opacity-90 disabled:opacity-50">
+              {saving ? 'Saving…' : 'Mark Shipped'}
+            </button>
+          ) : (
+            <button onClick={() => onConfirm(effectiveCarrier, tracking.trim())} disabled={!effectiveCarrier || !tracking.trim() || saving}
+              className="px-3 py-1.5 text-sm bg-amazon-blue text-white rounded-lg hover:opacity-90 disabled:opacity-50">
+              {saving ? 'Saving…' : 'Mark Shipped'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1057,6 +1103,7 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
       )}
       {showShippingModal && createPortal(
         <ShippingModal
+          labels={purchasedLabels.filter(l => !l.voided)}
           onConfirm={(carrier, trackingNumber) => handleStatusChange('SHIPPED_AWAITING_CREDIT', { carrier, trackingNumber })}
           onCancel={() => setShowShippingModal(false)}
           saving={saving}
