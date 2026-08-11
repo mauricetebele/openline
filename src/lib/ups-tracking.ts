@@ -853,6 +853,199 @@ export async function generateOutboundLabel(req: ReturnLabelRequest, upsCredenti
   }
 }
 
+// ─── Multi-piece Label Generation (arbitrary ship-from → ship-to) ─────────────
+// Used for Vendor Returns (RTV): ship from a selected warehouse to the vendor's
+// RMA address, with one or more packages. Additive — does not touch the
+// single-piece return/outbound flows above.
+
+export interface MultiPieceAddress {
+  name: string
+  company?: string
+  address1: string
+  address2?: string
+  city: string
+  state: string
+  postal: string
+  country: string
+  phone?: string
+}
+export interface MultiPiecePackage {
+  weightValue: number
+  weightUnit: 'LBS' | 'OZS'
+  length?: number
+  width?: number
+  height?: number
+  dimUnit?: 'IN' | 'CM'
+}
+export interface MultiPieceLabelRequest {
+  shipFrom: MultiPieceAddress
+  shipTo: MultiPieceAddress
+  serviceCode: string
+  packages: MultiPiecePackage[]
+  confirmation?: 'none' | 'delivery' | 'signature' | 'adult_signature'
+  referenceNumber?: string
+  description?: string
+}
+export interface MultiPieceLabelPiece {
+  trackingNumber: string
+  labelBase64: string
+  labelFormat: string
+}
+export interface MultiPieceLabelResult {
+  shipmentId: string
+  shipmentCost?: string
+  currency?: string
+  chargeBreakdown?: ChargeLineItem[]
+  pieces: MultiPieceLabelPiece[]
+}
+
+export async function generateUpsMultiPieceLabels(
+  req: MultiPieceLabelRequest,
+  upsCredentialId?: string,
+): Promise<MultiPieceLabelResult> {
+  const creds = upsCredentialId ? await getUPSCredentialsById(upsCredentialId) : await getUPSCredentials()
+  const { accountNumber } = creds
+  if (!accountNumber) throw new Error('UPS Account Number is not configured. Add it in Settings → UPS API.')
+  if (!req.packages.length) throw new Error('At least one package is required.')
+
+  const token = await getUPSToken(creds)
+
+  const buildAddr = (a: MultiPieceAddress) => {
+    const l1 = sanitizeAddressLine(a.address1)
+    if (!l1) throw new Error('An address line 1 is empty after cleanup. Please enter a valid street address.')
+    const lines = [l1]
+    const l2 = a.address2?.trim() ? sanitizeAddressLine(a.address2) : ''
+    if (l2) lines.push(l2)
+    return {
+      Name: sanitizeAddressLine(a.name || a.company || 'N/A') || 'N/A',
+      ...(a.phone?.trim() ? { Phone: { Number: a.phone.trim().replace(/[^0-9]/g, '').slice(0, 15) } } : {}),
+      Address: {
+        AddressLine: lines,
+        City: sanitizeAddressLine(a.city),
+        StateProvinceCode: a.state?.trim().slice(0, 2),
+        PostalCode: a.postal?.trim().replace(/[^0-9A-Za-z-]/g, '').slice(0, 10),
+        CountryCode: a.country?.trim() || 'US',
+      },
+    }
+  }
+
+  const buildPackage = (p: MultiPiecePackage) => {
+    const dimUnitDesc = (p.dimUnit ?? 'IN') === 'CM' ? 'Centimeters' : 'Inches'
+    const weightUnitDesc = p.weightUnit === 'OZS' ? 'Ounces' : 'Pounds'
+    return {
+      Description: req.description ?? 'Vendor Return',
+      Packaging: { Code: '02', Description: 'Customer Supplied Package' },
+      ...(p.length && p.width && p.height ? {
+        Dimensions: {
+          UnitOfMeasurement: { Code: p.dimUnit ?? 'IN', Description: dimUnitDesc },
+          Length: String(p.length), Width: String(p.width), Height: String(p.height),
+        },
+      } : {}),
+      PackageWeight: {
+        UnitOfMeasurement: { Code: p.weightUnit, Description: weightUnitDesc },
+        Weight: String(p.weightValue),
+      },
+      ...(Object.keys(upsDeliveryConfirmation(req.confirmation)).length > 0
+        ? { PackageServiceOptions: upsDeliveryConfirmation(req.confirmation) } : {}),
+      ...(req.referenceNumber ? { ReferenceNumber: { Code: 'IK', Value: req.referenceNumber } } : {}),
+    }
+  }
+
+  const shipper = buildAddr(req.shipFrom)
+  const body = {
+    ShipmentRequest: {
+      Request: {
+        RequestOption: 'nonvalidate',
+        TransactionReference: { CustomerContext: req.referenceNumber ?? 'vendor-return' },
+      },
+      Shipment: {
+        Description: req.description ?? 'Vendor Return',
+        Shipper: { ...shipper, ShipperNumber: accountNumber },
+        ShipFrom: shipper,
+        ShipTo: buildAddr(req.shipTo),
+        Service: {
+          Code: req.serviceCode,
+          Description: UPS_SERVICES.find(s => s.code === req.serviceCode)?.label ?? '',
+        },
+        PaymentInformation: { ShipmentCharge: { Type: '01', BillShipper: { AccountNumber: accountNumber } } },
+        ShipmentRatingOptions: { NegotiatedRatesIndicator: 'X' },
+        Package: req.packages.map(buildPackage),
+      },
+      LabelSpecification: {
+        LabelImageFormat: { Code: 'PNG', Description: 'PNG' },
+        LabelStockSize: { Height: '6', Width: '4' },
+        HTTPUserAgent: 'Mozilla/4.5',
+      },
+    },
+  }
+
+  let data: unknown
+  try {
+    const res = await axios.post(UPS_SHIP_URL, body, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        transId: `vendor-return-${Date.now()}`,
+        transactionSrc: 'RefundAuditor',
+        'Content-Type': 'application/json',
+      },
+    })
+    data = res.data
+  } catch (e: unknown) {
+    const axiosErr = e as { response?: { status?: number; data?: unknown } }
+    const resData = axiosErr?.response?.data as Record<string, unknown> | undefined
+    console.error('[UPS Ship Multi-piece] error response:', JSON.stringify(resData, null, 2))
+    const errors = (resData?.response as { errors?: { code?: string; message?: string }[] })?.errors ?? []
+    const firstErr = errors[0]
+    if (firstErr?.message) {
+      throw new Error(`UPS${firstErr.code ? ` [${firstErr.code}]` : ''}: ${firstErr.message}`)
+    }
+    throw new Error(`UPS label generation failed (HTTP ${axiosErr?.response?.status ?? 'unknown'}). Check server logs for details.`)
+  }
+
+  interface UpsMonetary { MonetaryValue?: string; CurrencyCode?: string }
+  interface UpsItemizedCharge extends UpsMonetary { Code?: string; Description?: string }
+  type UpsPkg = { TrackingNumber?: string; ShippingLabel?: { GraphicImage?: string } }
+
+  const results = (data as {
+    ShipmentResponse?: {
+      ShipmentResults?: {
+        ShipmentIdentificationNumber?: string
+        ShipmentCharges?: { TransportationCharges?: UpsMonetary; ServiceOptionsCharges?: UpsMonetary; TotalCharges?: UpsMonetary }
+        NegotiatedRateCharges?: { ItemizedCharges?: UpsItemizedCharge | UpsItemizedCharge[]; TotalCharge?: UpsMonetary }
+        PackageResults?: UpsPkg | UpsPkg[]
+      }
+    }
+  })?.ShipmentResponse?.ShipmentResults
+
+  const rawPkgs = results?.PackageResults
+  const pkgArr: UpsPkg[] = Array.isArray(rawPkgs) ? rawPkgs : rawPkgs ? [rawPkgs] : []
+  if (pkgArr.length === 0) throw new Error('UPS returned a response but no package labels were found.')
+
+  const shipmentId = results?.ShipmentIdentificationNumber ?? pkgArr[0]?.TrackingNumber ?? ''
+  const pieces: MultiPieceLabelPiece[] = []
+  for (const pk of pkgArr) {
+    const img = pk?.ShippingLabel?.GraphicImage
+    if (!pk?.TrackingNumber || !img) throw new Error('A UPS package result was missing a tracking number or label image.')
+    pieces.push({ trackingNumber: pk.TrackingNumber, labelBase64: await pngLabelToPdf(img), labelFormat: 'pdf' })
+  }
+
+  const chargeBlock = results?.NegotiatedRateCharges?.TotalCharge ?? results?.ShipmentCharges?.TotalCharges
+  const shipmentCost = chargeBlock?.MonetaryValue
+  const currency = chargeBlock?.CurrencyCode ?? 'USD'
+
+  const breakdown: ChargeLineItem[] = []
+  const addLine = (description: string, m?: UpsMonetary) => {
+    if (m?.MonetaryValue && parseFloat(m.MonetaryValue) > 0) breakdown.push({ description, amount: m.MonetaryValue, currency: m.CurrencyCode ?? currency })
+  }
+  addLine('Transportation', results?.ShipmentCharges?.TransportationCharges)
+  addLine('Service Options', results?.ShipmentCharges?.ServiceOptionsCharges)
+  const rawItems = results?.NegotiatedRateCharges?.ItemizedCharges
+  const itemized: UpsItemizedCharge[] = rawItems ? (Array.isArray(rawItems) ? rawItems : [rawItems]) : []
+  for (const item of itemized) addLine(item.Description ?? (item.Code ? `Surcharge (${item.Code})` : 'Surcharge'), item)
+
+  return { shipmentId, shipmentCost, currency, chargeBreakdown: breakdown.length > 0 ? breakdown : undefined, pieces }
+}
+
 // ─── Outbound Rate Quote ──────────────────────────────────────────────────────
 
 /**

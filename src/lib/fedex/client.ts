@@ -377,3 +377,108 @@ export async function createShipment(
     labelFormat: testMode ? 'png' : 'pdf',
   }
 }
+
+// ── Multi-piece Label Purchase (Vendor Returns) ──────────────────────────────
+
+export interface FedExMultiPiecePackage {
+  weight: { value: number; units: 'LB' | 'KG' }
+  dimensions?: { length: number; width: number; height: number; units: 'IN' | 'CM' }
+}
+export interface FedExMultiPieceParams {
+  shipFrom: FedExAddress & { personName: string; phone: string }
+  shipTo: FedExAddress & { personName: string; phone: string }
+  packages: FedExMultiPiecePackage[]
+  serviceType: string
+  shipDate?: string
+  packagingType?: string
+  signatureType?: FedExSignatureType
+  reference?: string
+}
+export interface FedExMultiPieceResult {
+  masterTrackingNumber: string
+  pieces: { trackingNumber: string; labelData: string; labelFormat: string }[]
+}
+
+/** Create a single FedEx shipment with one or more packages (multi-piece / MPS),
+ *  returning one label per package. Additive — does not touch createShipment. */
+export async function createMultiPieceShipment(
+  creds: FedExCredentials,
+  params: FedExMultiPieceParams,
+  testMode?: boolean,
+): Promise<FedExMultiPieceResult> {
+  if (!params.packages.length) throw new Error('At least one package is required.')
+  const serviceType = params.serviceType === 'GROUND_HOME_DELIVERY' ? 'FEDEX_GROUND' : params.serviceType
+
+  const payload = {
+    accountNumber: { value: creds.accountNumber },
+    labelResponseOptions: 'LABEL',
+    requestedShipment: {
+      shipper: {
+        address: {
+          streetLines: params.shipFrom.streetLines,
+          city: params.shipFrom.city,
+          stateOrProvinceCode: params.shipFrom.stateOrProvinceCode,
+          postalCode: params.shipFrom.postalCode,
+          countryCode: params.shipFrom.countryCode,
+        },
+        contact: { personName: params.shipFrom.personName, phoneNumber: params.shipFrom.phone },
+      },
+      recipients: [{
+        address: {
+          streetLines: params.shipTo.streetLines,
+          city: params.shipTo.city,
+          stateOrProvinceCode: params.shipTo.stateOrProvinceCode,
+          postalCode: params.shipTo.postalCode,
+          countryCode: params.shipTo.countryCode,
+          residential: params.shipTo.residential,
+        },
+        contact: { personName: params.shipTo.personName, phoneNumber: params.shipTo.phone },
+      }],
+      ...(params.shipDate ? { shipDatestamp: params.shipDate } : {}),
+      serviceType,
+      packagingType: params.packagingType ?? 'YOUR_PACKAGING',
+      pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
+      shippingChargesPayment: {
+        paymentType: 'SENDER',
+        payor: { responsibleParty: { accountNumber: { value: creds.accountNumber } } },
+      },
+      totalPackageCount: params.packages.length,
+      labelSpecification: {
+        labelFormatType: 'COMMON2D',
+        imageType: testMode ? 'PNG' : 'PDF',
+        ...(testMode ? {} : { labelStockType: 'STOCK_4X6' }),
+      },
+      requestedPackageLineItems: params.packages.map((p, i) => ({
+        sequenceNumber: i + 1,
+        weight: { value: p.weight.value, units: p.weight.units },
+        ...(p.dimensions ? { dimensions: {
+          length: p.dimensions.length, width: p.dimensions.width, height: p.dimensions.height, units: p.dimensions.units,
+        } } : {}),
+        ...(params.signatureType && params.signatureType !== 'NO_SIGNATURE_REQUIRED'
+          ? { packageSpecialServices: { signatureOptionType: params.signatureType } } : {}),
+        ...(params.reference ? { customerReferences: [{ customerReferenceType: 'CUSTOMER_REFERENCE', value: params.reference }] } : {}),
+      })),
+    },
+  }
+
+  const data = await fedexFetch(creds, '/ship/v1/shipments', payload, testMode) as {
+    output?: { transactionShipments?: Array<{
+      masterTrackingNumber?: string
+      pieceResponses?: Array<{ trackingNumber?: string; packageDocuments?: Array<{ encodedLabel?: string }> }>
+    }> }
+  }
+
+  const shipment = data?.output?.transactionShipments?.[0]
+  if (!shipment) throw new Error('FedEx shipment response missing transactionShipments')
+  const pieceResponses = shipment.pieceResponses ?? []
+  if (pieceResponses.length === 0) throw new Error('FedEx shipment response missing pieceResponses')
+
+  const pieces = pieceResponses.map((pr) => {
+    const label = pr.packageDocuments?.[0]?.encodedLabel
+    if (!pr.trackingNumber || !label) throw new Error('A FedEx piece response was missing a tracking number or label.')
+    return { trackingNumber: pr.trackingNumber, labelData: label, labelFormat: testMode ? 'png' : 'pdf' }
+  })
+
+  const masterTrackingNumber = shipment.masterTrackingNumber ?? pieces[0].trackingNumber
+  return { masterTrackingNumber, pieces }
+}
