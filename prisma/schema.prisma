@@ -955,6 +955,18 @@ model Vendor {
   contact      String?
   phone        String?
   email        String?
+
+  // RMA return address — where we ship vendor returns (RTV); auto-fills labels.
+  rmaName      String?
+  rmaCompany   String?
+  rmaAddress1  String?
+  rmaAddress2  String?
+  rmaCity      String?
+  rmaState     String?
+  rmaPostal    String?
+  rmaCountry   String?  @default("US")
+  rmaPhone     String?
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

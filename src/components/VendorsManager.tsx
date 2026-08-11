@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, Search, Pencil, Trash2, X, AlertCircle, Building2, Mail, Phone, User } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, X, AlertCircle, Building2, Mail, Phone, User, MapPin } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +11,15 @@ interface Vendor {
   contact: string | null
   phone: string | null
   email: string | null
+  rmaName: string | null
+  rmaCompany: string | null
+  rmaAddress1: string | null
+  rmaAddress2: string | null
+  rmaCity: string | null
+  rmaState: string | null
+  rmaPostal: string | null
+  rmaCountry: string | null
+  rmaPhone: string | null
   createdAt: string
 }
 
@@ -19,9 +28,22 @@ interface FormState {
   contact: string
   phone: string
   email: string
+  rmaName: string
+  rmaCompany: string
+  rmaAddress1: string
+  rmaAddress2: string
+  rmaCity: string
+  rmaState: string
+  rmaPostal: string
+  rmaCountry: string
+  rmaPhone: string
 }
 
-const EMPTY_FORM: FormState = { name: '', contact: '', phone: '', email: '' }
+const EMPTY_FORM: FormState = {
+  name: '', contact: '', phone: '', email: '',
+  rmaName: '', rmaCompany: '', rmaAddress1: '', rmaAddress2: '',
+  rmaCity: '', rmaState: '', rmaPostal: '', rmaCountry: 'US', rmaPhone: '',
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,6 +90,23 @@ function ErrorBanner({ msg, onClose }: { msg: string; onClose: () => void }) {
   )
 }
 
+// ─── Field ────────────────────────────────────────────────────────────────────
+
+function Field({ label, value, onChange, placeholder, onKeyDown }: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string; onKeyDown?: (e: React.KeyboardEvent) => void
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-700 mb-1">{label}</label>
+      <input
+        type="text" value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={onKeyDown}
+        autoComplete="off" placeholder={placeholder}
+        className="w-full h-9 rounded-md border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+      />
+    </div>
+  )
+}
+
 // ─── Vendor Panel ─────────────────────────────────────────────────────────────
 
 function VendorPanel({
@@ -84,7 +123,13 @@ function VendorPanel({
 
   const [form, setForm] = useState<FormState>(
     editing
-      ? { name: editing.name, contact: editing.contact ?? '', phone: editing.phone ?? '', email: editing.email ?? '' }
+      ? {
+          name: editing.name, contact: editing.contact ?? '', phone: editing.phone ?? '', email: editing.email ?? '',
+          rmaName: editing.rmaName ?? '', rmaCompany: editing.rmaCompany ?? '',
+          rmaAddress1: editing.rmaAddress1 ?? '', rmaAddress2: editing.rmaAddress2 ?? '',
+          rmaCity: editing.rmaCity ?? '', rmaState: editing.rmaState ?? '',
+          rmaPostal: editing.rmaPostal ?? '', rmaCountry: editing.rmaCountry ?? 'US', rmaPhone: editing.rmaPhone ?? '',
+        }
       : EMPTY_FORM,
   )
   const [saving, setSaving] = useState(false)
@@ -212,6 +257,32 @@ function VendorPanel({
                 placeholder="e.g. orders@acme.com"
                 className="w-full h-9 rounded-md border border-gray-300 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
               />
+            </div>
+          </div>
+
+          {/* Vendor RMA / Return Address */}
+          <div className="pt-3 border-t border-gray-100">
+            <div className="flex items-center gap-1.5 mb-1">
+              <MapPin size={13} className="text-gray-400" />
+              <h3 className="text-xs font-semibold text-gray-700">RMA Return Address</h3>
+            </div>
+            <p className="text-[11px] text-gray-400 mb-3">Where vendor returns (RTV) ship to — auto-fills when buying return labels.</p>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Attention / Name" value={form.rmaName} onChange={(v) => set('rmaName', v)} onKeyDown={handleKeyDown} placeholder="e.g. Returns Dept" />
+                <Field label="Company" value={form.rmaCompany} onChange={(v) => set('rmaCompany', v)} onKeyDown={handleKeyDown} placeholder="e.g. Acme Distributors" />
+              </div>
+              <Field label="Address 1" value={form.rmaAddress1} onChange={(v) => set('rmaAddress1', v)} onKeyDown={handleKeyDown} placeholder="Street address" />
+              <Field label="Address 2" value={form.rmaAddress2} onChange={(v) => set('rmaAddress2', v)} onKeyDown={handleKeyDown} placeholder="Suite, unit (optional)" />
+              <div className="grid grid-cols-3 gap-3">
+                <Field label="City" value={form.rmaCity} onChange={(v) => set('rmaCity', v)} onKeyDown={handleKeyDown} />
+                <Field label="State" value={form.rmaState} onChange={(v) => set('rmaState', v)} onKeyDown={handleKeyDown} placeholder="NJ" />
+                <Field label="Postal" value={form.rmaPostal} onChange={(v) => set('rmaPostal', v)} onKeyDown={handleKeyDown} placeholder="07724" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Country" value={form.rmaCountry} onChange={(v) => set('rmaCountry', v)} onKeyDown={handleKeyDown} placeholder="US" />
+                <Field label="Phone" value={form.rmaPhone} onChange={(v) => set('rmaPhone', v)} onKeyDown={handleKeyDown} placeholder="(555) 123-4567" />
+              </div>
             </div>
           </div>
         </div>

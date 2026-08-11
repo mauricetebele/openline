@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { rmaAddressData } from '@/lib/vendor-rma-address'
 
 export async function PUT(
   req: NextRequest,
@@ -21,6 +22,7 @@ export async function PUT(
       contact: contact?.trim() || null,
       phone:   phone?.trim()   || null,
       email:   email?.trim()   || null,
+      ...rmaAddressData(body),
     },
   })
 
