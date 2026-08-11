@@ -1,6 +1,6 @@
 'use client'
-import { useCallback, useMemo, useRef, useState } from 'react'
-import { Upload, FileSpreadsheet, X, AlertCircle, Loader2, Download, ArrowLeft } from 'lucide-react'
+import { useCallback, useMemo, useRef, useState, Fragment } from 'react'
+import { Upload, FileSpreadsheet, X, AlertCircle, Loader2, Download, ArrowLeft, ChevronRight } from 'lucide-react'
 import { clsx } from 'clsx'
 
 // ─── CSV parsing ────────────────────────────────────────────────────────────
@@ -40,11 +40,14 @@ interface LabelMatch {
   olmNumber?: number | null; amazonOrderId?: string | null; orderSource?: string | null
   shipToState?: string | null; shipToPostal?: string | null
 }
+interface Receiver { company: string; name: string; addr1: string; addr2: string; city: string; state: string; postal: string; country: string }
+
 interface AuditItem {
   tracking: string; billed: number; lineCount: number
   shpBilled: number; adjBilled: number // Column F: SHP (shipment) vs ADJ (adjustment)
   invoiceNumber: string; invoiceDate: string; shipDate: string
   service: string; weight: string; zone: string
+  receiver: Receiver
   quoted: number | null // raw system quote
   expected: number | null // quote × (1 + reseller markup)
   matched: boolean; source: 'order' | 'return' | null
@@ -73,6 +76,8 @@ export default function ShippingBillAuditManager() {
   const [items, setItems] = useState<AuditItem[] | null>(null)
   const [view, setView] = useState<'MATCHES' | 'NONMATCHES'>('MATCHES')
   const [subFilter, setSubFilter] = useState<'ALL' | 'OVERCHARGE' | 'UNDERCHARGE' | 'MATCH' | 'NO_QUOTE'>('ALL')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggleRow = (t: string) => setExpanded(prev => { const n = new Set(prev); if (n.has(t)) n.delete(t); else n.add(t); return n })
   const fileRef = useRef<HTMLInputElement>(null)
 
   const processUps = useCallback(async (rows: string[][], name: string, markupPct: number) => {
@@ -92,6 +97,20 @@ export default function ShippingBillAuditManager() {
     const iWUnit   = col(['actual weight_unit', 'actual weight unit'], 26)
     const iZone    = col(['zone'], 28)
     const iSection = col(['invoice section'], 5)          // Column F: SHP vs ADJ
+    const iRCo   = col(['receiver company'], 17)
+    const iRName = col(['receiver name'], 18)
+    const iRA1   = col(['receiver address 1', 'receiver address_1'], 19)
+    const iRA2   = col(['receiver address 2', 'receiver address_2'], 20)
+    const iRCity = col(['receiver city'], 21)
+    const iRSt   = col(['receiver state'], 22)
+    const iRZip  = col(['receiver postal'], 23)
+    const iRCtry = col(['receiver country'], 24)
+    const buildReceiver = (r: string[]): Receiver => ({
+      company: (r[iRCo] ?? '').trim(), name: (r[iRName] ?? '').trim(),
+      addr1: (r[iRA1] ?? '').trim(), addr2: (r[iRA2] ?? '').trim(),
+      city: (r[iRCity] ?? '').trim(), state: (r[iRSt] ?? '').trim(),
+      postal: (r[iRZip] ?? '').trim(), country: (r[iRCtry] ?? '').trim(),
+    })
 
     // Group line items by tracking number → sum Total Charge (and split by section).
     const groups = new Map<string, AuditItem>()
@@ -105,6 +124,8 @@ export default function ShippingBillAuditManager() {
         g.billed += charge
         g.lineCount++
         if (isAdj) g.adjBilled += charge; else g.shpBilled += charge
+        // Backfill receiver from a later (e.g. SHP) row if the first was blank.
+        if (!g.receiver.name && !g.receiver.addr1) { const rc = buildReceiver(r); if (rc.name || rc.addr1) g.receiver = rc }
       } else {
         groups.set(tracking, {
           tracking, billed: charge, lineCount: 1,
@@ -115,6 +136,7 @@ export default function ShippingBillAuditManager() {
           service: (r[iService] ?? '').trim(),
           weight: `${(r[iWeight] ?? '').trim()}${(r[iWUnit] ?? '').trim() ? ' ' + (r[iWUnit] ?? '').trim() : ''}`,
           zone: (r[iZone] ?? '').trim(),
+          receiver: buildReceiver(r),
           quoted: null, expected: null, matched: false, source: null, olmNumber: null, amazonOrderId: null,
           status: 'UNMATCHED', variance: null,
         })
@@ -156,7 +178,7 @@ export default function ShippingBillAuditManager() {
       setItems(list)
       setFileName(name)
       setAppliedMarkup(markupPct)
-      setView('MATCHES'); setSubFilter('ALL')
+      setView('MATCHES'); setSubFilter('ALL'); setExpanded(new Set())
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Match lookup failed')
     } finally {
@@ -177,7 +199,7 @@ export default function ShippingBillAuditManager() {
   }, [processUps, markup])
 
   function reset() {
-    setItems(null); setFileName(''); setErr(''); setView('MATCHES'); setSubFilter('ALL')
+    setItems(null); setFileName(''); setErr(''); setView('MATCHES'); setSubFilter('ALL'); setExpanded(new Set())
     if (fileRef.current) fileRef.current.value = ''
   }
 
@@ -297,12 +319,12 @@ export default function ShippingBillAuditManager() {
                   </button>
                 ))}
               </div>
-              <MatchedTable rows={shownMatched} markup={appliedMarkup} />
+              <MatchedTable rows={shownMatched} markup={appliedMarkup} expanded={expanded} onToggle={toggleRow} />
             </>
           ) : (
             <>
               <p className="text-xs text-gray-500">Billed by UPS but with no matching label purchased through the system — verify these belong to us before paying.</p>
-              <NonMatchedTable rows={nonMatched} />
+              <NonMatchedTable rows={nonMatched} expanded={expanded} onToggle={toggleRow} />
             </>
           )}
         </div>
@@ -416,16 +438,33 @@ function BilledCell({ i }: { i: AuditItem }) {
   )
 }
 
-function Tracking({ i }: { i: AuditItem }) {
+function Tracking({ i, expanded }: { i: AuditItem; expanded: boolean }) {
   return (
     <td className="px-3 py-1.5 font-mono text-gray-800 whitespace-nowrap">
-      {i.tracking}
+      <span className="inline-flex items-center gap-1">
+        <ChevronRight size={12} className={clsx('text-gray-400 transition-transform', expanded && 'rotate-90')} />
+        {i.tracking}
+      </span>
       {i.lineCount > 1 && <span className="ml-1.5 text-[10px] text-gray-400">({i.lineCount} lines)</span>}
     </td>
   )
 }
 
-function MatchedTable({ rows, markup }: { rows: AuditItem[]; markup: number }) {
+function ReceiverDetail({ r }: { r: Receiver }) {
+  if (!(r.name || r.company || r.addr1 || r.city)) return <p className="text-xs text-gray-400">No recipient details on this bill row.</p>
+  return (
+    <div className="text-xs text-gray-600 leading-relaxed">
+      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Recipient</p>
+      {r.name && <p className="font-medium text-gray-800">{r.name}</p>}
+      {r.company && <p>{r.company}</p>}
+      {r.addr1 && <p>{r.addr1}</p>}
+      {r.addr2 && <p>{r.addr2}</p>}
+      <p>{[r.city, r.state].filter(Boolean).join(', ')}{r.postal ? ` ${r.postal}` : ''}{r.country ? ` · ${r.country}` : ''}</p>
+    </div>
+  )
+}
+
+function MatchedTable({ rows, markup, expanded, onToggle }: { rows: AuditItem[]; markup: number; expanded: Set<string>; onToggle: (t: string) => void }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
       <table className="min-w-full text-xs">
@@ -445,24 +484,29 @@ function MatchedTable({ rows, markup }: { rows: AuditItem[]; markup: number }) {
         </thead>
         <tbody className="divide-y divide-gray-100">
           {rows.map(i => (
-            <tr key={i.tracking} className="hover:bg-gray-50">
-              <Tracking i={i} />
-              <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">
-                {i.olmNumber ? `OLM-${i.olmNumber}` : i.amazonOrderId ? <span className="font-mono">{i.amazonOrderId}</span> : <span className="text-gray-300">—</span>}
-                {i.source === 'return' && <span className="ml-1 text-[10px] text-gray-400">(return)</span>}
-              </td>
-              <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{i.service || '—'}</td>
-              <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.shipDate || '—'}</td>
-              <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.weight || '—'}{i.zone ? ` · Z${i.zone}` : ''}</td>
-              <td className="px-3 py-1.5 text-right font-mono text-gray-400">{i.quoted != null ? fmt(i.quoted) : '—'}</td>
-              <td className="px-3 py-1.5 text-right font-mono text-gray-700">{i.expected != null ? fmt(i.expected) : '—'}</td>
-              <BilledCell i={i} />
-              <td className={clsx('px-3 py-1.5 text-right font-mono font-medium',
-                i.variance == null ? 'text-gray-300' : i.variance > TOL ? 'text-red-600' : i.variance < -TOL ? 'text-blue-600' : 'text-gray-400')}>
-                {i.variance != null ? fmt(i.variance) : '—'}
-              </td>
-              <td className="px-3 py-1.5"><span className={clsx('inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', STATUS_META[i.status].badge)}>{STATUS_META[i.status].label}</span></td>
-            </tr>
+            <Fragment key={i.tracking}>
+              <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => onToggle(i.tracking)}>
+                <Tracking i={i} expanded={expanded.has(i.tracking)} />
+                <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">
+                  {i.olmNumber ? `OLM-${i.olmNumber}` : i.amazonOrderId ? <span className="font-mono">{i.amazonOrderId}</span> : <span className="text-gray-300">—</span>}
+                  {i.source === 'return' && <span className="ml-1 text-[10px] text-gray-400">(return)</span>}
+                </td>
+                <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{i.service || '—'}</td>
+                <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.shipDate || '—'}</td>
+                <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.weight || '—'}{i.zone ? ` · Z${i.zone}` : ''}</td>
+                <td className="px-3 py-1.5 text-right font-mono text-gray-400">{i.quoted != null ? fmt(i.quoted) : '—'}</td>
+                <td className="px-3 py-1.5 text-right font-mono text-gray-700">{i.expected != null ? fmt(i.expected) : '—'}</td>
+                <BilledCell i={i} />
+                <td className={clsx('px-3 py-1.5 text-right font-mono font-medium',
+                  i.variance == null ? 'text-gray-300' : i.variance > TOL ? 'text-red-600' : i.variance < -TOL ? 'text-blue-600' : 'text-gray-400')}>
+                  {i.variance != null ? fmt(i.variance) : '—'}
+                </td>
+                <td className="px-3 py-1.5"><span className={clsx('inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', STATUS_META[i.status].badge)}>{STATUS_META[i.status].label}</span></td>
+              </tr>
+              {expanded.has(i.tracking) && (
+                <tr className="bg-gray-50/60"><td colSpan={10} className="px-3 py-2.5 pl-8"><ReceiverDetail r={i.receiver} /></td></tr>
+              )}
+            </Fragment>
           ))}
           {rows.length === 0 && <tr><td colSpan={10} className="px-3 py-8 text-center text-gray-400">No shipments in this view.</td></tr>}
         </tbody>
@@ -471,7 +515,7 @@ function MatchedTable({ rows, markup }: { rows: AuditItem[]; markup: number }) {
   )
 }
 
-function NonMatchedTable({ rows }: { rows: AuditItem[] }) {
+function NonMatchedTable({ rows, expanded, onToggle }: { rows: AuditItem[]; expanded: Set<string>; onToggle: (t: string) => void }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
       <table className="min-w-full text-xs">
@@ -488,15 +532,20 @@ function NonMatchedTable({ rows }: { rows: AuditItem[] }) {
         </thead>
         <tbody className="divide-y divide-gray-100">
           {rows.map(i => (
-            <tr key={i.tracking} className="hover:bg-gray-50">
-              <Tracking i={i} />
-              <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{chargeType(i)}</td>
-              <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{i.service || '—'}</td>
-              <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.shipDate || '—'}</td>
-              <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.weight || '—'}{i.zone ? ` · Z${i.zone}` : ''}</td>
-              <BilledCell i={i} />
-              <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.invoiceNumber || '—'}{i.invoiceDate ? ` · ${i.invoiceDate}` : ''}</td>
-            </tr>
+            <Fragment key={i.tracking}>
+              <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => onToggle(i.tracking)}>
+                <Tracking i={i} expanded={expanded.has(i.tracking)} />
+                <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{chargeType(i)}</td>
+                <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{i.service || '—'}</td>
+                <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.shipDate || '—'}</td>
+                <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.weight || '—'}{i.zone ? ` · Z${i.zone}` : ''}</td>
+                <BilledCell i={i} />
+                <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{i.invoiceNumber || '—'}{i.invoiceDate ? ` · ${i.invoiceDate}` : ''}</td>
+              </tr>
+              {expanded.has(i.tracking) && (
+                <tr className="bg-gray-50/60"><td colSpan={7} className="px-3 py-2.5 pl-8"><ReceiverDetail r={i.receiver} /></td></tr>
+              )}
+            </Fragment>
           ))}
           {rows.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400">Every billed shipment matched a purchased label. 🎉</td></tr>}
         </tbody>
