@@ -951,7 +951,12 @@ export async function generateUpsMultiPieceLabels(
     }
   }
 
-  const shipper = buildAddr(req.shipFrom)
+  // UPS prints only a single address line for the Shipper/return block, so fold
+  // the ship-from's line 2 (e.g. "Unit 2") into line 1 so it appears on the label.
+  const shipFromForLabel: MultiPieceAddress = req.shipFrom.address2?.trim()
+    ? { ...req.shipFrom, address1: `${req.shipFrom.address1} ${req.shipFrom.address2}`.trim(), address2: undefined }
+    : req.shipFrom
+  const shipper = buildAddr(shipFromForLabel)
   const body = {
     ShipmentRequest: {
       Request: {
