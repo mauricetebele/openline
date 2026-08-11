@@ -13,7 +13,11 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   const rma = await prisma.vendorRMA.findUnique({
     where: { id: params.id },
     include: {
-      vendor: { select: { id: true, vendorNumber: true, name: true } },
+      vendor: { select: {
+        id: true, vendorNumber: true, name: true,
+        rmaName: true, rmaCompany: true, rmaAddress1: true, rmaAddress2: true,
+        rmaCity: true, rmaState: true, rmaPostal: true, rmaCountry: true, rmaPhone: true,
+      } },
       items: {
         orderBy: { createdAt: 'asc' },
         include: {
@@ -94,7 +98,11 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       }),
     },
     include: {
-      vendor: { select: { id: true, vendorNumber: true, name: true } },
+      vendor: { select: {
+        id: true, vendorNumber: true, name: true,
+        rmaName: true, rmaCompany: true, rmaAddress1: true, rmaAddress2: true,
+        rmaCity: true, rmaState: true, rmaPostal: true, rmaCountry: true, rmaPhone: true,
+      } },
       items: {
         orderBy: { createdAt: 'asc' },
         include: {

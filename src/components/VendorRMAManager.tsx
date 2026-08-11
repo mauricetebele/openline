@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanLine, Search, CheckCircle2, Download, Loader2, ExternalLink, Barcode, Check, Pencil } from 'lucide-react'
 import { clsx } from 'clsx'
 import { trackingUrl } from '@/lib/tracking-utils'
+import BuyVendorReturnLabelsModal from './BuyVendorReturnLabelsModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,7 +21,11 @@ interface VendorRMA {
   vendorApprovalNumber: string | null; carrier: string | null; trackingNumber: string | null
   carrierStatus: string | null; deliveredAt: string | null; estimatedDelivery: string | null; trackingUpdatedAt: string | null
   notes: string | null; createdAt: string; updatedAt: string
-  vendor: { id: string; vendorNumber: number; name: string }
+  vendor: {
+    id: string; vendorNumber: number; name: string
+    rmaName?: string | null; rmaCompany?: string | null; rmaAddress1?: string | null; rmaAddress2?: string | null
+    rmaCity?: string | null; rmaState?: string | null; rmaPostal?: string | null; rmaCountry?: string | null; rmaPhone?: string | null
+  }
   items: VendorRMAItem[]
 }
 interface Vendor { id: string; vendorNumber: number; name: string }
@@ -659,6 +664,7 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
   const [showApprovalModal, setShowApprovalModal] = useState(false)
   const [showShippingModal, setShowShippingModal] = useState(false)
   const [showScanOutModal, setShowScanOutModal] = useState(false)
+  const [showBuyLabels, setShowBuyLabels] = useState(false)
 
   // Items view toggle
   const [itemsView, setItemsView] = useState<'lines' | 'serials'>('lines')
@@ -1055,6 +1061,31 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
         />,
         document.body,
       )}
+      {showBuyLabels && createPortal(
+        <BuyVendorReturnLabelsModal
+          rmaId={rma.id}
+          rmaNumber={rma.rmaNumber}
+          defaultShipTo={{
+            name: rma.vendor.rmaName ?? '',
+            company: rma.vendor.rmaCompany ?? rma.vendor.name ?? '',
+            address1: rma.vendor.rmaAddress1 ?? '',
+            address2: rma.vendor.rmaAddress2 ?? '',
+            city: rma.vendor.rmaCity ?? '',
+            state: rma.vendor.rmaState ?? '',
+            postal: rma.vendor.rmaPostal ?? '',
+            country: rma.vendor.rmaCountry ?? 'US',
+            phone: rma.vendor.rmaPhone ?? '',
+          }}
+          onClose={() => setShowBuyLabels(false)}
+          onPurchased={async () => {
+            try {
+              const res = await fetch(`/api/vendor-rma/${rma.id}`)
+              if (res.ok) { const updated: VendorRMA = await res.json(); setRma(updated); onUpdated(updated) }
+            } catch { /* ignore */ }
+          }}
+        />,
+        document.body,
+      )}
 
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
@@ -1131,6 +1162,19 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
               </div>
             ) : null
           })()}
+        </div>
+      )}
+
+      {/* Return Labels (RTV) */}
+      {(rma.status === 'APPROVED_TO_RETURN' || rma.status === 'SHIPPED_AWAITING_CREDIT' || rma.status === 'CREDIT_RECEIVED') && (
+        <div className="mb-5">
+          <button
+            onClick={() => setShowBuyLabels(true)}
+            className="inline-flex items-center gap-2 bg-white border border-amazon-blue text-amazon-blue text-sm font-medium px-4 py-2 rounded-lg hover:bg-amazon-blue/5"
+          >
+            <Truck size={14} />
+            Buy Return Labels
+          </button>
         </div>
       )}
 
