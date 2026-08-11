@@ -66,8 +66,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'Ship-to address is incomplete (address, city, state, postal required)' }, { status: 400 })
   }
 
-  const rma = await prisma.vendorRMA.findUnique({ where: { id: params.id }, select: { id: true, rmaNumber: true } })
+  const rma = await prisma.vendorRMA.findUnique({ where: { id: params.id }, select: { id: true, rmaNumber: true, vendorApprovalNumber: true } })
   if (!rma) return NextResponse.json({ error: 'Vendor RMA not found' }, { status: 404 })
+
+  // Reference printed on the label: VRMA# / Vendor Approval #.
+  const reference = rma.vendorApprovalNumber?.trim()
+    ? `${rma.rmaNumber} / ${rma.vendorApprovalNumber.trim()}`
+    : rma.rmaNumber
 
   const wh = await prisma.warehouse.findUnique({ where: { id: warehouseId } })
   if (!wh) return NextResponse.json({ error: 'Warehouse not found' }, { status: 404 })
@@ -105,7 +110,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       }))
       const result = await generateUpsMultiPieceLabels({
         shipFrom, shipTo: shipToAddr, serviceCode, packages: upsPackages, confirmation,
-        referenceNumber: rma.rmaNumber, description: `Vendor Return ${rma.rmaNumber}`,
+        referenceNumber: reference, description: `Vendor Return ${rma.rmaNumber}`,
       }, upsCredentialId)
       shipmentId = result.shipmentId
       shipmentCost = result.shipmentCost != null ? Number(result.shipmentCost) : null
@@ -131,7 +136,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
           ...(p.length && p.width && p.height ? { dimensions: { length: Number(p.length), width: Number(p.width), height: Number(p.height), units: p.dimUnit === 'CM' ? 'CM' : 'IN' } } : {}),
         })),
         serviceType: serviceCode,
-        reference: rma.rmaNumber,
+        reference,
       }, testMode)
       shipmentId = fx.masterTrackingNumber
       serviceLabel = serviceCode
