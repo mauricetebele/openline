@@ -1046,6 +1046,53 @@ export async function generateUpsMultiPieceLabels(
   return { shipmentId, shipmentCost, currency, chargeBreakdown: breakdown.length > 0 ? breakdown : undefined, pieces }
 }
 
+/** Rate a multi-piece shipment (ship-from → ship-to) without buying a label. */
+export async function getUpsMultiPieceRate(req: MultiPieceLabelRequest, upsCredentialId?: string): Promise<{ total: number; currency: string }> {
+  const creds = upsCredentialId ? await getUPSCredentialsById(upsCredentialId) : await getUPSCredentials()
+  const { accountNumber } = creds
+  if (!accountNumber) throw new Error('UPS Account Number is not configured. Add it in Settings → UPS API.')
+  const token = await getUPSToken(creds)
+
+  const addr = (a: MultiPieceAddress) => {
+    const l1 = sanitizeAddressLine(a.address1); const lines = [l1]
+    if (a.address2?.trim()) { const l2 = sanitizeAddressLine(a.address2); if (l2) lines.push(l2) }
+    return { Name: sanitizeAddressLine(a.name || a.company || 'N/A') || 'N/A', Address: { AddressLine: lines, City: sanitizeAddressLine(a.city), StateProvinceCode: a.state?.trim().slice(0, 2), PostalCode: a.postal?.trim().replace(/[^0-9A-Za-z-]/g, '').slice(0, 10), CountryCode: a.country?.trim() || 'US' } }
+  }
+  const shipper = addr(req.shipFrom)
+  const body = {
+    RateRequest: {
+      Request: { RequestOption: 'Rate', TransactionReference: { CustomerContext: 'rtv-rate' } },
+      Shipment: {
+        Shipper: { ...shipper, ShipperNumber: accountNumber },
+        ShipFrom: shipper,
+        ShipTo: addr(req.shipTo),
+        Service: { Code: req.serviceCode },
+        Package: req.packages.map(p => ({
+          PackagingType: { Code: '02' },
+          ...(p.length && p.width && p.height ? { Dimensions: { UnitOfMeasurement: { Code: p.dimUnit ?? 'IN' }, Length: String(p.length), Width: String(p.width), Height: String(p.height) } } : {}),
+          PackageWeight: { UnitOfMeasurement: { Code: p.weightUnit }, Weight: String(p.weightValue) },
+        })),
+        ShipmentRatingOptions: { NegotiatedRatesIndicator: 'X' },
+      },
+    },
+  }
+
+  let data: unknown
+  try {
+    const res = await axios.post(UPS_RATE_URL, body, { headers: { Authorization: `Bearer ${token}`, transId: `rtv-rate-${Date.now()}`, transactionSrc: 'RefundAuditor', 'Content-Type': 'application/json' } })
+    data = res.data
+  } catch (e: unknown) {
+    const axiosErr = e as { response?: { data?: { response?: { errors?: { message?: string }[] } } } }
+    throw new Error(axiosErr?.response?.data?.response?.errors?.[0]?.message || 'UPS rate request failed.')
+  }
+  const rr = (data as { RateResponse?: { RatedShipment?: unknown } })?.RateResponse?.RatedShipment
+  const rated = (Array.isArray(rr) ? rr[0] : rr) as { TotalCharges?: { MonetaryValue?: string; CurrencyCode?: string }; NegotiatedRateCharges?: { TotalCharge?: { MonetaryValue?: string; CurrencyCode?: string } } } | undefined
+  const block = rated?.NegotiatedRateCharges?.TotalCharge ?? rated?.TotalCharges
+  const total = block?.MonetaryValue ? parseFloat(block.MonetaryValue) : NaN
+  if (!Number.isFinite(total)) throw new Error('UPS returned no rate for this service.')
+  return { total, currency: block?.CurrencyCode ?? 'USD' }
+}
+
 // ─── Outbound Rate Quote ──────────────────────────────────────────────────────
 
 /**

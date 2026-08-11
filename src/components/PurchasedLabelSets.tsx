@@ -4,16 +4,26 @@ import { Printer, Ban, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { openLabel } from '@/lib/print-labels'
 
+export interface PackageInfo { weightValue?: number; weightUnit?: string; length?: number; width?: number; height?: number; dimUnit?: string }
 export interface PurchasedLabel {
   id: string; labelSetId: string; carrier: string; serviceLabel: string | null; serviceCode: string | null
   trackingNumber: string; pieceNumber: number; pieceCount: number; labelData: string; labelFormat: string
+  packageInfo?: PackageInfo | null
   shipmentCost: number | null; currency: string | null; createdAt: string; voided: boolean
 }
 
 const money = (n: number | null, cur?: string | null) => (n != null ? `${!cur || cur === 'USD' ? '$' : cur + ' '}${n.toFixed(2)}` : '—')
 
-export default function PurchasedLabelSets({ rmaId, labels, onChanged }: {
-  rmaId: string; labels: PurchasedLabel[]; onChanged: () => void
+function pkgLabel(p?: PackageInfo | null): string {
+  if (!p) return ''
+  const wu = p.weightUnit === 'OZS' ? 'oz' : 'lb'
+  const w = p.weightValue != null ? `${p.weightValue} ${wu}` : ''
+  const dims = p.length && p.width && p.height ? `${p.length}×${p.width}×${p.height} ${(p.dimUnit ?? 'IN').toLowerCase()}` : ''
+  return [w, dims].filter(Boolean).join(' · ')
+}
+
+export default function PurchasedLabelSets({ rmaId, labels, onChanged, canVoid = false }: {
+  rmaId: string; labels: PurchasedLabel[]; onChanged: () => void; canVoid?: boolean
 }) {
   const [voiding, setVoiding] = useState<string | null>(null)
   const [err, setErr] = useState('')
@@ -54,7 +64,7 @@ export default function PurchasedLabelSets({ rmaId, labels, onChanged }: {
               {head.voided && <span className="text-[10px] font-semibold text-red-500 uppercase">Voided</span>}
               <div className="flex-1" />
               <span className="text-xs font-medium text-gray-600">{money(head.shipmentCost, head.currency)}</span>
-              {!head.voided && (
+              {canVoid && !head.voided && (
                 <button onClick={() => voidSet(head.labelSetId)} disabled={voiding === head.labelSetId}
                   className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-700 disabled:opacity-50">
                   {voiding === head.labelSetId ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />} Void
@@ -66,6 +76,7 @@ export default function PurchasedLabelSets({ rmaId, labels, onChanged }: {
                 <div key={pc.id} className={clsx('flex items-center gap-2 text-xs', head.voided && 'opacity-50 line-through')}>
                   <span className="text-gray-400 w-10 shrink-0">#{pc.pieceNumber}/{pc.pieceCount}</span>
                   <span className="font-mono text-gray-800">{pc.trackingNumber}</span>
+                  {pkgLabel(pc.packageInfo) && <span className="text-gray-400">{pkgLabel(pc.packageInfo)}</span>}
                   <div className="flex-1" />
                   {!head.voided && <button onClick={() => openLabel(pc.labelData, pc.labelFormat)} className="inline-flex items-center gap-1 text-amazon-blue hover:underline"><Printer size={12} /> Print</button>}
                 </div>

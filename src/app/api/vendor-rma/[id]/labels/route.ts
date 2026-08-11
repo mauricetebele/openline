@@ -152,6 +152,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
           vendorRmaId: rma.id, labelSetId, carrier, serviceCode, serviceLabel,
           shipmentId, trackingNumber: pieces[i].trackingNumber, pieceNumber: i + 1, pieceCount: pieces.length,
           labelData: pieces[i].labelData, labelFormat: pieces[i].labelFormat,
+          packageInfo: (packages[i] ?? null) as object | undefined,
           shipmentCost: i === 0 ? shipmentCost : null, currency,
           upsCredentialId: carrier === 'ups' ? (upsCredentialId ?? null) : null,
           shipFrom: shipFrom as object, shipTo: shipToAddr as object,

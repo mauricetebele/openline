@@ -1935,6 +1935,7 @@ model VendorReturnLabel {
   pieceCount     Int       @default(1)
   labelData      String    @db.Text // base64 label (PDF)
   labelFormat    String    @default("pdf")
+  packageInfo    Json?     // this piece's weight/dims: { weightValue, weightUnit, length, width, height, dimUnit }
   shipmentCost   Decimal?  @db.Decimal(12, 2) // set total, stored on piece 1 only
   currency       String?   @default("USD")
   upsCredentialId String?

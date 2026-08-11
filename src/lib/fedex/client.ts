@@ -484,6 +484,36 @@ export async function createMultiPieceShipment(
   return { masterTrackingNumber, pieces }
 }
 
+/** Rate a multi-piece shipment for a specific service without buying a label. */
+export async function getMultiPieceRate(
+  creds: FedExCredentials,
+  params: FedExMultiPieceParams,
+  testMode?: boolean,
+): Promise<{ total: number; currency: string }> {
+  const serviceType = params.serviceType === 'GROUND_HOME_DELIVERY' ? 'FEDEX_GROUND' : params.serviceType
+  const payload = {
+    accountNumber: { value: creds.accountNumber },
+    requestedShipment: {
+      shipper: { address: { city: params.shipFrom.city, stateOrProvinceCode: params.shipFrom.stateOrProvinceCode, postalCode: params.shipFrom.postalCode, countryCode: params.shipFrom.countryCode } },
+      recipient: { address: { city: params.shipTo.city, stateOrProvinceCode: params.shipTo.stateOrProvinceCode, postalCode: params.shipTo.postalCode, countryCode: params.shipTo.countryCode, residential: params.shipTo.residential } },
+      serviceType,
+      pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
+      packagingType: params.packagingType ?? 'YOUR_PACKAGING',
+      rateRequestType: ['ACCOUNT', 'LIST'],
+      requestedPackageLineItems: params.packages.map(p => ({ weight: p.weight, ...(p.dimensions ? { dimensions: p.dimensions } : {}) })),
+    },
+  }
+  const data = await fedexFetch(creds, '/rate/v1/rates', payload, testMode) as {
+    output?: { rateReplyDetails?: Array<{ serviceType?: string; ratedShipmentDetails?: Array<{ rateType?: string; totalNetCharge?: number; currency?: string }> }> }
+  }
+  const details = data?.output?.rateReplyDetails ?? []
+  const detail = details.find(d => d.serviceType === serviceType) ?? details[0]
+  const rsd = detail?.ratedShipmentDetails ?? []
+  const chosen = rsd.find(r => r.rateType === 'ACCOUNT') ?? rsd.find(r => /NEGOTIATED/i.test(r.rateType ?? '')) ?? rsd[0]
+  if (!chosen || chosen.totalNetCharge == null) throw new Error('FedEx returned no rate for this service.')
+  return { total: chosen.totalNetCharge, currency: chosen.currency ?? 'USD' }
+}
+
 /** Cancel/void a FedEx shipment by its (master) tracking number. */
 export async function cancelShipment(creds: FedExCredentials, trackingNumber: string, testMode?: boolean): Promise<void> {
   await fedexFetch(creds, '/ship/v1/shipments/cancel', {

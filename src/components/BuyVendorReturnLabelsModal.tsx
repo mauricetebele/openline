@@ -1,7 +1,9 @@
 'use client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { X, Plus, Trash2, Loader2, Printer, AlertCircle, Package, Truck } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { X, Plus, Trash2, Loader2, AlertCircle, Package, Truck, DollarSign } from 'lucide-react'
 import { clsx } from 'clsx'
+import PurchasedLabelSets, { type PurchasedLabel } from './PurchasedLabelSets'
+import { openLabel } from '@/lib/print-labels'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 type Carrier = 'ups' | 'fedex'
@@ -13,12 +15,6 @@ interface Warehouse {
 interface UpsAccount { id: string; nickname: string | null; isDefault?: boolean }
 interface ShipTo { name: string; company: string; address1: string; address2: string; city: string; state: string; postal: string; country: string; phone: string }
 interface PkgForm { weightValue: string; weightUnit: 'LBS' | 'OZS'; length: string; width: string; height: string; dimUnit: 'IN' | 'CM' }
-
-interface LabelRow {
-  id: string; labelSetId: string; carrier: string; serviceLabel: string | null; serviceCode: string | null
-  trackingNumber: string; pieceNumber: number; pieceCount: number; labelData: string; labelFormat: string
-  shipmentCost: number | null; currency: string | null; createdAt: string; voided: boolean
-}
 
 const UPS_SERVICES = [
   { code: '03', label: 'UPS Ground' },
@@ -41,16 +37,6 @@ const FEDEX_SERVICES = [
 
 const emptyPkg = (): PkgForm => ({ weightValue: '', weightUnit: 'LBS', length: '', width: '', height: '', dimUnit: 'IN' })
 
-function openLabel(base64: string, format: string) {
-  const mime = format === 'pdf' ? 'application/pdf' : `image/${format}`
-  const bytes = atob(base64)
-  const arr = new Uint8Array(bytes.length)
-  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
-  const url = URL.createObjectURL(new Blob([arr], { type: mime }))
-  window.open(url, '_blank')
-  setTimeout(() => URL.revokeObjectURL(url), 60_000)
-}
-
 const money = (n: number | null, cur?: string | null) => (n != null ? `${cur === 'USD' || !cur ? '$' : cur + ' '}${n.toFixed(2)}` : '—')
 
 export default function BuyVendorReturnLabelsModal({ rmaId, rmaNumber, defaultShipTo, onClose, onPurchased }: {
@@ -67,7 +53,9 @@ export default function BuyVendorReturnLabelsModal({ rmaId, rmaNumber, defaultSh
   const [packages, setPackages] = useState<PkgForm[]>([emptyPkg()])
   const [buying, setBuying] = useState(false)
   const [err, setErr] = useState('')
-  const [history, setHistory] = useState<LabelRow[]>([])
+  const [history, setHistory] = useState<PurchasedLabel[]>([])
+  const [quote, setQuote] = useState<{ total: number; currency: string } | null>(null)
+  const [quoting, setQuoting] = useState(false)
 
   const services = carrier === 'ups' ? UPS_SERVICES : FEDEX_SERVICES
 
@@ -105,32 +93,55 @@ export default function BuyVendorReturnLabelsModal({ rmaId, rmaNumber, defaultSh
   const shipFromWh = warehouses.find(w => w.id === warehouseId)
   const shipToComplete = shipTo.address1.trim() && shipTo.city.trim() && shipTo.state.trim() && shipTo.postal.trim()
   const pkgsComplete = packages.every(p => Number(p.weightValue) > 0)
-  const canBuy = !!warehouseId && !!serviceCode && shipToComplete && pkgsComplete && packages.length > 0 && !buying
+  const valid = !!warehouseId && !!serviceCode && !!shipToComplete && pkgsComplete && packages.length > 0
+
+  // A change to any rate input invalidates a previously-fetched quote.
+  useEffect(() => { setQuote(null) }, [carrier, warehouseId, upsAccountId, serviceCode, packages, shipTo])
+
+  function payload() {
+    return {
+      carrier,
+      ...(carrier === 'ups' ? { upsCredentialId: upsAccountId || undefined } : {}),
+      warehouseId, serviceCode, confirmation, shipTo,
+      packages: packages.map(p => ({
+        weightValue: Number(p.weightValue), weightUnit: p.weightUnit,
+        length: p.length ? Number(p.length) : undefined, width: p.width ? Number(p.width) : undefined,
+        height: p.height ? Number(p.height) : undefined, dimUnit: p.dimUnit,
+      })),
+    }
+  }
+
+  async function getQuote() {
+    setErr('')
+    if (!valid) { setErr('Fill in the ship-from warehouse, ship-to address, service, and a weight for each package.'); return }
+    setQuoting(true)
+    try {
+      const res = await fetch(`/api/vendor-rma/${rmaId}/labels/quote`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload()),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Rate request failed')
+      setQuote({ total: data.total, currency: data.currency })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Rate request failed')
+    } finally {
+      setQuoting(false)
+    }
+  }
 
   async function buy() {
     setErr('')
-    if (!canBuy) { setErr('Fill in the ship-from warehouse, ship-to address, service, and a weight for each package.'); return }
+    if (!valid) { setErr('Fill in the ship-from warehouse, ship-to address, service, and a weight for each package.'); return }
     setBuying(true)
     try {
       const res = await fetch(`/api/vendor-rma/${rmaId}/labels`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          carrier,
-          ...(carrier === 'ups' ? { upsCredentialId: upsAccountId || undefined } : {}),
-          warehouseId, serviceCode, confirmation,
-          shipTo,
-          packages: packages.map(p => ({
-            weightValue: Number(p.weightValue), weightUnit: p.weightUnit,
-            length: p.length ? Number(p.length) : undefined, width: p.width ? Number(p.width) : undefined,
-            height: p.height ? Number(p.height) : undefined, dimUnit: p.dimUnit,
-          })),
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload()),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Label purchase failed')
-      // Open each new label for printing, refresh history + parent.
-      for (const pc of (data.pieces ?? []) as LabelRow[]) openLabel(pc.labelData, pc.labelFormat)
+      for (const pc of (data.pieces ?? []) as PurchasedLabel[]) openLabel(pc.labelData, pc.labelFormat)
       setPackages([emptyPkg()])
+      setQuote(null)
       await loadHistory()
       onPurchased()
     } catch (e) {
@@ -139,13 +150,6 @@ export default function BuyVendorReturnLabelsModal({ rmaId, rmaNumber, defaultSh
       setBuying(false)
     }
   }
-
-  // Group history into label sets.
-  const sets = useMemo(() => {
-    const m = new Map<string, LabelRow[]>()
-    for (const l of history) { const a = m.get(l.labelSetId) ?? []; a.push(l); m.set(l.labelSetId, a) }
-    return Array.from(m.values()).map(rows => rows.sort((a, b) => a.pieceNumber - b.pieceNumber))
-  }, [history])
 
   const field = 'w-full h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue'
 
@@ -258,47 +262,39 @@ export default function BuyVendorReturnLabelsModal({ rmaId, rmaNumber, defaultSh
             <p className="text-[11px] text-gray-400 mt-1">Dimensions optional. FedEx bills by weight in lbs (oz is converted).</p>
           </div>
 
-          {/* Purchased sets */}
-          {sets.length > 0 && (
+          {/* Purchased labels (void allowed here) */}
+          {history.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Purchased labels</p>
-              <div className="space-y-2">
-                {sets.map(rows => {
-                  const head = rows[0]
-                  return (
-                    <div key={head.labelSetId} className={clsx('rounded-md border px-3 py-2', head.voided ? 'border-gray-200 bg-gray-50 opacity-60' : 'border-gray-200')}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-semibold text-gray-700">{head.carrier.toUpperCase()}</span>
-                        <span className="text-xs text-gray-500">{head.serviceLabel ?? head.serviceCode}</span>
-                        <span className="text-[11px] text-gray-400">{rows.length} piece{rows.length !== 1 ? 's' : ''}</span>
-                        <span className="text-[11px] text-gray-400">{new Date(head.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
-                        <div className="flex-1" />
-                        <span className="text-xs font-medium text-gray-600">{money(head.shipmentCost, head.currency)}</span>
-                      </div>
-                      <div className="space-y-1">
-                        {rows.map(pc => (
-                          <div key={pc.id} className="flex items-center gap-2 text-xs">
-                            <span className="text-gray-400 w-10">#{pc.pieceNumber}/{pc.pieceCount}</span>
-                            <span className="font-mono text-gray-800">{pc.trackingNumber}</span>
-                            <div className="flex-1" />
-                            <button type="button" onClick={() => openLabel(pc.labelData, pc.labelFormat)} className="inline-flex items-center gap-1 text-amazon-blue hover:underline"><Printer size={12} /> Print</button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+              <PurchasedLabelSets rmaId={rmaId} labels={history} onChanged={loadHistory} canVoid />
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t shrink-0">
-          <button onClick={onClose} className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Close</button>
-          <button onClick={buy} disabled={!canBuy} className="inline-flex items-center gap-1.5 h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50">
-            {buying ? <Loader2 size={14} className="animate-spin" /> : <Truck size={14} />}
-            {buying ? 'Generating…' : `Buy ${packages.length} label${packages.length !== 1 ? 's' : ''}`}
-          </button>
+        <div className="flex items-center justify-between gap-2 px-6 py-4 border-t shrink-0">
+          <div className="text-sm">
+            {quote && (
+              <span className="inline-flex items-center gap-1.5 text-gray-700">
+                <DollarSign size={14} className="text-emerald-600" />
+                Estimated rate: <span className="font-semibold">{money(quote.total, quote.currency)}</span>
+                <span className="text-xs text-gray-400">account rate · {packages.length} pc</span>
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Close</button>
+            {!quote ? (
+              <button onClick={getQuote} disabled={!valid || quoting} className="inline-flex items-center gap-1.5 h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90 disabled:opacity-50">
+                {quoting ? <Loader2 size={14} className="animate-spin" /> : <DollarSign size={14} />}
+                {quoting ? 'Getting rate…' : 'Get Rate'}
+              </button>
+            ) : (
+              <button onClick={buy} disabled={!valid || buying} className="inline-flex items-center gap-1.5 h-9 px-5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                {buying ? <Loader2 size={14} className="animate-spin" /> : <Truck size={14} />}
+                {buying ? 'Generating…' : `Confirm & Buy ${money(quote.total, quote.currency)}`}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
