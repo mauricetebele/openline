@@ -3573,6 +3573,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
 
   const [rates, setRates]               = useState<SSRate[] | null>(null)
   const [amazonServices, setAmazonServices] = useState<{ code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[] | null>(null)
+  const [showLate, setShowLate]         = useState(false)
   const [loadingRates, setLoadingRates] = useState(false)
   const [ratesErr, setRatesErr]         = useState<string | null>(null)
   const [fedexDebug, setFedexDebug]     = useState<{ credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } | null>(null)
@@ -3824,6 +3825,28 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   }
 
   const ratesReady = lookup.status === 'found' && !!fromZip
+
+  // ── Deliver-by filtering (Amazon orders) ──────────────────────────────────
+  // Amazon Buy Shipping should only surface methods that meet the order's
+  // deliver-by date. Since upstream (Amazon/ShipStation) can return late
+  // methods, hide any whose estimated delivery clearly misses latestDeliveryDate
+  // (with a 24h grace for timezone slack). A toggle reveals them if needed.
+  const deliverBy = order.orderSource !== 'backmarket' && order.latestDeliveryDate ? new Date(order.latestDeliveryDate) : null
+  const DELIVER_GRACE_MS = 24 * 60 * 60 * 1000
+  const estDateOfRate = (rate: SSRate): Date | null => {
+    if (rate.deliveryDate) return new Date(rate.deliveryDate)
+    if (rate.transitDays != null && rate.transitDays > 0) {
+      const d = new Date(labelShipDate); let rem = rate.transitDays
+      while (rem > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) rem-- }
+      return d
+    }
+    return null
+  }
+  const isLateDate = (est: Date | null): boolean => !!(deliverBy && est && est.getTime() - deliverBy.getTime() > DELIVER_GRACE_MS)
+  const deliverByLabel = deliverBy ? deliverBy.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
+  const amazonLate = deliverBy && amazonServices ? amazonServices.filter(s => isLateDate(s.latestDeliveryDate ? new Date(s.latestDeliveryDate) : null)) : []
+  const ratesLate = deliverBy && rates ? rates.filter(r => isLateDate(estDateOfRate(r))) : []
+  const totalHiddenLate = amazonLate.length + ratesLate.length
 
   return (
     <div className="fixed inset-y-0 right-0 z-50 flex flex-col w-[480px] bg-white shadow-2xl border-l border-gray-200">
@@ -4110,13 +4133,25 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
             </section>
           )}
 
-          {amazonServices && amazonServices.length > 0 && (
+          {deliverBy && totalHiddenLate > 0 && (
+            <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+              <AlertCircle size={13} className="shrink-0" />
+              <span className="flex-1">{totalHiddenLate} method{totalHiddenLate !== 1 ? 's' : ''} hidden that won&apos;t deliver by {deliverByLabel}.</span>
+              <button onClick={() => setShowLate(v => !v)} className="font-medium underline hover:text-amber-900 shrink-0">{showLate ? 'Hide late' : 'Show anyway'}</button>
+            </div>
+          )}
+
+          {amazonServices && amazonServices.length > 0 && (() => {
+            const sorted = [...amazonServices].sort((a, b) => (a.shipmentCost ?? 999) - (b.shipmentCost ?? 999))
+            const shown = showLate ? sorted : sorted.filter(s => !amazonLate.includes(s))
+            if (shown.length === 0) return null
+            return (
             <section className="space-y-2">
               <div>
-                <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Amazon Buy Shipping — {amazonServices.length} service{amazonServices.length !== 1 ? 's' : ''}</h3>
+                <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Amazon Buy Shipping — {shown.length} service{shown.length !== 1 ? 's' : ''}</h3>
                 <p className="text-[10px] text-gray-400 mt-0.5">Amazon discounted &amp; seller-protected rates.</p>
               </div>
-              {amazonServices.sort((a, b) => (a.shipmentCost ?? 999) - (b.shipmentCost ?? 999)).map((svc, idx) => {
+              {shown.map((svc, idx) => {
                 const key = `${svc.carrierCode}-${svc.code}`, isBuying = purchasing === key
                 return (
                   <div key={`${key}-${idx}`} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-[#FF9900]/40 bg-orange-50/40 hover:border-[#FF9900] transition-colors">
@@ -4124,7 +4159,10 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
                       <CarrierLogo carrierCode={svc.carrierName} size={14} />
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{svc.name}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">{svc.carrierName}{svc.latestDeliveryDate ? ` · Est. ${new Date(svc.latestDeliveryDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` : ''}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {svc.carrierName}{svc.latestDeliveryDate ? ` · Est. ${new Date(svc.latestDeliveryDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` : ''}
+                          {isLateDate(svc.latestDeliveryDate ? new Date(svc.latestDeliveryDate) : null) && <span className="ml-1 text-red-600 font-medium">· misses {deliverByLabel}</span>}
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -4138,12 +4176,14 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
                 )
               })}
             </section>
-          )}
+            )
+          })()}
 
           {rates !== null && rates.length > 0 && (() => {
-            const ssRates = rates.filter(r => r.carrierCode !== 'fedex_direct' && r.carrierCode !== 'ups_direct')
-            const fedexDirectRates = rates.filter(r => r.carrierCode === 'fedex_direct')
-            const upsDirectRates = rates.filter(r => r.carrierCode === 'ups_direct')
+            const visibleRates = showLate ? rates : rates.filter(r => !ratesLate.includes(r))
+            const ssRates = visibleRates.filter(r => r.carrierCode !== 'fedex_direct' && r.carrierCode !== 'ups_direct')
+            const fedexDirectRates = visibleRates.filter(r => r.carrierCode === 'fedex_direct')
+            const upsDirectRates = visibleRates.filter(r => r.carrierCode === 'ups_direct')
             const renderRate = (rate: SSRate, idx: number) => {
               const total = rate.shipmentCost + rate.otherCost, isBuying = purchasing === `${rate.carrierCode}-${rate.serviceCode}`
               // Compute estimated delivery date: use deliveryDate if provided, otherwise transit days + ship date
@@ -4163,7 +4203,10 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
                     <CarrierLogo carrierCode={rate.carrierCode} size={14} />
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{rate.serviceName}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{rate.carrierName ?? rate.carrierCode}{estDelivery ? ` · Est. ${estDelivery}` : rate.transitDays != null ? ` · ${rate.transitDays}d` : ''}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {rate.carrierName ?? rate.carrierCode}{estDelivery ? ` · Est. ${estDelivery}` : rate.transitDays != null ? ` · ${rate.transitDays}d` : ''}
+                        {isLateDate(estDateOfRate(rate)) && <span className="ml-1 text-red-600 font-medium">· misses {deliverByLabel}</span>}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
