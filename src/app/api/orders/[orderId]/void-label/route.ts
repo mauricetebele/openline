@@ -10,6 +10,7 @@ import { prisma } from '@/lib/prisma'
 import { ShipStationClient } from '@/lib/shipstation/client'
 import { decrypt } from '@/lib/crypto'
 import { voidReturnLabel as voidUpsLabel, resolveUpsCredentialByTracking } from '@/lib/ups-tracking'
+import { logAuditEvent } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -103,6 +104,25 @@ export async function POST(
         )
       }
     }
+
+    // Record the voided label BEFORE deleting it, so the tracking # is recoverable.
+    await logAuditEvent({
+      entityType: 'orderLabel',
+      entityId: params.orderId,
+      action: 'label_voided',
+      before: {
+        olmNumber: order.olmNumber,
+        amazonOrderId: order.amazonOrderId,
+        trackingNumber: order.label.trackingNumber,
+        carrier: order.label.carrier,
+        serviceCode: order.label.serviceCode,
+        ssShipmentId: order.label.ssShipmentId,
+        shipmentCost: order.label.shipmentCost != null ? Number(order.label.shipmentCost) : null,
+        labelCreatedAt: order.label.createdAt,
+      },
+      actorId: user.dbId,
+      actorLabel: user.email,
+    }).catch(e => console.error('[void-label] audit log failed:', e))
 
     // If order was SHIPPED, undo serial assignments (mark serials back to IN_STOCK)
     if (order.workflowStatus === 'SHIPPED') {
