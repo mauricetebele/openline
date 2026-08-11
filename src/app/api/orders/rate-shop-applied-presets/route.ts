@@ -223,6 +223,25 @@ export async function POST(req: NextRequest) {
 
             const orderIsAmazon = order.orderSource !== 'backmarket'
 
+            // ── Deliver-by filtering (Amazon orders) ─────────────────────────
+            // Only auto-select methods that meet the order's deliver-by date, so
+            // bulk rate-shopping doesn't pick a slow method (e.g. Ground Advantage)
+            // that misses the promise. BackMarket repurposes latestDeliveryDate as
+            // a ship-by date, so it's excluded.
+            const deliverBy = orderIsAmazon && order.latestDeliveryDate ? new Date(order.latestDeliveryDate) : null
+            const DELIVER_GRACE_MS = 24 * 60 * 60 * 1000
+            const estDeliveryDate = (deliveryDate?: string | null, transitDays?: number | null): Date | null => {
+              if (deliveryDate) return new Date(deliveryDate)
+              if (transitDays != null && transitDays > 0) {
+                const d = shipDate ? new Date(shipDate) : new Date()
+                let rem = transitDays
+                while (rem > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) rem-- }
+                return d
+              }
+              return null
+            }
+            const missesDeliverBy = (est: Date | null): boolean => !!(deliverBy && est && est.getTime() - deliverBy.getTime() > DELIVER_GRACE_MS)
+
             if (fedexDirectOnly && fedexCreds) {
               // ── FedEx Direct path — bypass ShipStation entirely ──────────────
               console.log('[rate-shop-applied] order=%s FedEx preset=%s weight=%s%s dims=%sx%sx%s%s',
@@ -267,9 +286,16 @@ export async function POST(req: NextRequest) {
                 throw new Error('No FedEx Direct rates returned')
               }
 
-              const cheapest = fedexRates.sort((a, b) =>
+              const sortedFx = fedexRates.sort((a, b) =>
                 (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost)
-              )[0]
+              )
+              const onTimeFx = deliverBy
+                ? sortedFx.filter(r => !missesDeliverBy(estDeliveryDate(r.deliveryDate, r.transitDays)))
+                : sortedFx
+              const cheapest = onTimeFx[0]
+              if (!cheapest) {
+                throw new Error(`No FedEx method delivers by ${deliverBy!.toLocaleDateString('en-US')} — rate-shop this order individually`)
+              }
 
               rateAmount  = cheapest.shipmentCost + cheapest.otherCost
               rateCarrier = cheapest.carrierCode || 'fedex_direct'
@@ -323,6 +349,7 @@ export async function POST(req: NextRequest) {
               let cheapest: (typeof allRatesTyped)[number] | undefined
               type V2Rate = NonNullable<Awaited<ReturnType<typeof client.getRatesV2>>['rate_response']>['rates'][number]
               let allRatesTyped: V2Rate[] = []
+              let hadValidButLate = false
               for (let attempt = 0; attempt < 3; attempt++) {
                 if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
                 const v2Result = await client.getRatesV2(v2Payload)
@@ -335,8 +362,13 @@ export async function POST(req: NextRequest) {
                     (a.shipping_amount.amount + (a.insurance_amount?.amount ?? 0) + a.other_amount.amount) -
                     (b.shipping_amount.amount + (b.insurance_amount?.amount ?? 0) + b.other_amount.amount)
                   )
-                cheapest = validRates[0]
+                // Only consider methods that meet the deliver-by date.
+                const onTimeRates = deliverBy
+                  ? validRates.filter(r => !missesDeliverBy(estDeliveryDate(r.estimated_delivery_date, r.carrier_delivery_days)))
+                  : validRates
+                cheapest = onTimeRates[0]
                 if (cheapest) break
+                if (validRates.length > 0) hadValidButLate = true
                 // Check if the failure is transient and worth retrying
                 const invalids = v2Result.rate_response?.invalid_rates ?? []
                 const firstErr = invalids[0]?.error_messages?.[0]
@@ -347,6 +379,9 @@ export async function POST(req: NextRequest) {
                 break
               }
               if (!cheapest) {
+                if (hadValidButLate && deliverBy) {
+                  throw new Error(`No method delivers by ${deliverBy.toLocaleDateString('en-US')} — rate-shop this order individually`)
+                }
                 const statuses = allRatesTyped.map(r => `${r.service_code}:${r.validation_status}`).join(', ')
                 throw new Error(`No valid rates returned (${allRatesTyped.length} total: ${statuses || 'none'})`)
               }
