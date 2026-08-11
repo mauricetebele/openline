@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const [items, reservationGroups, fbaReservationGroups, wholesaleReservationGroups, costRows, serialCostRows, mpSalesRows] = await Promise.all([
+  const [items, reservationGroups, fbaReservationGroups, wholesaleReservationGroups, costRows, serialCostRows, landedByLocRows, landedByPgRows, mpSalesRows] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: {
         ...(productId   ? { productId } : {}),
@@ -137,6 +137,28 @@ export async function GET(req: NextRequest) {
       WHERE "unitCost" IS NOT NULL AND status = 'IN_STOCK'
       GROUP BY "productId", "gradeId"
     `,
+    // True average LANDED cost of in-stock units, per product+location+grade,
+    // from each unit's receipt-linked PO line (falling back to the serial's own
+    // unitCost). This reflects what the units on hand actually cost — unlike the
+    // "latest PO price" above, which can differ from the on-hand inventory.
+    prisma.$queryRaw<{ productId: string; locationId: string; gradeId: string | null; avgCost: number }[]>`
+      SELECT s."productId", s."locationId", s."gradeId",
+             AVG(COALESCE(pol."unitCost", s."unitCost"))::float8 AS "avgCost"
+      FROM inventory_serials s
+      LEFT JOIN po_receipt_lines prl ON prl.id = s."receiptLineId"
+      LEFT JOIN purchase_order_lines pol ON pol.id = prl."purchaseOrderLineId"
+      WHERE s.status = 'IN_STOCK' AND COALESCE(pol."unitCost", s."unitCost") IS NOT NULL
+      GROUP BY s."productId", s."locationId", s."gradeId"
+    `,
+    prisma.$queryRaw<{ productId: string; gradeId: string | null; avgCost: number }[]>`
+      SELECT s."productId", s."gradeId",
+             AVG(COALESCE(pol."unitCost", s."unitCost"))::float8 AS "avgCost"
+      FROM inventory_serials s
+      LEFT JOIN po_receipt_lines prl ON prl.id = s."receiptLineId"
+      LEFT JOIN purchase_order_lines pol ON pol.id = prl."purchaseOrderLineId"
+      WHERE s.status = 'IN_STOCK' AND COALESCE(pol."unitCost", s."unitCost") IS NOT NULL
+      GROUP BY s."productId", s."gradeId"
+    `,
     // Marketplace units sold in the last 3 days, per product+grade — feeds the
     // "MP Sales Recent" column. Each order line is attributed to a product/grade
     // via its seller-SKU mapping. Sales are aggregated by seller SKU first and
@@ -191,6 +213,12 @@ export async function GET(req: NextRequest) {
       costProductOnly.set(c.productId, c.unitCost)
     }
   }
+  // True landed cost of on-hand units, per location and per product+grade.
+  const landedByLoc = new Map<string, number>() // productId:locationId:gradeId
+  for (const c of landedByLocRows) landedByLoc.set(`${c.productId}:${c.locationId}:${c.gradeId ?? ''}`, c.avgCost)
+  const landedByPg = new Map<string, number>()  // productId:gradeId
+  for (const c of landedByPgRows) landedByPg.set(`${c.productId}:${c.gradeId ?? ''}`, c.avgCost)
+
   // Fallback cost from serial-level unitCost (migrations, direct receives)
   const serialCostMap = new Map<string, number>()
   const serialCostProductOnly = new Map<string, number>()
@@ -232,7 +260,11 @@ export async function GET(req: NextRequest) {
       const onHand   = agedQtyMap.has(key) ? agedQtyMap.get(key)! : fullOnHand
       const reserved = hardReserved + wholesaleReserved  // total committed to orders
       const costKey = `${item.productId}:${item.gradeId ?? ''}`
-      const unitCost = costMap.get(costKey) ?? costProductOnly.get(item.productId)
+      // Prefer the actual landed cost of the units at THIS location; then this
+      // product+grade's landed cost across locations; then fall back to the
+      // latest PO price / serial cost (non-serialized products, no receipt link).
+      const unitCost = landedByLoc.get(key) ?? landedByPg.get(costKey)
+        ?? costMap.get(costKey) ?? costProductOnly.get(item.productId)
         ?? serialCostMap.get(costKey) ?? serialCostProductOnly.get(item.productId) ?? null
       // Enrich marketplaceSkus with fulfillmentChannel
       const product = {
