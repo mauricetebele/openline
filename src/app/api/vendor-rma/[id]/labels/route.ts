@@ -75,8 +75,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: `Warehouse "${wh.name}" is missing a shipping address — add it on the Warehouses page.` }, { status: 400 })
   }
 
+  const shipFromCompany = wh.companyName?.trim() || wh.name
   const shipFrom: MultiPieceAddress = {
-    name: wh.name, company: wh.name,
+    name: shipFromCompany, company: shipFromCompany,
     address1: wh.addressLine1, address2: wh.addressLine2 ?? undefined,
     city: wh.city, state: wh.state, postal: wh.postalCode, country: wh.countryCode ?? 'US', phone: wh.phone ?? undefined,
   }
@@ -118,7 +119,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         shipFrom: {
           streetLines: [wh.addressLine1, wh.addressLine2].filter(Boolean) as string[],
           city: wh.city, stateOrProvinceCode: wh.state, postalCode: wh.postalCode, countryCode: wh.countryCode ?? 'US',
-          personName: wh.name, phone: (wh.phone ?? '').replace(/[^0-9]/g, '') || '0000000000',
+          personName: shipFromCompany, phone: (wh.phone ?? '').replace(/[^0-9]/g, '') || '0000000000',
         },
         shipTo: {
           streetLines: [shipToAddr.address1, shipToAddr.address2].filter(Boolean) as string[],

@@ -15,6 +15,7 @@ interface Location {
 interface WarehouseWithLocations {
   id: string
   name: string
+  companyName?: string | null
   addressLine1?: string | null
   addressLine2?: string | null
   city?: string | null
@@ -245,6 +246,7 @@ function WarehouseCard({
   const [addrSaving,   setAddrSaving]   = useState(false)
   const [addrErr,      setAddrErr]      = useState('')
   const [addr, setAddr] = useState({
+    companyName: wh.companyName ?? '',
     addressLine1: wh.addressLine1 ?? '',
     addressLine2: wh.addressLine2 ?? '',
     city: wh.city ?? '',
@@ -406,6 +408,8 @@ function WarehouseCard({
                 <span className="text-xs font-medium text-gray-500">Shipping Address</span>
               </div>
               {addrErr && <span className="text-xs text-red-500">{addrErr}</span>}
+              <input value={addr.companyName} onChange={e => setAddr(a => ({ ...a, companyName: e.target.value }))}
+                placeholder="Company name (shown on labels)" className="w-full h-7 rounded border border-gray-300 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
               <input value={addr.addressLine1} onChange={e => setAddr(a => ({ ...a, addressLine1: e.target.value }))}
                 placeholder="Address line 1" className="w-full h-7 rounded border border-gray-300 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
               <input value={addr.addressLine2} onChange={e => setAddr(a => ({ ...a, addressLine2: e.target.value }))}
@@ -425,7 +429,7 @@ function WarehouseCard({
                   className="h-7 px-3 rounded bg-amazon-blue text-white text-xs font-medium disabled:opacity-60">
                   {addrSaving ? 'Saving…' : 'Save Address'}
                 </button>
-                <button type="button" onClick={() => { setEditingAddr(false); setAddrErr(''); setAddr({ addressLine1: wh.addressLine1 ?? '', addressLine2: wh.addressLine2 ?? '', city: wh.city ?? '', state: wh.state ?? '', postalCode: wh.postalCode ?? '', countryCode: wh.countryCode ?? 'US', phone: wh.phone ?? '' }) }}
+                <button type="button" onClick={() => { setEditingAddr(false); setAddrErr(''); setAddr({ companyName: wh.companyName ?? '', addressLine1: wh.addressLine1 ?? '', addressLine2: wh.addressLine2 ?? '', city: wh.city ?? '', state: wh.state ?? '', postalCode: wh.postalCode ?? '', countryCode: wh.countryCode ?? 'US', phone: wh.phone ?? '' }) }}
                   className="h-7 px-3 rounded border border-gray-200 text-gray-500 text-xs hover:bg-gray-50">Cancel</button>
               </div>
             </div>

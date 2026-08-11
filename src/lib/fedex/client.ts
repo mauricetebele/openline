@@ -124,11 +124,12 @@ async function fedexFetch(
   path: string,
   body: unknown,
   testMode?: boolean,
+  method: 'POST' | 'PUT' = 'POST',
 ): Promise<unknown> {
   const token = await getAccessToken(creds, testMode)
   const base = getBaseUrl(testMode)
   const res = await fetch(`${base}${path}`, {
-    method: 'POST',
+    method,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
@@ -481,4 +482,13 @@ export async function createMultiPieceShipment(
 
   const masterTrackingNumber = shipment.masterTrackingNumber ?? pieces[0].trackingNumber
   return { masterTrackingNumber, pieces }
+}
+
+/** Cancel/void a FedEx shipment by its (master) tracking number. */
+export async function cancelShipment(creds: FedExCredentials, trackingNumber: string, testMode?: boolean): Promise<void> {
+  await fedexFetch(creds, '/ship/v1/shipments/cancel', {
+    accountNumber: { value: creds.accountNumber },
+    trackingNumber,
+    deletionControl: 'DELETE_ALL_PACKAGES',
+  }, testMode, 'PUT')
 }

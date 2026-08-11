@@ -42,7 +42,7 @@ export async function PATCH(
     return NextResponse.json(wh)
   }
 
-  const allowed = ['addressLine1', 'addressLine2', 'city', 'state', 'postalCode', 'countryCode', 'phone'] as const
+  const allowed = ['companyName', 'addressLine1', 'addressLine2', 'city', 'state', 'postalCode', 'countryCode', 'phone'] as const
   const data: Record<string, string | null> = {}
   for (const key of allowed) {
     if (key in body) data[key] = body[key] ?? null

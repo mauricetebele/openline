@@ -5,6 +5,8 @@ import { Plus, X, ChevronDown, ChevronUp, Trash2, AlertCircle, Truck, Tag, ScanL
 import { clsx } from 'clsx'
 import { trackingUrl } from '@/lib/tracking-utils'
 import BuyVendorReturnLabelsModal from './BuyVendorReturnLabelsModal'
+import PurchasedLabelSets, { type PurchasedLabel } from './PurchasedLabelSets'
+import { printAllLabels } from '@/lib/print-labels'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -665,6 +667,14 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
   const [showShippingModal, setShowShippingModal] = useState(false)
   const [showScanOutModal, setShowScanOutModal] = useState(false)
   const [showBuyLabels, setShowBuyLabels] = useState(false)
+  const [purchasedLabels, setPurchasedLabels] = useState<PurchasedLabel[]>([])
+  const loadLabels = useCallback(async () => {
+    try {
+      const d = await fetch(`/api/vendor-rma/${initial.id}/labels`).then(r => r.json())
+      setPurchasedLabels(d.data ?? [])
+    } catch { /* ignore */ }
+  }, [initial.id])
+  useEffect(() => { loadLabels() }, [loadLabels])
 
   // Items view toggle
   const [itemsView, setItemsView] = useState<'lines' | 'serials'>('lines')
@@ -1078,6 +1088,7 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
           }}
           onClose={() => setShowBuyLabels(false)}
           onPurchased={async () => {
+            loadLabels()
             try {
               const res = await fetch(`/api/vendor-rma/${rma.id}`)
               if (res.ok) { const updated: VendorRMA = await res.json(); setRma(updated); onUpdated(updated) }
@@ -1166,17 +1177,38 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
       )}
 
       {/* Return Labels (RTV) */}
-      {(rma.status === 'APPROVED_TO_RETURN' || rma.status === 'SHIPPED_AWAITING_CREDIT' || rma.status === 'CREDIT_RECEIVED') && (
-        <div className="mb-5">
-          <button
-            onClick={() => setShowBuyLabels(true)}
-            className="inline-flex items-center gap-2 bg-white border border-amazon-blue text-amazon-blue text-sm font-medium px-4 py-2 rounded-lg hover:bg-amazon-blue/5"
-          >
-            <Truck size={14} />
-            Buy Return Labels
-          </button>
-        </div>
-      )}
+      {(rma.status === 'APPROVED_TO_RETURN' || rma.status === 'SHIPPED_AWAITING_CREDIT' || rma.status === 'CREDIT_RECEIVED') && (() => {
+        const active = purchasedLabels.filter(l => !l.voided)
+        return (
+          <div className="mb-5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setShowBuyLabels(true)}
+                className="inline-flex items-center gap-2 bg-white border border-amazon-blue text-amazon-blue text-sm font-medium px-4 py-2 rounded-lg hover:bg-amazon-blue/5"
+              >
+                <Truck size={14} />
+                Buy Return Labels
+              </button>
+              {active.length > 0 && (
+                <button
+                  onClick={() => printAllLabels(active)}
+                  className="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50"
+                >
+                  <Download size={14} />
+                  Print All Purchased Labels
+                  <span className="text-xs text-gray-400">({active.length})</span>
+                </button>
+              )}
+            </div>
+            {purchasedLabels.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Purchased Labels</p>
+                <PurchasedLabelSets rmaId={rma.id} labels={purchasedLabels} onChanged={loadLabels} />
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Vendor Approval # */}
       {(rma.status === 'APPROVED_TO_RETURN' || rma.status === 'SHIPPED_AWAITING_CREDIT' || rma.status === 'CREDIT_RECEIVED') && (

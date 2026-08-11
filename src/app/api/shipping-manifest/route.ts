@@ -98,9 +98,14 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { shippedAt: 'desc' },
     }),
-    // Vendor Returns (RTV): one manifest row per purchased label piece.
+    // Vendor Returns (RTV): one manifest row per purchased label piece — but only
+    // once the RMA is actually marked shipped (or later).
     prisma.vendorReturnLabel.findMany({
-      where: { voided: false, createdAt: { gte: start, lte: end } },
+      where: {
+        voided: false,
+        createdAt: { gte: start, lte: end },
+        vendorRma: { status: { in: ['SHIPPED_AWAITING_CREDIT', 'CREDIT_RECEIVED'] } },
+      },
       select: {
         id: true, carrier: true, serviceLabel: true, serviceCode: true, trackingNumber: true, createdAt: true,
         vendorRma: { select: { rmaNumber: true, vendor: { select: { name: true } } } },

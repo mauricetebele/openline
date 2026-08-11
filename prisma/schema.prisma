@@ -1287,6 +1287,7 @@ enum MFNReturnSyncStatus {
 model Warehouse {
   id           String   @id @default(cuid())
   name         String
+  companyName  String?  // shown as the ship-from company on labels
   isDefault    Boolean  @default(false) // default ship-from origin for labels
   addressLine1 String?
   addressLine2 String?
