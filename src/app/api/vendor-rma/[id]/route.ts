@@ -83,14 +83,22 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   const body = await req.json()
   const { notes, vendorApprovalNumber, carrier, trackingNumber } = body
 
+  // Tracking may arrive as a single value or an array; normalize both.
+  const trackingProvided = body.trackingNumbers !== undefined || trackingNumber !== undefined
+  const rawTrackings: string[] = Array.isArray(body.trackingNumbers)
+    ? body.trackingNumbers
+    : (trackingNumber !== undefined ? [trackingNumber] : [])
+  const trackings = Array.from(new Set(rawTrackings.map((t: unknown) => String(t).trim()).filter(Boolean)))
+
   const rma = await prisma.vendorRMA.update({
     where: { id: params.id },
     data: {
       ...(notes !== undefined && { notes: notes?.trim() || null }),
       ...(vendorApprovalNumber !== undefined && { vendorApprovalNumber: vendorApprovalNumber?.trim() || null }),
       ...(carrier !== undefined && { carrier: carrier?.trim() || null }),
-      ...(trackingNumber !== undefined && {
-        trackingNumber: trackingNumber?.trim() || null,
+      ...(trackingProvided && {
+        trackingNumber: trackings[0] ?? null,
+        trackingNumbers: trackings,
         carrierStatus: null,
         deliveredAt: null,
         estimatedDelivery: null,

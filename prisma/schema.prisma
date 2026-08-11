@@ -1901,7 +1901,8 @@ model VendorRMA {
   status               VendorRMAStatus @default(AWAITING_VENDOR_APPROVAL)
   vendorApprovalNumber String?
   carrier              String?
-  trackingNumber       String?
+  trackingNumber       String?   // primary tracking # (first of trackingNumbers)
+  trackingNumbers      String[]  @default([]) // all tracking #s for this return shipment
   carrierStatus        String?
   deliveredAt          DateTime?
   estimatedDelivery    DateTime?

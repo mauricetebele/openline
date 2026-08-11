@@ -20,7 +20,7 @@ interface VendorRMAItem {
 }
 interface VendorRMA {
   id: string; rmaNumber: string; status: RMAStatus
-  vendorApprovalNumber: string | null; carrier: string | null; trackingNumber: string | null
+  vendorApprovalNumber: string | null; carrier: string | null; trackingNumber: string | null; trackingNumbers: string[]
   carrierStatus: string | null; deliveredAt: string | null; estimatedDelivery: string | null; trackingUpdatedAt: string | null
   notes: string | null; createdAt: string; updatedAt: string
   vendor: {
@@ -126,13 +126,14 @@ function ApprovalModal({
 
 function ShippingModal({
   labels, onConfirm, onCancel, saving,
-}: { labels: PurchasedLabel[]; onConfirm: (carrier: string, tracking: string) => void; onCancel: () => void; saving: boolean }) {
+}: { labels: PurchasedLabel[]; onConfirm: (carrier: string, trackings: string[]) => void; onCancel: () => void; saving: boolean }) {
   const hasLabels = labels.length > 0
   const [mode, setMode] = useState<'labels' | 'manual'>(hasLabels ? 'labels' : 'manual')
   const [carrier, setCarrier] = useState('UPS')
   const [customCarrier, setCustomCarrier] = useState('')
-  const [tracking, setTracking] = useState('')
+  const [trackings, setTrackings] = useState<string[]>([''])
   const effectiveCarrier = carrier === 'Other' ? customCarrier : carrier
+  const manualTrackings = trackings.map(t => t.trim()).filter(Boolean)
 
   // Purchased labels grouped into sets (one carrier purchase each).
   const sets = useMemo(() => {
@@ -147,7 +148,8 @@ function ShippingModal({
     if (!chosen) return
     const head = chosen[0]
     const carrierName = head.carrier === 'ups' ? 'UPS' : head.carrier === 'fedex' ? 'FedEx' : head.carrier
-    onConfirm(carrierName, head.shipmentId ?? head.trackingNumber)
+    // Mark shipped with every piece's tracking number in the chosen set.
+    onConfirm(carrierName, chosen.map(pc => pc.trackingNumber))
   }
 
   return (
@@ -206,9 +208,21 @@ function ShippingModal({
               )}
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Tracking Number</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                placeholder="e.g. 1Z999AA10123456784" value={tracking} onChange={e => setTracking(e.target.value)} />
+              <label className="block text-xs font-medium text-gray-700 mb-1">Tracking Number(s)</label>
+              <div className="space-y-2">
+                {trackings.map((t, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                      placeholder="e.g. 1Z999AA10123456784" value={t}
+                      onChange={e => setTrackings(a => a.map((x, idx) => idx === i ? e.target.value : x))}
+                      onKeyDown={e => { if (e.key === 'Enter' && effectiveCarrier && manualTrackings.length) onConfirm(effectiveCarrier, manualTrackings) }} />
+                    {trackings.length > 1 && (
+                      <button onClick={() => setTrackings(a => a.filter((_, idx) => idx !== i))} className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 size={13} /></button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setTrackings(a => [...a, ''])} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-amazon-blue hover:underline"><Plus size={12} /> Add tracking #</button>
             </div>
           </div>
         )}
@@ -221,9 +235,9 @@ function ShippingModal({
               {saving ? 'Saving…' : 'Mark Shipped'}
             </button>
           ) : (
-            <button onClick={() => onConfirm(effectiveCarrier, tracking.trim())} disabled={!effectiveCarrier || !tracking.trim() || saving}
+            <button onClick={() => onConfirm(effectiveCarrier, manualTrackings)} disabled={!effectiveCarrier || manualTrackings.length === 0 || saving}
               className="px-3 py-1.5 text-sm bg-amazon-blue text-white rounded-lg hover:opacity-90 disabled:opacity-50">
-              {saving ? 'Saving…' : 'Mark Shipped'}
+              {saving ? 'Saving…' : `Mark Shipped${manualTrackings.length > 1 ? ` (${manualTrackings.length})` : ''}`}
             </button>
           )}
         </div>
@@ -706,7 +720,8 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
   const [editingApproval, setEditingApproval] = useState(false)
   const [editingShipping, setEditingShipping] = useState(false)
   const [editCarrier, setEditCarrier] = useState(initial.carrier ?? '')
-  const [editTracking, setEditTracking] = useState(initial.trackingNumber ?? '')
+  const initTrackings = (r: VendorRMA): string[] => (r.trackingNumbers?.length ? r.trackingNumbers : r.trackingNumber ? [r.trackingNumber] : [''])
+  const [editTrackings, setEditTrackings] = useState<string[]>(() => initTrackings(initial))
 
   // Status modals
   const [showApprovalModal, setShowApprovalModal] = useState(false)
@@ -1052,13 +1067,13 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
     const res = await fetch(`/api/vendor-rma/${rma.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ carrier: editCarrier, trackingNumber: editTracking }),
+      body: JSON.stringify({ carrier: editCarrier, trackingNumbers: editTrackings.map(t => t.trim()).filter(Boolean) }),
     })
-    if (res.ok) { const d = await res.json(); setRma(d); onUpdated(d); setEditingShipping(false); setEditCarrier(d.carrier ?? ''); setEditTracking(d.trackingNumber ?? '') }
+    if (res.ok) { const d = await res.json(); setRma(d); onUpdated(d); setEditingShipping(false); setEditCarrier(d.carrier ?? ''); setEditTrackings(initTrackings(d)) }
     setSaving(false)
   }
 
-  async function handleStatusChange(newStatus: RMAStatus, extra?: Record<string, string>) {
+  async function handleStatusChange(newStatus: RMAStatus, extra?: Record<string, unknown>) {
     setSaving(true)
     setErr(null)
     try {
@@ -1104,7 +1119,7 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
       {showShippingModal && createPortal(
         <ShippingModal
           labels={purchasedLabels.filter(l => !l.voided)}
-          onConfirm={(carrier, trackingNumber) => handleStatusChange('SHIPPED_AWAITING_CREDIT', { carrier, trackingNumber })}
+          onConfirm={(carrier, trackingNumbers) => handleStatusChange('SHIPPED_AWAITING_CREDIT', { carrier, trackingNumbers })}
           onCancel={() => setShowShippingModal(false)}
           saving={saving}
         />,
@@ -1300,19 +1315,22 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
                 />
               </div>
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Tag size={11} />Tracking #</p>
-                <input
-                  type="text"
-                  className="input text-sm py-1.5 px-2 w-full font-mono"
-                  value={editTracking}
-                  onChange={e => setEditTracking(e.target.value)}
-                  placeholder="1Z..."
-                  onKeyDown={e => { if (e.key === 'Enter') saveShipping(); if (e.key === 'Escape') setEditingShipping(false) }}
-                />
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1"><Tag size={11} />Tracking #(s)</p>
+                <div className="space-y-1.5">
+                  {editTrackings.map((t, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <input type="text" className="input text-sm py-1.5 px-2 w-full font-mono" value={t} placeholder="1Z..."
+                        onChange={e => setEditTrackings(a => a.map((x, idx) => idx === i ? e.target.value : x))}
+                        onKeyDown={e => { if (e.key === 'Enter') saveShipping(); if (e.key === 'Escape') setEditingShipping(false) }} />
+                      {editTrackings.length > 1 && <button onClick={() => setEditTrackings(a => a.filter((_, idx) => idx !== i))} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={12} /></button>}
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => setEditTrackings(a => [...a, ''])} className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-amazon-blue hover:underline"><Plus size={11} /> Add tracking #</button>
               </div>
               <div className="col-span-2 flex items-center gap-2">
                 <button onClick={saveShipping} disabled={saving} className="text-xs bg-amazon-blue text-white px-2 py-1.5 rounded-lg disabled:opacity-50">Save</button>
-                <button onClick={() => { setEditingShipping(false); setEditCarrier(rma.carrier ?? ''); setEditTracking(rma.trackingNumber ?? '') }} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                <button onClick={() => { setEditingShipping(false); setEditCarrier(rma.carrier ?? ''); setEditTrackings(initTrackings(rma)) }} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
               </div>
             </div>
           ) : (
@@ -1328,11 +1346,15 @@ function DetailPanel({ rma: initial, onClose, onUpdated, onDeleted }: {
                     <Pencil size={11} />
                   </button>
                 </p>
-                {rma.trackingNumber ? (
-                  <a href={trackingUrl(rma.trackingNumber)} target="_blank" rel="noopener noreferrer"
-                    className="text-sm font-mono text-blue-600 hover:underline inline-flex items-center gap-1">
-                    {rma.trackingNumber} <ExternalLink size={10} />
-                  </a>
+                {(rma.trackingNumbers?.length ? rma.trackingNumbers : rma.trackingNumber ? [rma.trackingNumber] : []).length > 0 ? (
+                  <div className="space-y-0.5">
+                    {(rma.trackingNumbers?.length ? rma.trackingNumbers : [rma.trackingNumber!]).map((tn, i) => (
+                      <a key={i} href={trackingUrl(tn)} target="_blank" rel="noopener noreferrer"
+                        className="text-sm font-mono text-blue-600 hover:underline inline-flex items-center gap-1">
+                        {tn} <ExternalLink size={10} />
+                      </a>
+                    ))}
+                  </div>
                 ) : (
                   <p className="text-sm font-mono text-gray-900">—</p>
                 )}

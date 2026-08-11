@@ -16,6 +16,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const body = await req.json()
   const { newStatus, vendorApprovalNumber, carrier, trackingNumber } = body
+  // Accept one or many tracking numbers; normalize to a clean list + a primary.
+  const rawTrackings: string[] = Array.isArray(body.trackingNumbers)
+    ? body.trackingNumbers
+    : (trackingNumber ? [trackingNumber] : [])
+  const trackings = Array.from(new Set(rawTrackings.map((t: unknown) => String(t).trim()).filter(Boolean)))
+  const primaryTracking = trackings[0] ?? ''
 
   const rma = await prisma.vendorRMA.findUnique({
     where: { id: params.id },
@@ -32,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (newStatus === 'SHIPPED_AWAITING_CREDIT') {
     if (!carrier?.trim()) return NextResponse.json({ error: 'Carrier is required' }, { status: 400 })
-    if (!trackingNumber?.trim()) return NextResponse.json({ error: 'Tracking number is required' }, { status: 400 })
+    if (trackings.length === 0) return NextResponse.json({ error: 'At least one tracking number is required' }, { status: 400 })
 
     // All serials must be scanned out before shipping
     const allSerials = rma.items.flatMap(i => i.serials)
@@ -80,14 +86,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     const carrierTrimmed = carrier.trim()
-    const trackingTrimmed = trackingNumber.trim()
-    const historyNote = `Vendor RMA ${rma.rmaNumber} shipped — ${carrierTrimmed} ${trackingTrimmed}`
+    const historyNote = `Vendor RMA ${rma.rmaNumber} shipped — ${carrierTrimmed} ${trackings.join(', ')}`
 
     await prisma.$transaction(async (tx) => {
       // 1. Update RMA status
       await tx.vendorRMA.update({
         where: { id: params.id },
-        data: { status: newStatus, carrier: carrierTrimmed, trackingNumber: trackingTrimmed },
+        data: { status: newStatus, carrier: carrierTrimmed, trackingNumber: primaryTracking, trackingNumbers: trackings },
       })
 
       // 2. Bulk mark matched serials as OUT_OF_STOCK
