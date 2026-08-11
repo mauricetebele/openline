@@ -3833,10 +3833,11 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   // (with a 24h grace for timezone slack). A toggle reveals them if needed.
   const deliverBy = order.orderSource !== 'backmarket' && order.latestDeliveryDate ? new Date(order.latestDeliveryDate) : null
   const utcDay = (d: Date) => d.toISOString().slice(0, 10)
-  // Amazon stores latestDeliveryDate as end-of-day in the buyer's timezone, which
-  // lands in the early hours of the next UTC day — shift back 12h so the
-  // deliver-by DAY (e.g. 8/13) is correct, then compare calendar days.
-  const deliverByDay = deliverBy ? utcDay(new Date(deliverBy.getTime() - 12 * 60 * 60 * 1000)) : null
+  // Compare the method's estimated-delivery DAY against the deliver-by DAY, using
+  // the SAME (raw UTC) normalization on both — the deliver-by and the carrier
+  // estimates share Amazon's end-of-day encoding, so a one-sided shift would
+  // wrongly flag on-time methods (e.g. a 2nd-Day arriving on the deliver-by day).
+  const deliverByDay = deliverBy ? utcDay(deliverBy) : null
   const estDateOfRate = (rate: SSRate): Date | null => {
     if (rate.deliveryDate) return new Date(rate.deliveryDate)
     if (rate.transitDays != null && rate.transitDays > 0) {
@@ -3847,7 +3848,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
     return null
   }
   const isLateDate = (est: Date | null): boolean => !!(deliverByDay && est && utcDay(est) > deliverByDay)
-  const deliverByLabel = deliverBy ? new Date(deliverBy.getTime() - 12 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''
+  const deliverByLabel = deliverBy ? deliverBy.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''
   const amazonLate = deliverBy && amazonServices ? amazonServices.filter(s => isLateDate(s.latestDeliveryDate ? new Date(s.latestDeliveryDate) : null)) : []
   const ratesLate = deliverBy && rates ? rates.filter(r => isLateDate(estDateOfRate(r))) : []
   const totalHiddenLate = amazonLate.length + ratesLate.length

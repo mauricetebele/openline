@@ -230,9 +230,12 @@ export async function POST(req: NextRequest) {
             // a ship-by date, so it's excluded.
             const deliverBy = orderIsAmazon && order.latestDeliveryDate ? new Date(order.latestDeliveryDate) : null
             const utcDay = (d: Date) => d.toISOString().slice(0, 10)
-            // latestDeliveryDate is end-of-day in the buyer's tz (early next UTC
-            // day); shift back 12h so the deliver-by DAY is right, then compare days.
-            const deliverByDay = deliverBy ? utcDay(new Date(deliverBy.getTime() - 12 * 60 * 60 * 1000)) : null
+            // Compare the method's estimated-delivery DAY against the deliver-by DAY
+            // using the SAME raw UTC normalization on both. deliver-by and the
+            // carrier estimates share Amazon's end-of-day encoding, so a one-sided
+            // shift wrongly flags on-time methods (e.g. a 2nd-Day arriving on the
+            // deliver-by day) and forced overnight.
+            const deliverByDay = deliverBy ? utcDay(deliverBy) : null
             const estDeliveryDate = (deliveryDate?: string | null, transitDays?: number | null): Date | null => {
               if (deliveryDate) return new Date(deliveryDate)
               if (transitDays != null && transitDays > 0) {
