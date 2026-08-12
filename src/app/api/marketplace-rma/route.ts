@@ -11,9 +11,12 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const search = searchParams.get('search')?.trim()
   const status = searchParams.get('status')
+  const source = searchParams.get('source')?.toLowerCase()
 
   const where: Record<string, unknown> = {}
   if (status) where.status = status
+  // Filter by marketplace (the parent order's source)
+  if (source === 'amazon' || source === 'backmarket') where.order = { orderSource: source }
   if (search) {
     where.OR = [
       { rmaNumber: { contains: search, mode: 'insensitive' } },
