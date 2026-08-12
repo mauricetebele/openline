@@ -8000,7 +8000,7 @@ export default function UnshippedOrders() {
                               <CheckCircle2 size={10} /> Accepted
                             </span>
                           )}
-                          {order.orderStatus !== 'Unshipped' && (
+                          {(order.orderStatus !== 'Unshipped' || order.isReplacement) && (
                             <>
                               <button onClick={() => setLabelOrder(order)}
                                 className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium transition-colors',
