@@ -148,15 +148,25 @@ function ShippingModal({
     for (const l of labels) { const a = m.get(l.labelSetId) ?? []; a.push(l); m.set(l.labelSetId, a) }
     return Array.from(m.values()).map(r => r.sort((a, b) => a.pieceNumber - b.pieceNumber))
   }, [labels])
-  const [setIdx, setSetIdx] = useState(0)
-  const chosen = sets[setIdx]
+  // Default: every purchased set is selected — a return can ship using ALL of
+  // the labels bought for it (e.g. some FedEx boxes + some UPS boxes).
+  const [selectedSetIds, setSelectedSetIds] = useState<Set<string>>(() => new Set(labels.map(l => l.labelSetId)))
+  const toggleSet = (id: string) => setSelectedSetIds(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+  // Every piece across every selected set becomes a tracking entry.
+  const selectedEntries = sets.flatMap(rows => {
+    const head = rows[0]
+    if (!selectedSetIds.has(head.labelSetId)) return []
+    const carrierName = head.carrier === 'ups' ? 'UPS' : head.carrier === 'fedex' ? 'FedEx' : head.carrier
+    return rows.map(pc => ({ carrier: carrierName, tracking: pc.trackingNumber }))
+  })
 
   function confirmLabels() {
-    if (!chosen) return
-    const head = chosen[0]
-    const carrierName = head.carrier === 'ups' ? 'UPS' : head.carrier === 'fedex' ? 'FedEx' : head.carrier
-    // Mark shipped with every piece's tracking number in the chosen set.
-    onConfirm(chosen.map(pc => ({ carrier: carrierName, tracking: pc.trackingNumber })))
+    if (selectedEntries.length === 0) return
+    onConfirm(selectedEntries)
   }
 
   return (
@@ -179,13 +189,17 @@ function ShippingModal({
 
         {mode === 'labels' && hasLabels ? (
           <div className="space-y-2 mb-4">
-            {sets.map((rows, i) => {
+            {sets.length > 1 && (
+              <p className="text-[11px] text-gray-500">Select every label set you used to ship this return — all are selected by default.</p>
+            )}
+            {sets.map((rows) => {
               const head = rows[0]
               const carrierName = head.carrier === 'ups' ? 'UPS' : head.carrier === 'fedex' ? 'FedEx' : head.carrier
+              const selected = selectedSetIds.has(head.labelSetId)
               return (
-                <label key={head.labelSetId} className={clsx('block rounded-lg border px-3 py-2 cursor-pointer', setIdx === i ? 'border-amazon-blue bg-amazon-blue/5' : 'border-gray-200 hover:bg-gray-50')}>
+                <label key={head.labelSetId} className={clsx('block rounded-lg border px-3 py-2 cursor-pointer', selected ? 'border-amazon-blue bg-amazon-blue/5' : 'border-gray-200 hover:bg-gray-50')}>
                   <div className="flex items-center gap-2">
-                    {sets.length > 1 && <input type="radio" checked={setIdx === i} onChange={() => setSetIdx(i)} className="accent-amazon-blue" />}
+                    <input type="checkbox" checked={selected} onChange={() => toggleSet(head.labelSetId)} className="accent-amazon-blue" />
                     <span className="text-xs font-semibold text-gray-700">{carrierName}</span>
                     <span className="text-xs text-gray-500">{head.serviceLabel ?? head.serviceCode}</span>
                     <span className="text-[11px] text-gray-400">{rows.length} pc</span>
@@ -223,9 +237,9 @@ function ShippingModal({
         <div className="flex gap-2 justify-end">
           <button onClick={onCancel} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
           {mode === 'labels' && hasLabels ? (
-            <button onClick={confirmLabels} disabled={!chosen || saving}
+            <button onClick={confirmLabels} disabled={selectedEntries.length === 0 || saving}
               className="px-3 py-1.5 text-sm bg-amazon-blue text-white rounded-lg hover:opacity-90 disabled:opacity-50">
-              {saving ? 'Saving…' : 'Mark Shipped'}
+              {saving ? 'Saving…' : `Mark Shipped${selectedEntries.length > 1 ? ` (${selectedEntries.length})` : ''}`}
             </button>
           ) : (
             <button onClick={() => onConfirm(manualEntries)} disabled={manualEntries.length === 0 || saving}
