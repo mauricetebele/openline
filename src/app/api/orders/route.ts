@@ -100,9 +100,17 @@ export async function GET(req: NextRequest) {
     // (overdue). Mirrors the dueOutToday badge semantics in /api/orders/counts.
     // Uses AND so it composes with the search OR above.
     if (searchParams.get('dueToday') === '1') {
+      // Exclusive upper bound = Pacific midnight (start of tomorrow PT) as a UTC
+      // instant. Amazon stores ship-by as end-of-day Pacific (e.g.
+      // 2026-08-13T06:59:59Z = Aug 12 23:59 PDT), so a UTC-midnight bound would
+      // be 7-8h too early and wrongly exclude orders due today.
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
       const [y, mo, d] = todayStr.split('-').map(Number)
-      const tomorrowMidnight = new Date(Date.UTC(y, mo - 1, d + 1))
+      const guessMs = Date.UTC(y, mo - 1, d + 1)
+      const offsetMs =
+        new Date(new Date(guessMs).toLocaleString('en-US', { timeZone: 'UTC' })).getTime() -
+        new Date(new Date(guessMs).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
+      const tomorrowMidnight = new Date(guessMs + offsetMs)
       where.AND = [
         {
           OR: [

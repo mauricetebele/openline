@@ -15,15 +15,20 @@ export async function GET(req: NextRequest) {
   const accountId = req.nextUrl.searchParams.get('accountId')?.trim()
   if (!accountId) return NextResponse.json({ pending: 0, unshipped: 0, awaiting: 0 })
 
-  // End of today in Pacific time: get today's date string in PT, then add 1 day
-  // latestShipDate from Amazon is typically a full timestamp, so we compare < tomorrow midnight UTC
-  // (Amazon ship-by dates are UTC-based, so UTC comparison is correct here)
+  // Day boundaries as Pacific midnights expressed in UTC. Amazon stores ship-by
+  // dates as end-of-day Pacific (e.g. 2026-08-13T06:59:59Z = Aug 12 23:59 PDT),
+  // so a UTC-midnight bound would be 7-8h too early and exclude orders due today.
+  const pacificMidnightUTC = (yy: number, mm: number, dd: number): Date => {
+    const guessMs = Date.UTC(yy, mm - 1, dd)
+    const offsetMs =
+      new Date(new Date(guessMs).toLocaleString('en-US', { timeZone: 'UTC' })).getTime() -
+      new Date(new Date(guessMs).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
+    return new Date(guessMs + offsetMs)
+  }
   const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
   const [y, m, d] = todayStr.split('-').map(Number)
-  const tomorrowMidnight = new Date(Date.UTC(y, m - 1, d + 1))
-
-  // Start of today in Pacific time (midnight PT → UTC)
-  const todayMidnight = new Date(Date.UTC(y, m - 1, d))
+  const todayMidnight = pacificMidnightUTC(y, m, d)
+  const tomorrowMidnight = pacificMidnightUTC(y, m, d + 1)
 
   const orderSource = req.nextUrl.searchParams.get('orderSource')?.toLowerCase()
 
