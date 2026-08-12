@@ -5706,6 +5706,7 @@ export default function UnshippedOrders() {
   const [filterChannel, setFilterChannel]                       = useState<'all' | 'amazon' | 'backmarket' | 'wholesale'>('all')
   const [filterPkgPreset, setFilterPkgPreset]                 = useState<'all' | 'assigned' | 'unassigned'>('all')
   const [filterPrime, setFilterPrime]                           = useState(false)
+  const [filterDueToday, setFilterDueToday]                     = useState(false)
   // Rate shop using applied presets
   const [rateShoppingApplied, setRateShoppingApplied]         = useState(false)
   const [rateShopAppliedIds, setRateShopAppliedIds]           = useState<Set<string>>(new Set())
@@ -5821,6 +5822,8 @@ export default function UnshippedOrders() {
     const params = new URLSearchParams({ accountId: selectedAccountId, tab: activeTab, page: String(page), pageSize: String(pageSize), sortBy: serverSortBy, sortDir })
     if (search) params.set('search', search)
     if (filterChannel === 'amazon' || filterChannel === 'backmarket') params.set('orderSource', filterChannel)
+    // "Ship By Today" only applies to tabs that carry a ship-by deadline
+    if (filterDueToday && (activeTab === 'pending' || activeTab === 'unshipped' || activeTab === 'awaiting')) params.set('dueToday', '1')
     fetch(`/api/orders?${params}`)
       .then(async res => { if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error ?? `${res.status}`) } return res.json() })
       .then(({ data, pagination: p }) => {
@@ -5831,9 +5834,9 @@ export default function UnshippedOrders() {
       .catch(err => { if (!cancelled) setFetchError(err instanceof Error ? err.message : String(err)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [selectedAccountId, activeTab, page, pageSize, search, sortBy, sortDir, fetchKey, filterChannel])
+  }, [selectedAccountId, activeTab, page, pageSize, search, sortBy, sortDir, fetchKey, filterChannel, filterDueToday])
 
-  useEffect(() => { setPage(1); setFetchKey(k => k + 1); setSelectedOrderIds(new Set()) }, [search, selectedAccountId, pageSize, activeTab, sortBy, sortDir, filterChannel])
+  useEffect(() => { setPage(1); setFetchKey(k => k + 1); setSelectedOrderIds(new Set()) }, [search, selectedAccountId, pageSize, activeTab, sortBy, sortDir, filterChannel, filterDueToday])
 
   // Fetch tab counts whenever the account, fetchKey, or channel filter changes
   useEffect(() => {
@@ -7444,6 +7447,18 @@ export default function UnshippedOrders() {
           <input type="checkbox" checked={filterPrime} onChange={e => setFilterPrime(e.target.checked)} className="sr-only" />
           <span className="italic font-black tracking-wider text-[10px]">prime</span>
         </label>
+        {(activeTab === 'pending' || activeTab === 'unshipped' || activeTab === 'awaiting') && (
+          <label className={clsx(
+            'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium cursor-pointer transition-colors select-none',
+            filterDueToday
+              ? 'bg-red-600 text-white'
+              : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-400 hover:text-gray-700',
+          )} title="Show only orders whose ship-by date is today or overdue">
+            <input type="checkbox" checked={filterDueToday} onChange={e => setFilterDueToday(e.target.checked)} className="sr-only" />
+            <Clock size={11} />
+            <span>Ship By Today</span>
+          </label>
+        )}
       </div>
 
       {/* Tab bar */}

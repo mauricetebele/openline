@@ -96,6 +96,24 @@ export async function GET(req: NextRequest) {
       ]
     }
 
+    // "Ship By Today" filter: ship-by date is today (Pacific) or earlier
+    // (overdue). Mirrors the dueOutToday badge semantics in /api/orders/counts.
+    // Uses AND so it composes with the search OR above.
+    if (searchParams.get('dueToday') === '1') {
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+      const [y, mo, d] = todayStr.split('-').map(Number)
+      const tomorrowMidnight = new Date(Date.UTC(y, mo - 1, d + 1))
+      where.AND = [
+        {
+          OR: [
+            { latestShipDate: { lt: tomorrowMidnight } },
+            // BM orders store the dispatch deadline in latestDeliveryDate
+            { orderSource: 'backmarket', latestDeliveryDate: { lt: tomorrowMidnight } },
+          ],
+        },
+      ]
+    }
+
     const [total, orders] = await Promise.all([
       prisma.order.count({ where }),
       prisma.order.findMany({
