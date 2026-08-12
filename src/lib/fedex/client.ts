@@ -503,7 +503,7 @@ export async function getMultiPieceRate(
       requestedPackageLineItems: params.packages.map(p => ({ weight: p.weight, ...(p.dimensions ? { dimensions: p.dimensions } : {}) })),
     },
   }
-  const data = await fedexFetch(creds, '/rate/v1/rates', payload, testMode) as {
+  const data = await fedexFetch(creds, '/rate/v1/rates/quotes', payload, testMode) as {
     output?: { rateReplyDetails?: Array<{ serviceType?: string; ratedShipmentDetails?: Array<{ rateType?: string; totalNetCharge?: number; currency?: string }> }> }
   }
   const details = data?.output?.rateReplyDetails ?? []
