@@ -89,7 +89,17 @@ export async function GET(req: NextRequest) {
       : null,
   }))
 
-  return NextResponse.json({ data })
+  // Commission-refund filter (BackMarket returns only): keep those that have a
+  // commission-refund entry, or those that don't.
+  const commission = searchParams.get('commission')
+  const filtered =
+    commission === 'refunded'
+      ? data.filter(r => r.order?.orderSource === 'backmarket' && r.commissionRefund != null)
+      : commission === 'not_refunded'
+        ? data.filter(r => r.order?.orderSource === 'backmarket' && r.commissionRefund == null)
+        : data
+
+  return NextResponse.json({ data: filtered })
 }
 
 export async function POST(req: NextRequest) {

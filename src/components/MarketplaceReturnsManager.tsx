@@ -37,6 +37,7 @@ export default function MarketplaceReturnsManager() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'' | RMAStatus>('')
   const [sourceFilter, setSourceFilter] = useState<'' | 'amazon' | 'backmarket'>('')
+  const [commissionFilter, setCommissionFilter] = useState<'' | 'refunded' | 'not_refunded'>('')
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -55,12 +56,13 @@ export default function MarketplaceReturnsManager() {
       if (search) params.set('search', search)
       if (statusFilter) params.set('status', statusFilter)
       if (sourceFilter) params.set('source', sourceFilter)
+      if (commissionFilter) params.set('commission', commissionFilter)
       const res = await fetch(`/api/marketplace-rma?${params}`)
       const json = await res.json()
       setRmas(json.data ?? [])
     } catch { /* ignore */ }
     setLoading(false)
-  }, [search, statusFilter, sourceFilter])
+  }, [search, statusFilter, sourceFilter, commissionFilter])
 
   useEffect(() => { fetchRmas() }, [fetchRmas])
 
@@ -159,6 +161,16 @@ export default function MarketplaceReturnsManager() {
           <option value="amazon">Amazon</option>
           <option value="backmarket">BackMarket</option>
         </select>
+        <select
+          value={commissionFilter}
+          onChange={(e) => setCommissionFilter(e.target.value as '' | 'refunded' | 'not_refunded')}
+          className="h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+          title="Filter BackMarket returns by commission-refund status"
+        >
+          <option value="">All commissions</option>
+          <option value="refunded">Commission refunded</option>
+          <option value="not_refunded">Commission not refunded</option>
+        </select>
 
         {rmas.length > 0 && (
           <span className="text-xs text-gray-400">
@@ -183,9 +195,9 @@ export default function MarketplaceReturnsManager() {
         <div className="py-20 text-center">
           <RotateCcw size={36} className="mx-auto text-gray-200 mb-3" />
           <p className="text-sm font-medium text-gray-400">
-            {search || statusFilter || sourceFilter ? 'No returns match your filters' : 'No marketplace returns yet'}
+            {search || statusFilter || sourceFilter || commissionFilter ? 'No returns match your filters' : 'No marketplace returns yet'}
           </p>
-          {!search && !statusFilter && !sourceFilter && (
+          {!search && !statusFilter && !sourceFilter && !commissionFilter && (
             <button onClick={() => setShowOrderSearch(true)} className="mt-3 text-sm text-amazon-blue hover:underline">
               Create your first return
             </button>
