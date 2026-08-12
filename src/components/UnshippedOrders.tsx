@@ -102,6 +102,7 @@ interface Order {
   requiresTransparency?: boolean
   // Source: amazon, backmarket, or wholesale
   orderSource?: 'amazon' | 'backmarket' | 'wholesale'
+  isReplacement?: boolean | null
   wholesaleOrderNumber?: string | null
   wholesaleCustomerName?: string | null
   customerPo?: string | null
@@ -7607,6 +7608,11 @@ export default function UnshippedOrders() {
                             <Eye size={10} className="text-gray-300 group-hover:text-amazon-blue transition-colors" />
                           </button>
                           {order.orderSource === 'backmarket' ? <BackMarketBadge /> : <AmazonSmileIcon />}
+                          {order.isReplacement && (
+                            <span title="BackMarket Replacement order — excluded from profitability" className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-blue-100 text-blue-800 border border-blue-300 px-1 py-px rounded whitespace-nowrap">
+                              <RotateCcw size={8} /> REPL
+                            </span>
+                          )}
                           {order.isPrime && <PrimeBadge />}
                           {order.requiresTransparency && (
                             <span title="Transparency code required" className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-teal-100 text-teal-800 border border-teal-300 px-1 py-px rounded">

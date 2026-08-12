@@ -393,6 +393,9 @@ export async function syncBackMarketOrders(
         orderSource: 'backmarket',
         workflowStatus: 'PENDING',
         amazonOrderId: { notIn: fetchedIds },
+        // Never delete manually-created replacement orders — the BM API will
+        // never return their synthetic ids, so exclude them from cleanup.
+        isReplacement: { not: true },
       },
     })
 

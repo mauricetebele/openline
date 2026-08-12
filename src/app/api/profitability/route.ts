@@ -162,6 +162,9 @@ export async function GET(req: NextRequest) {
   const marketplaceWhere = {
     workflowStatus: 'SHIPPED' as const,
     fulfillmentChannel: { not: 'AFN' },
+    // Exclude free replacement orders — they carry no revenue and must not
+    // impact profitability. `not: true` (not `false`) keeps legacy NULL rows.
+    isReplacement: { not: true },
     OR: [
       { shippedAt: { gte: dateFrom, lte: dateTo } },
       { shippedAt: null, purchaseDate: { gte: dateFrom, lte: dateTo } },

@@ -8,6 +8,7 @@ import {
 import { clsx } from 'clsx'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
 import CreateReturnModal from './CreateMarketplaceReturnModal'
+import CreateReplacementOrderModal from './CreateReplacementOrderModal'
 import SickwCheckButton from './SickwCheckButton'
 import type { OrderSearchResult } from './CreateMarketplaceReturnModal'
 
@@ -182,6 +183,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
   const [returnLoading, setReturnLoading] = useState(false)
   const [bmEntries, setBmEntries] = useState<BmEntry[]>([])
   const [expandedChecks, setExpandedChecks] = useState<Set<string>>(new Set())
+  const [showReplacementModal, setShowReplacementModal] = useState(false)
 
   useEffect(() => {
     fetch(`/api/orders/${orderId}`)
@@ -321,6 +323,14 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
               className="flex items-center gap-1.5 text-xs font-medium bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700/40 px-3 py-1.5 rounded-md transition-colors"
             >
               <RotateCcw size={14} /> {returnLoading ? 'Loading...' : 'Create Return'}
+            </button>
+          )}
+          {order.orderSource === 'backmarket' && (
+            <button
+              onClick={() => setShowReplacementModal(true)}
+              className="flex items-center gap-1.5 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700/40 px-3 py-1.5 rounded-md transition-colors"
+            >
+              <RotateCcw size={14} /> Create Replacement Order
             </button>
           )}
           <button
@@ -724,6 +734,23 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
           order={returnModalOrder}
           onClose={() => setReturnModalOrder(null)}
           onCreated={handleReturnCreated}
+        />
+      )}
+
+      {/* Create Replacement Order Modal (BackMarket only) */}
+      {showReplacementModal && (
+        <CreateReplacementOrderModal
+          orderId={order.id}
+          sourceItems={order.items.map(i => ({
+            sellerSku: i.sellerSku,
+            title: i.title,
+            quantityOrdered: i.quantityOrdered,
+          }))}
+          onClose={() => setShowReplacementModal(false)}
+          onCreated={(o) => {
+            setShowReplacementModal(false)
+            router.push(`/orders/${o.id}`)
+          }}
         />
       )}
     </div>
