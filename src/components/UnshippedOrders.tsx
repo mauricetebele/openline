@@ -7908,7 +7908,7 @@ export default function UnshippedOrders() {
                         </div>
                       ) : order.orderSource === 'backmarket' ? (
                         <div className="flex items-center justify-center gap-1">
-                          {order.orderStatus === 'Unshipped' ? (
+                          {order.orderStatus === 'Unshipped' && !order.isReplacement ? (
                             <button
                               onClick={() => confirmBackMarketOrder(order)}
                               disabled={confirmingBmId === order.id}
@@ -7918,7 +7918,7 @@ export default function UnshippedOrders() {
                                 ? <><RefreshCcw size={10} className="animate-spin" /> Confirming…</>
                                 : <><CheckCircle2 size={10} /> Confirm</>}
                             </button>
-                          ) : (
+                          ) : order.isReplacement ? null : (
                             <span className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-green-50 text-green-700 border border-green-200">
                               <CheckCircle2 size={10} /> Accepted
                             </span>

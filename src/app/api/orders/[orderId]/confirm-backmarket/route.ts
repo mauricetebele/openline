@@ -31,6 +31,11 @@ export async function POST(
   if (order.orderSource !== 'backmarket') {
     return NextResponse.json({ error: 'Not a BackMarket order' }, { status: 400 })
   }
+  if (order.isReplacement) {
+    // Replacement orders are synthetic — BackMarket has no record of them, so
+    // never confirm them against the BM API.
+    return NextResponse.json({ error: 'Replacement orders cannot be confirmed against BackMarket' }, { status: 400 })
+  }
 
   // Load BackMarket credentials
   const credential = await prisma.backMarketCredential.findFirst({

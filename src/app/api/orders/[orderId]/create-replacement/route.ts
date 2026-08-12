@@ -83,7 +83,10 @@ export async function POST(
           amazonOrderId,
           olmNumber,
           orderSource: 'backmarket',
-          orderStatus: 'Unshipped',        // NOT 'Pending' — grid hides 'Pending'
+          // 'Accepted', not 'Unshipped': a replacement is not a real BackMarket
+          // order, so it must never be "Confirmed" against the BM API. Starting
+          // it accepted makes it immediately shippable in the fulfillment grid.
+          orderStatus: 'Accepted',
           workflowStatus: 'PENDING',
           purchaseDate: new Date(),
           lastUpdateDate: new Date(),
