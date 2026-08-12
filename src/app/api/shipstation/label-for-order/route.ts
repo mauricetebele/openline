@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { decrypt } from '@/lib/crypto'
-import { ShipStationClient, SSLabelForOrderPayload } from '@/lib/shipstation/client'
+import { ShipStationClient, SSLabelForOrderPayload, SSAddress } from '@/lib/shipstation/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,7 +35,12 @@ export async function POST(req: NextRequest) {
   const v2ApiKey = account.v2ApiKeyEnc ? decrypt(account.v2ApiKeyEnc) : null
   const client = new ShipStationClient(decrypt(account.apiKeyEnc), account.apiSecretEnc ? decrypt(account.apiSecretEnc) : '', v2ApiKey)
 
-  const body: SSLabelForOrderPayload & { rateId?: string } = await req.json()
+  const body: SSLabelForOrderPayload & {
+    rateId?: string
+    shipFrom?: SSAddress
+    shipTo?: SSAddress
+    orderNumber?: string
+  } = await req.json()
 
   try {
     // ── Test mode for Amazon Buy Shipping ─────────────────────────────────────
@@ -56,6 +61,29 @@ export async function POST(req: NextRequest) {
     // Amazon Buy Shipping labels must go through the V2 API using the rate_id
     if (body.rateId) {
       const label = await client.createLabelV2FromRate(body.rateId, { testLabel: false, shipDate: body.shipDate })
+      return NextResponse.json(label)
+    }
+
+    // Orderless label (e.g. replacement orders that don't exist in ShipStation):
+    // build the label from scratch via V1 /shipments/createlabel — no SS order
+    // required. The caller supplies both addresses.
+    if (!body.orderId && body.shipFrom && body.shipTo) {
+      if (!body.dimensions) {
+        return NextResponse.json({ error: 'Dimensions are required for an orderless label' }, { status: 400 })
+      }
+      const label = await client.createLabel({
+        carrierCode:  body.carrierCode,
+        serviceCode:  body.serviceCode,
+        packageCode:  body.packageCode,
+        confirmation: body.confirmation,
+        shipDate:     body.shipDate,
+        weight:       body.weight,
+        dimensions:   body.dimensions,
+        shipFrom:     body.shipFrom,
+        shipTo:       body.shipTo,
+        orderNumber:  body.orderNumber,
+        testLabel:    body.testLabel,
+      })
       return NextResponse.json(label)
     }
 

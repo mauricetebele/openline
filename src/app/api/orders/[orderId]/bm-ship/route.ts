@@ -119,55 +119,60 @@ export async function POST(
     }, { status: 400 })
   }
 
-  // Load BackMarket credentials
-  const credential = await prisma.backMarketCredential.findFirst({
-    where: { isActive: true },
-    select: { apiKeyEnc: true },
-  })
-  if (!credential) {
-    return NextResponse.json({ error: 'No active BackMarket credentials' }, { status: 400 })
-  }
-
-  const client = new BackMarketClient(decrypt(credential.apiKeyEnc))
   const bmOrderId = order.amazonOrderId
 
   try {
-    // Ship via POST /ws/orders/{order_id} — one call per orderline SKU
-    // Per BM support: use serial_number (not imei) for non-smartphones,
-    // new_state: 1, and include serial + tracking in the same payload.
+    // Replacement orders are synthetic — BackMarket has no record of them, so
+    // skip ALL BackMarket API communication (credentials, order fetch, ship
+    // push). The local inventory / serial / ship-status updates below still run.
+    if (!order.isReplacement) {
+      // Load BackMarket credentials
+      const credential = await prisma.backMarketCredential.findFirst({
+        where: { isActive: true },
+        select: { apiKeyEnc: true },
+      })
+      if (!credential) {
+        return NextResponse.json({ error: 'No active BackMarket credentials' }, { status: 400 })
+      }
+      const client = new BackMarketClient(decrypt(credential.apiKeyEnc))
 
-    // Fetch order from BackMarket to get the original listing SKUs.
-    // Users may change sellerSku locally (SKU swap), but BM still
-    // expects the original listing SKU.
-    const bmOrder = await client.get<{ orderlines?: Array<{ id?: number | string; listing?: string }> }>(`/orders/${bmOrderId}`)
-    const bmSkuByLineId = new Map<string, string>()
-    for (const line of bmOrder.orderlines ?? []) {
-      if (line.id && line.listing) bmSkuByLineId.set(String(line.id), line.listing)
-    }
+      // Ship via POST /ws/orders/{order_id} — one call per orderline SKU
+      // Per BM support: use serial_number (not imei) for non-smartphones,
+      // new_state: 1, and include serial + tracking in the same payload.
 
-    for (const item of order.items) {
-      const sku = bmSkuByLineId.get(item.orderItemId) ?? item.sellerSku
-      if (!sku) {
-        console.warn(`[bm-ship] Skipping item ${item.id} — no SKU`)
-        continue
+      // Fetch order from BackMarket to get the original listing SKUs.
+      // Users may change sellerSku locally (SKU swap), but BM still
+      // expects the original listing SKU.
+      const bmOrder = await client.get<{ orderlines?: Array<{ id?: number | string; listing?: string }> }>(`/orders/${bmOrderId}`)
+      const bmSkuByLineId = new Map<string, string>()
+      for (const line of bmOrder.orderlines ?? []) {
+        if (line.id && line.listing) bmSkuByLineId.set(String(line.id), line.listing)
       }
 
-      const serialNumber = (item.bmSerials ?? []).join(',')
+      for (const item of order.items) {
+        const sku = bmSkuByLineId.get(item.orderItemId) ?? item.sellerSku
+        if (!sku) {
+          console.warn(`[bm-ship] Skipping item ${item.id} — no SKU`)
+          continue
+        }
 
-      console.log(
-        '[bm-ship] order=%s sku=%s (local=%s) tracking=%s shipper=%s serial_number=%s',
-        bmOrderId, sku, item.sellerSku, trackingNumber, shipper, serialNumber,
-      )
+        const serialNumber = (item.bmSerials ?? []).join(',')
 
-      const shipResponse = await client.post(`/orders/${bmOrderId}`, {
-        order_id:        bmOrderId,
-        new_state:       3,
-        sku,
-        tracking_number: trackingNumber,
-        ...(shipper ? { shipper } : {}),
-        ...(serialNumber ? { serial_number: serialNumber } : {}),
-      })
-      console.log('[bm-ship] response:', JSON.stringify(shipResponse))
+        console.log(
+          '[bm-ship] order=%s sku=%s (local=%s) tracking=%s shipper=%s serial_number=%s',
+          bmOrderId, sku, item.sellerSku, trackingNumber, shipper, serialNumber,
+        )
+
+        const shipResponse = await client.post(`/orders/${bmOrderId}`, {
+          order_id:        bmOrderId,
+          new_state:       3,
+          sku,
+          tracking_number: trackingNumber,
+          ...(shipper ? { shipper } : {}),
+          ...(serialNumber ? { serial_number: serialNumber } : {}),
+        })
+        console.log('[bm-ship] response:', JSON.stringify(shipResponse))
+      }
     }
 
     // Collect all serial numbers from bmSerials across items

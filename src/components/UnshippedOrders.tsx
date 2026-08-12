@@ -3533,6 +3533,26 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   const [upsAccounts, setUpsAccounts] = useState<{ id: string; nickname: string; isDefault: boolean; maskedAccountNumber?: string | null }[]>([])
   const [selectedUpsAccountId, setSelectedUpsAccountId] = useState<string>('')
 
+  // Replacement orders don't exist in ShipStation, so there's no order to look
+  // up. Buy an orderless label instead, using the order's own ship-to address
+  // (auto-populated below) which the user can edit before purchasing.
+  const orderless = !!order.isReplacement
+  const [shipToForm, setShipToForm] = useState<SSShipTo>({
+    name:       order.shipToName ?? '',
+    street1:    order.shipToAddress1 ?? '',
+    street2:    order.shipToAddress2 ?? '',
+    city:       order.shipToCity ?? '',
+    state:      order.shipToState ?? '',
+    postalCode: order.shipToPostal ?? '',
+    country:    order.shipToCountry ?? 'US',
+    phone:      order.shipToPhone ?? '',
+  })
+  // The address used for rating/buying: the editable form for replacements,
+  // otherwise the ShipStation order lookup.
+  const effectiveShipTo: SSShipTo | null = orderless
+    ? shipToForm
+    : (lookup.status === 'found' ? lookup.shipTo : null)
+
   // Hydrate from localStorage after mount (avoids SSR/client mismatch)
   useEffect(() => {
     try {
@@ -3622,6 +3642,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   }, [order.id])
 
   useEffect(() => {
+    if (orderless) return  // no ShipStation order to look up — uses editable address form
     if (!ssAccount) { setLookup({ status: 'not_found', error: 'No ShipStation account connected.' }); return }
     setLookup({ status: 'loading' })
     fetch(`/api/shipstation/order-lookup?amazonOrderId=${encodeURIComponent(order.amazonOrderId)}`)
@@ -3652,14 +3673,14 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   }, [ssAccount?.id])
 
   async function getRates() {
-    if (lookup.status !== 'found' || !fromZip) return
+    const shipTo = effectiveShipTo
+    if (!shipTo || !fromZip) return
     setLoadingRates(true); setRatesErr(null); setRates(null); setAmazonServices(null); setPurchased(null); setJwtStatus(null); setFedexDebug(null)
     try {
-      const { shipTo } = lookup
       const selectedWh = warehouses.find(w => String(w.warehouseId) === selectedWhId)
       const data = await apiPost<{ rates: SSRate[]; errors?: string[]; jwtExpired?: boolean; amazonServices?: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[]; fedexDebug?: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } }>(
         '/api/shipstation/rate-shop', {
-          warehouseId: selectedWh?.warehouseId, orderId: lookup.ssOrderId,
+          warehouseId: selectedWh?.warehouseId, orderId: (!orderless && lookup.status === 'found') ? lookup.ssOrderId : undefined,
           fromPostalCode: fromZip, fromCity: selectedWh?.originAddress.city,
           fromState: selectedWh?.originAddress.state, fromAddress1: selectedWh?.originAddress.street1,
           fromName: selectedWh?.originAddress.name, fromPhone: selectedWh?.originAddress.phone,
@@ -3739,13 +3760,13 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   }
 
   async function executeBuyLabel(rate: SSRate) {
-    if (lookup.status !== 'found') return
+    const shipTo = effectiveShipTo
+    if (!shipTo) return
     setPurchasing(`${rate.carrierCode}-${rate.serviceCode}`); setPurchaseErr(null)
     try {
       const isFedExDirect = rate.carrierCode === 'fedex_direct'
       const isUpsDirect   = rate.carrierCode === 'ups_direct'
       const selectedWh = warehouses.find(w => String(w.warehouseId) === selectedWhId)
-      const { shipTo } = lookup
 
       const isOneRate = isFedExDirect && /\(One Rate\)/.test(rate.serviceName)
       const label = isFedExDirect
@@ -3789,12 +3810,38 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
           )
         : await apiPost<{ trackingNumber: string; labelData: string; labelFormat: string; shipmentCost?: number }>(
             '/api/shipstation/label-for-order', {
-              orderId: lookup.ssOrderId, carrierCode: rate.carrierCode, serviceCode: rate.serviceCode,
+              ...((!orderless && lookup.status === 'found') ? { orderId: lookup.ssOrderId } : {}),
+              carrierCode: rate.carrierCode, serviceCode: rate.serviceCode,
               packageCode: uspsPkg !== 'none' ? uspsPkg : 'package', confirmation, shipDate: labelShipDate,
               weight: { value: weight.value, units: weight.unit },
               dimensions: { units: pkg.unit, length: pkg.length, width: pkg.width, height: pkg.height },
               testLabel: testMode,
               ...(rate.rate_id ? { rateId: rate.rate_id } : {}),
+              // Orderless (replacement) label: send both addresses so ShipStation
+              // can build the label with no linked order (V1 /shipments/createlabel).
+              ...(orderless ? {
+                orderNumber: order.amazonOrderId,
+                shipFrom: {
+                  name:       selectedWh?.originAddress.name ?? '',
+                  street1:    selectedWh?.originAddress.street1 ?? '',
+                  city:       selectedWh?.originAddress.city ?? '',
+                  state:      selectedWh?.originAddress.state ?? '',
+                  postalCode: fromZip,
+                  country:    selectedWh?.originAddress.country ?? 'US',
+                  phone:      selectedWh?.originAddress.phone ?? null,
+                },
+                shipTo: {
+                  name:       shipTo.name,
+                  street1:    shipTo.street1,
+                  street2:    shipTo.street2 || null,
+                  city:       shipTo.city,
+                  state:      shipTo.state,
+                  postalCode: shipTo.postalCode,
+                  country:    shipTo.country || 'US',
+                  phone:      shipTo.phone || null,
+                  residential: true,
+                },
+              } : {}),
             },
           )
       setPurchased({ ...label, isTest: testMode })
@@ -3825,7 +3872,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
     finally { setPurchasing(null) }
   }
 
-  const ratesReady = lookup.status === 'found' && !!fromZip
+  const ratesReady = !!effectiveShipTo && !!fromZip
 
   // ── Deliver-by filtering (Amazon orders) ──────────────────────────────────
   // Amazon Buy Shipping should only surface methods that meet the order's
@@ -3904,6 +3951,35 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
             ))}
           </div>
 
+          {orderless ? (
+          <section>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Ship To</h3>
+              <span className="text-[10px] bg-blue-100 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded font-medium uppercase tracking-wide">Replacement — editable</span>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 grid grid-cols-2 gap-2">
+              {([
+                ['name',       'Name',      'col-span-2'],
+                ['street1',    'Address 1', 'col-span-2'],
+                ['street2',    'Address 2', 'col-span-2'],
+                ['city',       'City',      ''],
+                ['state',      'State',     ''],
+                ['postalCode', 'ZIP',       ''],
+                ['country',    'Country',   ''],
+                ['phone',      'Phone',     'col-span-2'],
+              ] as [keyof SSShipTo, string, string][]).map(([field, label, span]) => (
+                <label key={field} className={clsx('flex flex-col gap-0.5', span)}>
+                  <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">{label}</span>
+                  <input
+                    value={(shipToForm[field] as string) ?? ''}
+                    onChange={e => setShipToForm(prev => ({ ...prev, [field]: e.target.value }))}
+                    className="h-8 rounded border border-gray-300 px-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF9900]"
+                  />
+                </label>
+              ))}
+            </div>
+          </section>
+          ) : (
           <section>
             <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">ShipStation Order</h3>
             {lookup.status === 'loading' && <div className="flex items-center gap-2 text-sm text-gray-500 py-2"><RefreshCcw size={13} className="animate-spin" /> Looking up order…</div>}
@@ -3927,6 +4003,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
               </div>
             )}
           </section>
+          )}
 
           <section>
             <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Package</h3>
