@@ -64,7 +64,32 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  return NextResponse.json({ data: rmas })
+  // For BackMarket returns, look up any commission-refund entry
+  // (invoice_key 'avoir_sales_fees') in the BM financials for the order, so the
+  // grid can show whether the commission was refunded and how much.
+  const bmOrderIds = Array.from(new Set(
+    rmas
+      .filter(r => r.order?.orderSource === 'backmarket' && r.order?.amazonOrderId)
+      .map(r => r.order!.amazonOrderId),
+  ))
+  const commissionRefundMap = new Map<string, number>()
+  if (bmOrderIds.length > 0) {
+    const refundRows = await prisma.$queryRaw<{ order_id: string; amount: number }[]>`
+      SELECT order_id, SUM(amount)::float8 AS amount
+      FROM bm_billing_entries
+      WHERE invoice_key = 'avoir_sales_fees' AND order_id = ANY(${bmOrderIds}::text[])
+      GROUP BY order_id`
+    for (const row of refundRows) commissionRefundMap.set(row.order_id, Number(row.amount))
+  }
+
+  const data = rmas.map(r => ({
+    ...r,
+    commissionRefund: r.order?.orderSource === 'backmarket'
+      ? (commissionRefundMap.get(r.order.amazonOrderId) ?? null)
+      : null,
+  }))
+
+  return NextResponse.json({ data })
 }
 
 export async function POST(req: NextRequest) {

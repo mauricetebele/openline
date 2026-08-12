@@ -49,6 +49,9 @@ export interface MarketplaceRMA {
     shipToState?: string | null
   }
   items: RMAItem[]
+  // BackMarket commission-refund amount from BM financials (avoir_sales_fees).
+  // null when there is no commission-refund entry, or for non-BackMarket returns.
+  commissionRefund?: number | null
 }
 
 export interface OrderSearchResult {
