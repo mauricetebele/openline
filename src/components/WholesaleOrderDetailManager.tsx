@@ -81,6 +81,9 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
   const [editingShipCost, setEditingShipCost] = useState(false)
   const [shipCostInput, setShipCostInput] = useState('')
   const [savingShipCost, setSavingShipCost] = useState(false)
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null)
+  const [priceInput, setPriceInput] = useState('')
+  const [savingPrice, setSavingPrice] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -342,7 +345,59 @@ export default function WholesaleOrderDetailManager({ id }: { id: string }) {
                     <td className="px-5 py-2">{item.title}</td>
                     <td className="px-5 py-2 text-xs text-gray-600">{item.grade?.grade ?? '—'}</td>
                     <td className="px-5 py-2 text-right">{Number(item.quantity)}</td>
-                    <td className="px-5 py-2 text-right">{fmt(Number(item.unitPrice))}</td>
+                    <td className="px-5 py-2 text-right">
+                      {editingPriceId === item.id ? (
+                        <form
+                          onSubmit={async (e) => {
+                            e.preventDefault()
+                            const val = parseFloat(priceInput)
+                            if (!Number.isFinite(val) || val < 0) { toast.error('Enter a valid price'); return }
+                            setSavingPrice(true)
+                            try {
+                              const res = await fetch(`/api/wholesale/orders/${id}/line-price`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ itemId: item.id, unitPrice: val }),
+                              })
+                              if (res.ok) {
+                                setEditingPriceId(null)
+                                await load()
+                                toast.success('Sale price updated')
+                              } else {
+                                const j = await res.json().catch(() => ({}))
+                                toast.error(j.error ?? 'Failed to update price')
+                              }
+                            } finally { setSavingPrice(false) }
+                          }}
+                          className="flex items-center justify-end gap-1"
+                        >
+                          <input
+                            autoFocus
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={priceInput}
+                            onChange={(e) => setPriceInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Escape') setEditingPriceId(null) }}
+                            className="w-24 border border-gray-300 rounded px-2 py-0.5 text-sm font-mono text-right focus:outline-none focus:ring-1 focus:ring-orange-400"
+                            disabled={savingPrice}
+                          />
+                          <button type="submit" disabled={savingPrice} className="text-green-600 hover:text-green-700"><Check size={14} /></button>
+                          <button type="button" onClick={() => setEditingPriceId(null)} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
+                        </form>
+                      ) : (order.status === 'INVOICED' || order.status === 'PARTIALLY_PAID' || order.status === 'PAID') ? (
+                        <button
+                          onClick={() => { setPriceInput(String(Number(item.unitPrice))); setEditingPriceId(item.id) }}
+                          className="inline-flex items-center gap-1 group hover:text-orange-600"
+                          title="Change sale price"
+                        >
+                          {fmt(Number(item.unitPrice))}
+                          <Pencil size={11} className="opacity-0 group-hover:opacity-100" />
+                        </button>
+                      ) : (
+                        fmt(Number(item.unitPrice))
+                      )}
+                    </td>
                     <td className="px-5 py-2 text-right font-medium">{fmt(Number(item.total))}</td>
                   </tr>
                 ))}
