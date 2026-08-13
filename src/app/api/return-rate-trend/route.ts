@@ -42,16 +42,33 @@ export async function GET(req: NextRequest) {
     ? Prisma.sql`AND o."orderSource" = ${channel}`
     : Prisma.empty
 
-  // ── Mean ship→return lag (days), computed live from FBM returns ──────────
-  const offsetRows = await prisma.$queryRaw<{ mean_days: number | null }[]>`
-    SELECT AVG(EXTRACT(EPOCH FROM (r."createdAt" - o."shippedAt")) / 86400.0) AS mean_days
+  // ── Mean ship→return lag (days) — recomputed automatically on a WEEKLY
+  // cadence. The window is anchored to the start of the current ISO week and
+  // spans the trailing 52 weeks, so the offset is stable within a week, shifts
+  // every Monday, and adapts to recent return behavior. Falls back to all-time
+  // if the trailing window is empty (e.g. a quiet channel).
+  const nowMs = Date.now()
+  const nowDow = (new Date(nowMs).getUTCDay() + 6) % 7 // 0 = Monday
+  const weekStartMs = Date.parse(new Date(nowMs).toISOString().slice(0, 10) + 'T00:00:00Z') - nowDow * DAY
+  const offsetWindowWeeks = 52
+  const offsetWindowStart = new Date(weekStartMs - offsetWindowWeeks * 7 * DAY)
+  const offsetWindowEnd = new Date(weekStartMs)
+
+  const fbmLag = Prisma.sql`
     FROM marketplace_rmas r
     JOIN orders o ON o.id = r."orderId"
     WHERE o."shippedAt" IS NOT NULL
       AND (o."fulfillmentChannel" IS NULL OR o."fulfillmentChannel" <> 'AFN')
       AND (o."isReplacement" IS NOT TRUE)
       ${channelCond}`
+  const offsetRows = await prisma.$queryRaw<{ mean_days: number | null }[]>`
+    SELECT COALESCE(
+      (SELECT AVG(EXTRACT(EPOCH FROM (r."createdAt" - o."shippedAt")) / 86400.0)
+       ${fbmLag} AND r."createdAt" >= ${offsetWindowStart} AND r."createdAt" < ${offsetWindowEnd}),
+      (SELECT AVG(EXTRACT(EPOCH FROM (r."createdAt" - o."shippedAt")) / 86400.0) ${fbmLag})
+    ) AS mean_days`
   const meanOffsetDays = Math.max(0, Math.round(Number(offsetRows[0]?.mean_days ?? 23)))
+  const offsetAsOf = new Date(weekStartMs).toISOString().slice(0, 10)
 
   const dateFrom = new Date(startDate + 'T00:00:00Z')
   const toExclusive = new Date(Date.parse(endDate + 'T00:00:00Z') + DAY)
@@ -125,6 +142,8 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     meanOffsetDays,
+    offsetAsOf,
+    offsetWindowWeeks,
     granularity,
     series,
     overall: {

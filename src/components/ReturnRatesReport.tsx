@@ -105,6 +105,8 @@ interface TrendPoint {
 }
 interface TrendData {
   meanOffsetDays: number
+  offsetAsOf?: string
+  offsetWindowWeeks?: number
   granularity: 'week' | 'month'
   series: TrendPoint[]
   overall: { unitsReturned: number; adjustedRate: number | null; naiveRate: number | null }
@@ -177,7 +179,8 @@ function ReturnRateTrendChart({ channel }: { channel: string }) {
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Return Rate Trend (offset-adjusted)</h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {data
-              ? <>Each period&apos;s returns ÷ units shipped <span className="font-semibold text-gray-700 dark:text-gray-300">{data.meanOffsetDays} days</span> earlier (avg ship→return lag). FBM only.</>
+              ? <>Each period&apos;s returns ÷ units shipped <span className="font-semibold text-gray-700 dark:text-gray-300">{data.meanOffsetDays} days</span> earlier (avg ship→return lag). FBM only.
+                  {data.offsetAsOf && <span className="text-gray-400"> · auto-updates weekly (as of {fmtBucketLabel(data.offsetAsOf, 'week')}, trailing {data.offsetWindowWeeks ?? 52}w)</span>}</>
               : 'Merchant-fulfilled returns over time.'}
           </p>
         </div>
