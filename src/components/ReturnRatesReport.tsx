@@ -93,6 +93,165 @@ function SummaryCard({ label, value, formatted, icon: Icon, color }: {
   )
 }
 
+// ─── Return-rate trend (offset-adjusted) ────────────────────────────────────
+
+interface TrendPoint {
+  bucket: string
+  unitsReturned: number
+  unitsSoldOffset: number
+  unitsSoldNaive: number
+  adjustedRate: number | null
+  naiveRate: number | null
+}
+interface TrendData {
+  meanOffsetDays: number
+  granularity: 'week' | 'month'
+  series: TrendPoint[]
+  overall: { unitsReturned: number; adjustedRate: number | null; naiveRate: number | null }
+}
+
+function fmtBucketLabel(bucket: string, granularity: 'week' | 'month'): string {
+  if (granularity === 'month') {
+    const [y, m] = bucket.split('-').map(Number)
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' })
+  }
+  const [y, m, d] = bucket.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
+function ReturnRateTrendChart({ channel }: { channel: string }) {
+  const [months, setMonths] = useState(6)
+  const [granularity, setGranularity] = useState<'week' | 'month'>('week')
+  const [data, setData] = useState<TrendData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const end = new Date()
+    const start = new Date(); start.setMonth(start.getMonth() - months)
+    const params = new URLSearchParams({
+      startDate: start.toISOString().slice(0, 10),
+      endDate: end.toISOString().slice(0, 10),
+      granularity,
+    })
+    if (channel !== 'all') params.set('channel', channel)
+    let cancelled = false
+    setLoading(true)
+    fetch(`/api/return-rate-trend?${params}`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setData(d) })
+      .catch(() => { if (!cancelled) setData(null) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [channel, months, granularity])
+
+  // ── Chart geometry ──
+  const W = 900, H = 280, padL = 44, padR = 16, padT = 16, padB = 30
+  const plotW = W - padL - padR, plotH = H - padT - padB
+  const series = data?.series ?? []
+  const rates = series.flatMap(p => [p.adjustedRate, p.naiveRate].filter((v): v is number => v != null))
+  const rawMax = rates.length ? Math.max(...rates) : 5
+  const yMax = Math.max(5, Math.ceil(rawMax / 5) * 5)
+  const n = series.length
+  const xOf = (i: number) => n <= 1 ? padL + plotW / 2 : padL + (i / (n - 1)) * plotW
+  const yOf = (v: number) => padT + plotH * (1 - v / yMax)
+
+  // Build a broken path (gaps where rate is null)
+  const pathFor = (key: 'adjustedRate' | 'naiveRate') => {
+    let d = ''; let pen = false
+    series.forEach((p, i) => {
+      const v = p[key]
+      if (v == null) { pen = false; return }
+      d += `${pen ? 'L' : 'M'}${xOf(i).toFixed(1)},${yOf(v).toFixed(1)} `
+      pen = true
+    })
+    return d.trim()
+  }
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => Math.round(yMax * f * 10) / 10)
+  const xTickEvery = Math.max(1, Math.ceil(n / 9))
+
+  return (
+    <div className="mx-6 my-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Return Rate Trend (offset-adjusted)</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {data
+              ? <>Each period&apos;s returns ÷ units shipped <span className="font-semibold text-gray-700 dark:text-gray-300">{data.meanOffsetDays} days</span> earlier (avg ship→return lag). FBM only.</>
+              : 'Merchant-fulfilled returns over time.'}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {data?.overall && (
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-gray-500">Overall:</span>
+              <span className="font-semibold text-orange-600 dark:text-orange-400">{data.overall.adjustedRate ?? '—'}% adj.</span>
+              <span className="text-gray-400">vs {data.overall.naiveRate ?? '—'}% naïve</span>
+            </div>
+          )}
+          <div className="flex rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+            {([3, 6, 12] as const).map(m => (
+              <button key={m} onClick={() => setMonths(m)}
+                className={clsx('px-2 py-1 text-[11px] font-medium', months === m ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800')}>
+                {m}mo
+              </button>
+            ))}
+          </div>
+          <div className="flex rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+            {(['week', 'month'] as const).map(g => (
+              <button key={g} onClick={() => setGranularity(g)}
+                className={clsx('px-2 py-1 text-[11px] font-medium capitalize', granularity === g ? 'bg-gray-700 text-white' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800')}>
+                {g}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="h-[280px] flex items-center justify-center text-sm text-gray-400">Loading trend…</div>
+      ) : rates.length === 0 ? (
+        <div className="h-[280px] flex items-center justify-center text-sm text-gray-400">No return data in this window.</div>
+      ) : (
+        <>
+          <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Return rate trend">
+            {/* y gridlines + labels */}
+            {yTicks.map((t, i) => {
+              const y = yOf(t)
+              return (
+                <g key={i}>
+                  <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="currentColor" className="text-gray-200 dark:text-gray-700" strokeWidth={1} />
+                  <text x={padL - 6} y={y + 3} textAnchor="end" className="fill-gray-400" fontSize={10}>{t}%</text>
+                </g>
+              )
+            })}
+            {/* x labels */}
+            {series.map((p, i) => i % xTickEvery === 0 ? (
+              <text key={p.bucket} x={xOf(i)} y={H - 10} textAnchor="middle" className="fill-gray-400" fontSize={10}>
+                {fmtBucketLabel(p.bucket, granularity)}
+              </text>
+            ) : null)}
+            {/* naive (comparison) */}
+            <path d={pathFor('naiveRate')} fill="none" stroke="#9ca3af" strokeWidth={1.5} strokeDasharray="4 3" opacity={0.7} />
+            {/* adjusted (primary) */}
+            <path d={pathFor('adjustedRate')} fill="none" stroke="#f97316" strokeWidth={2.5} />
+            {/* adjusted dots + tooltips */}
+            {series.map((p, i) => p.adjustedRate == null ? null : (
+              <circle key={p.bucket} cx={xOf(i)} cy={yOf(p.adjustedRate)} r={2.5} fill="#f97316">
+                <title>{`${fmtBucketLabel(p.bucket, granularity)}\nAdjusted: ${p.adjustedRate}%  (naïve ${p.naiveRate ?? '—'}%)\nReturned: ${p.unitsReturned} units\nShipped (offset): ${p.unitsSoldOffset} units`}</title>
+              </circle>
+            ))}
+          </svg>
+          <div className="flex items-center gap-4 mt-1 text-[11px] text-gray-500">
+            <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-0.5 bg-orange-500" /> Offset-adjusted</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t border-dashed border-gray-400" /> Naïve (no offset)</span>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export default function ReturnRatesReport() {
@@ -332,6 +491,9 @@ export default function ReturnRatesReport() {
         <SummaryCard label="Return Rate" value={s.returnRate} formatted={`${s.returnRate}%`} icon={Percent} color={rateBgColor(s.returnRate)} />
         <SummaryCard label="Unique SKUs" value={s.uniqueSkus} formatted={s.uniqueSkus.toLocaleString()} icon={Hash} color="bg-cyan-500" />
       </div>
+
+      {/* ── Offset-adjusted return-rate trend ───────────────────────────────── */}
+      <ReturnRateTrendChart channel={channel} />
 
       {/* ── Table ───────────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto">
