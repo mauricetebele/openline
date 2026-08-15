@@ -27,7 +27,19 @@ const bodySchema = z.object({
   accountId: z.string().min(1),
   shipDate:  z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   fedexDirectOnly: z.boolean().optional(),
+  // Restrict the cheapest-rate selection to a single carrier — for days when
+  // only one carrier picks up from the warehouse.
+  carrierFilter: z.enum(['all', 'ups', 'fedex']).optional(),
 })
+
+/** Classify a rate/carrier by name so we can restrict to UPS-only or FedEx-only. */
+function carrierClass(hay: string): 'ups' | 'fedex' | 'usps' | 'other' {
+  const s = hay.toLowerCase()
+  if (s.includes('fedex')) return 'fedex'
+  if (s.includes('usps') || s.includes('surepost') || s.includes('mail innovation') || s.includes('stamps')) return 'usps'
+  if (s.includes('ups')) return 'ups'
+  return 'other'
+}
 
 const CONCURRENCY = 4
 
@@ -62,6 +74,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { orderIds, accountId, shipDate, fedexDirectOnly } = parsed.data
+  const carrierFilter = parsed.data.carrierFilter ?? 'all'
 
   const orders = await prisma.order.findMany({
     where: { id: { in: orderIds }, accountId },
@@ -105,7 +118,7 @@ export async function POST(req: NextRequest) {
   const ssWarehouseId  = `se-${warehouse.warehouseId}`
 
   const amazonV2CarrierId = ssAccount.amazonCarrierId ?? null
-  console.log('[rate-shop-applied-presets] amazonV2CarrierId=%s fedexDirectOnly=%s', amazonV2CarrierId, fedexDirectOnly)
+  console.log('[rate-shop-applied-presets] amazonV2CarrierId=%s fedexDirectOnly=%s carrierFilter=%s', amazonV2CarrierId, fedexDirectOnly, carrierFilter)
 
   // Pre-load FedEx credentials when FedEx Direct mode is requested
   const fedexCreds = fedexDirectOnly ? await loadFedExCredentials() : null
@@ -357,6 +370,7 @@ export async function POST(req: NextRequest) {
               type V2Rate = NonNullable<Awaited<ReturnType<typeof client.getRatesV2>>['rate_response']>['rates'][number]
               let allRatesTyped: V2Rate[] = []
               let hadValidButLate = false
+              let carrierFilteredOut = false
               for (let attempt = 0; attempt < 3; attempt++) {
                 if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
                 const v2Result = await client.getRatesV2(v2Payload)
@@ -369,13 +383,19 @@ export async function POST(req: NextRequest) {
                     (a.shipping_amount.amount + (a.insurance_amount?.amount ?? 0) + a.other_amount.amount) -
                     (b.shipping_amount.amount + (b.insurance_amount?.amount ?? 0) + b.other_amount.amount)
                   )
+                // Restrict to a single carrier (UPS-only / FedEx-only) when requested.
+                const carrierRates = carrierFilter === 'all'
+                  ? validRates
+                  : validRates.filter(r =>
+                      carrierClass(`${r.carrier_friendly_name ?? ''} ${r.carrier_code ?? ''} ${r.service_type ?? ''} ${r.service_code ?? ''}`) === carrierFilter)
+                if (carrierFilter !== 'all' && validRates.length > 0 && carrierRates.length === 0) carrierFilteredOut = true
                 // Only consider methods that meet the deliver-by date.
                 const onTimeRates = deliverBy
-                  ? validRates.filter(r => !missesDeliverBy(estDeliveryDate(r.estimated_delivery_date, r.carrier_delivery_days)))
-                  : validRates
+                  ? carrierRates.filter(r => !missesDeliverBy(estDeliveryDate(r.estimated_delivery_date, r.carrier_delivery_days)))
+                  : carrierRates
                 cheapest = onTimeRates[0]
                 if (cheapest) break
-                if (validRates.length > 0) hadValidButLate = true
+                if (carrierRates.length > 0) hadValidButLate = true
                 // Check if the failure is transient and worth retrying
                 const invalids = v2Result.rate_response?.invalid_rates ?? []
                 const firstErr = invalids[0]?.error_messages?.[0]
@@ -386,6 +406,9 @@ export async function POST(req: NextRequest) {
                 break
               }
               if (!cheapest) {
+                if (carrierFilteredOut) {
+                  throw new Error(`No ${carrierFilter.toUpperCase()} rate available from Amazon Buy Shipping for this order`)
+                }
                 if (hadValidButLate && deliverBy) {
                   throw new Error(`No method delivers by ${deliverByLabel} — rate-shop this order individually`)
                 }

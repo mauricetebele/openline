@@ -5714,6 +5714,9 @@ export default function UnshippedOrders() {
   const [selectedPresetId, setSelectedPresetId] = useState('')
   const [presetShipDate, setPresetShipDate]     = useState(() => new Date().toISOString().slice(0, 10))
   const [fedexDirectOnly, setFedexDirectOnly]  = useState(false)
+  // Amazon Buy Shipping carrier restriction for bulk rate shopping — for days
+  // when only one carrier picks up from the warehouse.
+  const [bulkCarrier, setBulkCarrier] = useState<'all' | 'ups' | 'fedex'>('all')
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set())
   const [applyingPreset, setApplyingPreset]       = useState(false)
   const [ratingOrderIds, setRatingOrderIds]       = useState<Set<string>>(new Set())
@@ -6662,7 +6665,7 @@ export default function UnshippedOrders() {
       const res = await fetch('/api/orders/rate-shop-applied-presets', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ orderIds: ids, accountId: selectedAccountId, shipDate: presetShipDate, fedexDirectOnly }),
+        body:    JSON.stringify({ orderIds: ids, accountId: selectedAccountId, shipDate: presetShipDate, fedexDirectOnly, carrierFilter: bulkCarrier }),
       })
 
       if (!res.ok || res.headers.get('content-type')?.includes('application/json')) {
@@ -7265,6 +7268,13 @@ export default function UnshippedOrders() {
                 className="rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
               FedEx Direct only
             </label>
+            <select value={bulkCarrier} onChange={e => setBulkCarrier(e.target.value as 'all' | 'ups' | 'fedex')}
+              title="Restrict Amazon Buy Shipping to a single carrier (for days only one carrier picks up)"
+              className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-500">
+              <option value="all">All carriers</option>
+              <option value="ups">UPS only</option>
+              <option value="fedex">FedEx only</option>
+            </select>
             <button onClick={rateShopAppliedPresets}
               disabled={rateShoppingApplied || selectedOrderIds.size === 0 || !selectedAccountId}
               title="Rate shop using each order's applied package preset"
