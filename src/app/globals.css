@@ -23,13 +23,13 @@
   }
 
   body {
-    background-color: #F3F4F6;
+    background-color: #F1E9DA; /* warm beige */
     @apply text-gray-900 antialiased;
   }
 
   html.dark body {
-    background-color: #0F172A;
-    color: #F1F5F9;
+    background-color: #1B1611; /* warm espresso */
+    color: #F1E9DA;
   }
 }
 
