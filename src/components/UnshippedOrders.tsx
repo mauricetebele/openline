@@ -111,6 +111,15 @@ interface Order {
   shippedAt?: string | null
 }
 
+// BackMarket "mystery"/quality-control orders ship to their audit facility at
+// 41 Union Square West, Floor 2, New York NY 10003 (the buyer name varies).
+// Flag any order to that address so it gets white-glove handling.
+function isMysteryOrder(o: { shipToAddress1?: string | null; shipToPostal?: string | null }): boolean {
+  const addr = (o.shipToAddress1 ?? '').toLowerCase().replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim()
+  const zip = (o.shipToPostal ?? '').trim()
+  return addr.includes('41 union square') && zip.startsWith('10003')
+}
+
 interface Pagination { page: number; pageSize: number; total: number; totalPages: number }
 
 interface SyncJob {
@@ -7664,10 +7673,13 @@ export default function UnshippedOrders() {
               const multi = order.items.length > 1
               const isUnprocessing = unprocessingId === order.id
               const hasCancelRequest = order.isBuyerRequestedCancel
+              const isMystery = isMysteryOrder(order)
               return (
                 <tr key={order.id} className={clsx(
                   'border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors align-middle',
-                  hasCancelRequest
+                  isMystery
+                    ? 'bg-fuchsia-50 hover:bg-fuchsia-100/70 dark:bg-fuchsia-900/30 dark:hover:bg-fuchsia-900/50 ring-2 ring-inset ring-fuchsia-500'
+                    : hasCancelRequest
                     ? 'bg-amber-50 hover:bg-amber-100/60 dark:bg-amber-900/30 dark:hover:bg-amber-900/50'
                     : (order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null && !order.shipToCity
                       ? 'bg-yellow-50/70 hover:bg-yellow-100/50 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30'
@@ -7710,6 +7722,11 @@ export default function UnshippedOrders() {
                             <Eye size={10} className="text-gray-300 group-hover:text-amazon-blue transition-colors" />
                           </button>
                           {order.orderSource === 'backmarket' ? <BackMarketBadge /> : <AmazonSmileIcon />}
+                          {isMystery && (
+                            <span title="BackMarket MYSTERY / quality-check order — ships to their audit facility (41 Union Square West). Handle with extra care and ship on time." className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-fuchsia-600 text-white px-1 py-px rounded animate-pulse whitespace-nowrap">
+                              <AlertTriangle size={8} /> MYSTERY
+                            </span>
+                          )}
                           {order.isReplacement && (
                             <span title="BackMarket Replacement order — excluded from profitability" className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-blue-100 text-blue-800 border border-blue-300 px-1 py-px rounded whitespace-nowrap">
                               <RotateCcw size={8} /> REPL
