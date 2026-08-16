@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Loader2 } from 'lucide-react'
+import { clsx } from 'clsx'
 import { detectCarrier, trackingUrl } from '@/lib/tracking-utils'
 
 interface ManifestRow {
@@ -40,6 +41,21 @@ function formatDate(iso: string | null) {
   })
 }
 
+// "No scans out" — the carrier has a label on file but hasn't physically
+// scanned/taken possession of the package yet (still pre-transit).
+const NOT_SCANNED_RE = /label created|shipment ready|pre-?shipment|order processed|ready for ups|shipment information|information sent|billing information|awaiting|pending|not yet|no status|manifest/i
+
+/**
+ * True when a package has received no carrier scans yet: a pre-transit status
+ * (Label Created, Shipment info sent to FedEx, …) OR a tracking error / no data.
+ * Rows still loading (undefined info) are NOT counted to avoid flicker.
+ */
+function isNotScanned(info: TrackingResult | undefined): boolean {
+  if (!info) return false
+  if ('error' in info) return true
+  return NOT_SCANNED_RE.test(info.status)
+}
+
 function statusBadge(info: TrackingResult | undefined, loading: boolean) {
   if (loading) {
     return <Loader2 size={12} className="animate-spin text-gray-400" />
@@ -47,12 +63,13 @@ function statusBadge(info: TrackingResult | undefined, loading: boolean) {
   if (!info) return <span className="text-gray-400">—</span>
 
   if ('error' in info) {
+    // No trackable scan data — treat as "not scanned" so it's visible.
     return (
       <span
-        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200 cursor-help"
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300 cursor-help"
         title={info.error}
       >
-        Error
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> No Scan
       </span>
     )
   }
@@ -72,7 +89,16 @@ function statusBadge(info: TrackingResult | undefined, loading: boolean) {
       </span>
     )
   }
-  if (s.includes('in transit') || s.includes('on the way') || s.includes('picked up') || s.includes('label created')) {
+  // Not-scanned (pre-transit) — split out into its own attention badge.
+  if (NOT_SCANNED_RE.test(s)) {
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300"
+        title="No carrier scans yet — label created but not picked up">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> {info.status}
+      </span>
+    )
+  }
+  if (s.includes('in transit') || s.includes('on the way') || s.includes('picked up')) {
     return (
       <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
         {info.status}
@@ -87,7 +113,7 @@ function statusBadge(info: TrackingResult | undefined, loading: boolean) {
     )
   }
   return (
-    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 border border-gray-200">
       {info.status}
     </span>
   )
@@ -107,6 +133,7 @@ export default function ShippingManifest() {
   const [channelFilter, setChannelFilter] = useState<'all' | 'marketplace' | 'wholesale' | 'vendorRMA'>('all')
   const [carrierFilter, setCarrierFilter] = useState('')
   const [marketplaceFilter, setMarketplaceFilter] = useState('')
+  const [notScannedOnly, setNotScannedOnly] = useState(false)
 
   const filtered = rows.filter((r) => {
     if (channelFilter !== 'all' && r.source !== channelFilter) return false
@@ -115,6 +142,7 @@ export default function ShippingManifest() {
       if (r.source === 'wholesale') return marketplaceFilter === 'wholesale'
       if ((r.orderSource || 'amazon') !== marketplaceFilter) return false
     }
+    if (notScannedOnly && !isNotScanned(r.trackingNumber ? trackingMap[r.trackingNumber] : undefined)) return false
     return true
   })
 
@@ -306,6 +334,21 @@ export default function ShippingManifest() {
           <option value="backmarket">BackMarket</option>
           <option value="wholesale">Wholesale</option>
         </select>
+
+        {/* No scans out filter */}
+        <label
+          title="Show only packages with no carrier scans yet (label created / not picked up, or no tracking data)"
+          className={clsx(
+            'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer select-none border transition-colors',
+            notScannedOnly
+              ? 'bg-amber-500 text-white border-amber-500'
+              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600',
+          )}
+        >
+          <input type="checkbox" checked={notScannedOnly} onChange={(e) => { setNotScannedOnly(e.target.checked); setPage(0) }} className="sr-only" />
+          <span className={clsx('w-1.5 h-1.5 rounded-full', notScannedOnly ? 'bg-white' : 'bg-amber-500')} />
+          No scans out
+        </label>
 
         {/* Row count */}
         <span className="ml-auto text-xs text-gray-400">
