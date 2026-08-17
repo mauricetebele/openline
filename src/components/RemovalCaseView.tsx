@@ -1,7 +1,7 @@
 'use client'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
-import { Search, AlertCircle, X, Upload, Trash2, Save, Loader2, Download, FilePlus2, CheckCircle2 } from 'lucide-react'
+import { Search, AlertCircle, X, Upload, Trash2, Save, Loader2, Download, FilePlus2, CheckCircle2, Archive, ArchiveRestore } from 'lucide-react'
 
 interface ImageAttachment {
   url: string
@@ -33,7 +33,10 @@ interface RemovalCase {
   reimbursementAmount: string | null // Prisma Decimal serializes to a string
   createdBy: { name: string } | null
   createdAt: string
+  archivedAt: string | null
 }
+
+type RemovalTab = 'active' | 'archive' | 'all'
 
 interface Pagination {
   page: number
@@ -584,12 +587,14 @@ export default function RemovalCaseView() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<RemovalCaseStatus | ''>('')
+  const [tab, setTab] = useState<RemovalTab>('active')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [archivingId, setArchivingId] = useState<string | null>(null)
 
   const fetchCases = useCallback(async (page = 1) => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ page: String(page), pageSize: '25' })
+      const params = new URLSearchParams({ page: String(page), pageSize: '25', tab })
       if (search) params.set('search', search)
       if (statusFilter) params.set('status', statusFilter)
       const res = await fetch(`/api/removal-cases?${params}`)
@@ -598,12 +603,50 @@ export default function RemovalCaseView() {
       setPagination(json.pagination ?? { page: 1, pageSize: 25, total: 0, totalPages: 0 })
     } catch { /* ignore */ }
     setLoading(false)
-  }, [search, statusFilter])
+  }, [search, statusFilter, tab])
 
   useEffect(() => { fetchCases(1) }, [fetchCases])
 
+  async function toggleArchive(c: RemovalCase, e: React.MouseEvent) {
+    e.stopPropagation()
+    setArchivingId(c.id)
+    try {
+      const res = await fetch(`/api/removal-cases/${c.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: c.archivedAt ? 'UNARCHIVE' : 'ARCHIVE' }),
+      })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); toast.error(d.error || 'Failed'); return }
+      toast.success(c.archivedAt ? 'Case unarchived' : 'Case archived')
+      fetchCases(pagination.page)
+    } finally { setArchivingId(null) }
+  }
+
+  const TABS: { key: RemovalTab; label: string }[] = [
+    { key: 'active', label: 'Active' },
+    { key: 'archive', label: 'Archive' },
+    { key: 'all', label: 'All' },
+  ]
+
   return (
     <div className="h-full flex flex-col">
+      {/* Tabs */}
+      <div className="px-4 pt-3 flex gap-1 border-b bg-white dark:bg-gray-900 dark:border-gray-700">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => { setTab(t.key); }}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === t.key
+                ? 'border-amazon-blue text-amazon-blue'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {/* Toolbar */}
       <div className="px-4 py-3 border-b bg-white dark:bg-gray-900 dark:border-gray-700 flex flex-wrap items-center gap-3">
         <div className="relative">
@@ -661,6 +704,7 @@ export default function RemovalCaseView() {
                 <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Reimb. Amt</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Created By</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Created At</th>
+                <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -685,6 +729,19 @@ export default function RemovalCaseView() {
                   <td className="px-3 py-1.5 text-right font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{fmtMoney(c.reimbursementAmount)}</td>
                   <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{c.createdBy?.name ?? '—'}</td>
                   <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
+                  <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                    <button
+                      onClick={(e) => toggleArchive(c, e)}
+                      disabled={archivingId === c.id}
+                      title={c.archivedAt ? 'Unarchive case' : 'Archive case'}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
+                    >
+                      {archivingId === c.id
+                        ? <Loader2 size={12} className="animate-spin" />
+                        : (c.archivedAt ? <ArchiveRestore size={12} /> : <Archive size={12} />)}
+                      {c.archivedAt ? 'Unarchive' : 'Archive'}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

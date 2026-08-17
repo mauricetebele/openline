@@ -2621,10 +2621,12 @@ model FbaRemovalCase {
   createdById           String?
   createdBy             User?                @relation(fields: [createdById], references: [id])
   createdAt             DateTime             @default(now())
+  archivedAt            DateTime?
 
   @@index([removalShipmentId])
   @@index([removalShipmentItemId])
   @@index([status])
+  @@index([archivedAt])
   @@map("fba_removal_cases")
 }
 

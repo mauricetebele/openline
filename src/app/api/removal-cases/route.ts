@@ -20,6 +20,11 @@ export async function GET(req: NextRequest) {
 
   const where: Prisma.FbaRemovalCaseWhereInput = {}
 
+  // Tab: active (not archived) | archive (archived) | all. Default: active.
+  const tab = searchParams.get('tab')?.trim().toLowerCase()
+  if (tab === 'archive') where.archivedAt = { not: null }
+  else if (tab !== 'all') where.archivedAt = null
+
   const status = searchParams.get('status')?.trim()
   if (status && (REMOVAL_CASE_STATUSES as string[]).includes(status)) {
     where.status = status as RemovalCaseStatus

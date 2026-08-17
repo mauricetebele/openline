@@ -44,7 +44,11 @@ export async function PATCH(
     })
     if (!current) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    if (action === 'CREATE_CASE') {
+    if (action === 'ARCHIVE') {
+      data.archivedAt = new Date()
+    } else if (action === 'UNARCHIVE') {
+      data.archivedAt = null
+    } else if (action === 'CREATE_CASE') {
       const amazonCaseId = typeof body.amazonCaseId === 'string' ? body.amazonCaseId.trim() : ''
       if (!amazonCaseId) {
         return NextResponse.json({ error: 'Amazon Case ID is required' }, { status: 400 })
