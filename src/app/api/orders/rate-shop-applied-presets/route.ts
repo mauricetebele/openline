@@ -17,7 +17,7 @@ import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { decrypt } from '@/lib/crypto'
 import { ShipStationClient, V2RatesRequest, SSRatesPayload } from '@/lib/shipstation/client'
-import { loadFedExCredentials, getRates as getFedExRates, type FedExRateParams } from '@/lib/fedex/client'
+import { loadFedExCredentials, getRates as getFedExRates, type FedExRateParams, type FedExSignatureType } from '@/lib/fedex/client'
 import { getUpsDirectRates } from '@/lib/ups-tracking'
 
 export const dynamic = 'force-dynamic'
@@ -278,6 +278,16 @@ export async function POST(req: NextRequest) {
 
               const isFedExPackaging = preset.packageCode ? FEDEX_PACKAGING_TYPES.has(preset.packageCode) : false
 
+              // Map the preset's confirmation to a FedEx signature option so the
+              // returned rate INCLUDES the signature surcharge (otherwise FedEx
+              // quotes a no-signature rate that's too cheap).
+              const confirmationToSignature: Record<string, FedExSignatureType> = {
+                signature: 'DIRECT',
+                adult_signature: 'ADULT',
+                delivery: 'INDIRECT',
+              }
+              const fedexSignatureType = preset.confirmation ? confirmationToSignature[preset.confirmation] : undefined
+
               const fedexParams: FedExRateParams = {
                 shipFrom: {
                   streetLines: [from.street1, from.street2].filter(Boolean) as string[],
@@ -298,6 +308,7 @@ export async function POST(req: NextRequest) {
                   ? { dimensions: { length: preset.dimLength, width: preset.dimWidth, height: preset.dimHeight, units: fedexDimUnits } }
                   : {}),
                 ...(shipDate ? { shipDate } : {}),
+                ...(fedexSignatureType ? { signatureType: fedexSignatureType } : {}),
                 ...(isFedExPackaging ? { packagingType: preset.packageCode!, oneRate: true } : {}),
               }
 
