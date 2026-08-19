@@ -19,7 +19,7 @@ interface Order {
   invoiceNumber?: string | null
   customer: { id: string; companyName: string }
   customerPoNumber?: string | null
-  items: { id: string }[]
+  items: { id: string; quantity: number | string }[]
   total: number
   balance: number
   dueDate: string | null
@@ -104,6 +104,7 @@ export default function WholesaleOrdersManager() {
                 <th className="text-left px-5 py-3">Customer</th>
                 <th className="text-left px-5 py-3">Customer PO #</th>
                 <th className="text-right px-5 py-3">Items</th>
+                <th className="text-right px-5 py-3">Units</th>
                 <th className="text-right px-5 py-3">Total</th>
                 <th className="text-right px-5 py-3">Balance</th>
                 <th className="text-left px-5 py-3">Due Date</th>
@@ -122,6 +123,9 @@ export default function WholesaleOrdersManager() {
                   <td className="px-5 py-3 font-medium">{o.customer.companyName}</td>
                   <td className="px-5 py-3 font-mono text-gray-600">{o.customerPoNumber || '—'}</td>
                   <td className="px-5 py-3 text-right text-gray-500">{o.items.length}</td>
+                  <td className="px-5 py-3 text-right text-gray-700 font-medium tabular-nums">
+                    {o.items.reduce((s, i) => s + Number(i.quantity), 0).toLocaleString()}
+                  </td>
                   <td className="px-5 py-3 text-right">{fmt(Number(o.total))}</td>
                   <td className="px-5 py-3 text-right font-semibold">{fmt(Number(o.balance))}</td>
                   <td className="px-5 py-3 text-gray-500">
