@@ -10,7 +10,7 @@ export async function POST(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { serialUpdates, nonSerialItems } = body as {
+  const { serialUpdates, nonSerialItems, commissionRefundExpected } = body as {
     serialUpdates: Array<{
       rmaSerialId: string
       inventorySerialId?: string
@@ -25,6 +25,7 @@ export async function POST(
       gradeId?: string | null
       quantityReturned: number
     }>
+    commissionRefundExpected?: boolean | null
   }
 
   // Load the RMA
@@ -179,10 +180,13 @@ export async function POST(
         }
       }
 
-      // 3. Update RMA status → RECEIVED
+      // 3. Update RMA status → RECEIVED (+ BackMarket commission-refund flag)
       return tx.marketplaceRMA.update({
         where: { id: params.id },
-        data: { status: 'RECEIVED' },
+        data: {
+          status: 'RECEIVED',
+          ...(commissionRefundExpected !== undefined ? { commissionRefundExpected } : {}),
+        },
         include: {
           order: {
             select: { id: true, olmNumber: true, amazonOrderId: true },

@@ -52,6 +52,8 @@ export interface MarketplaceRMA {
   // BackMarket commission-refund amount from BM financials (avoir_sales_fees).
   // null when there is no commission-refund entry, or for non-BackMarket returns.
   commissionRefund?: number | null
+  // Captured at receiving: is a BackMarket commission refund expected? (Y/N)
+  commissionRefundExpected?: boolean | null
 }
 
 export interface OrderSearchResult {

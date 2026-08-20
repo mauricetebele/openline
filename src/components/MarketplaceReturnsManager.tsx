@@ -216,6 +216,7 @@ export default function MarketplaceReturnsManager() {
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">SKU</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Source</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Commission Refund</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Refund Expected?</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Status</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Date</th>
                 <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Qty</th>
@@ -270,6 +271,17 @@ export default function MarketplaceReturnsManager() {
                           </span>
                         )}
                       </td>
+                      <td className="px-3 py-1.5 whitespace-nowrap">
+                        {rma.order.orderSource !== 'backmarket' ? (
+                          <span className="text-gray-300 dark:text-gray-600">—</span>
+                        ) : rma.commissionRefundExpected === true ? (
+                          <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">Yes</span>
+                        ) : rma.commissionRefundExpected === false ? (
+                          <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">No</span>
+                        ) : (
+                          <span className="text-gray-300 dark:text-gray-600">—</span>
+                        )}
+                      </td>
                       <td className="px-3 py-1.5">
                         <span className={clsx('inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium', STATUS_COLOR[rma.status])}>
                           {STATUS_LABEL[rma.status]}
@@ -282,7 +294,7 @@ export default function MarketplaceReturnsManager() {
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={11} className="bg-gray-50 dark:bg-gray-800/60 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                        <td colSpan={12} className="bg-gray-50 dark:bg-gray-800/60 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
                           {rma.notes && (
                             <p className="text-[11px] text-gray-500 mb-2"><span className="font-semibold text-gray-600 dark:text-gray-400">Notes:</span> {rma.notes}</p>
                           )}
@@ -537,6 +549,8 @@ function ReceiveReturnModal({
   }>>({})
   const [receiving, setReceiving] = useState(false)
   const [regradeSerials, setRegradeSerials] = useState<Set<string>>(new Set())
+  // BackMarket returns: whether a BM commission refund is expected (Y/N)
+  const [commissionRefundExpected, setCommissionRefundExpected] = useState<boolean | null>(null)
 
   const [applyAllWh, setApplyAllWh] = useState('')
   const [applyAllLoc, setApplyAllLoc] = useState('')
@@ -552,6 +566,9 @@ function ReceiveReturnModal({
       setRma(rmaData)
       setWarehouses(whJson.data ?? whJson ?? [])
       setGlobalGrades(grJson.data ?? [])
+      if (rmaData && typeof rmaData.commissionRefundExpected === 'boolean') {
+        setCommissionRefundExpected(rmaData.commissionRefundExpected)
+      }
 
       if (rmaData) {
         // Init serial receive state
@@ -608,9 +625,12 @@ function ReceiveReturnModal({
   }
 
   const isReceived = rma?.status === 'RECEIVED'
+  const isBackMarket = rma?.order.orderSource === 'backmarket'
   const allSerialsReady = Object.values(serialReceive).every(s => s.locationId)
   const allNonSerialsReady = Object.values(nonSerialReceive).every(s => s.locationId)
-  const canReceive = !isReceived && allSerialsReady && allNonSerialsReady && !receiving
+  // BackMarket returns must answer the commission-refund-expected question.
+  const commissionAnswered = !isBackMarket || commissionRefundExpected !== null
+  const canReceive = !isReceived && allSerialsReady && allNonSerialsReady && commissionAnswered && !receiving
 
   async function handleReceive() {
     if (!rma) return
@@ -642,7 +662,11 @@ function ReceiveReturnModal({
       const res = await fetch(`/api/marketplace-rma/${rma.id}/receive`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serialUpdates, nonSerialItems: nonSerialItems.length ? nonSerialItems : undefined }),
+        body: JSON.stringify({
+          serialUpdates,
+          nonSerialItems: nonSerialItems.length ? nonSerialItems : undefined,
+          ...(isBackMarket ? { commissionRefundExpected } : {}),
+        }),
       })
 
       if (!res.ok) {
@@ -894,6 +918,38 @@ function ReceiveReturnModal({
             </div>
           )}
         </div>
+
+        {/* BackMarket commission-refund-expected (Y/N) — required to receive */}
+        {isBackMarket && (
+          <div className="px-6 py-3 border-t bg-blue-50/60">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">BackMarket Commission Refund Expected?</p>
+                <p className="text-xs text-gray-500">Do we expect BackMarket to refund the commission on this return?</p>
+              </div>
+              <div className="flex gap-1.5">
+                {([{ v: true, l: 'Yes' }, { v: false, l: 'No' }] as const).map((opt) => (
+                  <button
+                    key={opt.l}
+                    disabled={isReceived}
+                    onClick={() => setCommissionRefundExpected(opt.v)}
+                    className={clsx(
+                      'px-4 py-1.5 rounded-lg text-sm font-semibold border transition-colors disabled:opacity-60',
+                      commissionRefundExpected === opt.v
+                        ? (opt.v ? 'bg-green-600 text-white border-green-600' : 'bg-gray-700 text-white border-gray-700')
+                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50',
+                    )}
+                  >
+                    {opt.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {!isReceived && commissionRefundExpected === null && (
+              <p className="text-[11px] text-amber-600 mt-1.5">Select Yes or No to receive this BackMarket return.</p>
+            )}
+          </div>
+        )}
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">

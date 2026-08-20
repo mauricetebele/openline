@@ -2026,6 +2026,8 @@ model MarketplaceRMA {
   order     Order                @relation(fields: [orderId], references: [id], onDelete: Restrict)
   status    MarketplaceRMAStatus @default(OPEN)
   notes     String?
+  // For BackMarket returns: captured at receiving — is a BM commission refund expected?
+  commissionRefundExpected Boolean?
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
