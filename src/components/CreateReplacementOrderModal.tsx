@@ -21,7 +21,7 @@ interface ReplLine {
   productId: string          // '' until a product is confirmed
   sku: string                // internal Product.sku written to sellerSku
   title: string
-  gradeId: string            // '' until a grade is chosen
+  gradeId: string            // '__unset__' until chosen; '' = Ungraded; else grade id
   quantity: number
   search: string
   results: ProductResult[]
@@ -32,7 +32,7 @@ interface ReplLine {
 let keyCounter = 0
 const blankLine = (over: Partial<ReplLine> = {}): ReplLine => ({
   _key: `repl-${++keyCounter}`,
-  productId: '', sku: '', title: '', gradeId: '', quantity: 1,
+  productId: '', sku: '', title: '', gradeId: '__unset__', quantity: 1,
   search: '', results: [], searching: false, invMap: [],
   ...over,
 })
@@ -95,7 +95,7 @@ export default function CreateReplacementOrderModal({
   function selectProduct(key: string, p: ProductResult) {
     patch(key, {
       productId: p.id, sku: p.sku, title: p.description,
-      search: p.sku, results: [], invMap: p.inventoryItems ?? [], gradeId: '',
+      search: p.sku, results: [], invMap: p.inventoryItems ?? [], gradeId: '__unset__',
     })
   }
 
@@ -108,7 +108,7 @@ export default function CreateReplacementOrderModal({
     return byGrade
   }
 
-  const allResolved = lines.length > 0 && lines.every(l => l.productId && l.gradeId)
+  const allResolved = lines.length > 0 && lines.every(l => l.productId && l.gradeId !== '__unset__')
 
   async function submit() {
     if (!allResolved || submitting) return
@@ -123,7 +123,7 @@ export default function CreateReplacementOrderModal({
             sellerSku: l.sku,
             title: l.title,
             quantityOrdered: l.quantity,
-            gradeId: l.gradeId,
+            gradeId: l.gradeId === '' ? null : l.gradeId,   // '' = Ungraded → null
             itemPrice: 0,
           })),
         }),
@@ -186,7 +186,7 @@ export default function CreateReplacementOrderModal({
                       <div className="text-gray-500 truncate">{l.title}</div>
                     </div>
                     <button
-                      onClick={() => patch(l._key, { productId: '', sku: '', gradeId: '', results: [], invMap: [] })}
+                      onClick={() => patch(l._key, { productId: '', sku: '', gradeId: '__unset__', results: [], invMap: [] })}
                       className="text-[11px] text-blue-600 hover:underline shrink-0"
                     >
                       Change
@@ -238,7 +238,8 @@ export default function CreateReplacementOrderModal({
                       disabled={!l.productId}
                       className="w-full text-xs border border-gray-300 dark:border-white/15 rounded-md px-2 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-white disabled:opacity-50"
                     >
-                      <option value="">Select grade…</option>
+                      <option value="__unset__">Select grade…</option>
+                      <option value="">Ungraded{l.productId && avail[''] != null ? ` (${avail['']} in stock)` : ''}</option>
                       {grades.map(g => {
                         const n = avail[g.id]
                         return (
