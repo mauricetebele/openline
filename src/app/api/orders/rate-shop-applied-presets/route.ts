@@ -236,31 +236,9 @@ export async function POST(req: NextRequest) {
 
             const orderIsAmazon = order.orderSource !== 'backmarket'
 
-            // ── Deliver-by filtering (Amazon orders) ─────────────────────────
-            // Only auto-select methods that meet the order's deliver-by date, so
-            // bulk rate-shopping doesn't pick a slow method (e.g. Ground Advantage)
-            // that misses the promise. BackMarket repurposes latestDeliveryDate as
-            // a ship-by date, so it's excluded.
-            const deliverBy = orderIsAmazon && order.latestDeliveryDate ? new Date(order.latestDeliveryDate) : null
-            const utcDay = (d: Date) => d.toISOString().slice(0, 10)
-            // Compare the method's estimated-delivery DAY against the deliver-by DAY
-            // using the SAME raw UTC normalization on both. deliver-by and the
-            // carrier estimates share Amazon's end-of-day encoding, so a one-sided
-            // shift wrongly flags on-time methods (e.g. a 2nd-Day arriving on the
-            // deliver-by day) and forced overnight.
-            const deliverByDay = deliverBy ? utcDay(deliverBy) : null
-            const estDeliveryDate = (deliveryDate?: string | null, transitDays?: number | null): Date | null => {
-              if (deliveryDate) return new Date(deliveryDate)
-              if (transitDays != null && transitDays > 0) {
-                const d = shipDate ? new Date(shipDate) : new Date()
-                let rem = transitDays
-                while (rem > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) rem-- }
-                return d
-              }
-              return null
-            }
-            const missesDeliverBy = (est: Date | null): boolean => !!(deliverByDay && est && utcDay(est) > deliverByDay)
-            const deliverByLabel = deliverByDay ?? ''
+            // NOTE: deliver-by filtering was removed — Amazon Buy Shipping now
+            // only returns methods that meet the order's deliver-by date, so we
+            // simply pick the cheapest (within any carrier restriction).
 
             if (fedexDirectOnly && fedexCreds) {
               // ── FedEx Direct path — bypass ShipStation entirely ──────────────
@@ -320,12 +298,9 @@ export async function POST(req: NextRequest) {
               const sortedFx = fedexRates.sort((a, b) =>
                 (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost)
               )
-              const onTimeFx = deliverBy
-                ? sortedFx.filter(r => !missesDeliverBy(estDeliveryDate(r.deliveryDate, r.transitDays)))
-                : sortedFx
-              const cheapest = onTimeFx[0]
+              const cheapest = sortedFx[0]
               if (!cheapest) {
-                throw new Error(`No FedEx method delivers by ${deliverByLabel} — rate-shop this order individually`)
+                throw new Error('No FedEx Direct rates returned')
               }
 
               rateAmount  = cheapest.shipmentCost + cheapest.otherCost
@@ -380,7 +355,6 @@ export async function POST(req: NextRequest) {
               let cheapest: (typeof allRatesTyped)[number] | undefined
               type V2Rate = NonNullable<Awaited<ReturnType<typeof client.getRatesV2>>['rate_response']>['rates'][number]
               let allRatesTyped: V2Rate[] = []
-              let hadValidButLate = false
               let carrierFilteredOut = false
               for (let attempt = 0; attempt < 3; attempt++) {
                 if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
@@ -400,13 +374,10 @@ export async function POST(req: NextRequest) {
                   : validRates.filter(r =>
                       carrierClass(`${r.carrier_friendly_name ?? ''} ${r.carrier_code ?? ''} ${r.service_type ?? ''} ${r.service_code ?? ''}`) === carrierFilter)
                 if (carrierFilter !== 'all' && validRates.length > 0 && carrierRates.length === 0) carrierFilteredOut = true
-                // Only consider methods that meet the deliver-by date.
-                const onTimeRates = deliverBy
-                  ? carrierRates.filter(r => !missesDeliverBy(estDeliveryDate(r.estimated_delivery_date, r.carrier_delivery_days)))
-                  : carrierRates
-                cheapest = onTimeRates[0]
+                // Pick the cheapest available rate (Amazon already limits results
+                // to methods that meet the deliver-by date).
+                cheapest = carrierRates[0]
                 if (cheapest) break
-                if (carrierRates.length > 0) hadValidButLate = true
                 // Check if the failure is transient and worth retrying
                 const invalids = v2Result.rate_response?.invalid_rates ?? []
                 const firstErr = invalids[0]?.error_messages?.[0]
@@ -419,9 +390,6 @@ export async function POST(req: NextRequest) {
               if (!cheapest) {
                 if (carrierFilteredOut) {
                   throw new Error(`No ${carrierFilter.toUpperCase()} rate available from Amazon Buy Shipping for this order`)
-                }
-                if (hadValidButLate && deliverBy) {
-                  throw new Error(`No method delivers by ${deliverByLabel} — rate-shop this order individually`)
                 }
                 const statuses = allRatesTyped.map(r => `${r.service_code}:${r.validation_status}`).join(', ')
                 throw new Error(`No valid rates returned (${allRatesTyped.length} total: ${statuses || 'none'})`)

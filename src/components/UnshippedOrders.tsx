@@ -3603,7 +3603,6 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
 
   const [rates, setRates]               = useState<SSRate[] | null>(null)
   const [amazonServices, setAmazonServices] = useState<{ code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[] | null>(null)
-  const [showLate, setShowLate]         = useState(false)
   const [loadingRates, setLoadingRates] = useState(false)
   const [ratesErr, setRatesErr]         = useState<string | null>(null)
   const [fedexDebug, setFedexDebug]     = useState<{ credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } | null>(null)
@@ -3883,32 +3882,9 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
 
   const ratesReady = !!effectiveShipTo && !!fromZip
 
-  // ── Deliver-by filtering (Amazon orders) ──────────────────────────────────
-  // Amazon Buy Shipping should only surface methods that meet the order's
-  // deliver-by date. Since upstream (Amazon/ShipStation) can return late
-  // methods, hide any whose estimated delivery clearly misses latestDeliveryDate
-  // (with a 24h grace for timezone slack). A toggle reveals them if needed.
-  const deliverBy = order.orderSource !== 'backmarket' && order.latestDeliveryDate ? new Date(order.latestDeliveryDate) : null
-  const utcDay = (d: Date) => d.toISOString().slice(0, 10)
-  // Compare the method's estimated-delivery DAY against the deliver-by DAY, using
-  // the SAME (raw UTC) normalization on both — the deliver-by and the carrier
-  // estimates share Amazon's end-of-day encoding, so a one-sided shift would
-  // wrongly flag on-time methods (e.g. a 2nd-Day arriving on the deliver-by day).
-  const deliverByDay = deliverBy ? utcDay(deliverBy) : null
-  const estDateOfRate = (rate: SSRate): Date | null => {
-    if (rate.deliveryDate) return new Date(rate.deliveryDate)
-    if (rate.transitDays != null && rate.transitDays > 0) {
-      const d = new Date(labelShipDate); let rem = rate.transitDays
-      while (rem > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) rem-- }
-      return d
-    }
-    return null
-  }
-  const isLateDate = (est: Date | null): boolean => !!(deliverByDay && est && utcDay(est) > deliverByDay)
-  const deliverByLabel = deliverBy ? deliverBy.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''
-  const amazonLate = deliverBy && amazonServices ? amazonServices.filter(s => isLateDate(s.latestDeliveryDate ? new Date(s.latestDeliveryDate) : null)) : []
-  const ratesLate = deliverBy && rates ? rates.filter(r => isLateDate(estDateOfRate(r))) : []
-  const totalHiddenLate = amazonLate.length + ratesLate.length
+  // NOTE: deliver-by filtering removed — Amazon Buy Shipping now only returns
+  // methods that meet the order's deliver-by date, so all returned rates are
+  // shown as-is (no hiding / "misses date" flags).
 
   return (
     <div className="fixed inset-y-0 right-0 z-50 flex flex-col w-[480px] bg-white shadow-2xl border-l border-gray-200">
@@ -4225,17 +4201,8 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
             </section>
           )}
 
-          {deliverBy && totalHiddenLate > 0 && (
-            <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-              <AlertCircle size={13} className="shrink-0" />
-              <span className="flex-1">{totalHiddenLate} method{totalHiddenLate !== 1 ? 's' : ''} hidden that won&apos;t deliver by {deliverByLabel}.</span>
-              <button onClick={() => setShowLate(v => !v)} className="font-medium underline hover:text-amber-900 shrink-0">{showLate ? 'Hide late' : 'Show anyway'}</button>
-            </div>
-          )}
-
           {amazonServices && amazonServices.length > 0 && (() => {
-            const sorted = [...amazonServices].sort((a, b) => (a.shipmentCost ?? 999) - (b.shipmentCost ?? 999))
-            const shown = showLate ? sorted : sorted.filter(s => !amazonLate.includes(s))
+            const shown = [...amazonServices].sort((a, b) => (a.shipmentCost ?? 999) - (b.shipmentCost ?? 999))
             if (shown.length === 0) return null
             return (
             <section className="space-y-2">
@@ -4253,7 +4220,6 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
                         <p className="text-sm font-medium text-gray-900 truncate">{svc.name}</p>
                         <p className="text-xs text-gray-500 mt-0.5">
                           {svc.carrierName}{svc.latestDeliveryDate ? ` · Est. ${new Date(svc.latestDeliveryDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` : ''}
-                          {isLateDate(svc.latestDeliveryDate ? new Date(svc.latestDeliveryDate) : null) && <span className="ml-1 text-red-600 font-medium">· misses {deliverByLabel}</span>}
                         </p>
                       </div>
                     </div>
@@ -4272,7 +4238,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
           })()}
 
           {rates !== null && rates.length > 0 && (() => {
-            const visibleRates = showLate ? rates : rates.filter(r => !ratesLate.includes(r))
+            const visibleRates = rates
             const ssRates = visibleRates.filter(r => r.carrierCode !== 'fedex_direct' && r.carrierCode !== 'ups_direct')
             const fedexDirectRates = visibleRates.filter(r => r.carrierCode === 'fedex_direct')
             const upsDirectRates = visibleRates.filter(r => r.carrierCode === 'ups_direct')
@@ -4297,7 +4263,6 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
                       <p className="text-sm font-medium text-gray-900 truncate">{rate.serviceName}</p>
                       <p className="text-xs text-gray-500 mt-0.5">
                         {rate.carrierName ?? rate.carrierCode}{estDelivery ? ` · Est. ${estDelivery}` : rate.transitDays != null ? ` · ${rate.transitDays}d` : ''}
-                        {isLateDate(estDateOfRate(rate)) && <span className="ml-1 text-red-600 font-medium">· misses {deliverByLabel}</span>}
                       </p>
                     </div>
                   </div>
