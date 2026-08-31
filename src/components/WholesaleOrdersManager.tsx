@@ -1,6 +1,7 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
+import { ChevronRight } from 'lucide-react'
 
 const SO_STATUS_COLOR: Record<string, string> = {
   PENDING_APPROVAL: 'bg-amber-100 text-amber-700',
@@ -13,13 +14,23 @@ const SO_STATUS_COLOR: Record<string, string> = {
 
 const STATUSES = ['ALL', 'PENDING_APPROVAL', 'DRAFT', 'CONFIRMED', 'INVOICED', 'PARTIALLY_PAID', 'PAID']
 
+interface OrderItem {
+  id: string
+  sku?: string | null
+  title?: string | null
+  description?: string | null
+  quantity: number | string
+  unitPrice: number | string
+  total: number | string
+}
+
 interface Order {
   id: string
   orderNumber: string
   invoiceNumber?: string | null
   customer: { id: string; companyName: string }
   customerPoNumber?: string | null
-  items: { id: string; quantity: number | string }[]
+  items: OrderItem[]
   total: number
   balance: number
   dueDate: string | null
@@ -33,6 +44,13 @@ export default function WholesaleOrdersManager() {
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [search, setSearch] = useState('')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  const toggleExpand = (id: string) => setExpanded((prev) => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
 
   const load = useCallback(async (status: string, q: string) => {
     setLoading(true)
@@ -99,6 +117,7 @@ export default function WholesaleOrdersManager() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <th className="w-8 px-2 py-3"></th>
                 <th className="text-left px-5 py-3">Order #</th>
                 <th className="text-left px-5 py-3">Date</th>
                 <th className="text-left px-5 py-3">Customer</th>
@@ -112,12 +131,23 @@ export default function WholesaleOrdersManager() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {orders.map((o) => (
+              {orders.map((o) => {
+                const isOpen = expanded.has(o.id)
+                return (
+                <Fragment key={o.id}>
                 <tr
-                  key={o.id}
                   onClick={() => router.push(`/wholesale/orders/${o.id}`)}
                   className="hover:bg-gray-50 cursor-pointer"
                 >
+                  <td className="px-2 py-3 text-center">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleExpand(o.id) }}
+                      title={isOpen ? 'Collapse line items' : 'Show line items'}
+                      className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                    >
+                      <ChevronRight size={14} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                    </button>
+                  </td>
                   <td className="px-5 py-3 font-mono text-orange-600">{o.invoiceNumber ?? o.orderNumber}</td>
                   <td className="px-5 py-3 text-gray-500">{new Date(o.orderDate).toLocaleDateString()}</td>
                   <td className="px-5 py-3 font-medium">{o.customer.companyName}</td>
@@ -137,7 +167,42 @@ export default function WholesaleOrdersManager() {
                     </span>
                   </td>
                 </tr>
-              ))}
+                {isOpen && (
+                  <tr className="bg-gray-50/70">
+                    <td></td>
+                    <td colSpan={9} className="px-5 py-3">
+                      {o.items.length === 0 ? (
+                        <p className="text-xs text-gray-400">No line items.</p>
+                      ) : (
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-gray-400 uppercase tracking-wide">
+                              <th className="text-left font-medium pb-1.5 pr-4">SKU</th>
+                              <th className="text-left font-medium pb-1.5 pr-4">Description</th>
+                              <th className="text-right font-medium pb-1.5 pr-4">Qty</th>
+                              <th className="text-right font-medium pb-1.5 pr-4">Unit Price</th>
+                              <th className="text-right font-medium pb-1.5">Line Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {o.items.map((it) => (
+                              <tr key={it.id}>
+                                <td className="py-1.5 pr-4 font-mono text-gray-600">{it.sku || '—'}</td>
+                                <td className="py-1.5 pr-4 text-gray-700">{it.title || it.description || '—'}</td>
+                                <td className="py-1.5 pr-4 text-right tabular-nums text-gray-700">{Number(it.quantity).toLocaleString()}</td>
+                                <td className="py-1.5 pr-4 text-right tabular-nums text-gray-700">{fmt(Number(it.unitPrice))}</td>
+                                <td className="py-1.5 text-right tabular-nums font-medium text-gray-800">{fmt(Number(it.total))}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                )
+              })}
             </tbody>
           </table>
         )}
