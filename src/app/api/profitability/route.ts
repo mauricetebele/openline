@@ -162,12 +162,16 @@ export async function GET(req: NextRequest) {
   const marketplaceWhere = {
     workflowStatus: 'SHIPPED' as const,
     fulfillmentChannel: { not: 'AFN' },
-    // Exclude free replacement orders — they carry no revenue and must not
-    // impact profitability. `not: true` (not `false`) keeps legacy NULL rows.
-    isReplacement: { not: true },
-    OR: [
-      { shippedAt: { gte: dateFrom, lte: dateTo } },
-      { shippedAt: null, purchaseDate: { gte: dateFrom, lte: dateTo } },
+    // Exclude only genuine replacement orders (isReplacement === true). BackMarket
+    // orders store isReplacement as NULL, and Prisma's `{ not: true }` compiles to
+    // `<> true`, which drops NULL rows in SQL three-valued logic — that was hiding
+    // nearly all BackMarket orders. Match false OR null explicitly instead.
+    AND: [
+      { OR: [{ isReplacement: false }, { isReplacement: null }] },
+      { OR: [
+        { shippedAt: { gte: dateFrom, lte: dateTo } },
+        { shippedAt: null, purchaseDate: { gte: dateFrom, lte: dateTo } },
+      ] },
     ],
   }
 
