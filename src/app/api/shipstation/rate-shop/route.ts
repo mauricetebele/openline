@@ -557,6 +557,16 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[rate-shop] SP-API MFN error:', msg)
+      // Surface this instead of swallowing it — when the SP-API app lacks the
+      // Merchant Fulfillment role, Amazon's native "eligible shipping services"
+      // list (what Seller Central shows, incl. UPS Ground) can't be fetched, so
+      // the panel would silently show a narrower set of options.
+      const denied = /unauthorized|access to requested resource is denied|403/i.test(msg)
+      rateErrors.push(
+        denied
+          ? "Amazon's own shipping methods couldn't be loaded — the SP-API app is missing the Merchant Fulfillment (Buy Shipping) role. Some options (e.g. UPS Ground) may be hidden until it's authorized."
+          : `Amazon eligible shipping services unavailable: ${msg}`,
+      )
     }
   }
 
