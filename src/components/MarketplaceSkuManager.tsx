@@ -708,6 +708,8 @@ export default function MarketplaceSkuManager() {
   const [parentSkuSort, setParentSkuSort] = useState<'none' | 'asc' | 'desc'>('none')
   const [syncPage, setSyncPage] = useState(1)
   const SYNC_PAGE_SIZE = 100
+  const [mainPage, setMainPage] = useState(1)
+  const MAIN_PAGE_SIZE = 100
   const [qtyMap, setQtyMap] = useState<Record<string, QtyBreakdown>>({})
 
   // Pricing (Current Price column): live pull + inline edit
@@ -998,6 +1000,15 @@ export default function MarketplaceSkuManager() {
     }
   }, [])
 
+  // The qty-breakdown endpoint recomputes splits across ALL SKUs (several heavy
+  // aggregate queries). Toggling fires it repeatedly, so coalesce rapid toggles
+  // into a single refetch shortly after the last change instead of one per click.
+  const qtyBreakdownTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleQtyBreakdown = useCallback(() => {
+    if (qtyBreakdownTimer.current) clearTimeout(qtyBreakdownTimer.current)
+    qtyBreakdownTimer.current = setTimeout(() => { loadQtyBreakdown() }, 600)
+  }, [loadQtyBreakdown])
+
   const loadAll = useCallback(async () => {
     setLoading(true)
     await Promise.all([loadSkus(), loadListings(), loadQtyBreakdown()])
@@ -1007,7 +1018,7 @@ export default function MarketplaceSkuManager() {
   useEffect(() => { loadAll() }, [loadAll])
 
   // Reset synced listings page when filters change
-  useEffect(() => { setSyncPage(1) }, [tab, filterText, viewMode, statusFilter, gradeFilter])
+  useEffect(() => { setSyncPage(1); setMainPage(1) }, [tab, filterText, viewMode, statusFilter, gradeFilter])
 
   // Load global grades on mount
   useEffect(() => {
@@ -1151,7 +1162,7 @@ export default function MarketplaceSkuManager() {
           setToast(`Pushed qty ${pushed.quantity} for ${pushed.sellerSku}`)
         }
       }
-      loadQtyBreakdown()
+      scheduleQtyBreakdown()
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Toggle failed')
     } finally {
@@ -1180,7 +1191,7 @@ export default function MarketplaceSkuManager() {
           return s
         })
       })
-      loadQtyBreakdown()
+      scheduleQtyBreakdown()
       setToast(value ? 'Last Unit Lean set — SEE-SAW disabled for this product/grade' : 'Last Unit Lean off — SEE-SAW restored')
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to update Last Unit Lean')
@@ -1198,7 +1209,7 @@ export default function MarketplaceSkuManager() {
           ? { ...s, seeSaw: value, seeSawActive: false, simulList: false, isDefaultSku: value ? false : s.isDefaultSku }
           : s)
       })
-      loadQtyBreakdown()
+      scheduleQtyBreakdown()
       setToast(value ? 'SEE-SAW enabled for this product/grade' : 'SEE-SAW disabled')
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to update SEE-SAW')
@@ -1217,7 +1228,7 @@ export default function MarketplaceSkuManager() {
           ? { ...s, simulList: value, seeSaw: !value, seeSawActive: false, isDefaultSku: value ? false : s.isDefaultSku }
           : s)
       })
-      loadQtyBreakdown()
+      scheduleQtyBreakdown()
       setToast(value ? 'SIMUL-LIST enabled — last unit lists on all marketplaces' : 'SIMUL-LIST disabled — SEE-SAW restored')
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to update SIMUL-LIST')
@@ -1288,8 +1299,9 @@ export default function MarketplaceSkuManager() {
     }
   }
 
-  // Filter mapped SKUs by tab and search
-  const filteredSkus = skus.filter(s => {
+  // Filter mapped SKUs by tab and search (memoized — recomputes only when its
+  // inputs change, not on every unrelated render/toggle).
+  const filteredSkus = useMemo(() => skus.filter(s => {
     if (tab !== 'all' && s.marketplace !== tab) return false
     if (gradeFilter === 'none') { if (s.gradeId != null) return false }
     else if (gradeFilter !== 'all') { if (s.gradeId !== gradeFilter) return false }
@@ -1332,7 +1344,28 @@ export default function MarketplaceSkuManager() {
     if (syncQtySort === 'enabled') return (b.syncQty ? 1 : 0) - (a.syncQty ? 1 : 0)
     if (syncQtySort === 'disabled') return (a.syncQty ? 1 : 0) - (b.syncQty ? 1 : 0)
     return 0
-  })
+  }), [skus, tab, gradeFilter, statusFilter, filterText, parentSkuSort, readyForSaleSort, createdSort, syncQtySort, qtyMap])
+
+  // O(1) per-row group position lookup, precomputed once — avoids an O(n) filter
+  // inside every row's render (which made the list O(n²) to draw).
+  const groupPosMap = useMemo(() => {
+    const counts = new Map<string, number>()
+    const pos = new Map<string, number>()
+    for (const s of filteredSkus) {
+      if (!s.syncQty) continue
+      const key = `${s.productId}:${s.gradeId ?? ''}`
+      const n = (counts.get(key) ?? 0) + 1
+      counts.set(key, n)
+      pos.set(s.id, n)
+    }
+    return pos
+  }, [filteredSkus])
+
+  // Paginate the main list so a toggle re-renders ~100 rows, not ~1,500.
+  const mainTotalPages = Math.max(1, Math.ceil(filteredSkus.length / MAIN_PAGE_SIZE))
+  const pagedSkus = filteredSkus.slice((mainPage - 1) * MAIN_PAGE_SIZE, mainPage * MAIN_PAGE_SIZE)
+  // Keep the main page in range if the filtered set shrinks.
+  useEffect(() => { if (mainPage > mainTotalPages) setMainPage(mainTotalPages) }, [mainPage, mainTotalPages])
 
   // Unified selection (by msku id): every visible row is selectable. Calc-template
   // assignment applies to all selected; shipping-template change to the FBM subset.
@@ -1849,7 +1882,7 @@ export default function MarketplaceSkuManager() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredSkus.map(s => (
+                {pagedSkus.map(s => (
                   <tr key={s.id} className={clsx('group align-top transition-colors', s.fulfillmentChannel === 'FBA' ? 'bg-blue-50/60 hover:bg-blue-100/70' : 'odd:bg-white even:bg-gray-50/50 hover:bg-amazon-blue/5')}>
                     <td className="px-2 py-2 text-center">
                       <input
@@ -2095,7 +2128,7 @@ export default function MarketplaceSkuManager() {
                             apiPatch(`/api/marketplace-skus/${s.id}`, { maxQty: val })
                               .then(() => {
                                 setSkus((prev) => prev.map((sk) => (sk.id === s.id ? { ...sk, maxQty: val } : sk)))
-                                loadQtyBreakdown()
+                                scheduleQtyBreakdown()
                               })
                               .catch((err: Error) => setErr(err.message))
                           }
@@ -2124,11 +2157,7 @@ export default function MarketplaceSkuManager() {
                           <QtyBadge breakdown={qtyMap[s.id]} />
                           {qtyMap[s.id].groupSize > 1 && (
                             <span className="text-[10px] text-purple-500 font-medium whitespace-nowrap">
-                              {(() => {
-                                const group = filteredSkus.filter(sk => sk.productId === s.productId && (sk.gradeId ?? null) === (s.gradeId ?? null) && sk.syncQty)
-                                const idx = group.findIndex(sk => sk.id === s.id)
-                                return `${idx + 1}/${qtyMap[s.id].groupSize}`
-                              })()}
+                              {`${groupPosMap.get(s.id) ?? 1}/${qtyMap[s.id].groupSize}`}
                             </span>
                           )}
                           {qtyMap[s.id].groupSize > 1 && (
@@ -2244,6 +2273,24 @@ export default function MarketplaceSkuManager() {
               </tbody>
             </table>
           </div>
+          {filteredSkus.length > MAIN_PAGE_SIZE && (
+            <div className="flex items-center justify-between px-1 py-2 text-xs text-gray-500">
+              <span>
+                {(mainPage - 1) * MAIN_PAGE_SIZE + 1}–{Math.min(mainPage * MAIN_PAGE_SIZE, filteredSkus.length)} of {filteredSkus.length} SKUs
+              </span>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setMainPage(1)} disabled={mainPage === 1}
+                  className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50">« First</button>
+                <button onClick={() => setMainPage(p => Math.max(1, p - 1))} disabled={mainPage === 1}
+                  className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50">‹ Prev</button>
+                <span className="px-2">Page {mainPage} of {mainTotalPages}</span>
+                <button onClick={() => setMainPage(p => Math.min(mainTotalPages, p + 1))} disabled={mainPage === mainTotalPages}
+                  className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50">Next ›</button>
+                <button onClick={() => setMainPage(mainTotalPages)} disabled={mainPage === mainTotalPages}
+                  className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50">Last »</button>
+              </div>
+            </div>
+          )}
           </>
         )
       ) : (
