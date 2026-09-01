@@ -164,17 +164,11 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Bulk lookups (independent — fetch in parallel, products fetched once) ──
-  const [allProducts, mskuRows, fbaSkuRows, allGrades] = await Promise.all([
+  const [allProducts, mskuRows, allGrades] = await Promise.all([
     prisma.product.findMany({ select: { id: true, sku: true, description: true } }),
     prisma.productGradeMarketplaceSku.findMany({
       select: { sellerSku: true, productId: true, gradeId: true },
     }),
-    prisma.$queryRaw<{ sellerSku: string }[]>(Prisma.sql`
-      SELECT pgms."sellerSku"
-      FROM product_grade_marketplace_skus pgms
-      JOIN marketplace_listings ml ON ml."mskuId" = pgms.id
-      WHERE ml."fulfillmentChannel" = 'FBA'
-    `),
     prisma.grade.findMany({ select: { id: true, grade: true } }),
   ])
 
@@ -183,15 +177,10 @@ export async function GET(req: NextRequest) {
   for (const p of allProducts) skuMap.set(p.sku, { productId: p.id, gradeId: null })
   for (const m of mskuRows) skuMap.set(m.sellerSku, { productId: m.productId, gradeId: m.gradeId })
 
-  // ── Build set of valid FBA seller SKUs ────────────────────────────────
-  const fbaSkuSet = new Set(fbaSkuRows.map(r => r.sellerSku))
-
-  if (fbaSkuSet.size === 0) {
-    return NextResponse.json({
-      rows: [], totalCount: 0, page, pageSize, view,
-      summary: { totalRevenue: 0, totalCogs: 0, totalFbaFees: 0, totalCostCodes: 0, totalProfit: 0, profitMargin: 0 },
-    })
-  }
+  // NOTE: We do NOT gate rows on an FBA-listing mapping. The orders below are
+  // filtered to fulfillmentChannel = 'AFN', so every item IS an FBA sale by
+  // definition. Requiring an FBA marketplace_listing link (ml.mskuId) wrongly
+  // hid SKUs whose listing mapping is missing/unlinked (most of them).
 
   // ── Build product+grade name lookup ───────────────────────────────────
   const productNameMap = new Map<string, string>()
@@ -241,7 +230,7 @@ export async function GET(req: NextRequest) {
     orderBy: { purchaseDate: 'asc' },
   })
 
-  // ── Build per-item rows (only FBA-mapped SKUs) ────────────────────────
+  // ── Build per-item rows (every item on these AFN orders is an FBA sale) ──
   type ItemRow = {
     orderId: string
     olmNumber: number | null
@@ -272,7 +261,7 @@ export async function GET(req: NextRequest) {
 
     for (const item of order.items) {
       const sku = item.sellerSku
-      if (!sku || !fbaSkuSet.has(sku)) continue
+      if (!sku) continue
 
       // Skip items where Amazon hasn't released pricing data yet
       if (item.itemPrice == null) continue
