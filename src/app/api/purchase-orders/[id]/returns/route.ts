@@ -22,10 +22,14 @@ export async function GET(
         },
       },
       select: {
+        receivedAt: true,
         inventorySerial: {
           select: {
             receiptLine: {
-              select: { purchaseOrderLineId: true },
+              select: {
+                purchaseOrderLineId: true,
+                receipt: { select: { receivedAt: true } },
+              },
             },
           },
         },
@@ -34,8 +38,17 @@ export async function GET(
 
     const byLine: Record<string, number> = {}
     for (const r of rows) {
-      const lineId = r.inventorySerial?.receiptLine?.purchaseOrderLineId
-      if (lineId) byLine[lineId] = (byLine[lineId] ?? 0) + 1
+      const line = r.inventorySerial?.receiptLine
+      const lineId = line?.purchaseOrderLineId
+      if (!lineId) continue
+      // A serial can be received on this PO, returned to the vendor, then bought
+      // and re-received again on a LATER PO. Its receiptLine now points to the
+      // newer PO, so an OLD customer return (from the previous cycle) would be
+      // mis-attributed here. Only count returns that happened AFTER the unit was
+      // received on THIS PO — otherwise a re-purchased serial should reset to 0.
+      const poReceivedAt = line?.receipt?.receivedAt
+      if (poReceivedAt && r.receivedAt && r.receivedAt < poReceivedAt) continue
+      byLine[lineId] = (byLine[lineId] ?? 0) + 1
     }
 
     const totalReturns = Object.values(byLine).reduce((s, n) => s + n, 0)
