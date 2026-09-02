@@ -7140,6 +7140,12 @@ export default function UnshippedOrders() {
 
         <div className="flex-1" />
 
+        {/* Amazon Buy Shipping carrier preferences */}
+        <a href="https://sellercentral.amazon.com/carrier-preferences/main" target="_blank" rel="noopener noreferrer"
+          className="flex items-center gap-1 h-8 px-2.5 rounded border border-gray-300 text-[11px] font-medium text-gray-600 hover:border-amazon-blue hover:text-amazon-blue transition-colors">
+          <ExternalLink size={11} /> Buy Shipping Preferences
+        </a>
+
         {/* Sync status — tiny indicator in toolbar */}
         {syncing && <span className="text-[10px] text-gray-400 flex items-center gap-1"><RefreshCcw size={10} className="animate-spin" />Syncing…</span>}
 
