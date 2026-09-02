@@ -67,6 +67,8 @@ export default function OrphanLabelsManager() {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; ok: number; failed: number; current: string | null } | null>(null)
   const [trackingMap, setTrackingMap] = useState<Record<string, TrackingResult>>({})
   const [trackingLoading, setTrackingLoading] = useState<Set<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'orphans' | 'voided'>('orphans')
@@ -100,6 +102,7 @@ export default function OrphanLabelsManager() {
       // A manual sync refreshes tracking too: reset the caches so the effect re-pulls.
       requestedRef.current = new Set()
       setTrackingMap({})
+      setSelectedIds(new Set())
       setData(json)
       toast.success(`Synced — ${json.orphanCount} orphan${json.orphanCount !== 1 ? 's' : ''} found`)
     } catch (e) {
@@ -186,6 +189,43 @@ export default function OrphanLabelsManager() {
     } finally { setBusyId(null) }
   }
 
+  const toggleSelected = (id: number) => setSelectedIds(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+
+  async function bulkVoid() {
+    const orphans = data?.orphans ?? []
+    const targets = orphans.filter(o => selectedIds.has(o.shipmentId))
+    if (targets.length === 0) return
+    const totalCost = targets.reduce((s, o) => s + (o.cost ?? 0), 0)
+    if (!confirm(`Void ${targets.length} label${targets.length !== 1 ? 's' : ''} (${money(totalCost)}) on ShipStation? This requests carrier refunds.`)) return
+
+    setBulkProgress({ done: 0, total: targets.length, ok: 0, failed: 0, current: null })
+    let ok = 0, failed = 0
+    // Sequential — respects ShipStation's rate limit and gives clean progress.
+    for (let i = 0; i < targets.length; i++) {
+      const o = targets[i]
+      setBulkProgress({ done: i, total: targets.length, ok, failed, current: o.trackingNumber })
+      try {
+        const res = await fetch('/api/shipstation/orphan-labels/void', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ shipmentId: o.shipmentId, trackingNumber: o.trackingNumber, orderNumber: o.orderNumber, cost: o.cost }),
+        })
+        if (!res.ok) throw new Error()
+        ok++
+        setData(prev => prev ? { ...prev, orphans: prev.orphans.filter(x => x.shipmentId !== o.shipmentId), orphanCount: prev.orphanCount - 1, totalOrphanCost: Math.round((prev.totalOrphanCost - (o.cost ?? 0)) * 100) / 100 } : prev)
+        setSelectedIds(prev => { const n = new Set(prev); n.delete(o.shipmentId); return n })
+      } catch { failed++ }
+      setBulkProgress({ done: i + 1, total: targets.length, ok, failed, current: null })
+    }
+    setVoidedLog(null) // invalidate the Voided Log tab
+    toast[failed === 0 ? 'success' : 'error'](`Bulk void complete — ${ok} voided${failed ? `, ${failed} failed` : ''}`)
+    // Leave the completed bar up briefly, then clear.
+    setTimeout(() => setBulkProgress(null), 2500)
+  }
+
   async function toggleRefund(o: Orphan) {
     setBusyId(o.shipmentId)
     try {
@@ -255,6 +295,41 @@ export default function OrphanLabelsManager() {
         )}
       </div>
 
+      {/* Bulk action bar */}
+      {(selectedIds.size > 0 || bulkProgress) && (
+        <div className="flex items-center gap-3 px-6 py-2.5 border-b bg-red-50 dark:bg-red-900/20 dark:border-gray-700 shrink-0">
+          {!bulkProgress ? (
+            <>
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-200">{selectedIds.size} selected</span>
+              <button onClick={bulkVoid}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
+                <Ban size={14} /> Bulk Void ({selectedIds.size})
+              </button>
+              <button onClick={() => setSelectedIds(new Set())}
+                className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Clear</button>
+            </>
+          ) : (
+            <div className="flex-1">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="font-medium text-gray-700 dark:text-gray-200">
+                  {bulkProgress.done < bulkProgress.total
+                    ? <>Voiding {bulkProgress.done + 1} of {bulkProgress.total}{bulkProgress.current ? ` — ${bulkProgress.current}` : ''}…</>
+                    : <>Done — {bulkProgress.ok} voided{bulkProgress.failed ? `, ${bulkProgress.failed} failed` : ''}</>}
+                </span>
+                <span className="text-gray-500">{bulkProgress.done}/{bulkProgress.total}
+                  {bulkProgress.failed > 0 && <span className="text-red-600 ml-2">✗ {bulkProgress.failed}</span>}
+                  <span className="text-green-600 ml-2">✓ {bulkProgress.ok}</span>
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                <div className="h-full bg-red-500 transition-all duration-200"
+                  style={{ width: `${Math.round((bulkProgress.done / bulkProgress.total) * 100)}%` }} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Body */}
       <div className="flex-1 overflow-auto">
         {loading || syncing ? (
@@ -278,6 +353,12 @@ export default function OrphanLabelsManager() {
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-gray-800 z-10">
               <tr>
+                <th className="px-3 py-2.5 w-8 text-center">
+                  <input type="checkbox"
+                    checked={data.orphans.length > 0 && data.orphans.every(o => selectedIds.has(o.shipmentId))}
+                    onChange={e => setSelectedIds(e.target.checked ? new Set(data.orphans.map(o => o.shipmentId)) : new Set())}
+                    className="rounded border-gray-500 text-red-500 focus:ring-red-500" />
+                </th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Created</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Order #</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">OLM</th>
@@ -291,7 +372,11 @@ export default function OrphanLabelsManager() {
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {data.orphans.map((o, i) => (
-                <tr key={o.shipmentId} className={clsx(i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50')}>
+                <tr key={o.shipmentId} className={clsx(selectedIds.has(o.shipmentId) ? 'bg-red-50 dark:bg-red-900/20' : i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50')}>
+                  <td className="px-3 py-2 text-center">
+                    <input type="checkbox" checked={selectedIds.has(o.shipmentId)} onChange={() => toggleSelected(o.shipmentId)}
+                      className="rounded border-gray-300 text-red-500 focus:ring-red-500" />
+                  </td>
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(o.createDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                   <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{o.orderNumber ?? '—'}</td>
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{o.olmNumber ? `OLM-${o.olmNumber}` : '—'}</td>
@@ -310,14 +395,14 @@ export default function OrphanLabelsManager() {
                   <td className="px-3 py-2 text-right font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{money(o.cost)}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">
-                      <button onClick={() => toggleRefund(o)} disabled={busyId === o.shipmentId}
+                      <button onClick={() => toggleRefund(o)} disabled={busyId === o.shipmentId || !!bulkProgress}
                         className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium border transition-colors disabled:opacity-50',
                           o.refundRequested
                             ? 'bg-green-600 text-white border-green-600'
                             : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800')}>
                         <DollarSign size={10} /> {o.refundRequested ? 'Refund requested' : 'Mark refund requested'}
                       </button>
-                      <button onClick={() => voidLabel(o)} disabled={busyId === o.shipmentId}
+                      <button onClick={() => voidLabel(o)} disabled={busyId === o.shipmentId || !!bulkProgress}
                         className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-semibold bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">
                         {busyId === o.shipmentId ? <Loader2 size={10} className="animate-spin" /> : <Ban size={10} />} Void
                       </button>
