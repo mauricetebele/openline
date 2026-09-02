@@ -41,7 +41,11 @@ function carrierClass(hay: string): 'ups' | 'fedex' | 'usps' | 'other' {
   return 'other'
 }
 
-const CONCURRENCY = 4
+// Orders are rate-shopped concurrently (NOT sequentially). Each order makes one
+// ShipStation V2 rates call (limit ~200/min); at 8 in flight we stay well under
+// that while roughly halving wall-clock vs. the previous 4. Going much higher
+// risks 429s → retries that would slow it back down.
+const CONCURRENCY = 8
 
 // FedEx One Rate covers boxes up to the FedEx Large Box, whose longest side is
 // 17.88". Only exclude One Rate services when a package is genuinely larger than

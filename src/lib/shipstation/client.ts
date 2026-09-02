@@ -449,7 +449,10 @@ export class ShipStationClient {
       signal: controller.signal,
     }).finally(() => clearTimeout(timer))
     const json = await res.json()
-    console.log('[getRatesV2] status=%d body=%s', res.status, JSON.stringify(json, null, 2))
+    // Avoid pretty-printing the full rate response on every call — this runs in
+    // the concurrent bulk rate-shop hot path. Log a compact summary instead.
+    console.log('[getRatesV2] status=%d rates=%d invalid=%d', res.status,
+      (json?.rate_response?.rates ?? []).length, (json?.rate_response?.invalid_rates ?? []).length)
     if (!res.ok) {
       const firstErr = (json.errors as { message: string }[] | undefined)?.[0]?.message
       throw new Error(firstErr ?? json.message ?? json.title ?? `HTTP ${res.status}`)
