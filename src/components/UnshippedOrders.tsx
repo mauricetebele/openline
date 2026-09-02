@@ -7639,6 +7639,11 @@ export default function UnshippedOrders() {
               const isUnprocessing = unprocessingId === order.id
               const hasCancelRequest = order.isBuyerRequestedCancel
               const isMystery = isMysteryOrder(order)
+              // Customer paid for shipping on BackMarket (e.g. expedited) — flag it
+              // so processors know to prioritize. shippingPrice is the amount paid.
+              const paidShipping = order.orderSource === 'backmarket'
+                ? order.items.reduce((s, i) => s + (i.shippingPrice ? parseFloat(i.shippingPrice) : 0), 0)
+                : 0
               return (
                 <tr key={order.id} className={clsx(
                   'border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors align-middle',
@@ -7695,6 +7700,11 @@ export default function UnshippedOrders() {
                           {order.isReplacement && (
                             <span title="BackMarket Replacement order — excluded from profitability" className="inline-flex items-center gap-0.5 text-[9px] font-semibold bg-blue-100 text-blue-800 border border-blue-300 px-1 py-px rounded whitespace-nowrap">
                               <RotateCcw size={8} /> REPL
+                            </span>
+                          )}
+                          {paidShipping > 0 && (
+                            <span title={`Customer paid $${paidShipping.toFixed(2)} for shipping (likely expedited) — prioritize`} className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-amber-500 text-white px-1 py-px rounded whitespace-nowrap">
+                              <Truck size={8} /> SHIP ${paidShipping.toFixed(2)}
                             </span>
                           )}
                           {order.isPrime && <PrimeBadge />}
