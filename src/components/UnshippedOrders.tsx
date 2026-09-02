@@ -7143,7 +7143,7 @@ export default function UnshippedOrders() {
         {/* Amazon Buy Shipping carrier preferences */}
         <a href="https://sellercentral.amazon.com/carrier-preferences/main" target="_blank" rel="noopener noreferrer"
           className="flex items-center gap-1 h-8 px-2.5 rounded border border-gray-300 text-[11px] font-medium text-gray-600 hover:border-amazon-blue hover:text-amazon-blue transition-colors">
-          <ExternalLink size={11} /> Buy Shipping Preferences
+          <ExternalLink size={11} /> Manage Amazon Carrier Accounts
         </a>
 
         {/* Sync status — tiny indicator in toolbar */}
