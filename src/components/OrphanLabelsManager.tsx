@@ -3,6 +3,26 @@ import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import { Ban, RefreshCw, Loader2, AlertCircle, CheckCircle2, DollarSign } from 'lucide-react'
 import { clsx } from 'clsx'
+import { detectCarrier } from '@/lib/tracking-utils'
+
+type TrackingResult = { status: string; deliveredAt: string | null; estimatedDelivery: string | null } | { error: string }
+
+// Pre-transit statuses = label bought but carrier never took possession → a
+// genuinely unused (safe-to-void) label. Movement means the package shipped.
+const NOT_SCANNED_RE = /label created|shipment ready|pre-?shipment|order processed|ready for ups|shipment information|information sent|billing information|awaiting|pending|not yet|no status|manifest/i
+
+function TrackingBadge({ info, loading }: { info: TrackingResult | undefined; loading: boolean }) {
+  if (loading) return <Loader2 size={12} className="animate-spin text-gray-400" />
+  if (!info) return <span className="text-gray-400">—</span>
+  if ('error' in info) {
+    return <span title={info.error} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300 cursor-help"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> No Scan</span>
+  }
+  const s = info.status.toLowerCase()
+  if (s.includes('delivered')) return <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-200">{info.status}</span>
+  if (NOT_SCANNED_RE.test(s)) return <span title="No carrier scans yet — safe to void" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> {info.status}</span>
+  // Any movement → package actually shipped; voiding would strand it.
+  return <span title="Package is moving — do NOT void" className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-200">{info.status}</span>
+}
 
 interface Orphan {
   shipmentId: number
@@ -35,6 +55,8 @@ export default function OrphanLabelsManager() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
+  const [trackingMap, setTrackingMap] = useState<Record<string, TrackingResult>>({})
+  const [trackingLoading, setTrackingLoading] = useState<Set<string>>(new Set())
 
   const load = useCallback(async (d: number) => {
     setLoading(true); setError(null)
@@ -52,6 +74,43 @@ export default function OrphanLabelsManager() {
   }, [])
 
   useEffect(() => { load(days) }, [load, days])
+
+  // After orphans load, batch-fetch live UPS/FedEx tracking status.
+  useEffect(() => {
+    const orphans = data?.orphans ?? []
+    if (orphans.length === 0) return
+    setTrackingMap({})
+    const trackable = Array.from(new Set(
+      orphans.map(o => o.trackingNumber).filter((tn): tn is string => {
+        if (!tn) return false
+        const c = detectCarrier(tn)
+        return c === 'UPS' || c === 'FEDEX'
+      }),
+    ))
+    if (trackable.length === 0) return
+
+    const batches: string[][] = []
+    for (let i = 0; i < trackable.length; i += 20) batches.push(trackable.slice(i, i + 20))
+    setTrackingLoading(new Set(trackable))
+    let cancelled = false
+    ;(async () => {
+      for (const batch of batches) {
+        if (cancelled) return
+        try {
+          const res = await fetch('/api/ups/batch-track', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ trackingNumbers: batch }),
+          })
+          if (res.ok) {
+            const d: { results: Record<string, TrackingResult> } = await res.json()
+            if (!cancelled) setTrackingMap(prev => ({ ...prev, ...d.results }))
+          }
+        } catch { /* ignore */ }
+        if (!cancelled) setTrackingLoading(prev => { const next = new Set(prev); batch.forEach(tn => next.delete(tn)); return next })
+      }
+    })()
+    return () => { cancelled = true }
+  }, [data])
 
   async function voidLabel(o: Orphan) {
     if (!confirm(`Void label ${o.trackingNumber} (${money(o.cost)}) on ShipStation? This requests the carrier refund.`)) return
@@ -146,6 +205,7 @@ export default function OrphanLabelsManager() {
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">OLM</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Tracking</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Carrier / Service</th>
+                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Tracking Status</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Order Status</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Cost</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Actions</th>
@@ -159,6 +219,11 @@ export default function OrphanLabelsManager() {
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{o.olmNumber ? `OLM-${o.olmNumber}` : '—'}</td>
                   <td className="px-3 py-2 font-mono text-blue-600 dark:text-blue-400 whitespace-nowrap">{o.trackingNumber}</td>
                   <td className="px-3 py-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">{o.carrier ?? '—'}{o.service ? ` · ${o.service}` : ''}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {o.trackingNumber
+                      ? <TrackingBadge info={trackingMap[o.trackingNumber]} loading={trackingLoading.has(o.trackingNumber)} />
+                      : <span className="text-gray-400">—</span>}
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {o.orderWorkflowStatus
                       ? <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{o.orderWorkflowStatus}</span>
