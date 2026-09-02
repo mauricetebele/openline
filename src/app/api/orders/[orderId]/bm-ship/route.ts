@@ -31,12 +31,13 @@ import { BackMarketClient } from '@/lib/backmarket/client'
 
 export const dynamic = 'force-dynamic'
 
-/** Map ShipStation carrier codes to clean names BackMarket recognizes */
+/** Map carrier codes to clean names BackMarket recognizes */
 const CARRIER_NAME_MAP: Record<string, string> = {
   stamps_com:       'USPS',
   usps:             'USPS',
   ups:              'UPS',
   ups_walleted:     'UPS',
+  ups_direct:       'UPS',
   fedex:            'FedEx',
   fedex_direct:     'FedEx',
   dhl_express:      'DHL',
@@ -46,7 +47,16 @@ const CARRIER_NAME_MAP: Record<string, string> = {
 }
 function carrierDisplayName(code: string | null | undefined): string | undefined {
   if (!code) return undefined
-  return CARRIER_NAME_MAP[code.toLowerCase()] ?? code
+  const key = code.toLowerCase()
+  if (CARRIER_NAME_MAP[key]) return CARRIER_NAME_MAP[key]
+  // Prefix fallback so no unmapped variant (e.g. a new "ups_*"/"fedex_*" code)
+  // ever ships a raw code to BackMarket — it must be a name BM recognizes.
+  if (/ups/.test(key)) return 'UPS'
+  if (/fedex/.test(key)) return 'FedEx'
+  if (/usps|stamps|endicia/.test(key)) return 'USPS'
+  if (/dhl/.test(key)) return 'DHL'
+  if (/ontrac/.test(key)) return 'OnTrac'
+  return code
 }
 
 export async function POST(
@@ -105,7 +115,7 @@ export async function POST(
     return NextResponse.json({ error: 'No tracking number — provide carrier + tracking or purchase a label first' }, { status: 400 })
   }
   const shipper = manualCarrier
-    ? (CARRIER_NAME_MAP[manualCarrier.toLowerCase()] ?? manualCarrier)
+    ? carrierDisplayName(manualCarrier)
     : carrierDisplayName(order.label?.carrier) ?? order.shipCarrier
 
   // Verify all items have serials
