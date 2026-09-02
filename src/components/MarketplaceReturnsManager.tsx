@@ -72,6 +72,20 @@ export default function MarketplaceReturnsManager() {
     setShowReceiveModal(true)
   }
 
+  // Inline-edit the commission-refund-expected flag from the grid.
+  async function setCommissionExpected(rmaId: string, value: boolean | null) {
+    setRmas(prev => prev.map(r => r.id === rmaId ? { ...r, commissionRefundExpected: value } : r))
+    try {
+      const res = await fetch(`/api/marketplace-rma/${rmaId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commissionRefundExpected: value }),
+      })
+      if (!res.ok) throw new Error()
+    } catch {
+      fetchRmas() // revert to server truth on failure
+    }
+  }
+
   // ─── After create/receive ─────────────────────────────────────────────────
   function handleCreated() {
     setSelectedOrder(null)
@@ -271,15 +285,23 @@ export default function MarketplaceReturnsManager() {
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">
+                      <td className="px-3 py-1.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         {rma.order.orderSource !== 'backmarket' ? (
                           <span className="text-gray-300 dark:text-gray-600">—</span>
-                        ) : rma.commissionRefundExpected === true ? (
-                          <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">Yes</span>
-                        ) : rma.commissionRefundExpected === false ? (
-                          <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">No</span>
                         ) : (
-                          <span className="text-gray-300 dark:text-gray-600">—</span>
+                          <select
+                            value={rma.commissionRefundExpected === true ? 'yes' : rma.commissionRefundExpected === false ? 'no' : ''}
+                            onChange={(e) => setCommissionExpected(rma.id, e.target.value === 'yes' ? true : e.target.value === 'no' ? false : null)}
+                            title="Commission Refund Expected?"
+                            className={clsx('rounded text-[10px] font-semibold px-1 py-0.5 border cursor-pointer focus:outline-none focus:ring-1 focus:ring-amazon-blue',
+                              rma.commissionRefundExpected === true ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300'
+                              : rma.commissionRefundExpected === false ? 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-700 dark:text-gray-300'
+                              : 'bg-white text-gray-400 border-gray-200 dark:bg-gray-800')}
+                          >
+                            <option value="">—</option>
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
+                          </select>
                         )}
                       </td>
                       <td className="px-3 py-1.5">

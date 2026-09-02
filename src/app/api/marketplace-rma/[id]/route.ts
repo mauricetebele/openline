@@ -53,6 +53,27 @@ export async function GET(
  * DELETE /api/marketplace-rma/[id]
  * Deletes an unreceived (OPEN) RMA. Cascades to items and serials.
  */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json().catch(() => ({}))
+  const data: { commissionRefundExpected?: boolean | null } = {}
+  if ('commissionRefundExpected' in body) {
+    const v = body.commissionRefundExpected
+    data.commissionRefundExpected = v === true || v === false ? v : null
+  }
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
+  }
+
+  const updated = await prisma.marketplaceRMA.update({ where: { id: params.id }, data })
+  return NextResponse.json({ data: updated })
+}
+
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } },
