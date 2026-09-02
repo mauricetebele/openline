@@ -230,7 +230,7 @@ export default function MarketplaceReturnsManager() {
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">SKU</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Source</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Commission Refund</th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Refund Expected?</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">CM Refund Expected</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Status</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Date</th>
                 <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Qty</th>
