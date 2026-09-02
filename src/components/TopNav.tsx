@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom'
 import {
   ClipboardList, LogOut, ChevronDown,
   Truck, Tag, Tags, Package, Boxes, Building2, RotateCcw, ShoppingCart,
-  LayoutGrid, RefreshCcw, PackageMinus, Barcode, List, ListTodo,
+  LayoutGrid, RefreshCcw, PackageMinus, PackageOpen, Barcode, List, ListTodo,
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
   Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain, AlertCircle,
@@ -69,6 +69,7 @@ const NAV: NavItem[] = [
     label: 'Returns',
     icon: Undo2,
     children: [
+      { href: '/process-returns',           label: 'Process Returns',     icon: PackageOpen },
       { href: '/marketplace-returns',       label: 'Marketplace Returns', icon: Undo2 },
       { href: '/wholesale/customer-rma',    label: 'Wholesale RMA',       icon: RotateCcw },
       { href: '/vendor-rma',               label: 'Vendor Returns',      icon: PackageMinus },

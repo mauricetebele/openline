@@ -2562,6 +2562,44 @@ model OrphanLabelScan {
   @@map("orphan_label_scans")
 }
 
+// ─── Process Returns (staging) ──────────────────────────────────────────────
+// A warehouse-facing staging log for received returns so the RMA processor can
+// communicate with the administrator. Purely informational — it never touches
+// inventory serials, quantities, or movement. User attribution is stored as a
+// snapshot label to stay decoupled.
+model ProcessReturn {
+  id               String   @id @default(cuid())
+  returnNumber     Int      @unique @default(autoincrement())
+  trackingNumber   String
+  carrier          String
+  note             String?  @db.Text // processor's optional note
+  createdByLabel   String?
+  createdAt        DateTime @default(now())
+  // Administrator ↔ processor communication
+  adminNote        String?  @db.Text
+  flagged          Boolean  @default(false)
+  adminNoteByLabel String?
+  adminNoteAt      DateTime?
+  units            ProcessReturnUnit[]
+
+  @@index([flagged])
+  @@map("process_returns")
+}
+
+model ProcessReturnUnit {
+  id           String        @id @default(cuid())
+  returnId     String
+  return       ProcessReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  serialNumber String
+  grade        String?        // cosmetic grade label (e.g. "A")
+  serialExists Boolean        @default(false) // snapshot at submit
+  sku          String?        // snapshot SKU when the serial existed
+  createdAt    DateTime       @default(now())
+
+  @@index([returnId])
+  @@map("process_return_units")
+}
+
 // ─── FBA Removal Shipments ──────────────────────────────────────────────────
 
 model RemovalShipment {
