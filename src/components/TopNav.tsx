@@ -10,7 +10,7 @@ import {
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
   Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain, AlertCircle,
-  Sparkles, Receipt,
+  Sparkles, Receipt, Ban,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -100,6 +100,7 @@ const NAV: NavItem[] = [
       { href: '/shipping-manifest', label: 'Manifest',      icon: ClipboardList },
       { href: '/transactions',      label: 'Transactions',  icon: CreditCard },
       { href: '/shipping-bill-audit', label: 'Shipping Bill Audit', icon: Receipt },
+      { href: '/orphan-labels',      label: 'Orphaned Labels', icon: Ban },
     ],
   },
   {

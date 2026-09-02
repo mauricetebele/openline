@@ -84,6 +84,13 @@ export async function GET(req: NextRequest) {
     : []
   const orderByNum = new Map(orders.map(o => [o.amazonOrderId, o]))
 
+  // Persisted "refund requested" flags (audit log, keyed by shipmentId).
+  const refundEvents = await prisma.auditEvent.findMany({
+    where: { entityType: 'orphanLabel', action: 'refund_requested' },
+    select: { entityId: true },
+  })
+  const refundRequested = new Set(refundEvents.map(e => e.entityId))
+
   const orphans = candidates.map(s => {
     const o = s.orderNumber ? orderByNum.get(s.orderNumber) : undefined
     return {
@@ -97,6 +104,7 @@ export async function GET(req: NextRequest) {
       service: s.serviceCode,
       cost: s.shipmentCost ?? 0,
       createDate: s.createDate,
+      refundRequested: refundRequested.has(String(s.shipmentId)),
     }
   }).sort((a, b) => (b.createDate || '').localeCompare(a.createDate || ''))
 
