@@ -38,7 +38,18 @@ interface Orphan {
   refundRequested: boolean
 }
 
+interface VoidedRow {
+  id: string
+  shipmentId: number | null
+  trackingNumber: string | null
+  orderNumber: string | null
+  cost: number | null
+  voidedBy: string
+  voidedAt: string
+}
+
 interface ReconResult {
+  lastSyncedAt: string | null
   lookbackDays: number
   shipmentsScanned: number
   voidedSkipped: number
@@ -53,27 +64,61 @@ export default function OrphanLabelsManager() {
   const [days, setDays] = useState(90)
   const [data, setData] = useState<ReconResult | null>(null)
   const [loading, setLoading] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [trackingMap, setTrackingMap] = useState<Record<string, TrackingResult>>({})
   const [trackingLoading, setTrackingLoading] = useState<Set<string>>(new Set())
+  const [activeTab, setActiveTab] = useState<'orphans' | 'voided'>('orphans')
+  const [voidedLog, setVoidedLog] = useState<VoidedRow[] | null>(null)
+  const [voidedTotal, setVoidedTotal] = useState(0)
+  const [voidedLoading, setVoidedLoading] = useState(false)
 
-  const load = useCallback(async (d: number) => {
+  // Fast: load the last cached scan (no ShipStation call).
+  const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const res = await fetch(`/api/shipstation/orphan-labels?days=${d}`)
+      const res = await fetch('/api/shipstation/orphan-labels')
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to load')
       setData(json)
+      if (json.lastSyncedAt && json.lookbackDays) setDays(json.lookbackDays)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load')
-      setData(null)
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => { load(days) }, [load, days])
+  // Slow: pull fresh from ShipStation and update the cache.
+  const sync = useCallback(async (d: number) => {
+    setSyncing(true); setError(null)
+    try {
+      const res = await fetch(`/api/shipstation/orphan-labels?days=${d}`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Sync failed')
+      setData(json)
+      toast.success(`Synced — ${json.orphanCount} orphan${json.orphanCount !== 1 ? 's' : ''} found`)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Sync failed'
+      setError(msg); toast.error(msg)
+    } finally {
+      setSyncing(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const loadVoidedLog = useCallback(async () => {
+    setVoidedLoading(true)
+    try {
+      const res = await fetch('/api/shipstation/orphan-labels/voided-log')
+      const json = await res.json()
+      if (res.ok) { setVoidedLog(json.rows ?? []); setVoidedTotal(json.totalRefunded ?? 0) }
+    } catch { /* ignore */ } finally { setVoidedLoading(false) }
+  }, [])
+
+  useEffect(() => { if (activeTab === 'voided') loadVoidedLog() }, [activeTab, loadVoidedLog])
 
   // After orphans load, batch-fetch live UPS/FedEx tracking status.
   useEffect(() => {
@@ -125,6 +170,7 @@ export default function OrphanLabelsManager() {
       toast.success(`Voided ${o.trackingNumber}`)
       // Drops off the list on refresh (ShipStation marks it voided).
       setData(prev => prev ? { ...prev, orphans: prev.orphans.filter(x => x.shipmentId !== o.shipmentId), orphanCount: prev.orphanCount - 1, totalOrphanCost: Math.round((prev.totalOrphanCost - o.cost) * 100) / 100 } : prev)
+      setVoidedLog(null) // invalidate so the Voided Log tab reloads fresh
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Void failed')
     } finally { setBusyId(null) }
@@ -158,6 +204,19 @@ export default function OrphanLabelsManager() {
         </p>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 px-6 border-b bg-white dark:bg-gray-900 dark:border-gray-700 shrink-0">
+        {([['orphans', 'Orphaned Labels'], ['voided', 'Voided Log']] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setActiveTab(key)}
+            className={clsx('px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
+              activeTab === key ? 'border-amazon-blue text-amazon-blue' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200')}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'orphans' ? (
+      <>
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b bg-white dark:bg-gray-900 dark:border-gray-700 shrink-0">
         <label className="text-xs text-gray-500">Lookback</label>
@@ -169,10 +228,14 @@ export default function OrphanLabelsManager() {
           <option value={180}>180 days</option>
           <option value={365}>365 days</option>
         </select>
-        <button onClick={() => load(days)} disabled={loading}
-          className="flex items-center gap-1.5 h-8 px-3 rounded-md border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
-          {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Refresh
+        <button onClick={() => sync(days)} disabled={syncing || loading}
+          title="Pull the latest labels from ShipStation (rate-limited — may take a minute)"
+          className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+          {syncing ? <><Loader2 size={13} className="animate-spin" /> Syncing…</> : <><RefreshCw size={13} /> Sync with ShipStation</>}
         </button>
+        {data?.lastSyncedAt && (
+          <span className="text-[11px] text-gray-400">Last synced {new Date(data.lastSyncedAt).toLocaleString()}</span>
+        )}
         {data && (
           <div className="ml-auto flex items-center gap-4 text-xs">
             <span className="text-gray-400">Scanned {data.shipmentsScanned} labels</span>
@@ -184,17 +247,22 @@ export default function OrphanLabelsManager() {
 
       {/* Body */}
       <div className="flex-1 overflow-auto">
-        {loading ? (
-          <div className="py-20 text-center text-sm text-gray-400 flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Reconciling with ShipStation…</div>
+        {loading || syncing ? (
+          <div className="py-20 text-center text-sm text-gray-400 flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> {syncing ? 'Reconciling with ShipStation…' : 'Loading…'}</div>
         ) : error ? (
           <div className="py-20 text-center">
             <AlertCircle size={32} className="mx-auto text-red-400 mb-2" />
             <p className="text-sm text-red-600">{error}</p>
           </div>
+        ) : !data?.lastSyncedAt ? (
+          <div className="py-20 text-center">
+            <RefreshCw size={36} className="mx-auto text-gray-300 mb-3" />
+            <p className="text-sm font-medium text-gray-500">No scan yet — click <span className="font-semibold">Sync with ShipStation</span> to reconcile labels.</p>
+          </div>
         ) : !data || data.orphans.length === 0 ? (
           <div className="py-20 text-center">
             <CheckCircle2 size={36} className="mx-auto text-green-400 mb-3" />
-            <p className="text-sm font-medium text-gray-500">No orphaned labels in the last {days} days — every paid label is accounted for.</p>
+            <p className="text-sm font-medium text-gray-500">No orphaned labels as of the last sync — every paid label is accounted for.</p>
           </div>
         ) : (
           <table className="w-full text-xs">
@@ -251,6 +319,53 @@ export default function OrphanLabelsManager() {
           </table>
         )}
       </div>
+      </>
+      ) : (
+        /* ── Voided Log tab ── */
+        <>
+        <div className="flex items-center gap-4 px-6 py-3 border-b bg-white dark:bg-gray-900 dark:border-gray-700 shrink-0 text-xs">
+          <span className="text-gray-500">Labels voided from this tool</span>
+          {voidedLog && (
+            <>
+              <span className="font-semibold text-gray-700 dark:text-gray-200">{voidedLog.length} voided</span>
+              <span className="inline-flex items-center gap-1 font-semibold text-green-700 dark:text-green-400"><DollarSign size={12} /> {money(voidedTotal)} refund requested</span>
+            </>
+          )}
+        </div>
+        <div className="flex-1 overflow-auto">
+          {voidedLoading ? (
+            <div className="py-20 text-center text-sm text-gray-400 flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading…</div>
+          ) : !voidedLog || voidedLog.length === 0 ? (
+            <div className="py-20 text-center text-sm text-gray-400">No labels have been voided yet.</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-gray-800 z-10">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Voided</th>
+                  <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Order #</th>
+                  <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Tracking</th>
+                  <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Shipment ID</th>
+                  <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Cost</th>
+                  <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Voided By</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {voidedLog.map((r, i) => (
+                  <tr key={r.id} className={clsx(i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50')}>
+                    <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(r.voidedAt).toLocaleString()}</td>
+                    <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{r.orderNumber ?? '—'}</td>
+                    <td className="px-3 py-2 font-mono text-blue-600 dark:text-blue-400 whitespace-nowrap">{r.trackingNumber ?? '—'}</td>
+                    <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{r.shipmentId ?? '—'}</td>
+                    <td className="px-3 py-2 text-right font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{r.cost != null ? money(r.cost) : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.voidedBy}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        </>
+      )}
     </div>
   )
 }

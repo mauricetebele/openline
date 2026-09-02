@@ -2547,6 +2547,21 @@ model OliSkuCache {
   @@map("oli_sku_cache")
 }
 
+// Cached snapshot of the last ShipStation orphan-label reconciliation, so the
+// page loads instantly and the (slow, rate-limited) ShipStation pull only runs
+// when the user triggers a sync. `candidates` holds the non-voided shipments
+// with tracking; the read side re-filters against saved/voided labels.
+model OrphanLabelScan {
+  id               String   @id @default(cuid())
+  scannedAt        DateTime @default(now())
+  lookbackDays     Int
+  shipmentsScanned Int
+  voidedSkipped    Int
+  candidates       Json     @default("[]")
+
+  @@map("orphan_label_scans")
+}
+
 // ─── FBA Removal Shipments ──────────────────────────────────────────────────
 
 model RemovalShipment {
