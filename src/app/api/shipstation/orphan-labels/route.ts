@@ -35,16 +35,24 @@ const norm = (t: string | null | undefined) => (t ?? '').toUpperCase().replace(/
 /** Build the response (orphans + totals) from a cached candidate list, filtering
  *  against currently saved/voided labels and annotating refund-requested. */
 async function buildResponse(candidates: Candidate[], meta: { scannedAt: Date | null; lookbackDays: number; shipmentsScanned: number; voidedSkipped: number }) {
-  // Trackings we already account for: saved OrderLabels + voided labels (both
-  // the order-level void audit and the orphan-void audit).
-  const [savedLabels, orderVoids, orphanVoids, refundEvents] = await Promise.all([
+  // Trackings we already account for:
+  //  - saved OrderLabels
+  //  - tracking recorded directly on an order (manual ship / synced-back / older
+  //    flows create no OrderLabel but do set orders.shipTracking)
+  //  - voided labels (order-level void audit + orphan-void audit)
+  const [savedLabels, orderTrackings, orderVoids, orphanVoids, refundEvents] = await Promise.all([
     prisma.orderLabel.findMany({ select: { trackingNumber: true } }),
+    prisma.order.findMany({ where: { shipTracking: { not: null } }, select: { shipTracking: true } }),
     prisma.auditEvent.findMany({ where: { entityType: 'orderLabel', action: 'label_voided' }, select: { before: true } }),
     prisma.auditEvent.findMany({ where: { entityType: 'orphanLabel', action: 'voided' }, select: { before: true } }),
     prisma.auditEvent.findMany({ where: { entityType: 'orphanLabel', action: 'refund_requested' }, select: { entityId: true } }),
   ])
   const known = new Set<string>()
   for (const l of savedLabels) if (l.trackingNumber) known.add(norm(l.trackingNumber))
+  for (const o of orderTrackings) {
+    // shipTracking may hold multiple comma/space-separated numbers (multi-box).
+    for (const tn of (o.shipTracking ?? '').split(/[,\s]+/)) if (tn) known.add(norm(tn))
+  }
   for (const e of [...orderVoids, ...orphanVoids]) {
     const tn = (e.before as { trackingNumber?: string } | null)?.trackingNumber
     if (tn) known.add(norm(tn))
