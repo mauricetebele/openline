@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
 import { Ban, RefreshCw, Loader2, AlertCircle, CheckCircle2, DollarSign } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -97,6 +97,9 @@ export default function OrphanLabelsManager() {
       const res = await fetch(`/api/shipstation/orphan-labels?days=${d}`, { method: 'POST' })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Sync failed')
+      // A manual sync refreshes tracking too: reset the caches so the effect re-pulls.
+      requestedRef.current = new Set()
+      setTrackingMap({})
       setData(json)
       toast.success(`Synced — ${json.orphanCount} orphan${json.orphanCount !== 1 ? 's' : ''} found`)
     } catch (e) {
@@ -120,23 +123,30 @@ export default function OrphanLabelsManager() {
 
   useEffect(() => { if (activeTab === 'voided') loadVoidedLog() }, [activeTab, loadVoidedLog])
 
-  // After orphans load, batch-fetch live UPS/FedEx tracking status.
+  // Stable key of the trackable (UPS/FedEx) tracking numbers currently shown.
+  // Keying the effect on this — not the whole `data` object — means row edits
+  // like toggling "refund requested" don't re-trigger a tracking re-fetch.
+  const trackingKey = useMemo(() => {
+    return (data?.orphans ?? [])
+      .map(o => o.trackingNumber)
+      .filter((tn): tn is string => !!tn && (detectCarrier(tn) === 'UPS' || detectCarrier(tn) === 'FEDEX'))
+      .sort()
+      .join(',')
+  }, [data?.orphans])
+
+  // Tracking numbers we've already requested (persists across renders); cleared
+  // only on a manual sync, so row edits never trigger a tracking re-fetch.
+  const requestedRef = useRef<Set<string>>(new Set())
+
   useEffect(() => {
-    const orphans = data?.orphans ?? []
-    if (orphans.length === 0) return
-    setTrackingMap({})
-    const trackable = Array.from(new Set(
-      orphans.map(o => o.trackingNumber).filter((tn): tn is string => {
-        if (!tn) return false
-        const c = detectCarrier(tn)
-        return c === 'UPS' || c === 'FEDEX'
-      }),
-    ))
-    if (trackable.length === 0) return
+    if (!trackingKey) return
+    const missing = trackingKey.split(',').filter(tn => !requestedRef.current.has(tn))
+    if (missing.length === 0) return
+    missing.forEach(tn => requestedRef.current.add(tn))
 
     const batches: string[][] = []
-    for (let i = 0; i < trackable.length; i += 20) batches.push(trackable.slice(i, i + 20))
-    setTrackingLoading(new Set(trackable))
+    for (let i = 0; i < missing.length; i += 20) batches.push(missing.slice(i, i + 20))
+    setTrackingLoading(prev => new Set([...prev, ...missing]))
     let cancelled = false
     ;(async () => {
       for (const batch of batches) {
@@ -155,7 +165,7 @@ export default function OrphanLabelsManager() {
       }
     })()
     return () => { cancelled = true }
-  }, [data])
+  }, [trackingKey])
 
   async function voidLabel(o: Orphan) {
     if (!confirm(`Void label ${o.trackingNumber} (${money(o.cost)}) on ShipStation? This requests the carrier refund.`)) return
