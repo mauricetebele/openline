@@ -61,6 +61,43 @@ function singularUnit(s: string): string {
   return UNIT_SINGULAR[s] ?? s.replace(/s$/, '')
 }
 
+/**
+ * Estimated transit in days (lower = faster) — used as a tie-breaker so that
+ * when two rates cost the same, we pick the FASTER service (e.g. FedEx 2Day
+ * One Rate over Express Saver One Rate at an equal price). Prefers the carrier
+ * ETA (delivery date, then transit days), falling back to a service-name rank.
+ */
+function transitEstimateDays(
+  r: { deliveryDate?: string | null; transitDays?: number | null; serviceName?: string; serviceCode?: string },
+  shipDate?: string,
+): number {
+  if (r.deliveryDate) {
+    const d = Date.parse(r.deliveryDate)
+    if (!isNaN(d)) {
+      const base = shipDate ? Date.parse(shipDate) : Date.now()
+      return Math.max(0, (d - base) / 86_400_000)
+    }
+  }
+  if (r.transitDays != null) return r.transitDays
+  const n = `${r.serviceName ?? ''} ${r.serviceCode ?? ''}`.toLowerCase()
+  if (/first overnight|priority overnight|standard overnight|overnight|next[ _-]?day/.test(n)) return 1
+  if (/2[ _-]?day|second[ _-]?day/.test(n)) return 2
+  if (/express saver|3[ _-]?day|third[ _-]?day/.test(n)) return 3
+  if (/ground|home delivery/.test(n)) return 5
+  return 99
+}
+
+/** Cheapest first; on a cost tie, the faster service wins. */
+function cheaperThenFaster(
+  a: { shipmentCost: number; otherCost: number; deliveryDate?: string | null; transitDays?: number | null; serviceName?: string; serviceCode?: string },
+  b: typeof a,
+  shipDate?: string,
+): number {
+  const costDiff = (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost)
+  if (Math.abs(costDiff) > 0.001) return costDiff
+  return transitEstimateDays(a, shipDate) - transitEstimateDays(b, shipDate)
+}
+
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -299,9 +336,8 @@ export async function POST(req: NextRequest) {
                 throw new Error('No FedEx Direct rates returned')
               }
 
-              const sortedFx = fedexRates.sort((a, b) =>
-                (a.shipmentCost + a.otherCost) - (b.shipmentCost + b.otherCost)
-              )
+              // Cheapest first; on a cost tie, the faster service wins.
+              const sortedFx = fedexRates.sort((a, b) => cheaperThenFaster(a, b, shipDate))
               const cheapest = sortedFx[0]
               if (!cheapest) {
                 throw new Error('No FedEx Direct rates returned')
@@ -365,13 +401,18 @@ export async function POST(req: NextRequest) {
                 const v2Result = await client.getRatesV2(v2Payload)
                 allRatesTyped = v2Result.rate_response?.rates ?? []
                 const maxDim = Math.max(preset.dimLength ?? 0, preset.dimWidth ?? 0, preset.dimHeight ?? 0)
+                const v2Cost = (r: typeof allRatesTyped[number]) =>
+                  r.shipping_amount.amount + (r.insurance_amount?.amount ?? 0) + r.other_amount.amount
                 const validRates = allRatesTyped
                   .filter(r => r.validation_status !== 'invalid')
                   .filter(r => !(maxDim > FEDEX_ONE_RATE_MAX_DIM_IN && /one rate/i.test(r.service_type || r.service_code)))
-                  .sort((a, b) =>
-                    (a.shipping_amount.amount + (a.insurance_amount?.amount ?? 0) + a.other_amount.amount) -
-                    (b.shipping_amount.amount + (b.insurance_amount?.amount ?? 0) + b.other_amount.amount)
-                  )
+                  // Cheapest first; on a cost tie, the faster service wins.
+                  .sort((a, b) => {
+                    const costDiff = v2Cost(a) - v2Cost(b)
+                    if (Math.abs(costDiff) > 0.001) return costDiff
+                    return transitEstimateDays({ deliveryDate: a.estimated_delivery_date, transitDays: a.carrier_delivery_days, serviceName: a.service_type, serviceCode: a.service_code }, shipDate)
+                         - transitEstimateDays({ deliveryDate: b.estimated_delivery_date, transitDays: b.carrier_delivery_days, serviceName: b.service_type, serviceCode: b.service_code }, shipDate)
+                  })
                 // Restrict to a single carrier (UPS-only / FedEx-only) when requested.
                 const carrierRates = carrierFilter === 'all'
                   ? validRates
