@@ -114,6 +114,21 @@ export interface SSOrder {
   shipTo: SSAddress
 }
 
+/** Minimal shape returned by GET /shipments (each = a purchased label) */
+export interface SSShipment {
+  shipmentId: number
+  orderId: number | null
+  orderNumber: string | null
+  createDate: string
+  shipDate: string | null
+  trackingNumber: string | null
+  carrierCode: string | null
+  serviceCode: string | null
+  shipmentCost: number | null
+  voided: boolean
+  voidDate: string | null
+}
+
 export interface SSCarrierService {
   carrierCode: string
   code: string
@@ -325,6 +340,31 @@ export class ShipStationClient {
     }
 
     return allOrders
+  }
+
+  /**
+   * List purchased shipments (= labels) from ShipStation with pagination.
+   * Each shipment is a bought label; `voided` marks refunded/cancelled ones.
+   * Used to reconcile ShipStation's paid labels against our saved OrderLabels.
+   */
+  async listShipments(opts: { createDateStart: string; createDateEnd?: string; pageSize?: number }): Promise<SSShipment[]> {
+    const all: SSShipment[] = []
+    const pageSize = opts.pageSize ?? 500
+    let page = 1
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let path = `/shipments?page=${page}&pageSize=${pageSize}&sortBy=CreateDate&sortDir=DESC&createDateStart=${encodeURIComponent(opts.createDateStart)}`
+      if (opts.createDateEnd) path += `&createDateEnd=${encodeURIComponent(opts.createDateEnd)}`
+
+      const resp = await this.request<{ shipments: SSShipment[]; total: number; page: number; pages: number }>('GET', path)
+      if (resp.shipments?.length) all.push(...resp.shipments)
+      if (!resp.pages || page >= resp.pages) break
+      page++
+      await new Promise(r => setTimeout(r, 1500)) // 40 req/min cap
+    }
+
+    return all
   }
 
   getWarehouses(): Promise<SSWarehouse[]> {
