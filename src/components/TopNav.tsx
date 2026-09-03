@@ -266,6 +266,7 @@ export default function TopNav() {
   const [storeLogo, setStoreLogo] = useState<string | null>(null)
   const [dueToday, setDueToday] = useState(0)
   const [unreadAlerts, setUnreadAlerts] = useState(0)
+  const [unreviewedRefunds, setUnreviewedRefunds] = useState(0)
 
   // Fetch store logo — validate it actually loads before using
   useEffect(() => {
@@ -291,6 +292,19 @@ export default function TopNav() {
     }
     fetchDueToday()
     const interval = setInterval(fetchDueToday, 60_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Fetch unreviewed Amazon refunds count for the Reports badge
+  useEffect(() => {
+    function fetchUnreviewed() {
+      fetch('/api/amazon-refunds/unreviewed-count')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.count !== undefined) setUnreviewedRefunds(d.count) })
+        .catch(() => {})
+    }
+    fetchUnreviewed()
+    const interval = setInterval(fetchUnreviewed, 60_000)
     return () => clearInterval(interval)
   }, [])
 
@@ -452,7 +466,7 @@ export default function TopNav() {
                 item={item}
                 isActive={isActive}
                 onNavigate={() => {}}
-                badge={item.label === 'Fulfillment' && dueToday > 0 ? { count: dueToday, color: 'red' } : undefined}
+                badge={item.label === 'Fulfillment' && dueToday > 0 ? { count: dueToday, color: 'red' } : item.label === 'Reports' && unreviewedRefunds > 0 ? { count: unreviewedRefunds, color: 'red' } : undefined}
               />
             )
           }
@@ -471,7 +485,7 @@ export default function TopNav() {
                 item={item}
                 isActive={isActive}
                 onNavigate={() => {}}
-                badge={item.label === 'Fulfillment' && dueToday > 0 ? { count: dueToday, color: 'red' } : undefined}
+                badge={item.label === 'Fulfillment' && dueToday > 0 ? { count: dueToday, color: 'red' } : item.label === 'Reports' && unreviewedRefunds > 0 ? { count: unreviewedRefunds, color: 'red' } : undefined}
               />
             )
           }
