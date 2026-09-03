@@ -192,6 +192,16 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
 
   function resetBoxes() { setPackages([emptyPkg()]); clearBoxes(orderId); setRate(null); setRatingErr('') }
 
+  // Print every box from one tab via the server-merged PDF (avoids pop-up blocking).
+  async function printAll() {
+    try {
+      const res = await fetch(`/api/wholesale/orders/${orderId}/shipping-label/print`)
+      const data = await res.json()
+      if (!res.ok || !data.labelData) { toast.error(data.error ?? 'Could not open labels'); return }
+      openLabel(data.labelData, 'pdf')
+    } catch { toast.error('Could not open labels') }
+  }
+
   function buildBody() {
     return {
       carrier,
@@ -272,7 +282,7 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
                 </div>
               ))}
             </div>
-            <button onClick={() => result.pieces.forEach(p => openLabel(p.labelBase64, p.labelFormat))}
+            <button onClick={printAll}
               className="w-full flex items-center justify-center gap-1.5 h-10 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"><Printer size={15} /> Open / Print All Labels</button>
             <div className="flex gap-2">
               <button onClick={() => { setResult(null) }} className="flex-1 h-9 rounded-md border border-gray-300 text-sm text-gray-600 hover:bg-gray-50">Create Another</button>
