@@ -13,7 +13,7 @@ import { randomUUID } from 'crypto'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { generateUpsMultiPieceLabels, UPS_SERVICES, RETURN_ADDRESS, type MultiPieceAddress, type MultiPiecePackage } from '@/lib/ups-tracking'
-import { loadFedExCredentials, createMultiPieceShipment } from '@/lib/fedex/client'
+import { loadFedExCredentials, createMultiPieceShipment, getMultiPieceRate, type FedExMultiPieceParams } from '@/lib/fedex/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
       const sig = body.confirmation ? confirmationToSignature[body.confirmation] : undefined
 
-      const fx = await createMultiPieceShipment(creds, {
+      const fedexParams: FedExMultiPieceParams = {
         shipFrom: {
           streetLines: [RETURN_ADDRESS.line1, RETURN_ADDRESS.line2].filter(Boolean) as string[],
           city: RETURN_ADDRESS.city, stateOrProvinceCode: RETURN_ADDRESS.state, postalCode: RETURN_ADDRESS.postal, countryCode: RETURN_ADDRESS.country,
@@ -143,10 +143,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         serviceType: serviceCode,
         ...(sig ? { signatureType: sig } : {}),
         reference,
-      })
+      }
+      const fx = await createMultiPieceShipment(creds, fedexParams)
       shipmentId = fx.masterTrackingNumber
       serviceLabel = FEDEX_SERVICE_NAMES[serviceCode] ?? serviceCode
       pieces = fx.pieces
+      // FedEx's ship response omits cost — fetch the account rate for the total.
+      try { cost = (await getMultiPieceRate(creds, fedexParams)).total } catch (e) { console.error('[WholesaleLabel] FedEx rate failed:', e) }
     } else {
       const upsPackages: MultiPiecePackage[] = packages.map(p => ({
         weightValue: Number(p.weightValue), weightUnit: p.weightUnit === 'OZS' ? 'OZS' : 'LBS',

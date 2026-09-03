@@ -1762,6 +1762,19 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
   const [submitting, setSubmitting] = useState(false)
   const [submitErr, setSubmitErr]   = useState<string | null>(null)
 
+  // If the order has a purchased label but no captured cost (older FedEx labels),
+  // rate the shipment and backfill the Ship Cost field.
+  useEffect(() => {
+    if (!order.hasShippingLabel || order.actualShippingCost != null) return
+    let cancelled = false
+    fetch(`/api/wholesale/orders/${order.id}/shipping-label/recompute-cost`, { method: 'POST' })
+      .then(r => r.json())
+      .then(d => { if (!cancelled && d?.cost != null) setShipCost(prev => prev || Number(d.cost).toFixed(2)) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id])
+
   const serializableItems = order.items.filter(i => i.isSerializable)
   const totalSerializable = serializableItems.reduce((s, i) => s + i.quantityOrdered, 0)
   const assigned = order.serialAssignments?.length ?? 0
