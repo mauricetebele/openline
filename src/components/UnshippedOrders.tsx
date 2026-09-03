@@ -1938,7 +1938,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
           {/* Create a UPS shipping label — auto-fills carrier/tracking/cost above */}
           <button type="button" onClick={() => setShowLabelModal(true)}
             className="w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-emerald-300 text-emerald-700 text-xs font-semibold hover:bg-emerald-50">
-            <Truck size={14} /> Create UPS Shipping Label
+            <Truck size={14} /> Create Shipping Label (UPS / FedEx)
           </button>
 
           {/* Order Items */}
@@ -2082,7 +2082,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
           orderId={order.id}
           onClose={() => setShowLabelModal(false)}
           onCreated={(r) => {
-            setCarrier('UPS')
+            setCarrier(r.carrier || 'UPS')
             setTracking(r.trackingNumber)
             if (r.shipmentCost) setShipCost(parseFloat(r.shipmentCost).toFixed(2))
           }}

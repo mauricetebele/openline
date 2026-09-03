@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import { X, Loader2, Printer, Truck, RefreshCw, CheckCircle2, MapPin } from 'lucide-react'
 
+type Carrier = 'UPS' | 'FEDEX'
+
 // Mirrors UPS_SERVICES in src/lib/ups-tracking.ts (static list).
 const UPS_SERVICES = [
   { code: '03', label: 'UPS Ground' },
@@ -14,8 +16,23 @@ const UPS_SERVICES = [
   { code: '12', label: 'UPS 3-Day Select' },
 ]
 
-// Our warehouse origin (matches RETURN_ADDRESS in ups-tracking.ts) — shown read-only.
+// Common FedEx services (subset of SERVICE_NAMES in src/lib/fedex/client.ts).
+const FEDEX_SERVICES = [
+  { code: 'FEDEX_GROUND', label: 'FedEx Ground' },
+  { code: 'FEDEX_EXPRESS_SAVER', label: 'FedEx Express Saver' },
+  { code: 'FEDEX_2_DAY', label: 'FedEx 2Day' },
+  { code: 'FEDEX_2_DAY_AM', label: 'FedEx 2Day AM' },
+  { code: 'STANDARD_OVERNIGHT', label: 'FedEx Standard Overnight' },
+  { code: 'PRIORITY_OVERNIGHT', label: 'FedEx Priority Overnight' },
+  { code: 'FIRST_OVERNIGHT', label: 'FedEx First Overnight' },
+]
+
+const SERVICES: Record<Carrier, { code: string; label: string }[]> = { UPS: UPS_SERVICES, FEDEX: FEDEX_SERVICES }
+const DEFAULT_SERVICE: Record<Carrier, string> = { UPS: '03', FEDEX: 'FEDEX_GROUND' }
+
+// Our warehouse origin (matches RETURN_ADDRESS in ups-tracking.ts).
 const SHIP_FROM = 'PRIME MOBILITY FBM RETURNS · 20 MERIDIAN RD, UNIT 2, EATONTOWN, NJ 07724'
+const SHIP_FROM_RATE = { postal: '07724', city: 'EATONTOWN', state: 'NJ', country: 'US' }
 
 interface CustomerAddress {
   id: string; type: string; label: string
@@ -66,7 +83,7 @@ function PrintPreview({ base64, format, onClose }: { base64: string; format: str
 export default function WholesaleShippingLabelModal({ orderId, onClose, onCreated }: {
   orderId: string
   onClose: () => void
-  onCreated?: (r: { trackingNumber: string; shipmentCost?: string; currency?: string }) => void
+  onCreated?: (r: { carrier: string; trackingNumber: string; shipmentCost?: string; currency?: string }) => void
 }) {
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState('')
@@ -77,7 +94,9 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
 
   const [choice, setChoice] = useState<string>('') // 'order' | address.id | 'manual'
   const [shipTo, setShipTo] = useState<ShipTo>(blankShipTo)
+  const [shipToPhone, setShipToPhone] = useState('')
 
+  const [carrier, setCarrier] = useState<Carrier>('UPS')
   const [upsAccounts, setUpsAccounts] = useState<UpsAccount[]>([])
   const [accountId, setAccountId] = useState('')
 
@@ -110,6 +129,7 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
         const company = order?.customer?.companyName ?? ''
         setOrderNumber(order?.orderNumber ?? '')
         setCompanyName(company)
+        if (order?.customer?.phone) setShipToPhone(order.customer.phone)
         const shipAddrs: CustomerAddress[] = (order?.customer?.addresses ?? []).filter((a: CustomerAddress) => a.type === 'SHIPPING')
         setAddresses(shipAddrs)
 
@@ -157,24 +177,48 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
   const canGenerate = addressComplete && weightNum > 0 && !!serviceCode && !generating
 
   const buildBody = useCallback(() => ({
+    carrier,
     shipFromName: shipTo.name.trim(), shipFromAddress1: shipTo.address1.trim(), shipFromAddress2: shipTo.address2.trim(),
     shipFromCity: shipTo.city.trim(), shipFromState: shipTo.state.trim(), shipFromPostal: shipTo.postal.trim(),
     shipFromCountry: shipTo.country.trim() || 'US',
+    shipToPhone: shipToPhone.trim() || undefined,
     serviceCode, weightValue: weightNum, weightUnit,
     ...(length && width && height ? { length: parseFloat(length), width: parseFloat(width), height: parseFloat(height), dimUnit: 'IN' } : {}),
     ...(confirmation !== 'none' ? { confirmation } : {}),
     referenceNumber: orderNumber || undefined,
-    ...(accountId ? { upsCredentialId: accountId } : {}),
-  }), [shipTo, serviceCode, weightNum, weightUnit, length, width, height, confirmation, orderNumber, accountId])
+    ...(carrier === 'UPS' && accountId ? { upsCredentialId: accountId } : {}),
+  }), [carrier, shipTo, shipToPhone, serviceCode, weightNum, weightUnit, length, width, height, confirmation, orderNumber, accountId])
+
+  function switchCarrier(c: Carrier) {
+    setCarrier(c); setServiceCode(DEFAULT_SERVICE[c]); setRate(null); setRatingErr('')
+  }
 
   async function fetchRate() {
     if (!addressComplete || !(weightNum > 0)) { setRatingErr('Enter a complete ship-to address and weight first'); return }
     setFetchingRate(true); setRatingErr(''); setRate(null)
     try {
-      const res = await fetch('/api/outbound-label/rate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildBody()) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Rate quote failed')
-      setRate(data)
+      if (carrier === 'FEDEX') {
+        const res = await fetch('/api/fedex/rate-shop', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fromPostalCode: SHIP_FROM_RATE.postal, fromCity: SHIP_FROM_RATE.city, fromState: SHIP_FROM_RATE.state, fromCountry: SHIP_FROM_RATE.country,
+            toPostalCode: shipTo.postal.trim(), toCity: shipTo.city.trim(), toState: shipTo.state.trim(), toCountry: shipTo.country.trim() || 'US',
+            residential: false,
+            weight: { value: weightNum, units: weightUnit === 'LBS' ? 'LB' : 'OZ' },
+            dimensions: { units: 'IN', length: parseFloat(length) || 12, width: parseFloat(width) || 9, height: parseFloat(height) || 3 },
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? 'Rate quote failed')
+        const match = (data.rates ?? []).find((r: { serviceCode: string }) => r.serviceCode === serviceCode)
+        if (!match) { setRatingErr(`No FedEx rate returned for ${serviceCode}`); return }
+        setRate({ publishedRate: String(match.shipmentCost), negotiatedRate: String(match.shipmentCost), currency: 'USD' })
+      } else {
+        const res = await fetch('/api/outbound-label/rate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildBody()) })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? 'Rate quote failed')
+        setRate(data)
+      }
     } catch (e) { setRatingErr(e instanceof Error ? e.message : 'Could not fetch rate') }
     finally { setFetchingRate(false) }
   }
@@ -188,7 +232,7 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
       if (!res.ok) throw new Error(data.error ?? 'Label generation failed')
       setResult(data)
       toast.success(`Label created — ${data.trackingNumber}`)
-      onCreated?.({ trackingNumber: data.trackingNumber, shipmentCost: data.shipmentCost, currency: data.currency })
+      onCreated?.({ carrier: data.carrier ?? (carrier === 'FEDEX' ? 'FedEx' : 'UPS'), trackingNumber: data.trackingNumber, shipmentCost: data.shipmentCost, currency: data.currency })
     } catch (e) { setGenErr(e instanceof Error ? e.message : 'Label generation failed') }
     finally { setGenerating(false) }
   }
@@ -201,7 +245,7 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
           <div>
-            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2"><Truck size={15} className="text-emerald-600" /> UPS Shipping Label</h3>
+            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2"><Truck size={15} className="text-emerald-600" /> Shipping Label</h3>
             {orderNumber && <p className="text-xs text-gray-500 font-mono mt-0.5">{orderNumber}{companyName ? ` · ${companyName}` : ''}</p>}
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
@@ -229,6 +273,21 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
         ) : (
           // ── Form ──
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+            {/* Carrier selector */}
+            <div>
+              <label className={labelCls}>Carrier</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['UPS', 'FEDEX'] as Carrier[]).map(c => (
+                  <button key={c} type="button" onClick={() => switchCarrier(c)}
+                    className={'h-9 rounded-md border-2 text-sm font-semibold transition ' + (carrier === c
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                      : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
+                    {c === 'UPS' ? 'UPS' : 'FedEx'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Ship from (read-only) */}
             <div className="text-[11px] text-gray-500 bg-gray-50 rounded-md px-3 py-2 flex items-start gap-1.5">
               <MapPin size={12} className="mt-0.5 shrink-0 text-gray-400" /><span><span className="font-semibold text-gray-600">Ship from:</span> {SHIP_FROM}</span>
@@ -264,20 +323,22 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
               </div>
               <div><label className={labelCls}>Country</label>
                 <input className={inputCls} value={shipTo.country} onChange={e => patch({ country: e.target.value })} /></div>
+              <div className="col-span-2"><label className={labelCls}>Phone <span className="text-gray-400 font-normal">(used for FedEx)</span></label>
+                <input className={inputCls} value={shipToPhone} onChange={e => setShipToPhone(e.target.value)} placeholder="Recipient phone" /></div>
             </div>
 
             {/* Package */}
             <div className="border-t pt-3 space-y-2">
-              {upsAccounts.length > 1 && (
+              {carrier === 'UPS' && upsAccounts.length > 1 && (
                 <div><label className={labelCls}>UPS Account</label>
                   <select className={inputCls} value={accountId} onChange={e => setAccountId(e.target.value)}>
                     {upsAccounts.map(a => <option key={a.id} value={a.id}>{a.nickname ?? a.accountNumber ?? a.id}{a.isDefault ? ' (default)' : ''}</option>)}
                   </select></div>
               )}
               <div className="grid grid-cols-2 gap-2">
-                <div><label className={labelCls}>UPS Service <span className="text-red-500">*</span></label>
+                <div><label className={labelCls}>{carrier === 'FEDEX' ? 'FedEx' : 'UPS'} Service <span className="text-red-500">*</span></label>
                   <select className={inputCls} value={serviceCode} onChange={e => { setServiceCode(e.target.value); setRate(null) }}>
-                    {UPS_SERVICES.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                    {SERVICES[carrier].map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                   </select></div>
                 <div><label className={labelCls}>Delivery Confirmation</label>
                   <select className={inputCls} value={confirmation} onChange={e => setConfirmation(e.target.value as typeof confirmation)}>
