@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Plus, Trash2, X, Loader2, CheckCircle2, XCircle, AlertTriangle, Flag, PackageOpen, MessageSquare, Clock, PauseCircle, Gavel, Archive, ArchiveRestore } from 'lucide-react'
+import { Plus, Trash2, X, Loader2, CheckCircle2, XCircle, AlertTriangle, Flag, PackageOpen, MessageSquare, Clock, PauseCircle, Gavel, Archive, ArchiveRestore, Pencil } from 'lucide-react'
 
 // Administrator processing outcomes
 const OUTCOMES = [
@@ -88,6 +88,10 @@ function ReturnFormModal({ grades, existing, onClose, onSaved }: { grades: Grade
     }, 350)
   }
 
+  // Editing an already-completed record (e.g. to fix a serial) — vs creating a
+  // new one or resuming an unfinished draft.
+  const editingCompleted = !!existing?.completed
+  const showResumeLater = !editingCompleted
   const hasSerials = units.some(u => u.serial.trim())
   const canSubmit = !!(trackingNumber.trim() && carrier.trim() && hasSerials) && !saving
   // Resume Later needs at least *something* entered — no point saving a blank draft.
@@ -107,7 +111,7 @@ function ReturnFormModal({ grades, existing, onClose, onSaved }: { grades: Grade
       })
       const j = await res.json()
       if (!res.ok) throw new Error(j.error || 'Failed to save')
-      toast.success(finalize ? 'Return staged' : 'Saved — resume it anytime')
+      toast.success(finalize ? (editingCompleted ? 'Changes saved' : 'Return staged') : 'Saved — resume it anytime')
       onSaved()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to save')
@@ -121,8 +125,8 @@ function ReturnFormModal({ grades, existing, onClose, onSaved }: { grades: Grade
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 dark:border-white/10">
           <h2 className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-white">
             <PackageOpen size={16} className="text-amazon-blue" />
-            {existing ? <>Resume RET-{existing.returnNumber}</> : 'New Received Return'}
-            {existing && <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 rounded"><Clock size={9} /> NOT YET COMPLETED</span>}
+            {existing ? <>{editingCompleted ? 'Edit' : 'Resume'} RET-{existing.returnNumber}</> : 'New Received Return'}
+            {existing && !editingCompleted && <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 rounded"><Clock size={9} /> NOT YET COMPLETED</span>}
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><X size={18} /></button>
         </div>
@@ -186,13 +190,15 @@ function ReturnFormModal({ grades, existing, onClose, onSaved }: { grades: Grade
 
         <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-gray-200 dark:border-white/10">
           <button onClick={onClose} className="text-xs font-medium text-gray-600 dark:text-gray-300 px-3 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10">Cancel</button>
-          <button onClick={() => save(false)} disabled={!canResume} title="Save this unfinished record and continue it later"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 px-3.5 py-1.5 rounded-md hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-40">
-            {saving === 'resume' ? <Loader2 size={14} className="animate-spin" /> : <PauseCircle size={14} />} Resume Later
-          </button>
+          {showResumeLater && (
+            <button onClick={() => save(false)} disabled={!canResume} title="Save this unfinished record and continue it later"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 px-3.5 py-1.5 rounded-md hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-40">
+              {saving === 'resume' ? <Loader2 size={14} className="animate-spin" /> : <PauseCircle size={14} />} Resume Later
+            </button>
+          )}
           <button onClick={() => save(true)} disabled={!canSubmit}
             className="inline-flex items-center gap-1.5 text-xs font-semibold bg-amazon-blue text-white px-4 py-1.5 rounded-md hover:bg-blue-700 disabled:opacity-40">
-            {saving === 'submit' ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} Submit
+            {saving === 'submit' ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} {editingCompleted ? 'Save Changes' : 'Submit'}
           </button>
         </div>
       </div>
@@ -202,7 +208,7 @@ function ReturnFormModal({ grades, existing, onClose, onSaved }: { grades: Grade
 
 // ─── Detail / Admin Modal ────────────────────────────────────────────────────
 
-function DetailModal({ ret, onClose, onUpdated }: { ret: ProcessReturn; onClose: () => void; onUpdated: (r: ProcessReturn) => void }) {
+function DetailModal({ ret, onClose, onUpdated, onEdit }: { ret: ProcessReturn; onClose: () => void; onUpdated: (r: ProcessReturn) => void; onEdit: (r: ProcessReturn) => void }) {
   const [adminNote, setAdminNote] = useState(ret.adminNote ?? '')
   const [flagged, setFlagged] = useState(ret.flagged)
   const [outcome, setOutcome] = useState<string | null>(ret.processedOutcome)
@@ -278,7 +284,12 @@ function DetailModal({ ret, onClose, onUpdated }: { ret: ProcessReturn; onClose:
           )}
 
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Units ({ret.units.length})</p>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Units ({ret.units.length})</p>
+              <button onClick={() => onEdit(ret)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-amazon-blue hover:underline">
+                <Pencil size={11} /> Edit serials
+              </button>
+            </div>
             <div className="rounded-lg border border-gray-200 dark:border-white/10 divide-y divide-gray-100 dark:divide-white/5">
               {ret.units.map((u, i) => (
                 <div key={u.id} className="flex items-center gap-2 px-3 py-1.5 text-xs">
@@ -469,7 +480,7 @@ export default function ProcessReturnsManager() {
 
       {showCreate && <ReturnFormModal grades={grades} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load() }} />}
       {resume && <ReturnFormModal grades={grades} existing={resume} onClose={() => setResume(null)} onSaved={() => { setResume(null); load() }} />}
-      {detail && <DetailModal ret={detail} onClose={() => setDetail(null)} onUpdated={(r) => { setDetail(r); setReturns(prev => prev.map(x => x.id === r.id ? r : x)) }} />}
+      {detail && <DetailModal ret={detail} onClose={() => setDetail(null)} onEdit={(r) => { setDetail(null); setResume(r) }} onUpdated={(r) => { setDetail(r); setReturns(prev => prev.map(x => x.id === r.id ? r : x)) }} />}
     </div>
   )
 }
