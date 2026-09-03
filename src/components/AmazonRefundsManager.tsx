@@ -37,6 +37,7 @@ export default function AmazonRefundsManager() {
   const [syncing, setSyncing] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({})
+  const [channelFilter, setChannelFilter] = useState<'all' | 'FBA' | 'MFN'>('all')
 
   const load = useCallback(async (t: Tab) => {
     setLoading(true)
@@ -108,6 +109,8 @@ export default function AmazonRefundsManager() {
     }
   }
 
+  const visibleRows = channelFilter === 'all' ? rows : rows.filter(r => r.channel === channelFilter)
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -135,16 +138,27 @@ export default function AmazonRefundsManager() {
             </button>
           )
         })}
+        {/* Channel filter */}
+        <div className="ml-auto flex items-center gap-1.5 self-center pb-1">
+          <span className="text-[10px] uppercase tracking-wider text-gray-400 mr-0.5">Channel</span>
+          {(['all', 'FBA', 'MFN'] as const).map(c => (
+            <button key={c} onClick={() => setChannelFilter(c)}
+              className={clsx('px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors',
+                channelFilter === c ? 'bg-amazon-blue text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300')}>
+              {c === 'all' ? 'All' : c}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Body */}
       <div className="flex-1 overflow-auto">
         {loading ? (
           <div className="py-20 text-center text-sm text-gray-400 flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading…</div>
-        ) : rows.length === 0 ? (
+        ) : visibleRows.length === 0 ? (
           <div className="py-20 text-center">
             <CheckCircle2 size={36} className="mx-auto text-green-400 mb-3" />
-            <p className="text-sm font-medium text-gray-400">{tab === 'not_reviewed' ? 'Nothing left to review.' : tab === 'flagged' ? 'No flagged refunds.' : 'No validated refunds yet.'}</p>
+            <p className="text-sm font-medium text-gray-400">{channelFilter !== 'all' ? `No ${channelFilter} refunds in this tab.` : tab === 'not_reviewed' ? 'Nothing left to review.' : tab === 'flagged' ? 'No flagged refunds.' : 'No validated refunds yet.'}</p>
           </div>
         ) : (
           <table className="w-full text-xs">
@@ -161,10 +175,15 @@ export default function AmazonRefundsManager() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {rows.map((r, i) => (
+              {visibleRows.map((r, i) => (
                 <tr key={r.id} className={clsx(i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50')}>
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(r.postedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
-                  <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{r.orderId ?? '—'}</td>
+                  <td className="px-3 py-2 font-mono whitespace-nowrap">
+                    {r.orderId ? (
+                      <a href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`} target="_blank" rel="noopener noreferrer"
+                        className="text-amazon-blue hover:underline">{r.orderId}</a>
+                    ) : <span className="text-gray-400">—</span>}
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {r.channel === 'FBA' ? (
                       <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">FBA</span>
