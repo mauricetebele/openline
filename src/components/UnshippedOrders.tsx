@@ -5636,18 +5636,25 @@ export default function UnshippedOrders() {
     try {
       const listRes = await fetch(`/api/wholesale/orders/${orderId}/shipping-label`)
       const listData = await listRes.json()
-      const labels: { id: string; voided: boolean }[] = (listData.labels ?? []).filter((l: { voided: boolean }) => !l.voided)
+      const labels: { id: string; shipmentId?: string; voided: boolean }[] = (listData.labels ?? []).filter((l: { voided: boolean }) => !l.voided)
       if (labels.length === 0) { toast.error('No shipping label found for this order', { id: toastId }); return }
-      const pdfRes = await fetch(`/api/outbound-label/${labels[0].id}`)
-      const pdf = await pdfRes.json()
-      if (!pdfRes.ok || !pdf.labelData) { toast.error(pdf.error ?? 'Could not load label', { id: toastId }); return }
-      const isPdf = String(pdf.labelFormat ?? 'pdf').toLowerCase() === 'pdf'
-      const bytes = Uint8Array.from(atob(pdf.labelData), c => c.charCodeAt(0))
-      const blob = new Blob([bytes], { type: isPdf ? 'application/pdf' : 'image/png' })
-      const url = URL.createObjectURL(blob)
-      const win = window.open(url, '_blank')
-      if (!win) { toast.error('Pop-up blocked — allow pop-ups and try again', { id: toastId }) }
-      else { toast.success('Label opened', { id: toastId }); setTimeout(() => URL.revokeObjectURL(url), 60_000) }
+      // Open every piece of the most recent shipment (multi-box shipments share a shipmentId).
+      const latestSet = labels[0].shipmentId
+      const toOpen = latestSet ? labels.filter(l => l.shipmentId === latestSet) : [labels[0]]
+      let opened = 0, popupBlocked = false
+      for (const lbl of toOpen) {
+        const pdfRes = await fetch(`/api/outbound-label/${lbl.id}`)
+        const pdf = await pdfRes.json()
+        if (!pdfRes.ok || !pdf.labelData) continue
+        const isPdf = String(pdf.labelFormat ?? 'pdf').toLowerCase() === 'pdf'
+        const bytes = Uint8Array.from(atob(pdf.labelData), c => c.charCodeAt(0))
+        const blob = new Blob([bytes], { type: isPdf ? 'application/pdf' : 'image/png' })
+        const url = URL.createObjectURL(blob)
+        const win = window.open(url, '_blank')
+        if (!win) { popupBlocked = true } else { opened++; setTimeout(() => URL.revokeObjectURL(url), 60_000) }
+      }
+      if (popupBlocked && opened === 0) toast.error('Pop-up blocked — allow pop-ups and try again', { id: toastId })
+      else toast.success(`Opened ${opened} label${opened !== 1 ? 's' : ''}`, { id: toastId })
     } catch {
       toast.error('Failed to open label', { id: toastId })
     } finally {

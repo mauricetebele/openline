@@ -1,7 +1,7 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
-import { X, Loader2, Printer, Truck, RefreshCw, CheckCircle2, MapPin } from 'lucide-react'
+import { X, Loader2, Printer, Truck, CheckCircle2, MapPin, Plus, Trash2 } from 'lucide-react'
 
 type Carrier = 'UPS' | 'FEDEX'
 
@@ -32,52 +32,33 @@ const DEFAULT_SERVICE: Record<Carrier, string> = { UPS: '03', FEDEX: 'FEDEX_GROU
 
 // Our warehouse origin (matches RETURN_ADDRESS in ups-tracking.ts).
 const SHIP_FROM = 'PRIME MOBILITY FBM RETURNS · 20 MERIDIAN RD, UNIT 2, EATONTOWN, NJ 07724'
-const SHIP_FROM_RATE = { postal: '07724', city: 'EATONTOWN', state: 'NJ', country: 'US' }
 
 interface CustomerAddress {
   id: string; type: string; label: string
   addressLine1: string; addressLine2: string | null
   city: string; state: string; postalCode: string; country: string; isDefault: boolean
 }
-interface ShipTo { name: string; address1: string; address2: string; city: string; state: string; postal: string; country: string }
+interface ShipTo { name: string; company: string; address1: string; address2: string; city: string; state: string; postal: string; country: string }
 interface UpsAccount { id: string; nickname?: string; accountNumber?: string; isDefault?: boolean }
-interface LabelResult { trackingNumber: string; labelBase64: string; labelFormat: string; shipmentCost?: string; currency?: string; labelId?: string }
+interface PkgForm { key: string; weightValue: string; weightUnit: 'LBS' | 'OZS'; length: string; width: string; height: string }
+interface Piece { labelId: string; trackingNumber: string; labelBase64: string; labelFormat: string }
 
-const blankShipTo: ShipTo = { name: '', address1: '', address2: '', city: '', state: '', postal: '', country: 'US' }
+const blankShipTo: ShipTo = { name: '', company: '', address1: '', address2: '', city: '', state: '', postal: '', country: 'US' }
+let pkgKey = 0
+const emptyPkg = (): PkgForm => ({ key: `p${++pkgKey}`, weightValue: '', weightUnit: 'LBS', length: '', width: '', height: '' })
 
-function toShipTo(a: { addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; postalCode?: string; country?: string }, name: string): ShipTo {
-  return {
-    name,
-    address1: a.addressLine1 ?? '',
-    address2: a.addressLine2 ?? '',
-    city: a.city ?? '',
-    state: a.state ?? '',
-    postal: a.postalCode ?? '',
-    country: a.country ?? 'US',
-  }
+function toShipTo(a: { addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; postalCode?: string; country?: string }, name: string, company: string): ShipTo {
+  return { name, company, address1: a.addressLine1 ?? '', address2: a.addressLine2 ?? '', city: a.city ?? '', state: a.state ?? '', postal: a.postalCode ?? '', country: a.country ?? 'US' }
 }
 
-function PrintPreview({ base64, format, onClose }: { base64: string; format: string; onClose: () => void }) {
-  const isPdf = format.toLowerCase() === 'pdf'
-  const dataUrl = isPdf ? `data:application/pdf;base64,${base64}` : `data:image/${format.toLowerCase()};base64,${base64}`
-  const handlePrint = () => {
-    const win = window.open(dataUrl, '_blank')
-    if (!win) toast.error('Pop-up blocked — allow pop-ups and try again')
-  }
-  return (
-    <div className="fixed inset-0 z-[60] bg-white flex flex-col">
-      <div className="flex items-center justify-between px-6 py-3 border-b bg-gray-50">
-        <p className="text-sm font-semibold text-gray-700">Shipping Label</p>
-        <div className="flex gap-2">
-          <button onClick={onClose} className="h-8 px-4 rounded border border-gray-300 text-sm text-gray-600 hover:bg-gray-100">Close</button>
-          <button onClick={handlePrint} className="flex items-center gap-1.5 h-8 px-4 rounded bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"><Printer size={14} /> Print</button>
-        </div>
-      </div>
-      <div className="flex-1 overflow-auto">
-        <iframe src={dataUrl} title="Shipping Label" style={{ width: '100%', height: '100%', border: 'none', minHeight: '80vh' }} />
-      </div>
-    </div>
-  )
+function openLabel(base64: string, format: string) {
+  const isPdf = String(format ?? 'pdf').toLowerCase() === 'pdf'
+  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
+  const blob = new Blob([bytes], { type: isPdf ? 'application/pdf' : 'image/png' })
+  const url = URL.createObjectURL(blob)
+  const win = window.open(url, '_blank')
+  if (!win) toast.error('Pop-up blocked — allow pop-ups and try again')
+  else setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 export default function WholesaleShippingLabelModal({ orderId, onClose, onCreated }: {
@@ -89,10 +70,11 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
   const [loadErr, setLoadErr] = useState('')
   const [orderNumber, setOrderNumber] = useState('')
   const [companyName, setCompanyName] = useState('')
+  const [contactName, setContactName] = useState('')
   const [addresses, setAddresses] = useState<CustomerAddress[]>([])
   const [orderShipTo, setOrderShipTo] = useState<ShipTo | null>(null)
 
-  const [choice, setChoice] = useState<string>('') // 'order' | address.id | 'manual'
+  const [choice, setChoice] = useState<string>('')
   const [shipTo, setShipTo] = useState<ShipTo>(blankShipTo)
   const [shipToPhone, setShipToPhone] = useState('')
 
@@ -101,19 +83,12 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
   const [accountId, setAccountId] = useState('')
 
   const [serviceCode, setServiceCode] = useState('03')
-  const [weight, setWeight] = useState('')
-  const [weightUnit, setWeightUnit] = useState<'LBS' | 'OZS'>('LBS')
-  const [length, setLength] = useState(''); const [width, setWidth] = useState(''); const [height, setHeight] = useState('')
   const [confirmation, setConfirmation] = useState<'none' | 'delivery' | 'signature' | 'adult_signature'>('none')
-
-  const [rate, setRate] = useState<{ publishedRate: string; negotiatedRate: string | null; currency: string } | null>(null)
-  const [ratingErr, setRatingErr] = useState(''); const [fetchingRate, setFetchingRate] = useState(false)
+  const [packages, setPackages] = useState<PkgForm[]>([emptyPkg()])
 
   const [generating, setGenerating] = useState(false); const [genErr, setGenErr] = useState('')
-  const [result, setResult] = useState<LabelResult | null>(null)
-  const [preview, setPreview] = useState<{ base64: string; format: string } | null>(null)
+  const [result, setResult] = useState<{ carrier: string; masterTracking: string; shipmentCost?: string; currency?: string; pieces: Piece[] } | null>(null)
 
-  // Load the full order (customer addresses + snapshot) and UPS accounts.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -127,22 +102,22 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
         if (cancelled) return
 
         const company = order?.customer?.companyName ?? ''
+        const contact = order?.customer?.contactName ?? ''
         setOrderNumber(order?.orderNumber ?? '')
-        setCompanyName(company)
+        setCompanyName(company); setContactName(contact)
         if (order?.customer?.phone) setShipToPhone(order.customer.phone)
         const shipAddrs: CustomerAddress[] = (order?.customer?.addresses ?? []).filter((a: CustomerAddress) => a.type === 'SHIPPING')
         setAddresses(shipAddrs)
 
         const snap = order?.shippingAddress
-        const snapShipTo = snap && snap.addressLine1 ? toShipTo(snap, company) : null
+        const snapShipTo = snap && snap.addressLine1 ? toShipTo(snap, contact, company) : null
         setOrderShipTo(snapShipTo)
 
-        // Default selection: order snapshot → default shipping addr → first → manual
         if (snapShipTo) { setChoice('order'); setShipTo(snapShipTo) }
         else if (shipAddrs.length) {
           const def = shipAddrs.find(a => a.isDefault) ?? shipAddrs[0]
-          setChoice(def.id); setShipTo(toShipTo(def, company))
-        } else { setChoice('manual'); setShipTo({ ...blankShipTo, name: company }) }
+          setChoice(def.id); setShipTo(toShipTo(def, contact, company))
+        } else { setChoice('manual'); setShipTo({ ...blankShipTo, name: contact, company }) }
 
         try {
           const u = await uRes.json()
@@ -161,78 +136,47 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
   }, [orderId])
 
   function onChoice(value: string) {
-    setChoice(value); setRate(null); setRatingErr('')
+    setChoice(value)
     if (value === 'order' && orderShipTo) setShipTo(orderShipTo)
-    else if (value === 'manual') setShipTo({ ...blankShipTo, name: companyName })
-    else {
-      const a = addresses.find(x => x.id === value)
-      if (a) setShipTo(toShipTo(a, companyName))
-    }
+    else if (value === 'manual') setShipTo({ ...blankShipTo, name: contactName, company: companyName })
+    else { const a = addresses.find(x => x.id === value); if (a) setShipTo(toShipTo(a, contactName, companyName)) }
   }
 
-  const patch = (over: Partial<ShipTo>) => { setShipTo(prev => ({ ...prev, ...over })); setRate(null) }
+  const patch = (over: Partial<ShipTo>) => setShipTo(prev => ({ ...prev, ...over }))
+  const setPkg = (key: string, over: Partial<PkgForm>) => setPackages(prev => prev.map(p => p.key === key ? { ...p, ...over } : p))
 
-  const addressComplete = !!(shipTo.name.trim() && shipTo.address1.trim() && shipTo.city.trim() && shipTo.state.trim() && shipTo.postal.trim())
-  const weightNum = parseFloat(weight)
-  const canGenerate = addressComplete && weightNum > 0 && !!serviceCode && !generating
+  function switchCarrier(c: Carrier) { setCarrier(c); setServiceCode(DEFAULT_SERVICE[c]) }
 
-  const buildBody = useCallback(() => ({
-    carrier,
-    shipFromName: shipTo.name.trim(), shipFromAddress1: shipTo.address1.trim(), shipFromAddress2: shipTo.address2.trim(),
-    shipFromCity: shipTo.city.trim(), shipFromState: shipTo.state.trim(), shipFromPostal: shipTo.postal.trim(),
-    shipFromCountry: shipTo.country.trim() || 'US',
-    shipToPhone: shipToPhone.trim() || undefined,
-    serviceCode, weightValue: weightNum, weightUnit,
-    ...(length && width && height ? { length: parseFloat(length), width: parseFloat(width), height: parseFloat(height), dimUnit: 'IN' } : {}),
-    ...(confirmation !== 'none' ? { confirmation } : {}),
-    referenceNumber: orderNumber || undefined,
-    ...(carrier === 'UPS' && accountId ? { upsCredentialId: accountId } : {}),
-  }), [carrier, shipTo, shipToPhone, serviceCode, weightNum, weightUnit, length, width, height, confirmation, orderNumber, accountId])
-
-  function switchCarrier(c: Carrier) {
-    setCarrier(c); setServiceCode(DEFAULT_SERVICE[c]); setRate(null); setRatingErr('')
-  }
-
-  async function fetchRate() {
-    if (!addressComplete || !(weightNum > 0)) { setRatingErr('Enter a complete ship-to address and weight first'); return }
-    setFetchingRate(true); setRatingErr(''); setRate(null)
-    try {
-      if (carrier === 'FEDEX') {
-        const res = await fetch('/api/fedex/rate-shop', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fromPostalCode: SHIP_FROM_RATE.postal, fromCity: SHIP_FROM_RATE.city, fromState: SHIP_FROM_RATE.state, fromCountry: SHIP_FROM_RATE.country,
-            toPostalCode: shipTo.postal.trim(), toCity: shipTo.city.trim(), toState: shipTo.state.trim(), toCountry: shipTo.country.trim() || 'US',
-            residential: false,
-            weight: { value: weightNum, units: weightUnit === 'LBS' ? 'LB' : 'OZ' },
-            dimensions: { units: 'IN', length: parseFloat(length) || 12, width: parseFloat(width) || 9, height: parseFloat(height) || 3 },
-          }),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error ?? 'Rate quote failed')
-        const match = (data.rates ?? []).find((r: { serviceCode: string }) => r.serviceCode === serviceCode)
-        if (!match) { setRatingErr(`No FedEx rate returned for ${serviceCode}`); return }
-        setRate({ publishedRate: String(match.shipmentCost), negotiatedRate: String(match.shipmentCost), currency: 'USD' })
-      } else {
-        const res = await fetch('/api/outbound-label/rate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildBody()) })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error ?? 'Rate quote failed')
-        setRate(data)
-      }
-    } catch (e) { setRatingErr(e instanceof Error ? e.message : 'Could not fetch rate') }
-    finally { setFetchingRate(false) }
-  }
+  const addressComplete = !!((shipTo.name.trim() || shipTo.company.trim()) && shipTo.address1.trim() && shipTo.city.trim() && shipTo.state.trim() && shipTo.postal.trim())
+  const pkgsComplete = packages.length > 0 && packages.every(p => Number(p.weightValue) > 0)
+  const canGenerate = addressComplete && pkgsComplete && !!serviceCode && !generating
 
   async function generate() {
     if (!canGenerate) return
     setGenerating(true); setGenErr('')
     try {
-      const res = await fetch(`/api/wholesale/orders/${orderId}/shipping-label`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildBody()) })
+      const body = {
+        carrier,
+        shipFromName: shipTo.name.trim(), shipFromCompany: shipTo.company.trim(),
+        shipFromAddress1: shipTo.address1.trim(), shipFromAddress2: shipTo.address2.trim(),
+        shipFromCity: shipTo.city.trim(), shipFromState: shipTo.state.trim(), shipFromPostal: shipTo.postal.trim(),
+        shipFromCountry: shipTo.country.trim() || 'US',
+        shipToPhone: shipToPhone.trim() || undefined,
+        serviceCode,
+        ...(confirmation !== 'none' ? { confirmation } : {}),
+        referenceNumber: orderNumber || undefined,
+        ...(carrier === 'UPS' && accountId ? { upsCredentialId: accountId } : {}),
+        packages: packages.map(p => ({
+          weightValue: Number(p.weightValue), weightUnit: p.weightUnit,
+          ...(p.length && p.width && p.height ? { length: Number(p.length), width: Number(p.width), height: Number(p.height), dimUnit: 'IN' } : {}),
+        })),
+      }
+      const res = await fetch(`/api/wholesale/orders/${orderId}/shipping-label`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Label generation failed')
       setResult(data)
-      toast.success(`Label created — ${data.trackingNumber}`)
-      onCreated?.({ carrier: data.carrier ?? (carrier === 'FEDEX' ? 'FedEx' : 'UPS'), trackingNumber: data.trackingNumber, shipmentCost: data.shipmentCost, currency: data.currency })
+      toast.success(`${data.pieces?.length ?? 1} label${(data.pieces?.length ?? 1) > 1 ? 's' : ''} created`)
+      onCreated?.({ carrier: data.carrier ?? (carrier === 'FEDEX' ? 'FedEx' : 'UPS'), trackingNumber: data.masterTracking, shipmentCost: data.shipmentCost, currency: data.currency })
     } catch (e) { setGenErr(e instanceof Error ? e.message : 'Label generation failed') }
     finally { setGenerating(false) }
   }
@@ -258,37 +202,43 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
         ) : result ? (
           // ── Done ──
           <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
-            <div className="flex items-center gap-2 text-emerald-600"><CheckCircle2 size={18} /> <p className="text-sm font-semibold">Label created</p></div>
+            <div className="flex items-center gap-2 text-emerald-600"><CheckCircle2 size={18} /> <p className="text-sm font-semibold">{result.pieces.length} label{result.pieces.length > 1 ? 's' : ''} created</p></div>
             <div className="rounded-lg border border-gray-200 p-3 space-y-1.5 text-sm">
-              <div className="flex justify-between"><span className="text-gray-500">Tracking</span><span className="font-mono font-semibold">{result.trackingNumber}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Master tracking</span><span className="font-mono font-semibold">{result.masterTracking}</span></div>
               {result.shipmentCost && <div className="flex justify-between"><span className="text-gray-500">Cost</span><span className="font-semibold">${parseFloat(result.shipmentCost).toFixed(2)} {result.currency ?? 'USD'}</span></div>}
             </div>
-            <button onClick={() => setPreview({ base64: result.labelBase64, format: result.labelFormat })}
-              className="w-full flex items-center justify-center gap-1.5 h-10 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"><Printer size={15} /> Open / Print Label</button>
+            <div className="space-y-1.5">
+              {result.pieces.map((p, i) => (
+                <div key={p.labelId} className="flex items-center justify-between gap-2 rounded-md border border-gray-200 px-3 py-2">
+                  <span className="text-xs"><span className="text-gray-400">Box {i + 1}</span> <span className="font-mono text-gray-700">{p.trackingNumber}</span></span>
+                  <button onClick={() => openLabel(p.labelBase64, p.labelFormat)} className="inline-flex items-center gap-1 text-xs font-semibold text-amazon-blue hover:underline"><Printer size={13} /> Open</button>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => result.pieces.forEach(p => openLabel(p.labelBase64, p.labelFormat))}
+              className="w-full flex items-center justify-center gap-1.5 h-10 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"><Printer size={15} /> Open / Print All Labels</button>
             <div className="flex gap-2">
-              <button onClick={() => { setResult(null); setRate(null) }} className="flex-1 h-9 rounded-md border border-gray-300 text-sm text-gray-600 hover:bg-gray-50">Create Another</button>
+              <button onClick={() => { setResult(null) }} className="flex-1 h-9 rounded-md border border-gray-300 text-sm text-gray-600 hover:bg-gray-50">Create Another</button>
               <button onClick={onClose} className="flex-1 h-9 rounded-md bg-gray-800 text-white text-sm font-medium hover:bg-gray-900">Done</button>
             </div>
           </div>
         ) : (
           // ── Form ──
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-            {/* Carrier selector */}
+            {/* Carrier */}
             <div>
               <label className={labelCls}>Carrier</label>
               <div className="grid grid-cols-2 gap-2">
                 {(['UPS', 'FEDEX'] as Carrier[]).map(c => (
                   <button key={c} type="button" onClick={() => switchCarrier(c)}
-                    className={'h-9 rounded-md border-2 text-sm font-semibold transition ' + (carrier === c
-                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                      : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
+                    className={'h-9 rounded-md border-2 text-sm font-semibold transition ' + (carrier === c ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
                     {c === 'UPS' ? 'UPS' : 'FedEx'}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Ship from (read-only) */}
+            {/* Ship from */}
             <div className="text-[11px] text-gray-500 bg-gray-50 rounded-md px-3 py-2 flex items-start gap-1.5">
               <MapPin size={12} className="mt-0.5 shrink-0 text-gray-400" /><span><span className="font-semibold text-gray-600">Ship from:</span> {SHIP_FROM}</span>
             </div>
@@ -298,17 +248,17 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
               <label className={labelCls}>Ship to — select address</label>
               <select value={choice} onChange={e => onChoice(e.target.value)} className={inputCls}>
                 {orderShipTo && <option value="order">Order ship-to{orderShipTo.city ? ` — ${orderShipTo.city}, ${orderShipTo.state}` : ''}</option>}
-                {addresses.map(a => (
-                  <option key={a.id} value={a.id}>{a.label}{a.isDefault ? ' (default)' : ''} — {a.city}, {a.state}</option>
-                ))}
+                {addresses.map(a => <option key={a.id} value={a.id}>{a.label}{a.isDefault ? ' (default)' : ''} — {a.city}, {a.state}</option>)}
                 <option value="manual">Manual entry…</option>
               </select>
             </div>
 
             {/* Editable ship-to */}
             <div className="grid grid-cols-2 gap-2">
-              <div className="col-span-2"><label className={labelCls}>Name <span className="text-red-500">*</span></label>
-                <input className={inputCls} value={shipTo.name} onChange={e => patch({ name: e.target.value })} /></div>
+              <div><label className={labelCls}>Name</label>
+                <input className={inputCls} value={shipTo.name} onChange={e => patch({ name: e.target.value })} placeholder="Contact name" /></div>
+              <div><label className={labelCls}>Company Name</label>
+                <input className={inputCls} value={shipTo.company} onChange={e => patch({ company: e.target.value })} placeholder="Company" /></div>
               <div className="col-span-2"><label className={labelCls}>Address Line 1 <span className="text-red-500">*</span></label>
                 <input className={inputCls} value={shipTo.address1} onChange={e => patch({ address1: e.target.value })} /></div>
               <div className="col-span-2"><label className={labelCls}>Address Line 2</label>
@@ -327,7 +277,7 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
                 <input className={inputCls} value={shipToPhone} onChange={e => setShipToPhone(e.target.value)} placeholder="Recipient phone" /></div>
             </div>
 
-            {/* Package */}
+            {/* Service + account + confirmation */}
             <div className="border-t pt-3 space-y-2">
               {carrier === 'UPS' && upsAccounts.length > 1 && (
                 <div><label className={labelCls}>UPS Account</label>
@@ -337,7 +287,7 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
               )}
               <div className="grid grid-cols-2 gap-2">
                 <div><label className={labelCls}>{carrier === 'FEDEX' ? 'FedEx' : 'UPS'} Service <span className="text-red-500">*</span></label>
-                  <select className={inputCls} value={serviceCode} onChange={e => { setServiceCode(e.target.value); setRate(null) }}>
+                  <select className={inputCls} value={serviceCode} onChange={e => setServiceCode(e.target.value)}>
                     {SERVICES[carrier].map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                   </select></div>
                 <div><label className={labelCls}>Delivery Confirmation</label>
@@ -348,52 +298,45 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
                     <option value="adult_signature">Adult signature</option>
                   </select></div>
               </div>
-              <div className="grid grid-cols-4 gap-2">
-                <div><label className={labelCls}>Weight <span className="text-red-500">*</span></label>
-                  <input type="number" step="0.1" min="0" className={inputCls} value={weight} onChange={e => { setWeight(e.target.value); setRate(null) }} /></div>
-                <div><label className={labelCls}>Unit</label>
-                  <select className={inputCls} value={weightUnit} onChange={e => setWeightUnit(e.target.value as 'LBS' | 'OZS')}><option value="LBS">lbs</option><option value="OZS">oz</option></select></div>
-                <div className="col-span-2 grid grid-cols-3 gap-1">
-                  <div><label className={labelCls}>L</label><input type="number" min="0" className={inputCls} value={length} onChange={e => setLength(e.target.value)} placeholder="in" /></div>
-                  <div><label className={labelCls}>W</label><input type="number" min="0" className={inputCls} value={width} onChange={e => setWidth(e.target.value)} placeholder="in" /></div>
-                  <div><label className={labelCls}>H</label><input type="number" min="0" className={inputCls} value={height} onChange={e => setHeight(e.target.value)} placeholder="in" /></div>
-                </div>
-              </div>
             </div>
 
-            {/* Rate */}
+            {/* Boxes */}
             <div className="border-t pt-3">
-              <div className="flex items-center justify-between">
-                <button type="button" onClick={fetchRate} disabled={fetchingRate}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-amazon-blue hover:underline disabled:opacity-40">
-                  {fetchingRate ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Get rate quote
-                </button>
-                {rate && (
-                  <span className="text-sm font-semibold text-gray-900">
-                    ${parseFloat(rate.negotiatedRate ?? rate.publishedRate).toFixed(2)} <span className="text-xs font-normal text-gray-400">{rate.currency}{rate.negotiatedRate ? ' negotiated' : ''}</span>
-                  </span>
-                )}
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Boxes ({packages.length})</label>
+                <button type="button" onClick={() => setPackages(p => [...p, emptyPkg()])} className="inline-flex items-center gap-1 text-xs font-medium text-amazon-blue hover:underline"><Plus size={12} /> Add box</button>
               </div>
-              {ratingErr && <p className="text-[11px] text-red-500 mt-1">{ratingErr}</p>}
+              <div className="space-y-2">
+                {packages.map((p, i) => (
+                  <div key={p.key} className="flex items-center gap-1.5 rounded-md border border-gray-200 px-2 py-1.5">
+                    <span className="text-[11px] text-gray-400 w-9 shrink-0">Box {i + 1}</span>
+                    <input className="w-16 h-8 rounded border border-gray-300 px-2 text-xs text-right font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500" placeholder="Wt" type="number" step="0.1" min={0} value={p.weightValue} onChange={e => setPkg(p.key, { weightValue: e.target.value })} />
+                    <select className="h-8 rounded border border-gray-300 px-1 text-[11px]" value={p.weightUnit} onChange={e => setPkg(p.key, { weightUnit: e.target.value as 'LBS' | 'OZS' })}><option value="LBS">lbs</option><option value="OZS">oz</option></select>
+                    <span className="text-gray-300 text-xs">·</span>
+                    <input className="w-11 h-8 rounded border border-gray-300 px-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-emerald-500" placeholder="L" type="number" min={0} value={p.length} onChange={e => setPkg(p.key, { length: e.target.value })} />
+                    <input className="w-11 h-8 rounded border border-gray-300 px-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-emerald-500" placeholder="W" type="number" min={0} value={p.width} onChange={e => setPkg(p.key, { width: e.target.value })} />
+                    <input className="w-11 h-8 rounded border border-gray-300 px-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-emerald-500" placeholder="H" type="number" min={0} value={p.height} onChange={e => setPkg(p.key, { height: e.target.value })} />
+                    {packages.length > 1 && <button type="button" onClick={() => setPackages(pp => pp.filter(x => x.key !== p.key))} className="p-1 text-gray-300 hover:text-red-500 shrink-0"><Trash2 size={13} /></button>}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">Weight required per box; dimensions (L×W×H in) optional. One label is created per box.</p>
             </div>
 
             {genErr && <p className="text-xs text-red-500">{genErr}</p>}
           </div>
         )}
 
-        {/* Footer (form mode) */}
         {!loading && !loadErr && !result && (
           <div className="flex items-center justify-end gap-2 px-5 py-3 border-t shrink-0">
             <button onClick={onClose} className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
             <button onClick={generate} disabled={!canGenerate}
               className="inline-flex items-center gap-1.5 h-9 px-5 rounded-md bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40">
-              {generating ? <Loader2 size={15} className="animate-spin" /> : <Truck size={15} />} Generate Label
+              {generating ? <Loader2 size={15} className="animate-spin" /> : <Truck size={15} />} Generate {packages.length > 1 ? `${packages.length} Labels` : 'Label'}
             </button>
           </div>
         )}
       </div>
-
-      {preview && <PrintPreview base64={preview.base64} format={preview.format} onClose={() => setPreview(null)} />}
     </div>
   )
 }

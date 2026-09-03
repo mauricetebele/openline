@@ -9,12 +9,22 @@
  * /api/fedex/rate-shop (FedEx); this endpoint only buys + persists the label.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID } from 'crypto'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { generateOutboundLabel, UPS_SERVICES, RETURN_ADDRESS, ReturnLabelRequest } from '@/lib/ups-tracking'
-import { loadFedExCredentials, createShipment, type FedExShipmentParams, type FedExSignatureType } from '@/lib/fedex/client'
+import { generateUpsMultiPieceLabels, UPS_SERVICES, RETURN_ADDRESS, type MultiPieceAddress, type MultiPiecePackage } from '@/lib/ups-tracking'
+import { loadFedExCredentials, createMultiPieceShipment } from '@/lib/fedex/client'
 
 export const dynamic = 'force-dynamic'
+
+interface PackageInput {
+  weightValue: number
+  weightUnit: 'LBS' | 'OZS'
+  length?: number
+  width?: number
+  height?: number
+  dimUnit?: 'IN' | 'CM'
+}
 
 const FEDEX_SERVICE_NAMES: Record<string, string> = {
   FEDEX_GROUND: 'FedEx Ground',
@@ -34,7 +44,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     where: { salesOrderId: params.id },
     orderBy: { createdAt: 'desc' },
     select: {
-      id: true, trackingNumber: true, serviceLabel: true, serviceCode: true,
+      id: true, trackingNumber: true, shipmentId: true, serviceLabel: true, serviceCode: true,
       weightValue: true, weightUnit: true, shipmentCost: true, currency: true,
       voided: true, createdAt: true,
     },
@@ -46,19 +56,32 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json() as ReturnLabelRequest & {
+  const body = await req.json() as {
     carrier?: 'UPS' | 'FEDEX'
     upsCredentialId?: string
+    shipFromName?: string; shipFromCompany?: string; shipFromAddress1?: string; shipFromAddress2?: string
+    shipFromCity?: string; shipFromState?: string; shipFromPostal?: string; shipFromCountry?: string
     shipToPhone?: string
+    serviceCode?: string
+    confirmation?: 'none' | 'delivery' | 'signature' | 'adult_signature'
+    packages?: PackageInput[]
+    referenceNumber?: string
   }
   const carrier = body.carrier === 'FEDEX' ? 'FEDEX' : 'UPS'
+  const packages = Array.isArray(body.packages) ? body.packages : []
 
-  if (!body.shipFromName?.trim() || !body.shipFromAddress1?.trim() ||
+  // NOTE: shipFrom* fields carry the DESTINATION (customer) address for an
+  // outbound label — the shipper is our warehouse (RETURN_ADDRESS).
+  const toName = body.shipFromName?.trim() || body.shipFromCompany?.trim() || ''
+  if (!toName || !body.shipFromAddress1?.trim() ||
       !body.shipFromCity?.trim() || !body.shipFromState?.trim() || !body.shipFromPostal?.trim()) {
-    return NextResponse.json({ error: 'Ship-to address fields are required' }, { status: 400 })
+    return NextResponse.json({ error: 'Ship-to name/company and address fields are required' }, { status: 400 })
   }
   if (!body.serviceCode) return NextResponse.json({ error: 'Service code is required' }, { status: 400 })
-  if (!body.weightValue || body.weightValue <= 0) return NextResponse.json({ error: 'Weight is required' }, { status: 400 })
+  if (packages.length === 0) return NextResponse.json({ error: 'Add at least one box' }, { status: 400 })
+  for (let i = 0; i < packages.length; i++) {
+    if (!(Number(packages[i].weightValue) > 0)) return NextResponse.json({ error: `Box ${i + 1}: weight must be greater than 0` }, { status: 400 })
+  }
 
   const order = await prisma.salesOrder.findUnique({
     where: { id: params.id },
@@ -66,116 +89,135 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
-  try {
-    let trackingNumber: string
-    let shipmentId: string
-    let labelBase64: string
-    let labelFormat: string
-    let cost: number | null = null
-    let serviceLabel: string
-    let weightForDb = body.weightValue
-    let weightUnitForDb: string = body.weightUnit
+  const serviceCode = body.serviceCode
+  const reference = body.referenceNumber || order.orderNumber
 
+  // Ship-from = our warehouse; ship-to = the customer address in the request.
+  const settings = await prisma.storeSettings.findUnique({ where: { id: 'singleton' }, select: { phone: true } }).catch(() => null)
+  const fromPhone = settings?.phone?.trim() || '7325555555'
+
+  const shipFrom: MultiPieceAddress = {
+    name: RETURN_ADDRESS.name, company: RETURN_ADDRESS.name,
+    address1: RETURN_ADDRESS.line1, address2: RETURN_ADDRESS.line2,
+    city: RETURN_ADDRESS.city, state: RETURN_ADDRESS.state, postal: RETURN_ADDRESS.postal, country: RETURN_ADDRESS.country,
+    phone: fromPhone,
+  }
+  const shipTo: MultiPieceAddress = {
+    name: toName,
+    company: body.shipFromCompany?.trim() || undefined,
+    address1: body.shipFromAddress1!.trim(), address2: body.shipFromAddress2?.trim() || undefined,
+    city: body.shipFromCity!.trim(), state: body.shipFromState!.trim(), postal: body.shipFromPostal!.trim(),
+    country: body.shipFromCountry?.trim() || 'US', phone: body.shipToPhone?.trim() || undefined,
+  }
+
+  let shipmentId = ''
+  let cost: number | null = null
+  let serviceLabel: string
+  let pieces: { trackingNumber: string; labelData: string; labelFormat: string }[] = []
+
+  try {
     if (carrier === 'FEDEX') {
       const creds = await loadFedExCredentials()
       if (!creds) return NextResponse.json({ error: 'FedEx credentials not configured — add them in Settings → FedEx.' }, { status: 400 })
 
-      // FedEx needs a shipper phone; pull the store phone, else a placeholder.
-      const settings = await prisma.storeSettings.findUnique({ where: { id: 'singleton' }, select: { phone: true } }).catch(() => null)
-      const fromPhone = settings?.phone?.trim() || '7325555555'
-
-      // FedEx accepts LB/KG only — convert ounces to pounds.
-      let wVal = body.weightValue
-      if (body.weightUnit === 'OZS') { wVal = Math.round((wVal / 16) * 100) / 100; weightUnitForDb = 'LBS' }
-      weightForDb = wVal
-
-      const confirmationToSignature: Record<string, FedExSignatureType> = {
+      const confirmationToSignature: Record<string, 'DIRECT' | 'ADULT' | 'INDIRECT'> = {
         signature: 'DIRECT', adult_signature: 'ADULT', delivery: 'INDIRECT',
       }
       const sig = body.confirmation ? confirmationToSignature[body.confirmation] : undefined
 
-      const fromStreets = [RETURN_ADDRESS.line1, RETURN_ADDRESS.line2].filter(Boolean)
-      const toStreets = [body.shipFromAddress1.trim(), body.shipFromAddress2?.trim()].filter(Boolean) as string[]
-
-      const shipParams: FedExShipmentParams = {
+      const fx = await createMultiPieceShipment(creds, {
         shipFrom: {
-          streetLines: fromStreets, city: RETURN_ADDRESS.city, stateOrProvinceCode: RETURN_ADDRESS.state,
-          postalCode: RETURN_ADDRESS.postal, countryCode: RETURN_ADDRESS.country,
-          personName: RETURN_ADDRESS.name, phone: fromPhone,
+          streetLines: [RETURN_ADDRESS.line1, RETURN_ADDRESS.line2].filter(Boolean) as string[],
+          city: RETURN_ADDRESS.city, stateOrProvinceCode: RETURN_ADDRESS.state, postalCode: RETURN_ADDRESS.postal, countryCode: RETURN_ADDRESS.country,
+          personName: RETURN_ADDRESS.name, phone: fromPhone.replace(/[^0-9]/g, '') || '0000000000',
         },
         shipTo: {
-          streetLines: toStreets, city: body.shipFromCity.trim(), stateOrProvinceCode: body.shipFromState.trim().slice(0, 2),
-          postalCode: body.shipFromPostal.trim(), countryCode: body.shipFromCountry?.trim() || 'US', residential: false,
-          personName: body.shipFromName.trim(), phone: body.shipToPhone?.trim() || fromPhone,
+          streetLines: [shipTo.address1, shipTo.address2].filter(Boolean) as string[],
+          city: shipTo.city, stateOrProvinceCode: shipTo.state.slice(0, 2), postalCode: shipTo.postal, countryCode: shipTo.country,
+          personName: shipTo.name, phone: (shipTo.phone ?? '').replace(/[^0-9]/g, '') || '0000000000',
         },
-        weight: { value: wVal, units: 'LB' },
-        // FedEx requires dimensions for YOUR_PACKAGING — default a small box if none given.
-        dimensions: (body.length && body.width && body.height)
-          ? { length: body.length, width: body.width, height: body.height, units: 'IN' }
-          : { length: 12, width: 9, height: 3, units: 'IN' },
-        serviceType: body.serviceCode,
+        packages: packages.map(p => ({
+          weight: { value: p.weightUnit === 'OZS' ? Number(p.weightValue) / 16 : Number(p.weightValue), units: 'LB' },
+          ...(p.length && p.width && p.height ? { dimensions: { length: Number(p.length), width: Number(p.width), height: Number(p.height), units: p.dimUnit === 'CM' ? 'CM' : 'IN' } } : {}),
+        })),
+        serviceType: serviceCode,
         ...(sig ? { signatureType: sig } : {}),
-      }
-
-      const result = await createShipment(creds, shipParams)
-      trackingNumber = result.trackingNumber
-      shipmentId = result.trackingNumber // FedEx has no separate shipment id; void by tracking
-      labelBase64 = result.labelData
-      labelFormat = result.labelFormat
-      serviceLabel = FEDEX_SERVICE_NAMES[body.serviceCode] ?? body.serviceCode
+        reference,
+      })
+      shipmentId = fx.masterTrackingNumber
+      serviceLabel = FEDEX_SERVICE_NAMES[serviceCode] ?? serviceCode
+      pieces = fx.pieces
     } else {
-      const result = await generateOutboundLabel(
-        { ...body, referenceNumber: body.referenceNumber || order.orderNumber },
-        body.upsCredentialId,
-      )
-      trackingNumber = result.trackingNumber
+      const upsPackages: MultiPiecePackage[] = packages.map(p => ({
+        weightValue: Number(p.weightValue), weightUnit: p.weightUnit === 'OZS' ? 'OZS' : 'LBS',
+        length: p.length ? Number(p.length) : undefined, width: p.width ? Number(p.width) : undefined,
+        height: p.height ? Number(p.height) : undefined, dimUnit: p.dimUnit === 'CM' ? 'CM' : 'IN',
+      }))
+      const result = await generateUpsMultiPieceLabels({
+        shipFrom, shipTo, serviceCode, packages: upsPackages, confirmation: body.confirmation,
+        referenceNumber: reference, description: `Wholesale Order ${order.orderNumber}`,
+      }, body.upsCredentialId)
       shipmentId = result.shipmentId
-      labelBase64 = result.labelBase64
-      labelFormat = result.labelFormat
-      cost = result.shipmentCost ? parseFloat(result.shipmentCost) : null
-      serviceLabel = UPS_SERVICES.find(s => s.code === body.serviceCode)?.label ?? body.serviceCode
+      cost = result.shipmentCost != null ? Number(result.shipmentCost) : null
+      serviceLabel = UPS_SERVICES.find(s => s.code === serviceCode)?.label ?? serviceCode
+      pieces = result.pieces.map(p => ({ trackingNumber: p.trackingNumber, labelData: p.labelBase64, labelFormat: p.labelFormat }))
     }
-
-    const saved = await prisma.returnLabel.create({
-      data: {
-        salesOrderId:     order.id,
-        shipFromName:     body.shipFromName,
-        shipFromAddress1: body.shipFromAddress1,
-        shipFromCity:     body.shipFromCity,
-        shipFromState:    body.shipFromState,
-        shipFromPostal:   body.shipFromPostal,
-        shipFromCountry:  body.shipFromCountry || 'US',
-        serviceCode:      body.serviceCode,
-        serviceLabel,
-        weightValue:      weightForDb,
-        weightUnit:       weightUnitForDb,
-        trackingNumber,
-        shipmentId,
-        labelData:        labelBase64,
-        shipmentCost:     cost,
-        currency:         'USD',
-        labelType:        'WHOLESALE',
-        upsCredentialId:  carrier === 'UPS' ? (body.upsCredentialId ?? null) : null,
-      },
-    })
-
-    // Record the label's tracking on the order (does NOT mark it shipped).
-    if (order.fulfillmentStatus !== 'SHIPPED') {
-      await prisma.salesOrder.update({
-        where: { id: order.id },
-        data: {
-          shipCarrier: carrier === 'FEDEX' ? 'FedEx' : 'UPS',
-          shipTracking: trackingNumber,
-          ...(cost != null ? { actualShippingCost: cost } : {}),
-        },
-      }).catch(err => console.error('[WholesaleLabel] order writeback failed:', err))
-    }
-
-    return NextResponse.json({ carrier: carrier === 'FEDEX' ? 'FedEx' : 'UPS', trackingNumber, labelBase64, labelFormat, shipmentCost: cost != null ? String(cost) : undefined, currency: 'USD', labelId: saved.id })
   } catch (err: unknown) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Label generation failed' },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Label generation failed' }, { status: 500 })
   }
+
+  if (pieces.length === 0) return NextResponse.json({ error: 'Carrier returned no labels' }, { status: 502 })
+
+  const labelSetId = randomUUID()
+  const created = await prisma.$transaction(async (tx) => {
+    const rows = []
+    for (let i = 0; i < pieces.length; i++) {
+      const p = packages[i] ?? packages[packages.length - 1]
+      const wLbs = p.weightUnit === 'OZS' ? Math.round((Number(p.weightValue) / 16) * 100) / 100 : Number(p.weightValue)
+      rows.push(await tx.returnLabel.create({
+        data: {
+          salesOrderId:     order.id,
+          shipFromName:     shipTo.name,
+          shipFromAddress1: shipTo.address1,
+          shipFromCity:     shipTo.city,
+          shipFromState:    shipTo.state,
+          shipFromPostal:   shipTo.postal,
+          shipFromCountry:  shipTo.country,
+          serviceCode,
+          serviceLabel,
+          weightValue:      wLbs,
+          weightUnit:       'LBS',
+          trackingNumber:   pieces[i].trackingNumber,
+          shipmentId:       shipmentId || pieces[i].trackingNumber,
+          labelData:        pieces[i].labelData,
+          shipmentCost:     i === 0 ? cost : null,
+          currency:         'USD',
+          labelType:        'WHOLESALE',
+          upsCredentialId:  carrier === 'UPS' ? (body.upsCredentialId ?? null) : null,
+        },
+      }))
+    }
+    return rows
+  })
+
+  // Record the shipment's master tracking on the order (does NOT mark it shipped).
+  if (order.fulfillmentStatus !== 'SHIPPED') {
+    await prisma.salesOrder.update({
+      where: { id: order.id },
+      data: {
+        shipCarrier: carrier === 'FEDEX' ? 'FedEx' : 'UPS',
+        shipTracking: shipmentId || pieces[0].trackingNumber,
+        ...(cost != null ? { actualShippingCost: cost } : {}),
+      },
+    }).catch(err => console.error('[WholesaleLabel] order writeback failed:', err))
+  }
+
+  return NextResponse.json({
+    carrier: carrier === 'FEDEX' ? 'FedEx' : 'UPS',
+    labelSetId,
+    masterTracking: shipmentId || pieces[0].trackingNumber,
+    shipmentCost: cost != null ? String(cost) : undefined,
+    currency: 'USD',
+    pieces: created.map((r, i) => ({ labelId: r.id, trackingNumber: r.trackingNumber, labelBase64: pieces[i].labelData, labelFormat: pieces[i].labelFormat })),
+  })
 }
