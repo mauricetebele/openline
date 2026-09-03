@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
-import { X, Loader2, Printer, Truck, CheckCircle2, MapPin, Plus, Trash2, Copy } from 'lucide-react'
+import { X, Loader2, Printer, Truck, CheckCircle2, MapPin, Plus, Trash2, Copy, RefreshCw } from 'lucide-react'
 
 type Carrier = 'UPS' | 'FEDEX'
 
@@ -89,6 +89,9 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
   const [generating, setGenerating] = useState(false); const [genErr, setGenErr] = useState('')
   const [result, setResult] = useState<{ carrier: string; masterTracking: string; shipmentCost?: string; currency?: string; pieces: Piece[] } | null>(null)
 
+  const [rate, setRate] = useState<{ total: number; currency: string } | null>(null)
+  const [fetchingRate, setFetchingRate] = useState(false); const [ratingErr, setRatingErr] = useState('')
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -157,27 +160,45 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
   const pkgsComplete = packages.length > 0 && packages.every(p => Number(p.weightValue) > 0)
   const canGenerate = addressComplete && pkgsComplete && !!serviceCode && !generating
 
+  // Rate is only valid for the current inputs — clear it when anything changes.
+  useEffect(() => { setRate(null); setRatingErr('') }, [carrier, serviceCode, packages, shipTo, accountId])
+
+  function buildBody() {
+    return {
+      carrier,
+      shipFromName: shipTo.name.trim(), shipFromCompany: shipTo.company.trim(),
+      shipFromAddress1: shipTo.address1.trim(), shipFromAddress2: shipTo.address2.trim(),
+      shipFromCity: shipTo.city.trim(), shipFromState: shipTo.state.trim(), shipFromPostal: shipTo.postal.trim(),
+      shipFromCountry: shipTo.country.trim() || 'US',
+      shipToPhone: shipToPhone.trim() || undefined,
+      serviceCode,
+      ...(confirmation !== 'none' ? { confirmation } : {}),
+      referenceNumber: orderNumber || undefined,
+      ...(carrier === 'UPS' && accountId ? { upsCredentialId: accountId } : {}),
+      packages: packages.map(p => ({
+        weightValue: Number(p.weightValue), weightUnit: p.weightUnit,
+        ...(p.length && p.width && p.height ? { length: Number(p.length), width: Number(p.width), height: Number(p.height), dimUnit: 'IN' } : {}),
+      })),
+    }
+  }
+
+  async function fetchRate() {
+    if (!addressComplete || !pkgsComplete) { setRatingErr('Enter a complete ship-to address and a weight for each box'); return }
+    setFetchingRate(true); setRatingErr(''); setRate(null)
+    try {
+      const res = await fetch(`/api/wholesale/orders/${orderId}/shipping-label/rate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildBody()) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Rate quote failed')
+      setRate({ total: Number(data.total), currency: data.currency ?? 'USD' })
+    } catch (e) { setRatingErr(e instanceof Error ? e.message : 'Could not fetch rate') }
+    finally { setFetchingRate(false) }
+  }
+
   async function generate() {
     if (!canGenerate) return
     setGenerating(true); setGenErr('')
     try {
-      const body = {
-        carrier,
-        shipFromName: shipTo.name.trim(), shipFromCompany: shipTo.company.trim(),
-        shipFromAddress1: shipTo.address1.trim(), shipFromAddress2: shipTo.address2.trim(),
-        shipFromCity: shipTo.city.trim(), shipFromState: shipTo.state.trim(), shipFromPostal: shipTo.postal.trim(),
-        shipFromCountry: shipTo.country.trim() || 'US',
-        shipToPhone: shipToPhone.trim() || undefined,
-        serviceCode,
-        ...(confirmation !== 'none' ? { confirmation } : {}),
-        referenceNumber: orderNumber || undefined,
-        ...(carrier === 'UPS' && accountId ? { upsCredentialId: accountId } : {}),
-        packages: packages.map(p => ({
-          weightValue: Number(p.weightValue), weightUnit: p.weightUnit,
-          ...(p.length && p.width && p.height ? { length: Number(p.length), width: Number(p.width), height: Number(p.height), dimUnit: 'IN' } : {}),
-        })),
-      }
-      const res = await fetch(`/api/wholesale/orders/${orderId}/shipping-label`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const res = await fetch(`/api/wholesale/orders/${orderId}/shipping-label`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildBody()) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Label generation failed')
       setResult(data)
@@ -328,6 +349,18 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
                 ))}
               </div>
               <p className="text-[11px] text-gray-400 mt-1">Weight required per box; dimensions (L×W×H in) optional. One label is created per box.</p>
+            </div>
+
+            {/* Rate */}
+            <div className="border-t pt-3">
+              <div className="flex items-center justify-between">
+                <button type="button" onClick={fetchRate} disabled={fetchingRate}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-amazon-blue hover:underline disabled:opacity-40">
+                  {fetchingRate ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Get rate ({packages.length} box{packages.length > 1 ? 'es' : ''})
+                </button>
+                {rate && <span className="text-sm font-semibold text-gray-900">${rate.total.toFixed(2)} <span className="text-xs font-normal text-gray-400">{rate.currency}</span></span>}
+              </div>
+              {ratingErr && <p className="text-[11px] text-red-500 mt-1">{ratingErr}</p>}
             </div>
 
             {genErr && <p className="text-xs text-red-500">{genErr}</p>}
