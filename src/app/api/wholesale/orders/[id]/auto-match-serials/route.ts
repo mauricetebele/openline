@@ -22,8 +22,11 @@ export async function POST(
   if (!Array.isArray(serials) || serials.length === 0) {
     return NextResponse.json({ error: 'serials array is required' }, { status: 400 })
   }
-  if (serials.length > 500) {
-    return NextResponse.json({ error: 'Too many serials (max 500)' }, { status: 400 })
+  // Large wholesale orders can serialize thousands of units in one paste. The
+  // work is a single batched lookup + an in-memory match loop, so a high cap is
+  // safe; this bound is just a runaway/DoS guard.
+  if (serials.length > 5000) {
+    return NextResponse.json({ error: 'Too many serials (max 5000)' }, { status: 400 })
   }
 
   const so = await prisma.salesOrder.findUnique({

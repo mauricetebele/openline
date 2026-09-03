@@ -1331,7 +1331,12 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ serials: lines }),
       })
-      const data: { results: Record<string, { valid: boolean; serialId?: string; orderItemId?: string; sku?: string; location?: string; reason?: string; detail?: string }> } = await res.json()
+      const data: { results?: Record<string, { valid: boolean; serialId?: string; orderItemId?: string; sku?: string; location?: string; reason?: string; detail?: string }>; error?: string } = await res.json()
+      if (!res.ok || !data.results) {
+        setBulkErrors([data.error || `Validation failed (${res.status})`])
+        playTone(false)
+        return
+      }
 
       // Group valid results by orderItemId
       const byItem = new Map<string, { sn: string; serialId: string; location: string }[]>()
