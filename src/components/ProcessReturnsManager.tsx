@@ -2,7 +2,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Plus, Trash2, X, Loader2, CheckCircle2, XCircle, AlertTriangle, Flag, PackageOpen, MessageSquare, Clock, PauseCircle, Gavel, Archive, ArchiveRestore, Pencil } from 'lucide-react'
+import { Plus, Trash2, X, Loader2, CheckCircle2, XCircle, AlertTriangle, Flag, PackageOpen, MessageSquare, Clock, PauseCircle, Gavel, Archive, ArchiveRestore, Pencil, Printer } from 'lucide-react'
+import { printSerialLabels } from '@/lib/print-serial-labels'
 
 // Administrator processing outcomes
 const OUTCOMES = [
@@ -382,10 +383,51 @@ export default function ProcessReturnsManager() {
   const [resume, setResume] = useState<ProcessReturn | null>(null)
   const [detail, setDetail] = useState<ProcessReturn | null>(null)
   const [tab, setTab] = useState<'active' | 'archived'>('active')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [printing, setPrinting] = useState(false)
 
   const activeCount = returns.filter(r => !r.archived).length
   const archivedCount = returns.filter(r => r.archived).length
   const visibleReturns = returns.filter(r => (tab === 'archived' ? r.archived : !r.archived))
+
+  const switchTab = (t: 'active' | 'archived') => { setTab(t); setSelectedIds(new Set()) }
+  const toggleSelect = (id: string) => setSelectedIds(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+  const allVisibleSelected = visibleReturns.length > 0 && visibleReturns.every(r => selectedIds.has(r.id))
+  const toggleSelectAll = () => setSelectedIds(prev => {
+    if (visibleReturns.every(r => prev.has(r.id))) {
+      const next = new Set(prev); visibleReturns.forEach(r => next.delete(r.id)); return next
+    }
+    const next = new Set(prev); visibleReturns.forEach(r => next.add(r.id)); return next
+  })
+
+  // Print serial labels for the selected records — only for units that are
+  // currently IN_STOCK (resolved live server-side).
+  async function printSelectedLabels() {
+    const chosen = visibleReturns.filter(r => selectedIds.has(r.id))
+    const serialNumbers = Array.from(new Set(chosen.flatMap(r => r.units.map(u => u.serialNumber).filter(Boolean))))
+    if (serialNumbers.length === 0) { toast.error('No serials on the selected records'); return }
+    setPrinting(true)
+    try {
+      const res = await fetch('/api/process-returns/serial-labels', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serialNumbers }),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j.error || 'Failed to look up serials')
+      const labels: { serialNumber: string; sku: string | null; grade: string | null; found: boolean; inStock: boolean }[] = j.labels ?? []
+      const inStock = labels.filter(l => l.inStock)
+      const skipped = serialNumbers.length - inStock.length
+      if (inStock.length === 0) { toast.error('None of the selected serials are in stock — nothing to print'); return }
+      printSerialLabels(inStock.map(l => ({ serialNumber: l.serialNumber, sku: l.sku, grade: l.grade })))
+      toast.success(`Printing ${inStock.length} label${inStock.length > 1 ? 's' : ''}${skipped > 0 ? ` · ${skipped} skipped (not in stock)` : ''}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to print labels')
+    } finally { setPrinting(false) }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -418,7 +460,7 @@ export default function ProcessReturnsManager() {
           { key: 'active' as const, label: 'Not Yet Processed', count: activeCount },
           { key: 'archived' as const, label: 'Already Processed', count: archivedCount },
         ]).map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
+          <button key={t.key} onClick={() => switchTab(t.key)}
             className={clsx('flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium border-b-2 -mb-px transition',
               tab === t.key ? 'border-amazon-blue text-amazon-blue' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200')}>
             {t.key === 'archived' ? <Archive size={14} /> : <PackageOpen size={14} />}
@@ -428,6 +470,20 @@ export default function ProcessReturnsManager() {
           </button>
         ))}
       </div>
+
+      {/* Selection action bar */}
+      {selectedIds.size > 0 && (
+        <div className="px-6 py-2 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 shrink-0 flex items-center justify-between">
+          <span className="text-sm font-medium text-blue-800 dark:text-blue-200">{selectedIds.size} record{selectedIds.size > 1 ? 's' : ''} selected</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs font-medium text-gray-600 dark:text-gray-300 px-3 py-1.5 rounded-md hover:bg-white/60 dark:hover:bg-white/10">Clear</button>
+            <button onClick={printSelectedLabels} disabled={printing}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold bg-amazon-blue text-white px-4 py-1.5 rounded-md hover:bg-blue-700 disabled:opacity-40">
+              {printing ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />} Print Serial Labels
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto">
         {loading ? (
@@ -441,9 +497,14 @@ export default function ProcessReturnsManager() {
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-gray-800 z-10">
               <tr>
+                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 w-8">
+                  <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} aria-label="Select all"
+                    className="rounded border-gray-400 text-amazon-blue focus:ring-amazon-blue cursor-pointer" />
+                </th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Return #</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Carrier</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Tracking</th>
+                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Serial #</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Units</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Processor</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Received</th>
@@ -453,10 +514,23 @@ export default function ProcessReturnsManager() {
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {visibleReturns.map((r, i) => (
                 <tr key={r.id} onClick={() => (r.completed ? setDetail(r) : setResume(r))}
-                  className={clsx('cursor-pointer', !r.completed ? 'bg-amber-50 hover:bg-amber-100/70 dark:bg-amber-900/20' : r.flagged ? 'bg-red-50 hover:bg-red-100/70 dark:bg-red-900/20' : i % 2 === 0 ? 'bg-white dark:bg-gray-900 hover:bg-blue-50/50' : 'bg-gray-50 dark:bg-gray-800/50 hover:bg-blue-50/50')}>
+                  className={clsx('cursor-pointer', selectedIds.has(r.id) ? 'bg-blue-50 hover:bg-blue-100/70 dark:bg-blue-900/30' : !r.completed ? 'bg-amber-50 hover:bg-amber-100/70 dark:bg-amber-900/20' : r.flagged ? 'bg-red-50 hover:bg-red-100/70 dark:bg-red-900/20' : i % 2 === 0 ? 'bg-white dark:bg-gray-900 hover:bg-blue-50/50' : 'bg-gray-50 dark:bg-gray-800/50 hover:bg-blue-50/50')}>
+                  <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => toggleSelect(r.id)} aria-label={`Select RET-${r.returnNumber}`}
+                      className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue cursor-pointer" />
+                  </td>
                   <td className="px-3 py-2 font-semibold text-amazon-blue whitespace-nowrap">RET-{r.returnNumber}</td>
                   <td className="px-3 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">{r.carrier}</td>
                   <td className="px-3 py-2 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.trackingNumber}</td>
+                  <td className="px-3 py-2">
+                    {r.units.length === 0 ? <span className="text-gray-300 dark:text-gray-600">—</span> : (
+                      <div className="flex flex-col gap-0.5">
+                        {r.units.map(u => (
+                          <span key={u.id} className="font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{u.serialNumber}</span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right text-gray-700 dark:text-gray-300">{r.units.length}</td>
                   <td className="px-3 py-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.createdByLabel ?? '—'}</td>
                   <td className="px-3 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap">{new Date(r.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</td>
