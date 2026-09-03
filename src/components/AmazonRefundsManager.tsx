@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Flag, CheckCircle2, RefreshCw, Loader2, DollarSign, Undo2 } from 'lucide-react'
+import { Flag, CheckCircle2, RefreshCw, Loader2, DollarSign, Undo2, Copy } from 'lucide-react'
 
 interface Refund {
   id: string
@@ -180,8 +180,16 @@ export default function AmazonRefundsManager() {
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(r.postedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                   <td className="px-3 py-2 font-mono whitespace-nowrap">
                     {r.orderId ? (
-                      <a href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`} target="_blank" rel="noopener noreferrer"
-                        className="text-amazon-blue hover:underline">{r.orderId}</a>
+                      <span className="inline-flex items-center gap-1.5">
+                        <a href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`} target="_blank" rel="noopener noreferrer"
+                          className="text-amazon-blue hover:underline">{r.orderId}</a>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(r.orderId!); toast.success('Order ID copied') }}
+                          title="Copy Order ID"
+                          className="text-gray-300 hover:text-gray-600 dark:hover:text-gray-200">
+                          <Copy size={12} />
+                        </button>
+                      </span>
                     ) : <span className="text-gray-400">—</span>}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
