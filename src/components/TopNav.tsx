@@ -100,6 +100,7 @@ const NAV: NavItem[] = [
       { href: '/fba-sales-report',   label: 'FBA Sales',     icon: BarChart2 },
       { href: '/shipping-manifest', label: 'Manifest',      icon: ClipboardList },
       { href: '/transactions',      label: 'Transactions',  icon: CreditCard },
+      { href: '/amazon-refunds',    label: 'Review Amazon Refunds', icon: RotateCcw },
       { href: '/shipping-bill-audit', label: 'Shipping Bill Audit', icon: Receipt },
       { href: '/orphan-labels',      label: 'Orphaned Labels', icon: Ban },
     ],

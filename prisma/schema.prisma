@@ -2600,6 +2600,33 @@ model ProcessReturnUnit {
   @@map("process_return_units")
 }
 
+// ─── Review Amazon Refunds ──────────────────────────────────────────────────
+// A daily-compiled review queue of Amazon "Refund" transactions (materialized
+// snapshot from amazon_transactions). Reviewers flag or validate each entry and
+// can leave a note. One row per source transaction.
+model AmazonRefundReview {
+  id               String    @id @default(cuid())
+  transactionId    String    @unique
+  accountId        String?
+  postedDate       DateTime
+  amount           Decimal   @db.Decimal(12, 2)
+  currency         String    @default("USD")
+  orderId          String?
+  transactionType  String?
+  description      String?   @db.Text
+  status           String    @default("NOT_REVIEWED") // NOT_REVIEWED | FLAGGED | VALIDATED
+  note             String?   @db.Text
+  flaggedAt        DateTime?
+  flaggedByLabel   String?
+  validatedAt      DateTime?
+  validatedByLabel String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status, postedDate])
+  @@map("amazon_refund_reviews")
+}
+
 // ─── FBA Removal Shipments ──────────────────────────────────────────────────
 
 model RemovalShipment {
