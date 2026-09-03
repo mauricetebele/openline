@@ -385,6 +385,7 @@ export default function ProcessReturnsManager() {
   const [tab, setTab] = useState<'active' | 'archived'>('active')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [printing, setPrinting] = useState(false)
+  const [archivingBulk, setArchivingBulk] = useState(false)
 
   const activeCount = returns.filter(r => !r.archived).length
   const archivedCount = returns.filter(r => r.archived).length
@@ -429,6 +430,28 @@ export default function ProcessReturnsManager() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to print labels')
     } finally { setPrinting(false) }
+  }
+
+  // Bulk-archive the selected returns → moves them to "Already Processed".
+  async function bulkArchive() {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setArchivingBulk(true)
+    try {
+      const results = await Promise.allSettled(ids.map(id =>
+        fetch(`/api/process-returns/${id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ archived: true }),
+        })))
+      const ok = results.filter(r => r.status === 'fulfilled' && r.value.ok).length
+      const failed = ids.length - ok
+      if (ok > 0) toast.success(`Archived ${ok} return${ok !== 1 ? 's' : ''}${failed > 0 ? ` · ${failed} failed` : ''}`)
+      else toast.error('Failed to archive')
+      setSelectedIds(new Set())
+      load()
+    } catch {
+      toast.error('Bulk archive failed')
+    } finally { setArchivingBulk(false) }
   }
 
   const load = useCallback(async () => {
@@ -479,6 +502,12 @@ export default function ProcessReturnsManager() {
           <span className="text-sm font-medium text-blue-800 dark:text-blue-200">{selectedIds.size} record{selectedIds.size > 1 ? 's' : ''} selected</span>
           <div className="flex items-center gap-2">
             <button onClick={() => setSelectedIds(new Set())} className="text-xs font-medium text-gray-600 dark:text-gray-300 px-3 py-1.5 rounded-md hover:bg-white/60 dark:hover:bg-white/10">Clear</button>
+            {tab === 'active' && (
+              <button onClick={bulkArchive} disabled={archivingBulk}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700/60 px-4 py-1.5 rounded-md hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-40">
+                {archivingBulk ? <Loader2 size={14} className="animate-spin" /> : <Archive size={14} />} Bulk Archive
+              </button>
+            )}
             <button onClick={printSelectedLabels} disabled={printing}
               className="inline-flex items-center gap-1.5 text-xs font-semibold bg-amazon-blue text-white px-4 py-1.5 rounded-md hover:bg-blue-700 disabled:opacity-40">
               {printing ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />} Print Serial Labels

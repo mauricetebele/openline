@@ -15,6 +15,7 @@ import { AmazonAccountDTO } from '@/types'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
 import PickListModal from '@/components/PickListModal'
 import ShipByItemModal from '@/components/ShipByItemModal'
+import WholesaleShippingLabelModal from '@/components/WholesaleShippingLabelModal'
 
 // ─── Scanner confirmation tone (Web Audio API) ──────────────────────────────
 let _audioCtx: AudioContext | null = null
@@ -1752,6 +1753,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
   const [carrier, setCarrier]   = useState('')
   const [tracking, setTracking] = useState('')
   const [shipCost, setShipCost] = useState('')
+  const [showLabelModal, setShowLabelModal] = useState(false)
   const [serialInputs, setSerialInputs] = useState<Record<string, WholesaleSerialState>>({})
   const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const [submitting, setSubmitting] = useState(false)
@@ -1933,6 +1935,12 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
             </div>
           </div>
 
+          {/* Create a UPS shipping label — auto-fills carrier/tracking/cost above */}
+          <button type="button" onClick={() => setShowLabelModal(true)}
+            className="w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-emerald-300 text-emerald-700 text-xs font-semibold hover:bg-emerald-50">
+            <Truck size={14} /> Create UPS Shipping Label
+          </button>
+
           {/* Order Items */}
           <div>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
@@ -2068,6 +2076,18 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
           </div>
         </div>
       </div>
+
+      {showLabelModal && (
+        <WholesaleShippingLabelModal
+          orderId={order.id}
+          onClose={() => setShowLabelModal(false)}
+          onCreated={(r) => {
+            setCarrier('UPS')
+            setTracking(r.trackingNumber)
+            if (r.shipmentCost) setShipCost(parseFloat(r.shipmentCost).toFixed(2))
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -2001,7 +2001,9 @@ model ReturnLabel {
   labelData        String         @db.Text
   shipmentCost     Decimal?       @db.Decimal(12, 2)
   currency         String?        @default("USD")
-  labelType        String         @default("RETURN")
+  labelType        String         @default("RETURN") // RETURN | OUTBOUND | WHOLESALE
+  // Set for WHOLESALE labels — links the label to the originating sales order.
+  salesOrderId     String?
   voided           Boolean        @default(false)
   voidedAt         DateTime?
   upsCredentialId  String?
@@ -2009,6 +2011,7 @@ model ReturnLabel {
   createdAt        DateTime       @default(now())
 
   @@index([trackingNumber])
+  @@index([salesOrderId])
   @@map("return_labels")
 }
 
