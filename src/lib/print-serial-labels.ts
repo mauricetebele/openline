@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
 import JsBarcode from 'jsbarcode'
+import { printPdfBase64 } from '@/lib/print-pdf'
 
 export interface SerialLabelItem {
   serialNumber: string
@@ -9,12 +10,14 @@ export interface SerialLabelItem {
 
 /**
  * Build a print-ready PDF of DYMO 30334 (2.25" × 1.25") serial labels — one
- * label per page — and open the browser print dialog. Mirrors the single-label
- * layout used in SNLookupModal (SKU, grade, CODE128 barcode, serial, timestamp).
- * Client-only (uses document/window/canvas).
+ * label per page — and print it in one click. Mirrors the single-label layout
+ * used in SNLookupModal (SKU, grade, CODE128 barcode, serial, timestamp).
+ * Goes straight to the configured default printer via QZ Tray when available,
+ * otherwise falls back to the browser print dialog. Client-only.
+ * Returns 'printer' (silent) or 'dialog' (browser fallback).
  */
-export function printSerialLabels(items: SerialLabelItem[]): void {
-  if (items.length === 0) return
+export async function printSerialLabels(items: SerialLabelItem[]): Promise<'printer' | 'dialog' | 'none'> {
+  if (items.length === 0) return 'none'
 
   const W = 2.25 * 72 // points
   const H = 1.25 * 72 // points
@@ -77,10 +80,6 @@ export function printSerialLabels(items: SerialLabelItem[]): void {
     doc.text(timestamp, W - margin, H - 4, { align: 'right' })
   })
 
-  const pdfBlob = doc.output('blob')
-  const url = URL.createObjectURL(pdfBlob)
-  const printWindow = window.open(url, '_blank')
-  if (printWindow) {
-    printWindow.onload = () => { printWindow.print() }
-  }
+  const base64 = doc.output('datauristring').split(',')[1]
+  return printPdfBase64(base64)
 }

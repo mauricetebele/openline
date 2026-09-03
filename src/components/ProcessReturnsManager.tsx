@@ -422,8 +422,10 @@ export default function ProcessReturnsManager() {
       const inStock = labels.filter(l => l.inStock)
       const skipped = serialNumbers.length - inStock.length
       if (inStock.length === 0) { toast.error('None of the selected serials are in stock — nothing to print'); return }
-      printSerialLabels(inStock.map(l => ({ serialNumber: l.serialNumber, sku: l.sku, grade: l.grade })))
-      toast.success(`Printing ${inStock.length} label${inStock.length > 1 ? 's' : ''}${skipped > 0 ? ` · ${skipped} skipped (not in stock)` : ''}`)
+      const via = await printSerialLabels(inStock.map(l => ({ serialNumber: l.serialNumber, sku: l.sku, grade: l.grade })))
+      const skippedMsg = skipped > 0 ? ` · ${skipped} skipped (not in stock)` : ''
+      toast.success(`${via === 'printer' ? 'Sent' : 'Printing'} ${inStock.length} label${inStock.length > 1 ? 's' : ''}${via === 'printer' ? ' to printer' : ''}${skippedMsg}`)
+      setSelectedIds(new Set())
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to print labels')
     } finally { setPrinting(false) }
