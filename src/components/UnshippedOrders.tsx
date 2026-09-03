@@ -110,6 +110,7 @@ interface Order {
   shipCarrier?: string | null
   shipTracking?: string | null
   shippedAt?: string | null
+  actualShippingCost?: number | null
   hasShippingLabel?: boolean
 }
 
@@ -1751,9 +1752,10 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
 function WholesaleShipModal({ order, onClose, onShipped }: {
   order: Order; onClose: () => void; onShipped: () => void
 }) {
-  const [carrier, setCarrier]   = useState('')
-  const [tracking, setTracking] = useState('')
-  const [shipCost, setShipCost] = useState('')
+  // Pre-fill from a purchased label: master tracking, carrier, and total cost.
+  const [carrier, setCarrier]   = useState(order.hasShippingLabel ? (order.shipCarrier ?? '') : '')
+  const [tracking, setTracking] = useState(order.hasShippingLabel ? (order.shipTracking ?? '') : '')
+  const [shipCost, setShipCost] = useState(order.hasShippingLabel && order.actualShippingCost != null ? Number(order.actualShippingCost).toFixed(2) : '')
   const [showLabelModal, setShowLabelModal] = useState(false)
   const [serialInputs, setSerialInputs] = useState<Record<string, WholesaleSerialState>>({})
   const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({})

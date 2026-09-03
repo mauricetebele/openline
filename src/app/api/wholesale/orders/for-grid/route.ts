@@ -120,6 +120,7 @@ export async function GET(req: NextRequest) {
       shipCarrier:  so.shipCarrier  ?? null,
       shipTracking: so.shipTracking ?? null,
       shippedAt:    so.shippedAt?.toISOString() ?? null,
+      actualShippingCost: so.actualShippingCost != null ? Number(so.actualShippingCost) : null,
       hasShippingLabel: labeledSet.has(so.id),
 
       // Items in grid-item shape
