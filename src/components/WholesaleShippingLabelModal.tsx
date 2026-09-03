@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
-import { X, Loader2, Printer, Truck, CheckCircle2, MapPin, Plus, Trash2, Copy, RefreshCw } from 'lucide-react'
+import { X, Loader2, Printer, Truck, CheckCircle2, MapPin, Plus, Trash2, Copy, RefreshCw, RotateCcw } from 'lucide-react'
 
 type Carrier = 'UPS' | 'FEDEX'
 
@@ -47,6 +47,31 @@ const blankShipTo: ShipTo = { name: '', company: '', address1: '', address2: '',
 let pkgKey = 0
 const emptyPkg = (): PkgForm => ({ key: `p${++pkgKey}`, weightValue: '', weightUnit: 'LBS', length: '', width: '', height: '' })
 
+// Persist entered boxes per order so they survive closing the modal before
+// labels are generated. Cleared on Reset and after a successful generation.
+const boxesKey = (orderId: string) => `wsLabelBoxes:${orderId}`
+function loadBoxes(orderId: string): PkgForm[] {
+  if (typeof window === 'undefined') return [emptyPkg()]
+  try {
+    const raw = window.localStorage.getItem(boxesKey(orderId))
+    const arr = raw ? JSON.parse(raw) as Omit<PkgForm, 'key'>[] : null
+    if (!Array.isArray(arr) || arr.length === 0) return [emptyPkg()]
+    return arr.map(p => ({ ...emptyPkg(), ...p, key: `p${++pkgKey}` }))
+  } catch { return [emptyPkg()] }
+}
+function saveBoxes(orderId: string, pkgs: PkgForm[]) {
+  if (typeof window === 'undefined') return
+  const hasData = pkgs.some(p => p.weightValue.trim() || p.length.trim() || p.width.trim() || p.height.trim())
+  try {
+    if (hasData) window.localStorage.setItem(boxesKey(orderId), JSON.stringify(pkgs.map(p => ({ weightValue: p.weightValue, weightUnit: p.weightUnit, length: p.length, width: p.width, height: p.height }))))
+    else window.localStorage.removeItem(boxesKey(orderId))
+  } catch { /* ignore */ }
+}
+function clearBoxes(orderId: string) {
+  if (typeof window === 'undefined') return
+  try { window.localStorage.removeItem(boxesKey(orderId)) } catch { /* ignore */ }
+}
+
 function toShipTo(a: { addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; postalCode?: string; country?: string }, name: string, company: string): ShipTo {
   return { name, company, address1: a.addressLine1 ?? '', address2: a.addressLine2 ?? '', city: a.city ?? '', state: a.state ?? '', postal: a.postalCode ?? '', country: a.country ?? 'US' }
 }
@@ -84,7 +109,7 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
 
   const [serviceCode, setServiceCode] = useState('03')
   const [confirmation, setConfirmation] = useState<'none' | 'delivery' | 'signature' | 'adult_signature'>('none')
-  const [packages, setPackages] = useState<PkgForm[]>([emptyPkg()])
+  const [packages, setPackages] = useState<PkgForm[]>(() => loadBoxes(orderId))
 
   const [generating, setGenerating] = useState(false); const [genErr, setGenErr] = useState('')
   const [result, setResult] = useState<{ carrier: string; masterTracking: string; shipmentCost?: string; currency?: string; pieces: Piece[] } | null>(null)
@@ -162,6 +187,10 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
 
   // Rate is only valid for the current inputs — clear it when anything changes.
   useEffect(() => { setRate(null); setRatingErr('') }, [carrier, serviceCode, packages, shipTo, accountId])
+  // Persist boxes as they're edited so they survive closing the modal.
+  useEffect(() => { saveBoxes(orderId, packages) }, [orderId, packages])
+
+  function resetBoxes() { setPackages([emptyPkg()]); clearBoxes(orderId); setRate(null); setRatingErr('') }
 
   function buildBody() {
     return {
@@ -202,6 +231,7 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Label generation failed')
       setResult(data)
+      clearBoxes(orderId)
       toast.success(`${data.pieces?.length ?? 1} label${(data.pieces?.length ?? 1) > 1 ? 's' : ''} created`)
       onCreated?.({ carrier: data.carrier ?? (carrier === 'FEDEX' ? 'FedEx' : 'UPS'), trackingNumber: data.masterTracking, shipmentCost: data.shipmentCost, currency: data.currency })
     } catch (e) { setGenErr(e instanceof Error ? e.message : 'Label generation failed') }
@@ -331,7 +361,10 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
             <div className="border-t pt-3">
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Boxes ({packages.length})</label>
-                <button type="button" onClick={() => setPackages(p => [...p, emptyPkg()])} className="inline-flex items-center gap-1 text-xs font-medium text-amazon-blue hover:underline"><Plus size={12} /> Add box</button>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={resetBoxes} className="inline-flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-red-500"><RotateCcw size={12} /> Reset</button>
+                  <button type="button" onClick={() => setPackages(p => [...p, emptyPkg()])} className="inline-flex items-center gap-1 text-xs font-medium text-amazon-blue hover:underline"><Plus size={12} /> Add box</button>
+                </div>
               </div>
               <div className="space-y-2">
                 {packages.map((p, i) => (
