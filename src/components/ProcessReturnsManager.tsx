@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Plus, Trash2, X, Loader2, CheckCircle2, XCircle, AlertTriangle, Flag, PackageOpen, MessageSquare, Clock, PauseCircle, Gavel } from 'lucide-react'
+import { Plus, Trash2, X, Loader2, CheckCircle2, XCircle, AlertTriangle, Flag, PackageOpen, MessageSquare, Clock, PauseCircle, Gavel, Archive, ArchiveRestore } from 'lucide-react'
 
 // Administrator processing outcomes
 const OUTCOMES = [
@@ -35,6 +35,9 @@ interface ProcessReturn {
   processedOutcome: string | null // PASS | FAIL | NEEDS_EVAL
   processedAt: string | null
   processedByLabel: string | null
+  archived: boolean
+  archivedAt: string | null
+  archivedByLabel: string | null
   units: Unit[]
 }
 interface Grade { id: string; grade: string }
@@ -205,6 +208,7 @@ function DetailModal({ ret, onClose, onUpdated }: { ret: ProcessReturn; onClose:
   const [outcome, setOutcome] = useState<string | null>(ret.processedOutcome)
   const [saving, setSaving] = useState(false)
 
+  const [archiving, setArchiving] = useState(false)
   const needsEval = outcome === 'NEEDS_EVAL'
   const noteMissing = needsEval && !adminNote.trim()
 
@@ -223,6 +227,26 @@ function DetailModal({ ret, onClose, onUpdated }: { ret: ProcessReturn; onClose:
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed')
     } finally { setSaving(false) }
+  }
+
+  // Archive persists any unsaved note/flag/outcome too, then moves the record
+  // to the "Already Processed" tab (or restores it back).
+  async function toggleArchive() {
+    if (!ret.archived && noteMissing) { toast.error('A note is required for Needs Administrator Evaluation'); return }
+    setArchiving(true)
+    try {
+      const res = await fetch(`/api/process-returns/${ret.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ret.archived ? { archived: false } : { adminNote, flagged, processedOutcome: outcome, archived: true }),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j.error || 'Failed')
+      toast.success(ret.archived ? 'Restored to Not Yet Processed' : 'Archived to Already Processed')
+      onUpdated(j.data)
+      onClose()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed')
+    } finally { setArchiving(false) }
   }
 
   return (
@@ -315,12 +339,22 @@ function DetailModal({ ret, onClose, onUpdated }: { ret: ProcessReturn; onClose:
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-gray-200 dark:border-white/10">
-          <button onClick={onClose} className="text-xs font-medium text-gray-600 dark:text-gray-300 px-3 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10">Close</button>
-          <button onClick={save} disabled={saving || noteMissing}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold bg-amazon-blue text-white px-4 py-1.5 rounded-md hover:bg-blue-700 disabled:opacity-40">
-            {saving ? <Loader2 size={14} className="animate-spin" /> : outcome ? <Gavel size={14} /> : <MessageSquare size={14} />} {outcome ? 'Mark as Processed' : 'Save'}
+        <div className="flex items-center justify-between gap-2 px-5 py-3.5 border-t border-gray-200 dark:border-white/10">
+          <button onClick={toggleArchive} disabled={archiving || saving}
+            className={clsx('inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md border disabled:opacity-40',
+              ret.archived
+                ? 'text-gray-600 dark:text-gray-300 border-gray-300 dark:border-white/15 hover:bg-gray-100 dark:hover:bg-white/10'
+                : 'text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700/60 hover:bg-purple-50 dark:hover:bg-purple-900/20')}>
+            {archiving ? <Loader2 size={14} className="animate-spin" /> : ret.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+            {ret.archived ? 'Restore' : 'Archive'}
           </button>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="text-xs font-medium text-gray-600 dark:text-gray-300 px-3 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10">Close</button>
+            <button onClick={save} disabled={saving || noteMissing}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold bg-amazon-blue text-white px-4 py-1.5 rounded-md hover:bg-blue-700 disabled:opacity-40">
+              {saving ? <Loader2 size={14} className="animate-spin" /> : outcome ? <Gavel size={14} /> : <MessageSquare size={14} />} {outcome ? 'Mark as Processed' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -336,6 +370,11 @@ export default function ProcessReturnsManager() {
   const [showCreate, setShowCreate] = useState(false)
   const [resume, setResume] = useState<ProcessReturn | null>(null)
   const [detail, setDetail] = useState<ProcessReturn | null>(null)
+  const [tab, setTab] = useState<'active' | 'archived'>('active')
+
+  const activeCount = returns.filter(r => !r.archived).length
+  const archivedCount = returns.filter(r => r.archived).length
+  const visibleReturns = returns.filter(r => (tab === 'archived' ? r.archived : !r.archived))
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -362,13 +401,30 @@ export default function ProcessReturnsManager() {
         </button>
       </div>
 
+      {/* Tabs */}
+      <div className="px-6 pt-3 border-b bg-white dark:bg-gray-900 dark:border-gray-700 shrink-0 flex items-center gap-1">
+        {([
+          { key: 'active' as const, label: 'Not Yet Processed', count: activeCount },
+          { key: 'archived' as const, label: 'Already Processed', count: archivedCount },
+        ]).map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={clsx('flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium border-b-2 -mb-px transition',
+              tab === t.key ? 'border-amazon-blue text-amazon-blue' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200')}>
+            {t.key === 'archived' ? <Archive size={14} /> : <PackageOpen size={14} />}
+            {t.label}
+            <span className={clsx('inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold',
+              tab === t.key ? 'bg-amazon-blue text-white' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300')}>{t.count}</span>
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 overflow-auto">
         {loading ? (
           <div className="py-20 text-center text-sm text-gray-400 flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading…</div>
-        ) : returns.length === 0 ? (
+        ) : visibleReturns.length === 0 ? (
           <div className="py-20 text-center">
             <PackageOpen size={36} className="mx-auto text-gray-200 dark:text-gray-600 mb-3" />
-            <p className="text-sm font-medium text-gray-400">No returns staged yet.</p>
+            <p className="text-sm font-medium text-gray-400">{tab === 'archived' ? 'Nothing processed yet.' : 'No returns to process.'}</p>
           </div>
         ) : (
           <table className="w-full text-xs">
@@ -384,7 +440,7 @@ export default function ProcessReturnsManager() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {returns.map((r, i) => (
+              {visibleReturns.map((r, i) => (
                 <tr key={r.id} onClick={() => (r.completed ? setDetail(r) : setResume(r))}
                   className={clsx('cursor-pointer', !r.completed ? 'bg-amber-50 hover:bg-amber-100/70 dark:bg-amber-900/20' : r.flagged ? 'bg-red-50 hover:bg-red-100/70 dark:bg-red-900/20' : i % 2 === 0 ? 'bg-white dark:bg-gray-900 hover:bg-blue-50/50' : 'bg-gray-50 dark:bg-gray-800/50 hover:bg-blue-50/50')}>
                   <td className="px-3 py-2 font-semibold text-amazon-blue whitespace-nowrap">RET-{r.returnNumber}</td>

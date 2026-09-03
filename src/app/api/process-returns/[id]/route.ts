@@ -100,7 +100,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     processedOutcome?: string | null
     processedAt?: Date | null
     processedByLabel?: string | null
+    archived?: boolean
+    archivedAt?: Date | null
+    archivedByLabel?: string | null
   } = {}
+
+  if ('archived' in body) {
+    data.archived = !!body.archived
+    data.archivedAt = body.archived ? new Date() : null
+    data.archivedByLabel = body.archived ? (user.name || user.email) : null
+  }
 
   const noteAfter = 'adminNote' in body
     ? (typeof body.adminNote === 'string' ? body.adminNote.trim() || null : null)

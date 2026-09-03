@@ -2588,11 +2588,17 @@ model ProcessReturn {
   processedOutcome String?
   processedAt      DateTime?
   processedByLabel String?
+  // Archived returns move to the "Already Processed" tab; active ones stay in
+  // the default "Not Yet Processed" tab.
+  archived         Boolean  @default(false)
+  archivedAt       DateTime?
+  archivedByLabel  String?
   units            ProcessReturnUnit[]
 
   @@index([flagged])
   @@index([completed])
   @@index([processedOutcome])
+  @@index([archived])
   @@map("process_returns")
 }
 
