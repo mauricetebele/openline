@@ -110,6 +110,7 @@ interface Order {
   shipCarrier?: string | null
   shipTracking?: string | null
   shippedAt?: string | null
+  hasShippingLabel?: boolean
 }
 
 // BackMarket "mystery"/quality-control orders ship to their audit facility at
@@ -5626,6 +5627,33 @@ export default function UnshippedOrders() {
   const [wholesaleSerializeOrder, setWholesaleSerializeOrder] = useState<Order | null>(null)
   const [manualShipOrder, setManualShipOrder]             = useState<Order | null>(null)
   const [wholesaleProcessOrder, setWholesaleProcessOrder] = useState<Order | null>(null)
+  const [printingLabelId, setPrintingLabelId] = useState<string | null>(null)
+
+  // Open the most recent generated shipping label PDF for a wholesale order.
+  async function printWholesaleLabel(orderId: string) {
+    setPrintingLabelId(orderId)
+    const toastId = toast.loading('Fetching shipping label…')
+    try {
+      const listRes = await fetch(`/api/wholesale/orders/${orderId}/shipping-label`)
+      const listData = await listRes.json()
+      const labels: { id: string; voided: boolean }[] = (listData.labels ?? []).filter((l: { voided: boolean }) => !l.voided)
+      if (labels.length === 0) { toast.error('No shipping label found for this order', { id: toastId }); return }
+      const pdfRes = await fetch(`/api/outbound-label/${labels[0].id}`)
+      const pdf = await pdfRes.json()
+      if (!pdfRes.ok || !pdf.labelData) { toast.error(pdf.error ?? 'Could not load label', { id: toastId }); return }
+      const isPdf = String(pdf.labelFormat ?? 'pdf').toLowerCase() === 'pdf'
+      const bytes = Uint8Array.from(atob(pdf.labelData), c => c.charCodeAt(0))
+      const blob = new Blob([bytes], { type: isPdf ? 'application/pdf' : 'image/png' })
+      const url = URL.createObjectURL(blob)
+      const win = window.open(url, '_blank')
+      if (!win) { toast.error('Pop-up blocked — allow pop-ups and try again', { id: toastId }) }
+      else { toast.success('Label opened', { id: toastId }); setTimeout(() => URL.revokeObjectURL(url), 60_000) }
+    } catch {
+      toast.error('Failed to open label', { id: toastId })
+    } finally {
+      setPrintingLabelId(null)
+    }
+  }
 
   // Order detail modal
   const [detailOrder, setDetailOrder] = useState<Order | null>(null)
@@ -8008,6 +8036,14 @@ export default function UnshippedOrders() {
                                   <button onClick={() => setWholesaleShipOrder(order)}
                                     className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
                                     <Truck size={10} /> Ship
+                                  </button>
+                                )}
+                                {/* Print shipping label — when a label has been generated for this order */}
+                                {order.hasShippingLabel && (
+                                  <button onClick={() => printWholesaleLabel(order.id)} disabled={printingLabelId === order.id}
+                                    title="Open / print the generated shipping label"
+                                    className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50">
+                                    {printingLabelId === order.id ? <RefreshCcw size={10} className="animate-spin" /> : <Printer size={10} />} Print Label
                                   </button>
                                 )}
                                 {/* SN unserialize button — when serialized */}

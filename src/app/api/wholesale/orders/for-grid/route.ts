@@ -61,6 +61,15 @@ export async function GET(req: NextRequest) {
     },
   })
 
+  // Which orders have a (non-voided) shipping label generated?
+  const labeled = salesOrders.length
+    ? await prisma.returnLabel.findMany({
+        where: { salesOrderId: { in: salesOrders.map(s => s.id) }, voided: false },
+        select: { salesOrderId: true },
+      })
+    : []
+  const labeledSet = new Set(labeled.map(l => l.salesOrderId))
+
   // Adapt to grid Order shape
   const data = salesOrders.map(so => {
     const addr = (so.shippingAddress ?? {}) as ShippingAddressJson
@@ -111,6 +120,7 @@ export async function GET(req: NextRequest) {
       shipCarrier:  so.shipCarrier  ?? null,
       shipTracking: so.shipTracking ?? null,
       shippedAt:    so.shippedAt?.toISOString() ?? null,
+      hasShippingLabel: labeledSet.has(so.id),
 
       // Items in grid-item shape
       items: so.items.map(i => ({
