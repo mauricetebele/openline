@@ -33,8 +33,18 @@ export async function GET(req: NextRequest) {
   const countMap: Record<string, number> = { NOT_REVIEWED: 0, FLAGGED: 0, VALIDATED: 0 }
   for (const c of counts) countMap[c.status] = c._count._all
 
+  // Resolve FBA vs MFN per refund from the order's fulfillment channel.
+  const orderIds = Array.from(new Set(rows.map(r => r.orderId).filter((o): o is string => !!o)))
+  const orders = orderIds.length > 0
+    ? await prisma.order.findMany({
+        where: { amazonOrderId: { in: orderIds }, orderSource: 'amazon' },
+        select: { amazonOrderId: true, fulfillmentChannel: true },
+      })
+    : []
+  const channelByOrder = new Map(orders.map(o => [o.amazonOrderId, o.fulfillmentChannel === 'AFN' ? 'FBA' : o.fulfillmentChannel === 'MFN' ? 'MFN' : null]))
+
   return NextResponse.json({
-    rows: rows.map(r => ({ ...r, amount: Number(r.amount) })),
+    rows: rows.map(r => ({ ...r, amount: Number(r.amount), channel: r.orderId ? channelByOrder.get(r.orderId) ?? null : null })),
     counts: { notReviewed: countMap.NOT_REVIEWED, flagged: countMap.FLAGGED, validated: countMap.VALIDATED },
   })
 }

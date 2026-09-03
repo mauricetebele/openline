@@ -17,6 +17,7 @@ interface Refund {
   note: string | null
   flaggedByLabel: string | null
   validatedByLabel: string | null
+  channel: 'FBA' | 'MFN' | null
 }
 interface Counts { notReviewed: number; flagged: number; validated: number }
 
@@ -151,6 +152,7 @@ export default function AmazonRefundsManager() {
               <tr>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Posted</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Order ID</th>
+                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Channel</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Amount</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Type</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Description</th>
@@ -163,6 +165,15 @@ export default function AmazonRefundsManager() {
                 <tr key={r.id} className={clsx(i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50')}>
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(r.postedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                   <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{r.orderId ?? '—'}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {r.channel === 'FBA' ? (
+                      <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">FBA</span>
+                    ) : r.channel === 'MFN' ? (
+                      <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">MFN</span>
+                    ) : (
+                      <span className="text-gray-300 dark:text-gray-600">—</span>
+                    )}
+                  </td>
                   <td className={clsx('px-3 py-2 text-right font-mono font-semibold whitespace-nowrap', r.amount < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400')}>{money(r.amount, r.currency)}</td>
                   <td className="px-3 py-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.transactionType ?? 'Refund'}</td>
                   <td className="px-3 py-2 text-gray-500 dark:text-gray-400 max-w-[240px] truncate" title={r.description ?? ''}>{r.description ?? '—'}</td>
