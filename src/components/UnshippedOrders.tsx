@@ -1749,6 +1749,18 @@ function WholesaleSerializeModal({ order, onClose, onSaved }: {
 
 // ─── Wholesale Ship Modal ──────────────────────────────────────────────────────
 
+// FedEx service codes (to derive carrier for stored label rows that have none).
+const FEDEX_LABEL_CODES = new Set([
+  'FEDEX_GROUND', 'GROUND_HOME_DELIVERY', 'FEDEX_EXPRESS_SAVER', 'FEDEX_2_DAY', 'FEDEX_2_DAY_AM',
+  'STANDARD_OVERNIGHT', 'PRIORITY_OVERNIGHT', 'FIRST_OVERNIGHT', 'SMART_POST',
+])
+interface WholesaleLabelRow {
+  id: string; trackingNumber: string; shipmentId?: string | null
+  serviceLabel?: string | null; serviceCode: string
+  shipmentCost?: number | string | null; currency?: string | null
+  voided: boolean; createdAt: string
+}
+
 function WholesaleShipModal({ order, onClose, onShipped }: {
   order: Order; onClose: () => void; onShipped: () => void
 }) {
@@ -1774,6 +1786,64 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order.id])
+
+  // Created label sets (one per shipment; multi-box pieces grouped by shipmentId).
+  interface LabelSet { shipmentId: string; carrier: string; serviceLabel: string; pieces: number; cost: number | null; currency: string; voided: boolean; createdAt: string }
+  const [labelSets, setLabelSets] = useState<LabelSet[]>([])
+  const [voidingSet, setVoidingSet] = useState<string | null>(null)
+
+  const loadLabels = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/wholesale/orders/${order.id}/shipping-label`)
+      const d = await res.json()
+      const rows: WholesaleLabelRow[] = d.labels ?? []
+      const groups = new Map<string, WholesaleLabelRow[]>()
+      for (const r of rows) { const k = r.shipmentId || r.trackingNumber; const a = groups.get(k) ?? []; a.push(r); groups.set(k, a) }
+      const sets: LabelSet[] = Array.from(groups.entries()).map(([shipmentId, arr]) => {
+        const primary = arr[0]
+        const isFedEx = FEDEX_LABEL_CODES.has(primary.serviceCode) || /fedex/i.test(primary.serviceLabel ?? '')
+        const costRow = arr.find(x => x.shipmentCost != null)
+        return {
+          shipmentId, carrier: isFedEx ? 'FedEx' : 'UPS', serviceLabel: primary.serviceLabel ?? primary.serviceCode,
+          pieces: arr.length, cost: costRow?.shipmentCost != null ? Number(costRow.shipmentCost) : null,
+          currency: primary.currency ?? 'USD', voided: arr.every(x => x.voided), createdAt: primary.createdAt,
+        }
+      })
+      sets.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      setLabelSets(sets)
+    } catch { /* ignore */ }
+  }, [order.id])
+
+  useEffect(() => { loadLabels() }, [loadLabels])
+
+  async function voidLabelSet(shipmentId: string) {
+    if (!window.confirm('Void this entire shipment? For multi-box shipments this cancels ALL parcels — it is not possible to void individual boxes.')) return
+    setVoidingSet(shipmentId)
+    try {
+      const res = await fetch(`/api/wholesale/orders/${order.id}/shipping-label/void`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shipmentId }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error ?? 'Void failed')
+      toast.success(`Voided ${d.voided} label${d.voided !== 1 ? 's' : ''}`)
+      if (tracking === shipmentId) { setCarrier(''); setTracking(''); setShipCost('') }
+      loadLabels()
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Void failed') }
+    finally { setVoidingSet(null) }
+  }
+
+  async function printLabelSet(shipmentId: string) {
+    try {
+      const res = await fetch(`/api/wholesale/orders/${order.id}/shipping-label/print?shipmentId=${encodeURIComponent(shipmentId)}`)
+      const d = await res.json()
+      if (!res.ok || !d.labelData) { toast.error(d.error ?? 'Could not open labels'); return }
+      const bytes = Uint8Array.from(atob(d.labelData), c => c.charCodeAt(0))
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+      const win = window.open(url, '_blank')
+      if (!win) toast.error('Pop-up blocked — allow pop-ups and try again')
+      else setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch { toast.error('Could not open labels') }
+  }
 
   const serializableItems = order.items.filter(i => i.isSerializable)
   const totalSerializable = serializableItems.reduce((s, i) => s + i.quantityOrdered, 0)
@@ -1951,11 +2021,48 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
             </div>
           </div>
 
-          {/* Create a UPS shipping label — auto-fills carrier/tracking/cost above */}
+          {/* Create a shipping label — auto-fills carrier/tracking/cost above */}
           <button type="button" onClick={() => setShowLabelModal(true)}
             className="w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-emerald-300 text-emerald-700 text-xs font-semibold hover:bg-emerald-50">
             <Truck size={14} /> Create Shipping Label (UPS / FedEx)
           </button>
+
+          {/* Created labels — print or void (void cancels the whole multi-box shipment) */}
+          {labelSets.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Created Labels</p>
+              <div className="space-y-1.5">
+                {labelSets.map(s => (
+                  <div key={s.shipmentId} className={clsx('rounded-lg border px-3 py-2 text-xs', s.voided ? 'border-gray-200 bg-gray-50' : 'border-gray-200')}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className={clsx('min-w-0', s.voided && 'opacity-60')}>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-gray-800">{s.carrier}</span>
+                          <span className="text-gray-300">·</span>
+                          <span className="text-gray-600">{s.serviceLabel}</span>
+                          <span className="text-gray-300">·</span>
+                          <span className="text-gray-500">{s.pieces} box{s.pieces !== 1 ? 'es' : ''}</span>
+                          {s.cost != null && <><span className="text-gray-300">·</span><span className="text-gray-500">${s.cost.toFixed(2)}</span></>}
+                          {s.voided && <span className="inline-flex items-center gap-0.5 text-[10px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded">VOIDED</span>}
+                        </div>
+                        <div className="font-mono text-gray-500 truncate">{s.shipmentId}</div>
+                      </div>
+                      {!s.voided && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={() => printLabelSet(s.shipmentId)} title="Print all boxes"
+                            className="inline-flex items-center gap-1 h-7 px-2 rounded text-[11px] font-medium bg-blue-600 text-white hover:bg-blue-700"><Printer size={11} /> Print</button>
+                          <button onClick={() => voidLabelSet(s.shipmentId)} disabled={voidingSet === s.shipmentId} title="Void the entire shipment"
+                            className="inline-flex items-center gap-1 h-7 px-2 rounded text-[11px] font-medium border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50">
+                            {voidingSet === s.shipmentId ? <RefreshCcw size={11} className="animate-spin" /> : <XCircle size={11} />} Void
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Order Items */}
           <div>
@@ -2101,6 +2208,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
             setCarrier(r.carrier || 'UPS')
             setTracking(r.trackingNumber)
             if (r.shipmentCost) setShipCost(parseFloat(r.shipmentCost).toFixed(2))
+            loadLabels()
           }}
         />
       )}

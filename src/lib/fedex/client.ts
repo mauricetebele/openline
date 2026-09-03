@@ -386,8 +386,8 @@ export interface FedExMultiPiecePackage {
   dimensions?: { length: number; width: number; height: number; units: 'IN' | 'CM' }
 }
 export interface FedExMultiPieceParams {
-  shipFrom: FedExAddress & { personName: string; phone: string }
-  shipTo: FedExAddress & { personName: string; phone: string }
+  shipFrom: FedExAddress & { personName: string; phone: string; company?: string }
+  shipTo: FedExAddress & { personName: string; phone: string; company?: string }
   packages: FedExMultiPiecePackage[]
   serviceType: string
   shipDate?: string
@@ -422,7 +422,7 @@ export async function createMultiPieceShipment(
           postalCode: params.shipFrom.postalCode,
           countryCode: params.shipFrom.countryCode,
         },
-        contact: { personName: params.shipFrom.personName, phoneNumber: params.shipFrom.phone },
+        contact: { personName: params.shipFrom.personName, phoneNumber: params.shipFrom.phone, ...(params.shipFrom.company ? { companyName: params.shipFrom.company } : {}) },
       },
       recipients: [{
         address: {
@@ -433,7 +433,7 @@ export async function createMultiPieceShipment(
           countryCode: params.shipTo.countryCode,
           residential: params.shipTo.residential,
         },
-        contact: { personName: params.shipTo.personName, phoneNumber: params.shipTo.phone },
+        contact: { personName: params.shipTo.personName, phoneNumber: params.shipTo.phone, ...(params.shipTo.company ? { companyName: params.shipTo.company } : {}) },
       }],
       ...(params.shipDate ? { shipDatestamp: params.shipDate } : {}),
       serviceType,

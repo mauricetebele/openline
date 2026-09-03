@@ -12,19 +12,22 @@ import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Optionally target a specific shipment set; otherwise the most recent one.
+  const wantSet = req.nextUrl.searchParams.get('shipmentId')?.trim() || null
+
   const labels = await prisma.returnLabel.findMany({
-    where: { salesOrderId: params.id, voided: false },
+    where: { salesOrderId: params.id, voided: false, ...(wantSet ? { shipmentId: wantSet } : {}) },
     orderBy: { createdAt: 'desc' },
     select: { id: true, shipmentId: true, labelData: true, createdAt: true },
   })
   if (labels.length === 0) return NextResponse.json({ error: 'No shipping label found for this order' }, { status: 404 })
 
   // Most recent shipment set (multi-box pieces share a shipmentId), in piece order.
-  const latestSet = labels[0].shipmentId
+  const latestSet = wantSet ?? labels[0].shipmentId
   const set = (latestSet ? labels.filter(l => l.shipmentId === latestSet) : [labels[0]])
     .slice().sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
 

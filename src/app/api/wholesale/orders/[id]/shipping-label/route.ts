@@ -135,6 +135,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           streetLines: [shipTo.address1, shipTo.address2].filter(Boolean) as string[],
           city: shipTo.city, stateOrProvinceCode: shipTo.state.slice(0, 2), postalCode: shipTo.postal, countryCode: shipTo.country,
           personName: shipTo.name, phone: (shipTo.phone ?? '').replace(/[^0-9]/g, '') || '0000000000',
+          ...(shipTo.company ? { company: shipTo.company } : {}),
         },
         packages: packages.map(p => ({
           weight: { value: p.weightUnit === 'OZS' ? Number(p.weightValue) / 16 : Number(p.weightValue), units: 'LB' },
