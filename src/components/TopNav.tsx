@@ -191,18 +191,18 @@ function GroupItem({ item, isActive, onNavigate, badge }: {
         ref={btnRef}
         onClick={handleToggle}
         className={clsx(
-          'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap',
-          badge && badge.count > 0
-            ? 'bg-red-600 text-white'
-            : groupActive || open
-              ? 'bg-amazon-blue text-white'
-              : 'text-gray-300 hover:bg-white/10 hover:text-white',
+          'relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap',
+          groupActive || open
+            ? 'bg-amazon-blue text-white'
+            : 'text-gray-300 hover:bg-white/10 hover:text-white',
         )}
       >
         <item.icon size={14} />
         {item.label}
         {badge && badge.count > 0 && (
-          <span className="text-xs font-bold">({badge.count})</span>
+          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
+            {badge.count > 99 ? '99+' : badge.count}
+          </span>
         )}
         <ChevronDown size={12} className={clsx('transition-transform', open && 'rotate-180')} />
       </button>
