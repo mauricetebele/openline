@@ -38,6 +38,9 @@ export default function AmazonRefundsManager() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({})
   const [channelFilter, setChannelFilter] = useState<'all' | 'FBA' | 'MFN'>('all')
+  // Row whose Order ID was opened in a new tab — stays highlighted until the
+  // user clicks away, so it's clear which row they were working on.
+  const [activeRowId, setActiveRowId] = useState<string | null>(null)
 
   const load = useCallback(async (t: Tab) => {
     setLoading(true)
@@ -53,6 +56,17 @@ export default function AmazonRefundsManager() {
   }, [])
 
   useEffect(() => { load(tab) }, [load, tab])
+
+  // Clear the highlight when the user clicks anywhere outside the active row.
+  useEffect(() => {
+    if (!activeRowId) return
+    function onDown(e: MouseEvent) {
+      const el = (e.target as HTMLElement).closest('[data-rowid]')
+      if (!el || el.getAttribute('data-rowid') !== activeRowId) setActiveRowId(null)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [activeRowId])
 
   async function sync() {
     setSyncing(true)
@@ -176,12 +190,16 @@ export default function AmazonRefundsManager() {
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {visibleRows.map((r, i) => (
-                <tr key={r.id} className={clsx(i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50')}>
+                <tr key={r.id} data-rowid={r.id}
+                  className={clsx(activeRowId === r.id
+                    ? 'bg-amber-100 dark:bg-amber-900/30 ring-2 ring-inset ring-amber-400'
+                    : i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50')}>
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(r.postedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                   <td className="px-3 py-2 font-mono whitespace-nowrap">
                     {r.orderId ? (
                       <span className="inline-flex items-center gap-1.5">
                         <a href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`} target="_blank" rel="noopener noreferrer"
+                          onClick={() => setActiveRowId(r.id)}
                           className="text-amazon-blue hover:underline">{r.orderId}</a>
                         <button
                           onClick={() => { navigator.clipboard.writeText(r.orderId!); toast.success('Order ID copied') }}
