@@ -2575,6 +2575,9 @@ model ProcessReturn {
   note             String?  @db.Text // processor's optional note
   createdByLabel   String?
   createdAt        DateTime @default(now())
+  // A processor can "Resume Later" to save an unfinished record and continue it
+  // afterward; such drafts are marked Not Yet Completed until finalized on submit.
+  completed        Boolean  @default(true)
   // Administrator ↔ processor communication
   adminNote        String?  @db.Text
   flagged          Boolean  @default(false)
@@ -2583,6 +2586,7 @@ model ProcessReturn {
   units            ProcessReturnUnit[]
 
   @@index([flagged])
+  @@index([completed])
   @@map("process_returns")
 }
 

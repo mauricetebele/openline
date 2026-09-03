@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Plus, Trash2, X, Loader2, CheckCircle2, Flag, PackageOpen, MessageSquare } from 'lucide-react'
+import { Plus, Trash2, X, Loader2, CheckCircle2, Flag, PackageOpen, MessageSquare, Clock, PauseCircle } from 'lucide-react'
 
 interface Unit {
   id: string
@@ -17,6 +17,7 @@ interface ProcessReturn {
   trackingNumber: string
   carrier: string
   note: string | null
+  completed: boolean
   createdByLabel: string | null
   createdAt: string
   adminNote: string | null
@@ -41,12 +42,18 @@ interface FormUnit {
 let unitKey = 0
 const blankUnit = (): FormUnit => ({ key: `u${++unitKey}`, serial: '', grade: '', status: 'idle', sku: null })
 
-function CreateReturnModal({ grades, onClose, onCreated }: { grades: Grade[]; onClose: () => void; onCreated: () => void }) {
-  const [trackingNumber, setTrackingNumber] = useState('')
-  const [carrier, setCarrier] = useState('')
-  const [note, setNote] = useState('')
-  const [units, setUnits] = useState<FormUnit[]>([blankUnit()])
-  const [saving, setSaving] = useState(false)
+// Reusable form for creating a new return OR resuming an unfinished ("Not Yet
+// Completed") draft. "Resume Later" saves the current partial state so the
+// processor can move on and continue it afterward; "Submit" finalizes it.
+function ReturnFormModal({ grades, existing, onClose, onSaved }: { grades: Grade[]; existing?: ProcessReturn | null; onClose: () => void; onSaved: () => void }) {
+  const [trackingNumber, setTrackingNumber] = useState(existing?.trackingNumber ?? '')
+  const [carrier, setCarrier] = useState(existing?.carrier ?? '')
+  const [note, setNote] = useState(existing?.note ?? '')
+  const [units, setUnits] = useState<FormUnit[]>(() =>
+    existing && existing.units.length
+      ? existing.units.map(u => ({ key: `u${++unitKey}`, serial: u.serialNumber, grade: u.grade ?? '', status: (u.serialExists ? 'exists' : 'missing') as FormUnit['status'], sku: u.sku }))
+      : [blankUnit()])
+  const [saving, setSaving] = useState<'submit' | 'resume' | null>(null)
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   const patchUnit = (key: string, over: Partial<FormUnit>) =>
@@ -67,26 +74,30 @@ function CreateReturnModal({ grades, onClose, onCreated }: { grades: Grade[]; on
     }, 350)
   }
 
-  const canSubmit = trackingNumber.trim() && carrier.trim() && units.some(u => u.serial.trim()) && !saving
+  const hasSerials = units.some(u => u.serial.trim())
+  const canSubmit = !!(trackingNumber.trim() && carrier.trim() && hasSerials) && !saving
+  // Resume Later needs at least *something* entered — no point saving a blank draft.
+  const canResume = !!(trackingNumber.trim() || carrier.trim() || hasSerials || note.trim()) && !saving
 
-  async function submit() {
-    if (!canSubmit) return
-    setSaving(true)
+  async function save(finalize: boolean) {
+    if (finalize ? !canSubmit : !canResume) return
+    setSaving(finalize ? 'submit' : 'resume')
     try {
-      const res = await fetch('/api/process-returns', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          trackingNumber, carrier, note,
-          units: units.filter(u => u.serial.trim()).map(u => ({ serialNumber: u.serial.trim(), grade: u.grade || null })),
-        }),
+      const payload = {
+        trackingNumber, carrier, note, completed: finalize,
+        units: units.filter(u => u.serial.trim()).map(u => ({ serialNumber: u.serial.trim(), grade: u.grade || null })),
+      }
+      const res = await fetch(existing ? `/api/process-returns/${existing.id}` : '/api/process-returns', {
+        method: existing ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       })
       const j = await res.json()
-      if (!res.ok) throw new Error(j.error || 'Failed to create')
-      toast.success('Return staged')
-      onCreated()
+      if (!res.ok) throw new Error(j.error || 'Failed to save')
+      toast.success(finalize ? 'Return staged' : 'Saved — resume it anytime')
+      onSaved()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to create')
-      setSaving(false)
+      toast.error(e instanceof Error ? e.message : 'Failed to save')
+      setSaving(null)
     }
   }
 
@@ -94,7 +105,11 @@ function CreateReturnModal({ grades, onClose, onCreated }: { grades: Grade[]; on
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 overflow-y-auto" onClick={onClose}>
       <div className="w-full max-w-xl bg-white dark:bg-gray-900 rounded-xl shadow-xl my-8" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 dark:border-white/10">
-          <h2 className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-white"><PackageOpen size={16} className="text-amazon-blue" /> New Received Return</h2>
+          <h2 className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-white">
+            <PackageOpen size={16} className="text-amazon-blue" />
+            {existing ? <>Resume RET-{existing.returnNumber}</> : 'New Received Return'}
+            {existing && <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 rounded"><Clock size={9} /> NOT YET COMPLETED</span>}
+          </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><X size={18} /></button>
         </div>
 
@@ -157,9 +172,13 @@ function CreateReturnModal({ grades, onClose, onCreated }: { grades: Grade[]; on
 
         <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-gray-200 dark:border-white/10">
           <button onClick={onClose} className="text-xs font-medium text-gray-600 dark:text-gray-300 px-3 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10">Cancel</button>
-          <button onClick={submit} disabled={!canSubmit}
+          <button onClick={() => save(false)} disabled={!canResume} title="Save this unfinished record and continue it later"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 px-3.5 py-1.5 rounded-md hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-40">
+            {saving === 'resume' ? <Loader2 size={14} className="animate-spin" /> : <PauseCircle size={14} />} Resume Later
+          </button>
+          <button onClick={() => save(true)} disabled={!canSubmit}
             className="inline-flex items-center gap-1.5 text-xs font-semibold bg-amazon-blue text-white px-4 py-1.5 rounded-md hover:bg-blue-700 disabled:opacity-40">
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} Submit
+            {saving === 'submit' ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} Submit
           </button>
         </div>
       </div>
@@ -267,6 +286,7 @@ export default function ProcessReturnsManager() {
   const [grades, setGrades] = useState<Grade[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
+  const [resume, setResume] = useState<ProcessReturn | null>(null)
   const [detail, setDetail] = useState<ProcessReturn | null>(null)
 
   const load = useCallback(async () => {
@@ -317,8 +337,8 @@ export default function ProcessReturnsManager() {
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {returns.map((r, i) => (
-                <tr key={r.id} onClick={() => setDetail(r)}
-                  className={clsx('cursor-pointer', r.flagged ? 'bg-red-50 hover:bg-red-100/70 dark:bg-red-900/20' : i % 2 === 0 ? 'bg-white dark:bg-gray-900 hover:bg-blue-50/50' : 'bg-gray-50 dark:bg-gray-800/50 hover:bg-blue-50/50')}>
+                <tr key={r.id} onClick={() => (r.completed ? setDetail(r) : setResume(r))}
+                  className={clsx('cursor-pointer', !r.completed ? 'bg-amber-50 hover:bg-amber-100/70 dark:bg-amber-900/20' : r.flagged ? 'bg-red-50 hover:bg-red-100/70 dark:bg-red-900/20' : i % 2 === 0 ? 'bg-white dark:bg-gray-900 hover:bg-blue-50/50' : 'bg-gray-50 dark:bg-gray-800/50 hover:bg-blue-50/50')}>
                   <td className="px-3 py-2 font-semibold text-amazon-blue whitespace-nowrap">RET-{r.returnNumber}</td>
                   <td className="px-3 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">{r.carrier}</td>
                   <td className="px-3 py-2 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.trackingNumber}</td>
@@ -327,9 +347,10 @@ export default function ProcessReturnsManager() {
                   <td className="px-3 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap">{new Date(r.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <div className="flex items-center gap-1.5">
+                      {!r.completed && <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 rounded"><Clock size={9} /> Not Yet Completed</span>}
                       {r.flagged && <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 px-1.5 py-0.5 rounded"><Flag size={9} /> Flagged</span>}
                       {r.adminNote && <span title={r.adminNote} className="inline-flex items-center gap-1 text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-1.5 py-0.5 rounded"><MessageSquare size={9} /> Note</span>}
-                      {!r.flagged && !r.adminNote && <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      {r.completed && !r.flagged && !r.adminNote && <span className="text-gray-300 dark:text-gray-600">—</span>}
                     </div>
                   </td>
                 </tr>
@@ -339,7 +360,8 @@ export default function ProcessReturnsManager() {
         )}
       </div>
 
-      {showCreate && <CreateReturnModal grades={grades} onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load() }} />}
+      {showCreate && <ReturnFormModal grades={grades} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load() }} />}
+      {resume && <ReturnFormModal grades={grades} existing={resume} onClose={() => setResume(null)} onSaved={() => { setResume(null); load() }} />}
       {detail && <DetailModal ret={detail} onClose={() => setDetail(null)} onUpdated={(r) => { setDetail(r); setReturns(prev => prev.map(x => x.id === r.id ? r : x)) }} />}
     </div>
   )

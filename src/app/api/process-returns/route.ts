@@ -17,7 +17,8 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const returns = await prisma.processReturn.findMany({
-    orderBy: [{ flagged: 'desc' }, { createdAt: 'desc' }],
+    // Unfinished drafts (completed=false) surface first so they're easy to resume.
+    orderBy: [{ completed: 'asc' }, { flagged: 'desc' }, { createdAt: 'desc' }],
     include: { units: { orderBy: { createdAt: 'asc' } } },
   })
   return NextResponse.json({ data: returns })
@@ -32,9 +33,8 @@ export async function POST(req: NextRequest) {
   const carrier = String(body?.carrier ?? '').trim()
   const note = typeof body?.note === 'string' ? body.note.trim() || null : null
   const rawUnits: unknown[] = Array.isArray(body?.units) ? body.units : []
-
-  if (!trackingNumber) return NextResponse.json({ error: 'Tracking number is required' }, { status: 400 })
-  if (!carrier) return NextResponse.json({ error: 'Carrier is required' }, { status: 400 })
+  // "Resume Later" saves an unfinished record: relaxed validation, marked Not Yet Completed.
+  const completed = body?.completed !== false
 
   const units = rawUnits
     .map(u => {
@@ -45,7 +45,13 @@ export async function POST(req: NextRequest) {
       }
     })
     .filter(u => u.serialNumber)
-  if (units.length === 0) return NextResponse.json({ error: 'At least one unit with a serial number is required' }, { status: 400 })
+
+  // A finalized submit requires the full record; a draft can be saved with whatever's present.
+  if (completed) {
+    if (!trackingNumber) return NextResponse.json({ error: 'Tracking number is required' }, { status: 400 })
+    if (!carrier) return NextResponse.json({ error: 'Carrier is required' }, { status: 400 })
+    if (units.length === 0) return NextResponse.json({ error: 'At least one unit with a serial number is required' }, { status: 400 })
+  }
 
   // Snapshot whether each serial currently exists + its SKU (read-only lookup).
   const serialNumbers = Array.from(new Set(units.map(u => u.serialNumber)))
@@ -60,6 +66,7 @@ export async function POST(req: NextRequest) {
       trackingNumber,
       carrier,
       note,
+      completed,
       createdByLabel: user.name || user.email,
       units: {
         create: units.map(u => {
