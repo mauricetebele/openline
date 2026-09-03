@@ -2607,6 +2607,9 @@ model ProcessReturnUnit {
 model AmazonRefundReview {
   id               String    @id @default(cuid())
   transactionId    String    @unique
+  // Stable per-refund identity (Amazon REFUND_ID). One review row per refund —
+  // the same refund appears as several transactions (Deferred → Released).
+  refundKey        String?   @unique
   accountId        String?
   postedDate       DateTime
   amount           Decimal   @db.Decimal(12, 2)
