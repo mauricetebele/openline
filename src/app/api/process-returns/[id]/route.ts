@@ -90,20 +90,50 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ data: updated })
   }
 
-  // ── Administrator: set note-to-processor + flag ──
+  // ── Administrator: set note-to-processor + flag + processing outcome ──
+  const OUTCOMES = ['PASS', 'FAIL', 'NEEDS_EVAL'] as const
   const data: {
     adminNote?: string | null
     flagged?: boolean
     adminNoteByLabel?: string | null
     adminNoteAt?: Date
+    processedOutcome?: string | null
+    processedAt?: Date | null
+    processedByLabel?: string | null
   } = {}
 
+  const noteAfter = 'adminNote' in body
+    ? (typeof body.adminNote === 'string' ? body.adminNote.trim() || null : null)
+    : undefined
+
   if ('adminNote' in body) {
-    data.adminNote = typeof body.adminNote === 'string' ? body.adminNote.trim() || null : null
+    data.adminNote = noteAfter ?? null
     data.adminNoteByLabel = user.name || user.email
     data.adminNoteAt = new Date()
   }
   if ('flagged' in body) data.flagged = !!body.flagged
+
+  if ('processedOutcome' in body) {
+    const raw = body.processedOutcome
+    if (raw === null || raw === '') {
+      // Un-process
+      data.processedOutcome = null
+      data.processedAt = null
+      data.processedByLabel = null
+    } else if (typeof raw === 'string' && (OUTCOMES as readonly string[]).includes(raw)) {
+      // "Needs Administrator Evaluation" must carry a note explaining what to evaluate.
+      const existing = await prisma.processReturn.findUnique({ where: { id: params.id }, select: { adminNote: true } })
+      const effectiveNote = noteAfter !== undefined ? noteAfter : existing?.adminNote ?? null
+      if (raw === 'NEEDS_EVAL' && !effectiveNote) {
+        return NextResponse.json({ error: 'A note is required when marking Needs Administrator Evaluation' }, { status: 400 })
+      }
+      data.processedOutcome = raw
+      data.processedAt = new Date()
+      data.processedByLabel = user.name || user.email
+    } else {
+      return NextResponse.json({ error: 'Invalid outcome' }, { status: 400 })
+    }
+  }
 
   if (Object.keys(data).length === 0) return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
 

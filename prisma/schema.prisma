@@ -2583,10 +2583,16 @@ model ProcessReturn {
   flagged          Boolean  @default(false)
   adminNoteByLabel String?
   adminNoteAt      DateTime?
+  // Administrator processing outcome. null = not yet processed.
+  // PASS | FAIL | NEEDS_EVAL (Needs Administrator Evaluation — requires a note).
+  processedOutcome String?
+  processedAt      DateTime?
+  processedByLabel String?
   units            ProcessReturnUnit[]
 
   @@index([flagged])
   @@index([completed])
+  @@index([processedOutcome])
   @@map("process_returns")
 }
 

@@ -2,7 +2,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Plus, Trash2, X, Loader2, CheckCircle2, Flag, PackageOpen, MessageSquare, Clock, PauseCircle } from 'lucide-react'
+import { Plus, Trash2, X, Loader2, CheckCircle2, XCircle, AlertTriangle, Flag, PackageOpen, MessageSquare, Clock, PauseCircle, Gavel } from 'lucide-react'
+
+// Administrator processing outcomes
+const OUTCOMES = [
+  { value: 'PASS', label: 'Pass', icon: CheckCircle2, cls: 'text-green-700 border-green-400 bg-green-50 dark:text-green-300 dark:border-green-600 dark:bg-green-900/25', ring: 'ring-green-500', badge: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' },
+  { value: 'FAIL', label: 'Fail', icon: XCircle, cls: 'text-red-700 border-red-400 bg-red-50 dark:text-red-300 dark:border-red-600 dark:bg-red-900/25', ring: 'ring-red-500', badge: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' },
+  { value: 'NEEDS_EVAL', label: 'Needs Administrator Evaluation', icon: AlertTriangle, cls: 'text-yellow-700 border-yellow-400 bg-yellow-50 dark:text-yellow-300 dark:border-yellow-500 dark:bg-yellow-900/25', ring: 'ring-yellow-500', badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300' },
+] as const
+const outcomeMeta = (v: string | null) => OUTCOMES.find(o => o.value === v)
 
 interface Unit {
   id: string
@@ -24,6 +32,9 @@ interface ProcessReturn {
   flagged: boolean
   adminNoteByLabel: string | null
   adminNoteAt: string | null
+  processedOutcome: string | null // PASS | FAIL | NEEDS_EVAL
+  processedAt: string | null
+  processedByLabel: string | null
   units: Unit[]
 }
 interface Grade { id: string; grade: string }
@@ -191,18 +202,23 @@ function ReturnFormModal({ grades, existing, onClose, onSaved }: { grades: Grade
 function DetailModal({ ret, onClose, onUpdated }: { ret: ProcessReturn; onClose: () => void; onUpdated: (r: ProcessReturn) => void }) {
   const [adminNote, setAdminNote] = useState(ret.adminNote ?? '')
   const [flagged, setFlagged] = useState(ret.flagged)
+  const [outcome, setOutcome] = useState<string | null>(ret.processedOutcome)
   const [saving, setSaving] = useState(false)
 
+  const needsEval = outcome === 'NEEDS_EVAL'
+  const noteMissing = needsEval && !adminNote.trim()
+
   async function save() {
+    if (noteMissing) { toast.error('A note is required for Needs Administrator Evaluation'); return }
     setSaving(true)
     try {
       const res = await fetch(`/api/process-returns/${ret.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminNote, flagged }),
+        body: JSON.stringify({ adminNote, flagged, processedOutcome: outcome }),
       })
       const j = await res.json()
       if (!res.ok) throw new Error(j.error || 'Failed')
-      toast.success('Saved')
+      toast.success(outcome ? 'Marked as processed' : 'Saved')
       onUpdated(j.data)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed')
@@ -216,6 +232,9 @@ function DetailModal({ ret, onClose, onUpdated }: { ret: ProcessReturn; onClose:
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-bold text-gray-900 dark:text-white">RET-{ret.returnNumber}</h2>
             {ret.flagged && <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded"><Flag size={9} /> FLAGGED</span>}
+            {outcomeMeta(ret.processedOutcome) && (() => { const m = outcomeMeta(ret.processedOutcome)!; const I = m.icon; return (
+              <span className={clsx('inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded', m.badge)}><I size={9} /> {m.label.toUpperCase()}</span>
+            )})()}
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><X size={18} /></button>
         </div>
@@ -250,17 +269,46 @@ function DetailModal({ ret, onClose, onUpdated }: { ret: ProcessReturn; onClose:
             </div>
           </div>
 
-          {/* Administrator section */}
+          {/* Administrator: mark as processed */}
+          <div className="border-t border-gray-200 dark:border-white/10 pt-3">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Gavel size={12} className="text-gray-400" />
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Mark as Processed</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {OUTCOMES.map(o => {
+                const I = o.icon; const active = outcome === o.value
+                return (
+                  <button key={o.value} type="button" onClick={() => setOutcome(active ? null : o.value)}
+                    className={clsx('flex flex-col items-center justify-center gap-1 text-center text-[11px] font-semibold rounded-lg border-2 px-2 py-2.5 leading-tight transition',
+                      o.cls, active ? 'ring-2 ring-offset-1 dark:ring-offset-gray-900 ' + o.ring : 'opacity-70 hover:opacity-100')}>
+                    <I size={16} /> {o.label}
+                  </button>
+                )
+              })}
+            </div>
+            {outcome && (
+              <button type="button" onClick={() => setOutcome(null)} className="mt-1.5 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">Clear selection</button>
+            )}
+            {ret.processedByLabel && ret.processedAt && (
+              <p className="text-[10px] text-gray-400 mt-1">Processed by {ret.processedByLabel} · {new Date(ret.processedAt).toLocaleString()}</p>
+            )}
+          </div>
+
+          {/* Administrator: note to processor + flag */}
           <div className="border-t border-gray-200 dark:border-white/10 pt-3">
             <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Note to Processor</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                Note to Processor{needsEval && <span className="ml-1 text-amber-600 dark:text-amber-400 normal-case tracking-normal">· required for evaluation</span>}
+              </p>
               <label className="inline-flex items-center gap-1.5 text-xs font-medium cursor-pointer select-none">
                 <input type="checkbox" checked={flagged} onChange={e => setFlagged(e.target.checked)} className="rounded border-gray-300 text-red-600 focus:ring-red-500" />
                 <span className={clsx('inline-flex items-center gap-1', flagged ? 'text-red-600' : 'text-gray-500')}><Flag size={12} /> Flag</span>
               </label>
             </div>
-            <textarea value={adminNote} onChange={e => setAdminNote(e.target.value)} rows={3} placeholder="Message for the processor…"
-              className="w-full text-sm border border-gray-300 dark:border-white/15 rounded-md px-2.5 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none" />
+            <textarea value={adminNote} onChange={e => setAdminNote(e.target.value)} rows={3} placeholder={needsEval ? 'Describe what needs administrator evaluation…' : 'Message for the processor…'}
+              className={clsx('w-full text-sm border rounded-md px-2.5 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none',
+                noteMissing ? 'border-amber-400 dark:border-amber-600' : 'border-gray-300 dark:border-white/15')} />
             {ret.adminNoteByLabel && ret.adminNoteAt && (
               <p className="text-[10px] text-gray-400 mt-1">Last updated by {ret.adminNoteByLabel} · {new Date(ret.adminNoteAt).toLocaleString()}</p>
             )}
@@ -269,9 +317,9 @@ function DetailModal({ ret, onClose, onUpdated }: { ret: ProcessReturn; onClose:
 
         <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-gray-200 dark:border-white/10">
           <button onClick={onClose} className="text-xs font-medium text-gray-600 dark:text-gray-300 px-3 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10">Close</button>
-          <button onClick={save} disabled={saving}
+          <button onClick={save} disabled={saving || noteMissing}
             className="inline-flex items-center gap-1.5 text-xs font-semibold bg-amazon-blue text-white px-4 py-1.5 rounded-md hover:bg-blue-700 disabled:opacity-40">
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <MessageSquare size={14} />} Save
+            {saving ? <Loader2 size={14} className="animate-spin" /> : outcome ? <Gavel size={14} /> : <MessageSquare size={14} />} {outcome ? 'Mark as Processed' : 'Save'}
           </button>
         </div>
       </div>
@@ -348,9 +396,12 @@ export default function ProcessReturnsManager() {
                   <td className="px-3 py-2 whitespace-nowrap">
                     <div className="flex items-center gap-1.5">
                       {!r.completed && <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 rounded"><Clock size={9} /> Not Yet Completed</span>}
+                      {outcomeMeta(r.processedOutcome) && (() => { const m = outcomeMeta(r.processedOutcome)!; const I = m.icon; return (
+                        <span className={clsx('inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded', m.badge)}><I size={9} /> {m.label}</span>
+                      )})()}
                       {r.flagged && <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 px-1.5 py-0.5 rounded"><Flag size={9} /> Flagged</span>}
                       {r.adminNote && <span title={r.adminNote} className="inline-flex items-center gap-1 text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-1.5 py-0.5 rounded"><MessageSquare size={9} /> Note</span>}
-                      {r.completed && !r.flagged && !r.adminNote && <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      {r.completed && !r.flagged && !r.adminNote && !r.processedOutcome && <span className="text-gray-300 dark:text-gray-600">—</span>}
                     </div>
                   </td>
                 </tr>
