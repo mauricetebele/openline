@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
-import { X, Loader2, Printer, Truck, CheckCircle2, MapPin, Plus, Trash2 } from 'lucide-react'
+import { X, Loader2, Printer, Truck, CheckCircle2, MapPin, Plus, Trash2, Copy } from 'lucide-react'
 
 type Carrier = 'UPS' | 'FEDEX'
 
@@ -144,6 +144,12 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
 
   const patch = (over: Partial<ShipTo>) => setShipTo(prev => ({ ...prev, ...over }))
   const setPkg = (key: string, over: Partial<PkgForm>) => setPackages(prev => prev.map(p => p.key === key ? { ...p, ...over } : p))
+  // Duplicate a box (same weight & dims) right after it.
+  const copyPkg = (key: string) => setPackages(prev => {
+    const i = prev.findIndex(p => p.key === key)
+    if (i < 0) return prev
+    return [...prev.slice(0, i + 1), { ...prev[i], key: `p${++pkgKey}` }, ...prev.slice(i + 1)]
+  })
 
   function switchCarrier(c: Carrier) { setCarrier(c); setServiceCode(DEFAULT_SERVICE[c]) }
 
@@ -316,7 +322,8 @@ export default function WholesaleShippingLabelModal({ orderId, onClose, onCreate
                     <input className="w-11 h-8 rounded border border-gray-300 px-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-emerald-500" placeholder="L" type="number" min={0} value={p.length} onChange={e => setPkg(p.key, { length: e.target.value })} />
                     <input className="w-11 h-8 rounded border border-gray-300 px-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-emerald-500" placeholder="W" type="number" min={0} value={p.width} onChange={e => setPkg(p.key, { width: e.target.value })} />
                     <input className="w-11 h-8 rounded border border-gray-300 px-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-emerald-500" placeholder="H" type="number" min={0} value={p.height} onChange={e => setPkg(p.key, { height: e.target.value })} />
-                    {packages.length > 1 && <button type="button" onClick={() => setPackages(pp => pp.filter(x => x.key !== p.key))} className="p-1 text-gray-300 hover:text-red-500 shrink-0"><Trash2 size={13} /></button>}
+                    <button type="button" onClick={() => copyPkg(p.key)} title="Copy box (same weight & dims)" className="p-1 text-gray-300 hover:text-amazon-blue shrink-0"><Copy size={13} /></button>
+                    {packages.length > 1 && <button type="button" onClick={() => setPackages(pp => pp.filter(x => x.key !== p.key))} title="Remove box" className="p-1 text-gray-300 hover:text-red-500 shrink-0"><Trash2 size={13} /></button>}
                   </div>
                 ))}
               </div>
