@@ -198,7 +198,7 @@ export default function AmazonRefundsManager() {
                   <td className="px-3 py-2 font-mono whitespace-nowrap">
                     {r.orderId ? (
                       <span className="inline-flex items-center gap-1.5">
-                        <a href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`} target="_blank" rel="noopener noreferrer"
+                        <a href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`} target="amazonSellerCentral" rel="noopener noreferrer"
                           onClick={() => setActiveRowId(r.id)}
                           className="text-amazon-blue hover:underline">{r.orderId}</a>
                         <button
