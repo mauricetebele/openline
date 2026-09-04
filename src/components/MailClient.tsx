@@ -43,6 +43,21 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+// Wrap an email body with a Gmail-like default font so unstyled mail doesn't
+// fall back to the browser's Times New Roman. The email's own inline styles win.
+function wrapEmailHtml(html: string, text: string): string {
+  const bodyContent = html || `<pre style="white-space:pre-wrap;font-family:inherit;margin:0">${escapeHtml(text)}</pre>`
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html,body{margin:0;padding:14px;}
+  body{font-family:Arial,Roboto,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#202124;word-wrap:break-word;overflow-wrap:anywhere;}
+  a{color:#1a73e8;}
+  img{max-width:100%;height:auto;}
+  table{max-width:100%;}
+  blockquote{margin:0 0 0 8px;padding-left:12px;border-left:2px solid #e0e0e0;color:#5f6368;}
+</style></head><body>${bodyContent}</body></html>`
+}
+
 function avatarColor(seed: string): string {
   const colors = ['bg-blue-500', 'bg-emerald-500', 'bg-violet-500', 'bg-amber-500', 'bg-rose-500', 'bg-cyan-500', 'bg-indigo-500', 'bg-teal-500']
   let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
@@ -488,7 +503,7 @@ export default function MailClient() {
                 title="message"
                 sandbox=""
                 className="flex-1 w-full bg-white"
-                srcDoc={detail.html || `<pre style="font-family:system-ui;white-space:pre-wrap;padding:16px;font-size:13px">${escapeHtml(detail.text)}</pre>`}
+                srcDoc={wrapEmailHtml(detail.html, detail.text)}
               />
             </div>
           )}
