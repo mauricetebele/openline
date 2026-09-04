@@ -7325,15 +7325,16 @@ export default function UnshippedOrders() {
         {/* Sync & data controls */}
         <div className="flex items-center gap-1.5">
           <button onClick={checkCancellations} disabled={checkingCancels || !selectedAccountId}
-            className={clsx('flex items-center gap-1.5 h-8 px-2.5 rounded text-xs font-medium transition-colors',
+            title={!selectedAccountId ? 'Select an Amazon account first' : 'Check unshipped Amazon orders for buyer cancellation requests'}
+            className={clsx('flex items-center gap-1.5 h-8 px-2.5 rounded text-xs font-semibold transition-colors',
               checkingCancels || !selectedAccountId
                 ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 : cancelFlagged && cancelFlagged.length > 0
                   ? 'bg-amber-500 text-white hover:bg-amber-600'
-                  : 'bg-white border border-gray-300 text-gray-700 hover:border-amber-400 hover:text-amber-700')}>
+                  : 'bg-amber-100 border border-amber-300 text-amber-800 hover:bg-amber-200')}>
             {checkingCancels
               ? <><RefreshCcw size={12} className="animate-spin" /> {cancelProgress ?? 'Checking…'}</>
-              : <><AlertTriangle size={12} /> Cancels{cancelFlagged && cancelFlagged.length > 0 ? ` (${cancelFlagged.length})` : ''}</>
+              : <><AlertTriangle size={12} /> Check Cancels{cancelFlagged && cancelFlagged.length > 0 ? ` (${cancelFlagged.length})` : ''}</>
             }
           </button>
           <button onClick={checkShipStationSync} disabled={ssEnriching || !selectedAccountId || !ssAccount}
