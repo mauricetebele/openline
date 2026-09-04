@@ -51,7 +51,6 @@ export default function MailClient() {
   const [showMailboxes, setShowMailboxes] = useState(false)
   const [siteUsers, setSiteUsers] = useState<SiteUser[]>([])
   const [contacts, setContacts] = useState<{ name: string; email: string }[]>([])
-  const [contactsInfo, setContactsInfo] = useState<{ total: number; peopleCount: number; peopleError: string | null }>({ total: 0, peopleCount: 0, peopleError: null })
   const [activeAccount, setActiveAccount] = useState<string>('')
   const [labels, setLabels] = useState<GLabel[]>([])
   const [folder, setFolder] = useState('INBOX')
@@ -144,12 +143,8 @@ export default function MailClient() {
   }, [])
 
   const loadContacts = useCallback(async (accountId: string) => {
-    setContacts([]); setContactsInfo({ total: 0, peopleCount: 0, peopleError: null })
-    try {
-      const d = await (await fetch(`/api/email/contacts?accountId=${accountId}`)).json()
-      setContacts(d.contacts ?? [])
-      setContactsInfo({ total: d.total ?? (d.contacts?.length ?? 0), peopleCount: d.peopleCount ?? 0, peopleError: d.peopleError ?? null })
-    } catch { /* ignore */ }
+    setContacts([])
+    try { const d = await (await fetch(`/api/email/contacts?accountId=${accountId}`)).json(); setContacts(d.contacts ?? []) } catch { /* ignore */ }
   }, [])
 
   const loadMessages = useCallback(async (accountId: string, folderId: string, q: string) => {
@@ -225,6 +220,10 @@ export default function MailClient() {
     })
   }
   function startCompose() { setCompose({ to: '', cc: '', subject: '', body: '' }) }
+
+  function composeKeyDown(e: React.KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); sendMail() }
+  }
 
   async function sendMail() {
     if (!compose) return
@@ -432,7 +431,7 @@ export default function MailClient() {
       {/* Compose */}
       {compose && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={() => setCompose(null)}>
-          <div className="w-full sm:max-w-2xl bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+          <div className="w-full sm:max-w-2xl bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()} onKeyDown={composeKeyDown}>
             <div className="flex items-center justify-between px-4 py-2.5 border-b dark:border-gray-700">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{compose.threadId ? 'Reply' : 'New message'}</h3>
               <button onClick={() => setCompose(null)} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><X size={16} /></button>
@@ -443,9 +442,6 @@ export default function MailClient() {
               </datalist>
               <input list="mail-contacts" value={compose.to} onChange={e => setCompose({ ...compose, to: e.target.value })} placeholder="To" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
               <input list="mail-contacts" value={compose.cc} onChange={e => setCompose({ ...compose, cc: e.target.value })} placeholder="Cc (optional)" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
-              <p className="text-[10px] text-gray-400">
-                {contactsInfo.total} suggestions · contacts API: {contactsInfo.peopleError ? <span className="text-amber-600">{contactsInfo.peopleError.slice(0, 160)}</span> : `${contactsInfo.peopleCount} loaded`}
-              </p>
               <input value={compose.subject} onChange={e => setCompose({ ...compose, subject: e.target.value })} placeholder="Subject" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
               <textarea value={compose.body} onChange={e => setCompose({ ...compose, body: e.target.value })} rows={10} placeholder="Write your message…" className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 py-2 text-sm text-gray-900 dark:text-white resize-none" />
               {compose.attachments && compose.attachments.length > 0 && (
@@ -466,7 +462,7 @@ export default function MailClient() {
               </button>
               <div className="flex items-center gap-2">
                 <button onClick={() => setCompose(null)} className="h-9 px-4 rounded-md border border-gray-300 dark:border-white/15 text-sm text-gray-600 dark:text-gray-300">Discard</button>
-                <button onClick={sendMail} disabled={sending} className="inline-flex items-center gap-1.5 h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40">
+                <button onClick={sendMail} disabled={sending} title="Send (⌘/Ctrl + Enter)" className="inline-flex items-center gap-1.5 h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40">
                   {sending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} Send
                 </button>
               </div>
