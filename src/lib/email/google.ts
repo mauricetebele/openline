@@ -36,8 +36,8 @@ export function buildAuthUrl(redirectUri: string, state: string, clientId: strin
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: GMAIL_SCOPES,
-    access_type: 'offline',   // get a refresh token
-    prompt: 'consent',        // force refresh_token on re-auth
+    access_type: 'offline',              // get a refresh token
+    prompt: 'select_account consent',    // always show the account chooser (so you can add a different mailbox) + return a refresh token
     include_granted_scopes: 'true',
     state,
   })
