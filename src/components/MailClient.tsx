@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { clsx } from 'clsx'
 import {
   Mail, Inbox, Star, Send, FileText, AlertOctagon, Trash2, Tag, Loader2, X,
-  RefreshCw, Reply, Archive, MailOpen, Plus, Search, Paperclip, Copy, Users,
+  RefreshCw, Reply, Archive, MailOpen, Plus, Search, Paperclip, Copy, Users, FolderPlus, FolderInput,
 } from 'lucide-react'
 
 interface Account { id: string; email: string; displayName?: string | null; assignedUserId?: string | null; assignedUser?: { id: string; name: string; email: string } | null }
@@ -172,6 +172,7 @@ export default function MailClient() {
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<MsgDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [showMove, setShowMove] = useState(false)
   const [compose, setCompose] = useState<null | { to: string[]; cc: string[]; subject: string; body: string; threadId?: string; inReplyTo?: string; references?: string; attachments?: { filename: string; mimeType: string; contentBase64: string; size: number }[] }>(null)
   const [sending, setSending] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -300,7 +301,7 @@ export default function MailClient() {
   function runSearch() { loadMessages(activeAccount, folder, search) }
 
   async function openMessage(id: string) {
-    setSelected(id); setLoadingDetail(true); setDetail(null)
+    setSelected(id); setLoadingDetail(true); setDetail(null); setShowMove(false)
     try {
       const d = await (await fetch(`/api/email/messages/${id}?accountId=${activeAccount}`)).json()
       if (d.error) throw new Error(d.error)
@@ -315,6 +316,31 @@ export default function MailClient() {
     if (removeFromList) { setMessages(prev => prev.filter(m => m.id !== id)); if (selected === id) { setSelected(null); setDetail(null) } }
   }
   async function archive(id: string) { await modify(id, undefined, ['INBOX'], folder === 'INBOX'); toast.success('Archived') }
+
+  async function createFolder(): Promise<string | undefined> {
+    const name = window.prompt('New folder name')
+    if (!name || !name.trim()) return undefined
+    try {
+      const res = await fetch('/api/email/labels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountId: activeAccount, name: name.trim() }) })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      toast.success(`Folder "${name.trim()}" created`)
+      loadLabels(activeAccount)
+      return d.label?.id as string | undefined
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to create folder'); return undefined }
+  }
+
+  async function moveTo(id: string, labelId: string, labelName: string) {
+    const remove = ['INBOX']
+    if (labels.some(l => l.type === 'user' && l.id === folder)) remove.push(folder)
+    await modify(id, [labelId], remove, true)
+    setShowMove(false)
+    toast.success(`Moved to ${labelName}`)
+  }
+  async function moveToNewFolder(id: string) {
+    const labelId = await createFolder()
+    if (labelId) moveTo(id, labelId, 'new folder')
+  }
   async function markUnread(id: string) { await modify(id, ['UNREAD'], undefined); setMessages(prev => prev.map(m => m.id === id ? { ...m, unread: true } : m)); toast.success('Marked unread') }
   async function trash(id: string) {
     await fetch(`/api/email/messages/${id}?accountId=${activeAccount}`, { method: 'DELETE' })
@@ -431,7 +457,10 @@ export default function MailClient() {
               </button>
             )
           })}
-          {userLabels.length > 0 && <p className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Labels</p>}
+          <div className="flex items-center justify-between px-3 pt-3 pb-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Folders</p>
+            <button onClick={createFolder} title="New folder" className="text-gray-400 hover:text-amazon-blue"><FolderPlus size={13} /></button>
+          </div>
           {userLabels.map(l => (
             <button key={l.id} onClick={() => openFolder(l.id)} className={clsx('w-full flex items-center gap-2 px-3 py-1.5 text-xs', folder === l.id ? 'bg-amazon-blue/10 text-amazon-blue' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5')}>
               <Tag size={13} /> <span className="flex-1 text-left truncate">{l.name}</span>
@@ -483,6 +512,26 @@ export default function MailClient() {
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={startReply} title="Reply" className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500"><Reply size={15} /></button>
                     <button onClick={() => archive(detail.id)} title="Archive" className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500"><Archive size={15} /></button>
+                    <div className="relative">
+                      <button onClick={() => setShowMove(v => !v)} title="Move to folder" className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500"><FolderInput size={15} /></button>
+                      {showMove && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setShowMove(false)} />
+                          <div className="absolute right-0 top-full mt-1 z-50 w-56 max-h-72 overflow-y-auto rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-800 shadow-xl ring-1 ring-black/5 py-1">
+                            <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Move to</p>
+                            {userLabels.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">No folders yet</p>}
+                            {userLabels.map(l => (
+                              <button key={l.id} onClick={() => moveTo(detail.id, l.id, l.name)} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5">
+                                <Tag size={13} className="text-gray-400" /> <span className="truncate">{l.name}</span>
+                              </button>
+                            ))}
+                            <button onClick={() => moveToNewFolder(detail.id)} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm text-amazon-blue hover:bg-gray-50 dark:hover:bg-white/5 border-t border-gray-100 dark:border-white/5 mt-1 pt-2">
+                              <FolderPlus size={13} /> New folder…
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
                     <button onClick={() => markUnread(detail.id)} title="Mark unread" className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500"><MailOpen size={15} /></button>
                     <button onClick={() => trash(detail.id)} title="Trash" className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-500 hover:text-red-500"><Trash2 size={15} /></button>
                   </div>

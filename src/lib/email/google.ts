@@ -176,6 +176,13 @@ export async function listLabels(accountId: string) {
   return gmailFetch(accountId, '/labels') as Promise<{ labels?: { id: string; name: string; type: string; messagesUnread?: number }[] }>
 }
 
+export async function createLabel(accountId: string, name: string) {
+  return gmailFetch(accountId, '/labels', {
+    method: 'POST',
+    body: JSON.stringify({ name, labelListVisibility: 'labelShow', messageListVisibility: 'show' }),
+  }) as Promise<{ id: string; name: string }>
+}
+
 export async function sendRawMessage(accountId: string, rawBase64Url: string, threadId?: string) {
   return gmailFetch(accountId, '/messages/send', { method: 'POST', body: JSON.stringify({ raw: rawBase64Url, ...(threadId ? { threadId } : {}) }) })
 }
