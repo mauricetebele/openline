@@ -492,7 +492,8 @@ export default function MailClient() {
           <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && runSearch()} placeholder="Search mail…"
             className="h-8 w-56 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 pl-7 pr-2 text-xs text-gray-800 dark:text-gray-200" />
         </div>
-        <button onClick={() => { setShowRules(true); setRuleResult(null) }} title="Create a rule in plain English" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-gray-300 dark:border-white/15 text-gray-700 dark:text-gray-200 text-xs font-medium hover:bg-gray-50 dark:hover:bg-white/5"><Sparkles size={14} className="text-amazon-blue" /> Rules</button>
+        {/* AI Rules — hidden for now (uses the paid Anthropic API). Re-enable by restoring this button. */}
+        {false && <button onClick={() => { setShowRules(true); setRuleResult(null) }} className="hidden"><Sparkles size={14} /> Rules</button>}
         <button onClick={startCompose} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-blue-700"><Plus size={14} /> Compose</button>
       </div>
 
