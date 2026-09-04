@@ -6,6 +6,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { getAnthropicKey } from '@/lib/ai-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,8 +35,8 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) return NextResponse.json({ error: 'AI is not configured — set ANTHROPIC_API_KEY.' }, { status: 400 })
+  const apiKey = await getAnthropicKey()
+  if (!apiKey) return NextResponse.json({ error: 'AI is not configured — add your Anthropic API key.', needsKey: true }, { status: 400 })
 
   const { text } = await req.json().catch(() => ({}))
   if (!text || !String(text).trim()) return NextResponse.json({ error: 'Describe the rule' }, { status: 400 })

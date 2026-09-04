@@ -2844,3 +2844,14 @@ model FirebaseAdminConfig {
 
   @@map("firebase_admin_config")
 }
+
+// ─── AI config (singleton) ───────────────────────────────────────────────────
+// Anthropic API key for in-app AI features (e.g. email rule creation), entered
+// in Settings and stored encrypted. Falls back to ANTHROPIC_API_KEY env.
+model AiConfig {
+  id              String   @id @default("singleton")
+  anthropicKeyEnc String?  @db.Text
+  updatedAt       DateTime @updatedAt
+
+  @@map("ai_config")
+}

@@ -184,6 +184,25 @@ export default function MailClient() {
   const [ruleBusy, setRuleBusy] = useState(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [ruleResult, setRuleResult] = useState<{ understanding?: string; rule?: any; needsClarification?: string | null } | null>(null)
+  const [aiConfigured, setAiConfigured] = useState(true)
+  const [aiKey, setAiKey] = useState('')
+  const [aiSaving, setAiSaving] = useState(false)
+
+  useEffect(() => {
+    if (showRules && isAdmin) fetch('/api/admin/ai-config').then(r => r.json()).then(d => setAiConfigured(!!d.configured)).catch(() => {})
+  }, [showRules, isAdmin])
+
+  async function saveAiKey() {
+    if (!aiKey.trim()) { toast.error('Paste your Anthropic API key'); return }
+    setAiSaving(true)
+    try {
+      const res = await fetch('/api/admin/ai-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anthropicKey: aiKey.trim() }) })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      toast.success('AI key saved'); setAiConfigured(true); setAiKey('')
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to save key') }
+    finally { setAiSaving(false) }
+  }
 
   async function interpretRule() {
     if (!ruleText.trim()) return
@@ -635,6 +654,16 @@ export default function MailClient() {
               <button onClick={() => setShowRules(false)} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><X size={16} /></button>
             </div>
             <div className="px-4 py-3 space-y-3 overflow-y-auto">
+              {isAdmin && !aiConfigured && (
+                <div className="rounded-lg border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 space-y-2">
+                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">Add your Anthropic API key to enable AI rules</p>
+                  <p className="text-[11px] text-amber-700 dark:text-amber-300/90">Get one at console.anthropic.com → API keys. Stored encrypted.</p>
+                  <div className="flex items-center gap-2">
+                    <input type="password" value={aiKey} onChange={e => setAiKey(e.target.value)} placeholder="sk-ant-…" className="flex-1 h-8 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm font-mono text-gray-900 dark:text-white" />
+                    <button onClick={saveAiKey} disabled={aiSaving} className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-40">{aiSaving ? 'Saving…' : 'Save'}</button>
+                  </div>
+                </div>
+              )}
               <p className="text-xs text-gray-500 dark:text-gray-400">Describe what you want in plain English. Example: <span className="italic">&quot;Put all emails from anyone at @pcsww.com into a folder called PCS.&quot;</span></p>
               <textarea value={ruleText} onChange={e => setRuleText(e.target.value)} rows={3} placeholder="Type your rule…"
                 className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 py-2 text-sm text-gray-900 dark:text-white resize-none" />
