@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { listMessages, getMessage } from '@/lib/email/google'
+import { listMessages, getMessage, listPeopleContacts } from '@/lib/email/google'
 import { canUseMailAccount } from '@/lib/email/access'
 
 export const dynamic = 'force-dynamic'
@@ -34,18 +34,27 @@ export async function GET(req: NextRequest) {
   if (!(await canUseMailAccount(accountId, user))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
+    const byEmail = new Map<string, { name: string; email: string }>()
+    const add = (a: { name: string; email: string }) => {
+      if (!a.email) return
+      const existing = byEmail.get(a.email)
+      if (!existing || (!existing.name && a.name)) byEmail.set(a.email, a)
+    }
+
+    // Primary source: Google contacts + auto-saved "other contacts" (People API).
+    // Requires the contacts scopes — reconnect the mailbox if it was linked
+    // before those were added. Falls back to the recent-message scan below.
+    try {
+      const people = await listPeopleContacts(accountId)
+      people.forEach(add)
+    } catch { /* scope not granted / People API disabled — use message scan only */ }
+
     const [sent, inbox] = await Promise.all([
       listMessages(accountId, { labelIds: ['SENT'], maxResults: 30 }),
       listMessages(accountId, { labelIds: ['INBOX'], maxResults: 20 }),
     ])
     const sentIds = (sent.messages ?? []).map(m => m.id)
     const inboxIds = (inbox.messages ?? []).map(m => m.id)
-
-    const byEmail = new Map<string, { name: string; email: string }>()
-    const add = (a: { name: string; email: string }) => {
-      const existing = byEmail.get(a.email)
-      if (!existing || (!existing.name && a.name)) byEmail.set(a.email, a)
-    }
 
     await Promise.all([
       ...sentIds.map(async id => {
@@ -59,7 +68,10 @@ export async function GET(req: NextRequest) {
       }),
     ])
 
-    const contacts = Array.from(byEmail.values()).sort((a, b) => a.email.localeCompare(b.email))
+    // Named contacts first, then the rest — capped for a responsive datalist.
+    const contacts = Array.from(byEmail.values())
+      .sort((a, b) => (a.name ? 0 : 1) - (b.name ? 0 : 1) || a.email.localeCompare(b.email))
+      .slice(0, 2000)
     return NextResponse.json({ contacts })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed to load contacts', contacts: [] }, { status: 200 })

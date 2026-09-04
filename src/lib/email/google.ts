@@ -10,6 +10,8 @@ export const GMAIL_SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify', // read + label + trash
   'https://www.googleapis.com/auth/gmail.send',   // send
   'https://www.googleapis.com/auth/gmail.labels',  // manage labels/folders
+  'https://www.googleapis.com/auth/contacts.readonly',        // saved contacts
+  'https://www.googleapis.com/auth/contacts.other.readonly',  // auto-saved "other contacts"
   'openid', 'email', 'profile',
 ].join(' ')
 
@@ -180,4 +182,40 @@ export async function sendRawMessage(accountId: string, rawBase64Url: string, th
 
 export async function getAttachment(accountId: string, messageId: string, attachmentId: string) {
   return gmailFetch(accountId, `/messages/${messageId}/attachments/${attachmentId}`) as Promise<{ data?: string; size?: number }>
+}
+
+// ── People API (contacts) ───────────────────────────────────────────────────
+
+interface Person { names?: { displayName?: string }[]; emailAddresses?: { value?: string }[] }
+async function peopleFetch(accountId: string, path: string): Promise<{ items: Person[] }> {
+  const token = await getAccessToken(accountId)
+  const items: Person[] = []
+  let pageToken: string | undefined
+  // Cap pages so we never loop unbounded.
+  for (let i = 0; i < 10; i++) {
+    const url = `https://people.googleapis.com/v1${path}${path.includes('?') ? '&' : '?'}pageSize=1000${pageToken ? `&pageToken=${pageToken}` : ''}`
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    if (!res.ok) throw new Error(`People API ${res.status}: ${await res.text()}`)
+    const d = await res.json() as { connections?: Person[]; otherContacts?: Person[]; nextPageToken?: string }
+    items.push(...(d.connections ?? d.otherContacts ?? []))
+    pageToken = d.nextPageToken
+    if (!pageToken) break
+  }
+  return { items }
+}
+
+/** Saved contacts + auto-saved "other contacts" as { name, email }. */
+export async function listPeopleContacts(accountId: string): Promise<{ name: string; email: string }[]> {
+  const [conns, others] = await Promise.all([
+    peopleFetch(accountId, '/people/me/connections?personFields=names,emailAddresses').catch(() => ({ items: [] as Person[] })),
+    peopleFetch(accountId, '/otherContacts?readMask=names,emailAddresses').catch(() => ({ items: [] as Person[] })),
+  ])
+  const out: { name: string; email: string }[] = []
+  for (const p of [...conns.items, ...others.items]) {
+    const name = p.names?.[0]?.displayName ?? ''
+    for (const e of p.emailAddresses ?? []) {
+      if (e.value) out.push({ name, email: e.value.toLowerCase() })
+    }
+  }
+  return out
 }
