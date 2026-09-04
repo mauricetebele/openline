@@ -171,6 +171,8 @@ export async function PATCH(req: NextRequest) {
     if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
     let reason = 'Firebase Admin not configured'
+
+    // 1) Service-account Admin SDK (if a key is configured).
     try {
       const { getAdminAuth } = await import('@/lib/firebase-admin')
       const adminAuth = await getAdminAuth()
@@ -178,10 +180,25 @@ export async function PATCH(req: NextRequest) {
       if (!uid) throw new Error('No Firebase UID')
       await adminAuth.updateUser(uid, { password: newPassword })
       return NextResponse.json({ ok: true, method: 'set' })
-    } catch (adminErr) {
-      reason = adminErr instanceof Error ? adminErr.message : String(adminErr)
-      console.error('[reset-password] direct set failed, falling back to email:', reason)
-      // Admin SDK unavailable — send a password-reset email instead.
+    } catch (e) {
+      reason = e instanceof Error ? e.message : String(e)
+    }
+
+    // 2) Admin's own Google OAuth (no service-account key needed).
+    try {
+      const { setPasswordViaOAuth, adminOAuthConfigured } = await import('@/lib/gcip-admin')
+      if (await adminOAuthConfigured()) {
+        await setPasswordViaOAuth(target.firebaseUid ?? null, target.email, newPassword)
+        return NextResponse.json({ ok: true, method: 'set' })
+      }
+    } catch (e) {
+      reason = e instanceof Error ? e.message : String(e)
+      console.error('[reset-password] admin-OAuth set failed:', reason)
+    }
+
+    // 3) Fall back to emailing the user a reset link.
+    {
+      console.error('[reset-password] direct set unavailable, emailing reset link:', reason)
       try {
         const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${API_KEY}`, {
           method: 'POST',

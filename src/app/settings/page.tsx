@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import {
   CheckCircle, AlertTriangle, Clock, RefreshCw, FlaskConical,
   ExternalLink, Warehouse, Truck, Settings,
-  ChevronRight, Trash2, RotateCcw, Plus, X, KeyRound,
+  ChevronRight, Trash2, RotateCcw, Plus, X, KeyRound, Copy,
   Store, Upload, ImageIcon, Users, Shield, Printer, Package, Smartphone, Tag, Wrench,
   Lock, Pencil,
 } from 'lucide-react'
@@ -1908,10 +1908,13 @@ function UsersSection() {
   const [formRole, setFormRole] = useState<'REVIEWER' | 'EMPLOYEE' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR'>('REVIEWER')
 
   // Firebase Admin (direct password setting) config
-  const [fbConfigured, setFbConfigured] = useState(false)
+  const [fbConfigured, setFbConfigured] = useState(false) // service-account key present
+  const [fbOauthEmail, setFbOauthEmail] = useState<string | null>(null) // admin Google authorized
   const [fbJson, setFbJson] = useState('')
   const [fbSaving, setFbSaving] = useState(false)
   const [fbShow, setFbShow] = useState(false)
+  const fbAnyConfigured = fbConfigured || !!fbOauthEmail
+  const adminAuthRedirect = typeof window !== 'undefined' ? `${window.location.origin}/api/admin/google-auth/callback` : ''
 
   // Vendor selector state
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([])
@@ -1948,7 +1951,15 @@ function UsersSection() {
   }, [])
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
-  useEffect(() => { fetch('/api/admin/firebase-config').then(r => r.json()).then(d => setFbConfigured(!!d.configured)).catch(() => {}) }, [])
+  useEffect(() => {
+    fetch('/api/admin/firebase-config').then(r => r.json()).then(d => { setFbConfigured(!!d.configured); setFbOauthEmail(d.oauthEmail ?? null) }).catch(() => {})
+    // Feedback from the admin-Google-auth OAuth redirect.
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('adminauth')
+      if (p === 'ok') { toast.success('Authorized — Reset password now sets passwords directly'); window.history.replaceState({}, '', '/settings') }
+      else if (p) { toast.error(p === 'no_refresh_token' ? 'Google did not return a refresh token — try again' : `Authorization failed: ${p}`); window.history.replaceState({}, '', '/settings') }
+    }
+  }, [])
 
   async function handleSaveFbConfig() {
     if (!fbJson.trim()) { toast.error('Paste the service account JSON'); return }
@@ -2248,20 +2259,39 @@ function UsersSection() {
           <div>
             <p className="font-semibold text-sm">Direct password setting</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              {fbConfigured
-                ? 'Configured — Reset password sets the password directly.'
-                : 'Not configured — Reset password sends the user a reset email instead.'}
+              {fbAnyConfigured
+                ? 'On — Reset password sets the password directly.'
+                : 'Off — Reset password sends the user a reset email instead.'}
             </p>
           </div>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${fbConfigured ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{fbConfigured ? 'ON' : 'OFF'}</span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${fbAnyConfigured ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{fbAnyConfigured ? 'ON' : 'OFF'}</span>
         </div>
+
+        {/* Option 1 — authorize with an admin Google account (no service-account key) */}
+        <div className="px-5 py-3 border-b">
+          <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">Authorize with a Google account <span className="text-gray-400 font-normal">(recommended — no key needed)</span></p>
+          {fbOauthEmail ? (
+            <p className="text-[11px] text-green-700 mt-1">Authorized as <span className="font-medium">{fbOauthEmail}</span>. <a href="/api/admin/google-auth/connect" className="text-amazon-blue hover:underline">Re-authorize</a></p>
+          ) : (
+            <div className="mt-1 space-y-1.5">
+              <p className="text-[11px] text-gray-500">Sign in with a Google admin who has the <span className="font-medium">Firebase Authentication Admin</span> role on the project. Add this redirect URI to your Google OAuth client first:</p>
+              <div className="flex items-center gap-1.5">
+                <code className="text-[10px] font-mono bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded px-1.5 py-0.5 break-all">{adminAuthRedirect}</code>
+                <button onClick={() => { navigator.clipboard.writeText(adminAuthRedirect); toast.success('Copied') }} className="text-amazon-blue"><Copy size={12} /></button>
+              </div>
+              <a href="/api/admin/google-auth/connect" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-blue-700">Authorize with Google</a>
+            </div>
+          )}
+        </div>
+
+        {/* Option 2 — service-account key (blocked in some orgs) */}
         <div className="px-5 py-3">
           <button onClick={() => setFbShow(s => !s)} className="text-xs font-medium text-amazon-blue hover:underline">
-            {fbShow ? 'Cancel' : fbConfigured ? 'Replace service account' : 'Enable direct password setting'}
+            {fbShow ? 'Cancel' : fbConfigured ? 'Replace service-account key' : 'Or paste a service-account key'}
           </button>
           {fbShow && (
             <div className="mt-2 space-y-2">
-              <p className="text-[11px] text-gray-500">Firebase Console → Project Settings → <span className="font-semibold">Service accounts</span> → <span className="font-semibold">Generate new private key</span>. Paste the entire downloaded JSON below. Stored encrypted.</p>
+              <p className="text-[11px] text-gray-500">Firebase Console → Project Settings → <span className="font-semibold">Service accounts</span> → <span className="font-semibold">Generate new private key</span>. Paste the entire downloaded JSON below. Stored encrypted. (Some orgs block key creation — use the Google option above instead.)</p>
               <textarea value={fbJson} onChange={e => setFbJson(e.target.value)} rows={6} placeholder='{ "type": "service_account", "project_id": "…", "private_key": "-----BEGIN PRIVATE KEY-----…", "client_email": "…" }'
                 className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 py-2 text-xs font-mono text-gray-900 dark:text-white resize-none" />
               <button onClick={handleSaveFbConfig} disabled={fbSaving} className="inline-flex items-center gap-1.5 h-8 px-4 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-40">

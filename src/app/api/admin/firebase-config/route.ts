@@ -9,13 +9,19 @@ import { prisma } from '@/lib/prisma'
 import { encrypt } from '@/lib/crypto'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { adminConfigured } from '@/lib/firebase-admin'
+import { adminOAuthEmail } from '@/lib/gcip-admin'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const user = await getAuthUser()
   if (!user || user.role !== 'ADMIN') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return NextResponse.json({ configured: await adminConfigured() })
+  const oauthEmail = await adminOAuthEmail()
+  return NextResponse.json({
+    configured: await adminConfigured(),   // service-account key present
+    oauthEmail,                            // admin Google account authorized (or null)
+    oauthConfigured: !!oauthEmail,
+  })
 }
 
 export async function PUT(req: NextRequest) {
