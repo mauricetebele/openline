@@ -204,18 +204,23 @@ async function peopleFetch(accountId: string, path: string): Promise<{ items: Pe
   return { items }
 }
 
-/** Saved contacts + auto-saved "other contacts" as { name, email }. */
-export async function listPeopleContacts(accountId: string): Promise<{ name: string; email: string }[]> {
+/** Saved contacts + auto-saved "other contacts" as { name, email }, plus any
+ *  per-endpoint errors (e.g. People API disabled / scope not granted). */
+export async function listPeopleContacts(accountId: string): Promise<{ contacts: { name: string; email: string }[]; errors: string[] }> {
+  const errors: string[] = []
+  const collect = async (path: string): Promise<Person[]> => {
+    try { return (await peopleFetch(accountId, path)).items } catch (e) { errors.push(e instanceof Error ? e.message : String(e)); return [] }
+  }
   const [conns, others] = await Promise.all([
-    peopleFetch(accountId, '/people/me/connections?personFields=names,emailAddresses').catch(() => ({ items: [] as Person[] })),
-    peopleFetch(accountId, '/otherContacts?readMask=names,emailAddresses').catch(() => ({ items: [] as Person[] })),
+    collect('/people/me/connections?personFields=names,emailAddresses'),
+    collect('/otherContacts?readMask=names,emailAddresses'),
   ])
   const out: { name: string; email: string }[] = []
-  for (const p of [...conns.items, ...others.items]) {
+  for (const p of [...conns, ...others]) {
     const name = p.names?.[0]?.displayName ?? ''
     for (const e of p.emailAddresses ?? []) {
       if (e.value) out.push({ name, email: e.value.toLowerCase() })
     }
   }
-  return out
+  return { contacts: out, errors }
 }

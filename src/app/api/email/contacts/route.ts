@@ -47,9 +47,10 @@ export async function GET(req: NextRequest) {
     let peopleError: string | null = null
     let peopleCount = 0
     try {
-      const people = await listPeopleContacts(accountId)
+      const { contacts: people, errors } = await listPeopleContacts(accountId)
       peopleCount = people.length
       people.forEach(add)
+      if (errors.length) { peopleError = errors[0]; console.error('[email/contacts] People API errors:', errors) }
     } catch (e) {
       peopleError = e instanceof Error ? e.message : String(e)
       console.error('[email/contacts] People API failed:', peopleError)
