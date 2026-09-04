@@ -157,20 +157,37 @@ export async function PATCH(req: NextRequest) {
   if (!userId)
     return NextResponse.json({ error: 'userId is required' }, { status: 400 })
 
-  // ── Admin password reset — set a new password directly in Firebase ──
+  // ── Admin password reset ──
+  // Prefer setting the password directly via the Admin SDK. If the Admin SDK has
+  // no service-account credentials (e.g. on Vercel without FIREBASE_CLIENT_EMAIL/
+  // FIREBASE_PRIVATE_KEY), fall back to emailing the user a reset link (needs only
+  // the public API key).
   if (typeof newPassword === 'string') {
     if (newPassword.length < 6)
       return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { firebaseUid: true, email: true } })
     if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+
     try {
       const { adminAuth } = await import('@/lib/firebase-admin')
       const uid = target.firebaseUid || (await firebaseGetUidByEmail(target.email))
-      if (!uid) return NextResponse.json({ error: 'No Firebase account for this user' }, { status: 404 })
+      if (!uid) throw new Error('No Firebase UID')
       await adminAuth.updateUser(uid, { password: newPassword })
-      return NextResponse.json({ ok: true })
-    } catch (e) {
-      return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed to reset password' }, { status: 500 })
+      return NextResponse.json({ ok: true, method: 'set' })
+    } catch {
+      // Admin SDK unavailable — send a password-reset email instead.
+      try {
+        const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requestType: 'PASSWORD_RESET', email: target.email }),
+        })
+        const d = await res.json()
+        if (!res.ok) throw new Error(d.error?.message ?? 'Failed to send reset email')
+        return NextResponse.json({ ok: true, method: 'email', email: target.email })
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed to reset password' }, { status: 500 })
+      }
     }
   }
 
