@@ -43,6 +43,72 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+// Gmail-style recipient field: committed addresses become pills; a comma, Enter,
+// or picking an autocomplete suggestion commits the current address and moves on.
+function RecipientInput({ emails, onChange, contacts, placeholder, onPending }: {
+  emails: string[]; onChange: (e: string[]) => void; contacts: { name: string; email: string }[]; placeholder: string; onPending?: (t: string) => void
+}) {
+  const [text, setTextState] = useState('')
+  const setText = (v: string) => { setTextState(v); onPending?.(v) }
+
+  function commit(values: string[]) {
+    const set = new Set(emails.map(e => e.toLowerCase()))
+    const merged = [...emails]
+    for (const v of values) {
+      const e = v.trim().replace(/^</, '').replace(/>$/, '').trim()
+      if (e.includes('@') && !set.has(e.toLowerCase())) { merged.push(e); set.add(e.toLowerCase()) }
+    }
+    if (merged.length !== emails.length) onChange(merged)
+  }
+
+  function onChangeText(v: string) {
+    // Delimiter typed/pasted → commit the completed parts, keep the trailing text.
+    if (/[,;]/.test(v)) {
+      const parts = v.split(/[,;]+/)
+      const tail = parts.pop() ?? ''
+      commit(parts)
+      setText(tail)
+      return
+    }
+    // Exact match to a contact = a suggestion was picked → commit it.
+    if (v && contacts.some(c => c.email === v.trim().toLowerCase())) {
+      commit([v]); setText('')
+      return
+    }
+    setText(v)
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.metaKey || e.ctrlKey) return // let ⌘/Ctrl+Enter bubble up to Send
+    if ((e.key === 'Enter' || e.key === 'Tab') && text.trim()) {
+      if (e.key === 'Enter') e.preventDefault()
+      commit([text]); setText('')
+    } else if (e.key === 'Backspace' && !text && emails.length) {
+      onChange(emails.slice(0, -1))
+    }
+  }
+
+  return (
+    <div className="w-full min-h-9 flex flex-wrap items-center gap-1 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-1.5 py-1">
+      {emails.map((e, i) => (
+        <span key={i} className="inline-flex items-center gap-1 text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-full pl-2 pr-1 py-0.5">
+          {e}
+          <button onClick={() => onChange(emails.filter((_, j) => j !== i))} className="text-blue-400 hover:text-red-500"><X size={11} /></button>
+        </span>
+      ))}
+      <input
+        list="mail-contacts"
+        value={text}
+        onChange={ev => onChangeText(ev.target.value)}
+        onKeyDown={onKeyDown}
+        onBlur={() => { if (text.trim()) { commit([text]); setText('') } }}
+        placeholder={emails.length === 0 ? placeholder : ''}
+        className="flex-1 min-w-[120px] h-6 bg-transparent text-sm text-gray-900 dark:text-white outline-none px-1"
+      />
+    </div>
+  )
+}
+
 export default function MailClient() {
   const params = useSearchParams()
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -61,9 +127,10 @@ export default function MailClient() {
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<MsgDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
-  const [compose, setCompose] = useState<null | { to: string; cc: string; subject: string; body: string; threadId?: string; inReplyTo?: string; references?: string; attachments?: { filename: string; mimeType: string; contentBase64: string; size: number }[] }>(null)
+  const [compose, setCompose] = useState<null | { to: string[]; cc: string[]; subject: string; body: string; threadId?: string; inReplyTo?: string; references?: string; attachments?: { filename: string; mimeType: string; contentBase64: string; size: number }[] }>(null)
   const [sending, setSending] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const composeToPending = useRef('')
 
   async function addFiles(files: FileList | null) {
     if (!files || files.length === 0) return
@@ -212,14 +279,15 @@ export default function MailClient() {
 
   function startReply() {
     if (!detail) return
+    composeToPending.current = ''
     const to = parseFrom(detail.from).email
     setCompose({
-      to, cc: '', subject: detail.subject.startsWith('Re:') ? detail.subject : `Re: ${detail.subject}`,
+      to: to ? [to] : [], cc: [], subject: detail.subject.startsWith('Re:') ? detail.subject : `Re: ${detail.subject}`,
       body: '', threadId: detail.threadId, inReplyTo: detail.messageId,
       references: [detail.references, detail.messageId].filter(Boolean).join(' '),
     })
   }
-  function startCompose() { setCompose({ to: '', cc: '', subject: '', body: '' }) }
+  function startCompose() { composeToPending.current = ''; setCompose({ to: [], cc: [], subject: '', body: '' }) }
 
   function composeKeyDown(e: React.KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); sendMail() }
@@ -227,12 +295,15 @@ export default function MailClient() {
 
   async function sendMail() {
     if (!compose) return
-    if (!compose.to.trim()) { toast.error('Enter a recipient'); return }
+    // Include any address still being typed (not yet turned into a pill).
+    const pendingTo = composeToPending.current.trim()
+    const toList = pendingTo && pendingTo.includes('@') && !compose.to.includes(pendingTo) ? [...compose.to, pendingTo] : compose.to
+    if (toList.length === 0) { toast.error('Enter a recipient'); return }
     setSending(true)
     try {
       const html = escapeHtml(compose.body).replace(/\n/g, '<br>')
       const res = await fetch('/api/email/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        accountId: activeAccount, to: compose.to, cc: compose.cc || undefined, subject: compose.subject, html,
+        accountId: activeAccount, to: toList.join(', '), cc: compose.cc.length ? compose.cc.join(', ') : undefined, subject: compose.subject, html,
         threadId: compose.threadId, inReplyTo: compose.inReplyTo, references: compose.references,
         attachments: compose.attachments?.map(a => ({ filename: a.filename, mimeType: a.mimeType, contentBase64: a.contentBase64 })),
       }) })
@@ -440,8 +511,8 @@ export default function MailClient() {
               <datalist id="mail-contacts">
                 {contacts.map(c => <option key={c.email} value={c.email}>{c.name ? `${c.name} <${c.email}>` : c.email}</option>)}
               </datalist>
-              <input list="mail-contacts" value={compose.to} onChange={e => setCompose({ ...compose, to: e.target.value })} placeholder="To" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
-              <input list="mail-contacts" value={compose.cc} onChange={e => setCompose({ ...compose, cc: e.target.value })} placeholder="Cc (optional)" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
+              <RecipientInput emails={compose.to} onChange={to => setCompose(c => c ? { ...c, to } : c)} onPending={t => { composeToPending.current = t }} contacts={contacts} placeholder="To" />
+              <RecipientInput emails={compose.cc} onChange={cc => setCompose(c => c ? { ...c, cc } : c)} contacts={contacts} placeholder="Cc (optional)" />
               <input value={compose.subject} onChange={e => setCompose({ ...compose, subject: e.target.value })} placeholder="Subject" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
               <textarea value={compose.body} onChange={e => setCompose({ ...compose, body: e.target.value })} rows={10} placeholder="Write your message…" className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 py-2 text-sm text-gray-900 dark:text-white resize-none" />
               {compose.attachments && compose.attachments.length > 0 && (
