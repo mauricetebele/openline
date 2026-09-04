@@ -44,10 +44,16 @@ export async function GET(req: NextRequest) {
     // Primary source: Google contacts + auto-saved "other contacts" (People API).
     // Requires the contacts scopes — reconnect the mailbox if it was linked
     // before those were added. Falls back to the recent-message scan below.
+    let peopleError: string | null = null
+    let peopleCount = 0
     try {
       const people = await listPeopleContacts(accountId)
+      peopleCount = people.length
       people.forEach(add)
-    } catch { /* scope not granted / People API disabled — use message scan only */ }
+    } catch (e) {
+      peopleError = e instanceof Error ? e.message : String(e)
+      console.error('[email/contacts] People API failed:', peopleError)
+    }
 
     const [sent, inbox] = await Promise.all([
       listMessages(accountId, { labelIds: ['SENT'], maxResults: 30 }),
@@ -72,7 +78,7 @@ export async function GET(req: NextRequest) {
     const contacts = Array.from(byEmail.values())
       .sort((a, b) => (a.name ? 0 : 1) - (b.name ? 0 : 1) || a.email.localeCompare(b.email))
       .slice(0, 2000)
-    return NextResponse.json({ contacts })
+    return NextResponse.json({ contacts, peopleCount, peopleError, total: contacts.length })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed to load contacts', contacts: [] }, { status: 200 })
   }

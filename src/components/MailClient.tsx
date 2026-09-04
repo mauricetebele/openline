@@ -51,6 +51,7 @@ export default function MailClient() {
   const [showMailboxes, setShowMailboxes] = useState(false)
   const [siteUsers, setSiteUsers] = useState<SiteUser[]>([])
   const [contacts, setContacts] = useState<{ name: string; email: string }[]>([])
+  const [contactsInfo, setContactsInfo] = useState<{ total: number; peopleCount: number; peopleError: string | null }>({ total: 0, peopleCount: 0, peopleError: null })
   const [activeAccount, setActiveAccount] = useState<string>('')
   const [labels, setLabels] = useState<GLabel[]>([])
   const [folder, setFolder] = useState('INBOX')
@@ -143,8 +144,12 @@ export default function MailClient() {
   }, [])
 
   const loadContacts = useCallback(async (accountId: string) => {
-    setContacts([])
-    try { const d = await (await fetch(`/api/email/contacts?accountId=${accountId}`)).json(); setContacts(d.contacts ?? []) } catch { /* ignore */ }
+    setContacts([]); setContactsInfo({ total: 0, peopleCount: 0, peopleError: null })
+    try {
+      const d = await (await fetch(`/api/email/contacts?accountId=${accountId}`)).json()
+      setContacts(d.contacts ?? [])
+      setContactsInfo({ total: d.total ?? (d.contacts?.length ?? 0), peopleCount: d.peopleCount ?? 0, peopleError: d.peopleError ?? null })
+    } catch { /* ignore */ }
   }, [])
 
   const loadMessages = useCallback(async (accountId: string, folderId: string, q: string) => {
@@ -438,6 +443,9 @@ export default function MailClient() {
               </datalist>
               <input list="mail-contacts" value={compose.to} onChange={e => setCompose({ ...compose, to: e.target.value })} placeholder="To" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
               <input list="mail-contacts" value={compose.cc} onChange={e => setCompose({ ...compose, cc: e.target.value })} placeholder="Cc (optional)" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
+              <p className="text-[10px] text-gray-400">
+                {contactsInfo.total} suggestions · contacts API: {contactsInfo.peopleError ? <span className="text-amber-600">{contactsInfo.peopleError.slice(0, 160)}</span> : `${contactsInfo.peopleCount} loaded`}
+              </p>
               <input value={compose.subject} onChange={e => setCompose({ ...compose, subject: e.target.value })} placeholder="Subject" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
               <textarea value={compose.body} onChange={e => setCompose({ ...compose, body: e.target.value })} rows={10} placeholder="Write your message…" className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 py-2 text-sm text-gray-900 dark:text-white resize-none" />
               {compose.attachments && compose.attachments.length > 0 && (
