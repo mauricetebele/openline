@@ -50,6 +50,7 @@ export default function MailClient() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [showMailboxes, setShowMailboxes] = useState(false)
   const [siteUsers, setSiteUsers] = useState<SiteUser[]>([])
+  const [contacts, setContacts] = useState<{ name: string; email: string }[]>([])
   const [activeAccount, setActiveAccount] = useState<string>('')
   const [labels, setLabels] = useState<GLabel[]>([])
   const [folder, setFolder] = useState('INBOX')
@@ -141,6 +142,11 @@ export default function MailClient() {
     try { const d = await (await fetch(`/api/email/labels?accountId=${accountId}`)).json(); setLabels(d.labels ?? []) } catch { /* ignore */ }
   }, [])
 
+  const loadContacts = useCallback(async (accountId: string) => {
+    setContacts([])
+    try { const d = await (await fetch(`/api/email/contacts?accountId=${accountId}`)).json(); setContacts(d.contacts ?? []) } catch { /* ignore */ }
+  }, [])
+
   const loadMessages = useCallback(async (accountId: string, folderId: string, q: string) => {
     setLoadingList(true); setSelected(null); setDetail(null)
     try {
@@ -166,9 +172,9 @@ export default function MailClient() {
     if (bootstrapped.current) return; bootstrapped.current = true
     ;(async () => {
       const accts = await loadAccounts()
-      if (accts.length) { setActiveAccount(accts[0].id); loadLabels(accts[0].id); loadMessages(accts[0].id, 'INBOX', '') }
+      if (accts.length) { setActiveAccount(accts[0].id); loadLabels(accts[0].id); loadContacts(accts[0].id); loadMessages(accts[0].id, 'INBOX', '') }
     })()
-  }, [loadAccounts, loadLabels, loadMessages])
+  }, [loadAccounts, loadLabels, loadContacts, loadMessages])
 
   // OAuth redirect feedback
   useEffect(() => {
@@ -177,7 +183,7 @@ export default function MailClient() {
     else if (error) { toast.error(error === 'not_configured' ? 'Gmail OAuth is not configured yet' : error === 'no_access' ? 'You do not have Mail access' : `Connect failed: ${error}`); window.history.replaceState({}, '', '/mail') }
   }, [params])
 
-  function switchAccount(id: string) { setActiveAccount(id); setFolder('INBOX'); setSearch(''); loadLabels(id); loadMessages(id, 'INBOX', '') }
+  function switchAccount(id: string) { setActiveAccount(id); setFolder('INBOX'); setSearch(''); loadLabels(id); loadContacts(id); loadMessages(id, 'INBOX', '') }
   function openFolder(id: string) { setFolder(id); setSearch(''); loadMessages(activeAccount, id, '') }
   function runSearch() { loadMessages(activeAccount, folder, search) }
 
@@ -427,8 +433,11 @@ export default function MailClient() {
               <button onClick={() => setCompose(null)} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><X size={16} /></button>
             </div>
             <div className="px-4 py-3 space-y-2">
-              <input value={compose.to} onChange={e => setCompose({ ...compose, to: e.target.value })} placeholder="To" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
-              <input value={compose.cc} onChange={e => setCompose({ ...compose, cc: e.target.value })} placeholder="Cc (optional)" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
+              <datalist id="mail-contacts">
+                {contacts.map(c => <option key={c.email} value={c.email}>{c.name ? `${c.name} <${c.email}>` : c.email}</option>)}
+              </datalist>
+              <input list="mail-contacts" value={compose.to} onChange={e => setCompose({ ...compose, to: e.target.value })} placeholder="To" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
+              <input list="mail-contacts" value={compose.cc} onChange={e => setCompose({ ...compose, cc: e.target.value })} placeholder="Cc (optional)" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
               <input value={compose.subject} onChange={e => setCompose({ ...compose, subject: e.target.value })} placeholder="Subject" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
               <textarea value={compose.body} onChange={e => setCompose({ ...compose, body: e.target.value })} rows={10} placeholder="Write your message…" className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 py-2 text-sm text-gray-900 dark:text-white resize-none" />
               {compose.attachments && compose.attachments.length > 0 && (

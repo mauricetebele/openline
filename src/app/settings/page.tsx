@@ -2138,7 +2138,7 @@ function UsersSection() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error)
-      if (json.method === 'email') toast.success(`Sent a password-reset email to ${json.email}`)
+      if (json.method === 'email') toast.success(`Sent a password-reset email to ${json.email}${json.reason ? ` (direct set unavailable: ${json.reason})` : ''}`)
       else toast.success(`Password reset for ${u.name}`)
     } catch (err) {
       toast.error((err as Error).message)

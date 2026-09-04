@@ -170,6 +170,7 @@ export async function PATCH(req: NextRequest) {
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { firebaseUid: true, email: true } })
     if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
+    let reason = 'Firebase Admin not configured'
     try {
       const { getAdminAuth } = await import('@/lib/firebase-admin')
       const adminAuth = await getAdminAuth()
@@ -177,7 +178,9 @@ export async function PATCH(req: NextRequest) {
       if (!uid) throw new Error('No Firebase UID')
       await adminAuth.updateUser(uid, { password: newPassword })
       return NextResponse.json({ ok: true, method: 'set' })
-    } catch {
+    } catch (adminErr) {
+      reason = adminErr instanceof Error ? adminErr.message : String(adminErr)
+      console.error('[reset-password] direct set failed, falling back to email:', reason)
       // Admin SDK unavailable — send a password-reset email instead.
       try {
         const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${API_KEY}`, {
@@ -187,7 +190,7 @@ export async function PATCH(req: NextRequest) {
         })
         const d = await res.json()
         if (!res.ok) throw new Error(d.error?.message ?? 'Failed to send reset email')
-        return NextResponse.json({ ok: true, method: 'email', email: target.email })
+        return NextResponse.json({ ok: true, method: 'email', email: target.email, reason })
       } catch (e) {
         return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed to reset password' }, { status: 500 })
       }
