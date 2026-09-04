@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import AppShell from '@/components/AppShell'
-import { Bell, CheckCheck, AlertTriangle, Clock, ChevronLeft, ChevronRight, Copy, Check, Archive, ArchiveRestore } from 'lucide-react'
+import { Bell, CheckCheck, AlertTriangle, Clock, ChevronLeft, ChevronRight, Copy, Check, Archive, ArchiveRestore, ExternalLink } from 'lucide-react'
 import { clsx } from 'clsx'
 
 interface Alert {
@@ -337,6 +337,15 @@ export default function AlertsPage() {
                             className="text-blue-600 dark:text-blue-400 hover:underline font-mono font-medium"
                           >
                             {orderId}
+                          </a>
+                          <a
+                            href={`https://sellercentral.amazon.com/gp/returns/list/v2/ref=xx_myr_dnav_xx?searchBy=OrderId&searchString=${orderId}&marketplaceIds=A1AM78C64UM0Y8%2CA33AVAJ2PDY3EV%2CA39IBJ37TRP1C6%2CA2Q3Y263D00KWC%2CA17E79C6D8DWNP%2CA2EUQ1WTGCTBG2%2CA1PA6795UKMFR9%2CA1F83G8C2ARO7P%2CA19VAU5U5O7RUS%2CATVPDKIKX0DER%2CA2VIGQ35RCS4UG&tabId=viewAll&returnRequestState=viewAll&orderBy=CreatedDateDesc&selectedDateRange=30&pendingActionsFilterBy=null&isOnPendingActionsTab=false`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open this order's return in Amazon Seller Central"
+                            className="ml-1.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 rounded px-1.5 py-0.5 hover:bg-amber-50 dark:hover:bg-amber-900/20 align-middle no-underline"
+                          >
+                            <ExternalLink size={10} /> Open Return
                           </a>
                           {serial && (
                             <> — iCloud Lock is ON for serial <span className="font-mono font-medium text-gray-700 dark:text-gray-300">{serial}</span></>
