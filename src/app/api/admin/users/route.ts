@@ -142,7 +142,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { userId, role, name, companyName, canAccessOli, canViewPurchaseOrders, vendorId } = body as {
+  const { userId, role, name, companyName, canAccessOli, canViewPurchaseOrders, vendorId, newPassword } = body as {
     userId?: string
     role?: string
     name?: string
@@ -150,10 +150,28 @@ export async function PATCH(req: NextRequest) {
     canAccessOli?: boolean
     canViewPurchaseOrders?: boolean
     vendorId?: string | null
+    newPassword?: string
   }
 
   if (!userId)
     return NextResponse.json({ error: 'userId is required' }, { status: 400 })
+
+  // ── Admin password reset — set a new password directly in Firebase ──
+  if (typeof newPassword === 'string') {
+    if (newPassword.length < 6)
+      return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
+    const target = await prisma.user.findUnique({ where: { id: userId }, select: { firebaseUid: true, email: true } })
+    if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    try {
+      const { adminAuth } = await import('@/lib/firebase-admin')
+      const uid = target.firebaseUid || (await firebaseGetUidByEmail(target.email))
+      if (!uid) return NextResponse.json({ error: 'No Firebase account for this user' }, { status: 404 })
+      await adminAuth.updateUser(uid, { password: newPassword })
+      return NextResponse.json({ ok: true })
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed to reset password' }, { status: 500 })
+    }
+  }
 
   const data: Record<string, string | boolean | null> = {}
   if (role && ['ADMIN', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER', 'VENDOR'].includes(role)) data.role = role

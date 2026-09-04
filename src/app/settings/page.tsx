@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import {
   CheckCircle, AlertTriangle, Clock, RefreshCw, FlaskConical,
   ExternalLink, Warehouse, Truck, Settings,
-  ChevronRight, Trash2, RotateCcw, Plus, X,
+  ChevronRight, Trash2, RotateCcw, Plus, X, KeyRound,
   Store, Upload, ImageIcon, Users, Shield, Printer, Package, Smartphone, Tag, Wrench,
   Lock, Pencil,
 } from 'lucide-react'
@@ -2105,6 +2105,24 @@ function UsersSection() {
     }
   }
 
+  async function handleResetPassword(u: ManagedUser) {
+    const pw = window.prompt(`Set a new password for ${u.name} (${u.email}).\nMinimum 6 characters — give this to the user; they can change it after signing in.`)
+    if (pw === null) return
+    if (pw.trim().length < 6) { toast.error('Password must be at least 6 characters'); return }
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id, newPassword: pw }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      toast.success(`Password reset for ${u.name}`)
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
   async function handleToggleOli(u: ManagedUser) {
     setTogglingId(u.id)
     try {
@@ -2398,6 +2416,13 @@ function UsersSection() {
                 <option value="RESOLUTION_PROVIDER">Resolution Provider</option>
                 <option value="VENDOR">Vendor</option>
               </select>
+              <button
+                onClick={() => handleResetPassword(u)}
+                className="text-gray-400 hover:text-amazon-blue transition-colors"
+                title="Reset password"
+              >
+                <KeyRound size={14} />
+              </button>
               <button
                 onClick={() => handleDelete(u)}
                 disabled={deletingId === u.id}
