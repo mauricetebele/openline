@@ -83,6 +83,23 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/removal-cases', req.url))
   }
 
+  // EMPLOYEE — full internal access EXCEPT the Reports section.
+  if (role === 'EMPLOYEE') {
+    const REPORTS = [
+      '/profitability', '/backmarket-financials', '/sales-stats', '/return-rates', '/fba-sales-report',
+      '/shipping-manifest', '/transactions', '/amazon-refunds', '/shipping-bill-audit', '/orphan-labels',
+      '/api/profitability', '/api/backmarket-financials', '/api/sales-stats', '/api/return-rates',
+      '/api/fba-sales-report', '/api/shipping-manifest', '/api/transactions', '/api/amazon-refunds',
+      '/api/shipping-bill-audit', '/api/shipstation/orphan-labels',
+    ]
+    if (REPORTS.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
+      if (pathname.startsWith('/api/')) {
+        return new NextResponse(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { 'content-type': 'application/json' } })
+      }
+      return NextResponse.redirect(new URL('/refunds', req.url))
+    }
+  }
+
   // Internal users cannot access /client/* or /vendor/* portal pages
   if (pathname.startsWith('/client')) {
     return NextResponse.redirect(new URL('/inventory', req.url))

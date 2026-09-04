@@ -21,9 +21,10 @@ export interface AuthUser {
   uid: string
   email: string
   dbId: string       // our internal User.id
-  role: string       // ADMIN | REVIEWER | CLIENT | RESOLUTION_PROVIDER | VENDOR
+  role: string       // ADMIN | EMPLOYEE | REVIEWER | CLIENT | RESOLUTION_PROVIDER | VENDOR
   name: string
   canAccessOli: boolean
+  canAccessMail: boolean
   canViewPurchaseOrders: boolean
   vendorId: string | null
 }
@@ -51,6 +52,7 @@ async function resolveDbUser(decoded: { uid: string; email: string; name: string
     role: user.role,
     name: user.name,
     canAccessOli: user.canAccessOli,
+    canAccessMail: user.canAccessMail,
     canViewPurchaseOrders: user.canViewPurchaseOrders,
     vendorId: user.vendorId ?? null,
   }

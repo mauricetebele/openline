@@ -12,6 +12,9 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (user.role !== 'ADMIN' && !user.canAccessMail) {
+    return NextResponse.redirect(new URL('/mail?error=no_access', req.nextUrl.origin))
+  }
 
   const creds = await getGoogleCreds()
   if (!creds) {

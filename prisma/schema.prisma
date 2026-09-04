@@ -41,11 +41,13 @@ model User {
   visibleToProviders ResolutionProviderVisibility[] @relation("ResProviderVisibleTo")
 
   canAccessOli          Boolean            @default(false)
+  canAccessMail         Boolean            @default(false)
   canViewPurchaseOrders Boolean            @default(false)
   vendorId              String?
   vendor                Vendor?            @relation(fields: [vendorId], references: [id], onDelete: SetNull)
   fbaReturnReceipts     FbaReturnReceipt[]
   fbaRemovalCases       FbaRemovalCase[]
+  assignedMailboxes     EmailAccount[]     @relation("MailAssignee")
 
   @@map("users")
 }
@@ -363,6 +365,7 @@ model AuditEvent {
 
 enum UserRole {
   ADMIN
+  EMPLOYEE // full access except Reports
   REVIEWER
   CLIENT
   RESOLUTION_PROVIDER
@@ -2804,9 +2807,13 @@ model EmailAccount {
   historyId        String?
   connectedByLabel String?
   active           Boolean   @default(true)
+  // The site user who owns this mailbox — its mail is visible only to them (admins see all).
+  assignedUserId   String?
+  assignedUser     User?     @relation("MailAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  @@index([assignedUserId])
   @@map("email_accounts")
 }
 

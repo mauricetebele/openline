@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { sendRawMessage } from '@/lib/email/google'
+import { canUseMailAccount } from '@/lib/email/access'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,6 +27,7 @@ export async function POST(req: NextRequest) {
     threadId?: string; inReplyTo?: string; references?: string
   }
   if (!accountId) return NextResponse.json({ error: 'accountId is required' }, { status: 400 })
+  if (!(await canUseMailAccount(accountId, user))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   if (!to?.trim()) return NextResponse.json({ error: 'A recipient is required' }, { status: 400 })
 
   const account = await prisma.emailAccount.findUnique({ where: { id: accountId }, select: { email: true, displayName: true } })

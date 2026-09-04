@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { getMessage, modifyMessage, trashMessage } from '@/lib/email/google'
+import { canUseMailAccount } from '@/lib/email/access'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const accountId = req.nextUrl.searchParams.get('accountId')
   if (!accountId) return NextResponse.json({ error: 'accountId is required' }, { status: 400 })
+  if (!(await canUseMailAccount(accountId, user))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     const m = await getMessage(accountId, params.id, 'full') as {
@@ -72,6 +74,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = await req.json().catch(() => ({}))
   const accountId = body?.accountId
   if (!accountId) return NextResponse.json({ error: 'accountId is required' }, { status: 400 })
+  if (!(await canUseMailAccount(accountId, user))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   try {
     await modifyMessage(accountId, params.id, { addLabelIds: body.addLabelIds, removeLabelIds: body.removeLabelIds })
     return NextResponse.json({ ok: true })
@@ -85,6 +88,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const accountId = req.nextUrl.searchParams.get('accountId')
   if (!accountId) return NextResponse.json({ error: 'accountId is required' }, { status: 400 })
+  if (!(await canUseMailAccount(accountId, user))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   try {
     await trashMessage(accountId, params.id)
     return NextResponse.json({ ok: true })

@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { listLabels } from '@/lib/email/google'
+import { canUseMailAccount } from '@/lib/email/access'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,6 +14,7 @@ export async function GET(req: NextRequest) {
 
   const accountId = req.nextUrl.searchParams.get('accountId')
   if (!accountId) return NextResponse.json({ error: 'accountId is required' }, { status: 400 })
+  if (!(await canUseMailAccount(accountId, user))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     const data = await listLabels(accountId)

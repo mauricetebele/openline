@@ -16,6 +16,7 @@ export async function GET() {
     role: user.role,
     dbId: user.dbId,
     canAccessOli: user.canAccessOli,
+    canAccessMail: user.canAccessMail,
     canViewPurchaseOrders: user.canViewPurchaseOrders,
     vendorId: user.vendorId,
   })

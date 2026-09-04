@@ -5,10 +5,11 @@ import { toast } from 'sonner'
 import { clsx } from 'clsx'
 import {
   Mail, Inbox, Star, Send, FileText, AlertOctagon, Trash2, Tag, Loader2, X,
-  RefreshCw, Reply, Archive, MailOpen, Plus, Search, Paperclip, Copy,
+  RefreshCw, Reply, Archive, MailOpen, Plus, Search, Paperclip, Copy, Users,
 } from 'lucide-react'
 
-interface Account { id: string; email: string; displayName?: string | null }
+interface Account { id: string; email: string; displayName?: string | null; assignedUserId?: string | null; assignedUser?: { id: string; name: string; email: string } | null }
+interface SiteUser { id: string; name: string; email: string; canAccessMail?: boolean; role?: string }
 interface GLabel { id: string; name: string; type: string; messagesUnread?: number }
 interface MsgSummary { id: string; threadId: string; from: string; subject: string; snippet: string; date: number | null; unread: boolean; labelIds: string[] }
 interface MsgDetail {
@@ -46,6 +47,9 @@ export default function MailClient() {
   const params = useSearchParams()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [configured, setConfigured] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [showMailboxes, setShowMailboxes] = useState(false)
+  const [siteUsers, setSiteUsers] = useState<SiteUser[]>([])
   const [activeAccount, setActiveAccount] = useState<string>('')
   const [labels, setLabels] = useState<GLabel[]>([])
   const [folder, setFolder] = useState('INBOX')
@@ -85,8 +89,31 @@ export default function MailClient() {
     const d = await res.json()
     setConfigured(d.configured ?? true)
     setAccounts(d.accounts ?? [])
+    setIsAdmin(!!d.isAdmin)
     return d.accounts as Account[]
   }, [])
+
+  async function openMailboxes() {
+    setShowMailboxes(true)
+    try { const d = await (await fetch('/api/admin/users')).json(); setSiteUsers(d.data ?? []) } catch { /* ignore */ }
+  }
+  async function assignMailbox(accountId: string, assignedUserId: string | null) {
+    try {
+      const res = await fetch('/api/email/accounts', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountId, assignedUserId }) })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Mailbox assignment updated')
+      loadAccounts()
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') }
+  }
+  async function disconnectMailbox(accountId: string, email: string) {
+    if (!window.confirm(`Disconnect ${email}? Its mail will no longer be accessible from the site.`)) return
+    try {
+      await fetch(`/api/email/accounts?id=${accountId}`, { method: 'DELETE' })
+      toast.success('Disconnected')
+      const accts = await loadAccounts()
+      if (activeAccount === accountId) { const first = accts[0]; if (first) switchAccount(first.id); else { setShowMailboxes(false) } }
+    } catch { toast.error('Failed to disconnect') }
+  }
 
   const loadLabels = useCallback(async (accountId: string) => {
     try { const d = await (await fetch(`/api/email/labels?accountId=${accountId}`)).json(); setLabels(d.labels ?? []) } catch { /* ignore */ }
@@ -125,7 +152,7 @@ export default function MailClient() {
   useEffect(() => {
     const connected = params.get('connected'); const error = params.get('error')
     if (connected) { toast.success(`Connected ${connected}`); window.history.replaceState({}, '', '/mail') }
-    else if (error) { toast.error(error === 'not_configured' ? 'Gmail OAuth is not configured yet' : `Connect failed: ${error}`); window.history.replaceState({}, '', '/mail') }
+    else if (error) { toast.error(error === 'not_configured' ? 'Gmail OAuth is not configured yet' : error === 'no_access' ? 'You do not have Mail access' : `Connect failed: ${error}`); window.history.replaceState({}, '', '/mail') }
   }, [params])
 
   function switchAccount(id: string) { setActiveAccount(id); setFolder('INBOX'); setSearch(''); loadLabels(id); loadMessages(id, 'INBOX', '') }
@@ -232,6 +259,7 @@ export default function MailClient() {
           {accounts.map(a => <option key={a.id} value={a.id}>{a.email}</option>)}
         </select>
         <a href="/api/email/google/connect" title="Connect another account" className="text-xs text-amazon-blue hover:underline inline-flex items-center gap-1"><Plus size={12} /> Add</a>
+        {isAdmin && <button onClick={openMailboxes} title="Manage mailboxes & assignments" className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 inline-flex items-center gap-1"><Users size={12} /> Mailboxes</button>}
         <div className="flex-1" />
         <div className="relative">
           <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -332,6 +360,40 @@ export default function MailClient() {
           )}
         </div>
       </div>
+
+      {/* Admin: manage mailboxes & assignments */}
+      {showMailboxes && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowMailboxes(false)}>
+          <div className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-xl shadow-2xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-2.5 border-b dark:border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Mailboxes</h3>
+              <button onClick={() => setShowMailboxes(false)} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><X size={16} /></button>
+            </div>
+            <div className="px-4 py-3 overflow-y-auto">
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">Assign each mailbox to the user who should see its mail. Only that user (and admins) can read it. The user also needs <span className="font-semibold">Mail On</span> in Settings → Users.</p>
+              {accounts.length === 0 ? (
+                <p className="text-sm text-gray-400 py-4 text-center">No mailboxes connected</p>
+              ) : accounts.map(a => (
+                <div key={a.id} className="flex items-center gap-2 py-2 border-b dark:border-gray-800 last:border-0">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{a.email}</div>
+                    <select
+                      value={a.assignedUserId ?? ''}
+                      onChange={e => assignMailbox(a.id, e.target.value || null)}
+                      className="mt-1 h-7 w-full rounded border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-1.5 text-xs text-gray-800 dark:text-gray-200"
+                    >
+                      <option value="">— Unassigned —</option>
+                      {siteUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.email}){u.canAccessMail ? '' : ' · Mail Off'}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={() => disconnectMailbox(a.id, a.email)} title="Disconnect mailbox" className="shrink-0 p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"><Trash2 size={14} /></button>
+                </div>
+              ))}
+              <a href="/api/email/google/connect" className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-amazon-blue hover:underline"><Plus size={13} /> Connect another mailbox</a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Compose */}
       {compose && (

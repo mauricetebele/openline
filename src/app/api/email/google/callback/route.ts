@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     const tokens = await exchangeCode(code, redirectUri)
     const profile = decodeIdToken(tokens.id_token)
     if (!profile.email) throw new Error('Could not read account email from Google')
-    await saveAccountTokens(profile.email, profile.name, tokens, user.name || user.email)
+    await saveAccountTokens(profile.email, profile.name, tokens, user.name || user.email, user.dbId)
     const res = NextResponse.redirect(new URL(`/mail?connected=${encodeURIComponent(profile.email)}`, origin))
     res.cookies.delete('gmail_oauth_state')
     return res

@@ -115,8 +115,9 @@ export async function getAccessToken(accountId: string): Promise<string> {
   return refreshed.access_token
 }
 
-/** Persist a fresh token set onto (or create) an account. */
-export async function saveAccountTokens(email: string, displayName: string | undefined, tokens: TokenResponse, byLabel?: string) {
+/** Persist a fresh token set onto (or create) an account. New mailboxes are
+ *  assigned to the connecting user by default (admins can reassign later). */
+export async function saveAccountTokens(email: string, displayName: string | undefined, tokens: TokenResponse, byLabel?: string, byUserId?: string) {
   const expiry = new Date(Date.now() + (tokens.expires_in ?? 3600) * 1000)
   const data = {
     displayName: displayName ?? null,
@@ -129,7 +130,8 @@ export async function saveAccountTokens(email: string, displayName: string | und
   }
   return prisma.emailAccount.upsert({
     where: { email },
-    create: { email, provider: 'google', ...data },
+    // Only set the owner on create — never reassign an existing mailbox here.
+    create: { email, provider: 'google', ...data, ...(byUserId ? { assignedUserId: byUserId } : {}) },
     update: data,
   })
 }

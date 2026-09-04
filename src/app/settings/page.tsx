@@ -1885,6 +1885,7 @@ interface ManagedUser {
   createdAt: string
   companyName: string | null
   canAccessOli: boolean
+  canAccessMail: boolean
   canViewPurchaseOrders: boolean
   vendorId: string | null
   _count?: { clientLocationAccess: number; visibleUsers: number }
@@ -2141,6 +2142,24 @@ function UsersSection() {
     }
   }
 
+  async function handleToggleMail(u: ManagedUser) {
+    setTogglingId(u.id)
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id, canAccessMail: !u.canAccessMail }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success(`Mail ${u.canAccessMail ? 'disabled' : 'enabled'} for ${u.name}`)
+      fetchUsers()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
   async function handleTogglePOs(u: ManagedUser) {
     setTogglingId(u.id)
     try {
@@ -2249,6 +2268,7 @@ function UsersSection() {
                 className="input"
               >
                 <option value="REVIEWER">Reviewer (Removal Cases)</option>
+                <option value="EMPLOYEE">Employee (all except Reports)</option>
                 <option value="ADMIN">Admin</option>
                 <option value="CLIENT">Client</option>
                 <option value="RESOLUTION_PROVIDER">Resolution Provider</option>
@@ -2394,6 +2414,20 @@ function UsersSection() {
                   {u.canAccessOli ? 'OLI On' : 'OLI Off'}
                 </button>
               )}
+              {(u.role === 'ADMIN' || u.role === 'EMPLOYEE') && (
+                <button
+                  onClick={() => handleToggleMail(u)}
+                  disabled={togglingId === u.id}
+                  title="Give this user access to the Mail feature (then assign mailboxes to them)"
+                  className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+                    u.canAccessMail
+                      ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                >
+                  {u.canAccessMail ? 'Mail On' : 'Mail Off'}
+                </button>
+              )}
               <select
                 value={u.role}
                 onChange={e => handleChangeRole(u, e.target.value)}
@@ -2411,6 +2445,7 @@ function UsersSection() {
                 }`}
               >
                 <option value="REVIEWER">Reviewer (Removal Cases)</option>
+                <option value="EMPLOYEE">Employee (all except Reports)</option>
                 <option value="ADMIN">Admin</option>
                 <option value="CLIENT">Client</option>
                 <option value="RESOLUTION_PROVIDER">Resolution Provider</option>

@@ -331,12 +331,14 @@ export default function TopNav() {
   // Close mobile menu on route change
   useEffect(() => { setMobileOpen(false) }, [pathname])
 
-  // REVIEWER role sees only Removal Cases; otherwise filter the OLI item by access.
+  // REVIEWER role sees only Removal Cases; otherwise start from the full nav and
+  // remove items by permission: OLI access, Mail assignment, and (for EMPLOYEE) Reports.
+  let base: NavItem[] = user?.canAccessOli ? NAV : NAV.filter(i => !('href' in i && i.href === '/oli'))
+  if (!(user?.canAccessMail || user?.role === 'ADMIN')) base = base.filter(i => !('href' in i && i.href === '/mail'))
+  if (user?.role === 'EMPLOYEE') base = base.filter(i => !('group' in i && i.label === 'Reports'))
   const filteredNav: NavItem[] = user?.role === 'REVIEWER'
     ? [{ href: '/removal-cases', label: 'Removal Cases', icon: AlertCircle }]
-    : user?.canAccessOli
-      ? NAV
-      : NAV.filter(i => !('href' in i && i.href === '/oli'))
+    : base
 
   // Separate items before and after the Wholesale divider
   const dividerIdx = filteredNav.findIndex(i => 'divider' in i)
@@ -459,7 +461,7 @@ export default function TopNav() {
             </Link>
           )}
           {/* Amazon refunds to review */}
-          {unreviewedRefunds > 0 && (
+          {unreviewedRefunds > 0 && user?.role !== 'EMPLOYEE' && (
             <Link href="/amazon-refunds" title="Amazon refunds to review"
               className="relative flex items-center justify-center w-9 h-9 rounded-md text-gray-300 hover:bg-white/10 hover:text-white transition-colors">
               <RotateCcw size={18} />
