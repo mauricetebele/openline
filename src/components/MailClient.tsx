@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { clsx } from 'clsx'
 import {
   Mail, Inbox, Star, Send, FileText, AlertOctagon, Trash2, Tag, Loader2, X,
-  RefreshCw, Reply, Archive, MailOpen, Plus, Search, Paperclip, Copy, Users, FolderPlus, FolderInput, Sparkles, Check,
+  RefreshCw, Reply, Archive, MailOpen, Plus, Search, Paperclip, Copy, Users, FolderPlus, FolderInput, Sparkles, Check, Download,
 } from 'lucide-react'
 
 interface Account { id: string; email: string; displayName?: string | null; assignedUserId?: string | null; assignedUser?: { id: string; name: string; email: string } | null }
@@ -173,6 +173,34 @@ export default function MailClient() {
   const [detail, setDetail] = useState<MsgDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [showMove, setShowMove] = useState(false)
+  const [attLoading, setAttLoading] = useState<string | null>(null)
+  const [attPreview, setAttPreview] = useState<{ url: string; filename: string; kind: 'image' | 'pdf' } | null>(null)
+
+  function triggerDownload(url: string, filename: string) {
+    const a = document.createElement('a'); a.href = url; a.download = filename || 'attachment'
+    document.body.appendChild(a); a.click(); a.remove()
+  }
+
+  async function openAttachment(messageId: string, att: { attachmentId: string; filename: string; mimeType: string }) {
+    setAttLoading(att.attachmentId)
+    try {
+      const res = await fetch(`/api/email/messages/${messageId}/attachments/${att.attachmentId}?accountId=${activeAccount}`)
+      const d = await res.json()
+      if (!res.ok || !d.data) throw new Error(d.error ?? 'Failed to load attachment')
+      const bytes = Uint8Array.from(atob(d.data), c => c.charCodeAt(0))
+      const url = URL.createObjectURL(new Blob([bytes], { type: att.mimeType || 'application/octet-stream' }))
+      const isImg = (att.mimeType || '').startsWith('image/')
+      const isPdf = att.mimeType === 'application/pdf'
+      if (isImg || isPdf) {
+        setAttPreview({ url, filename: att.filename, kind: isImg ? 'image' : 'pdf' })
+      } else {
+        triggerDownload(url, att.filename)
+        setTimeout(() => URL.revokeObjectURL(url), 30_000)
+      }
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not open attachment') }
+    finally { setAttLoading(null) }
+  }
+  function closePreview() { if (attPreview) URL.revokeObjectURL(attPreview.url); setAttPreview(null) }
   const [compose, setCompose] = useState<null | { to: string[]; cc: string[]; subject: string; body: string; threadId?: string; inReplyTo?: string; references?: string; attachments?: { filename: string; mimeType: string; contentBase64: string; size: number }[] }>(null)
   const [sending, setSending] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -595,9 +623,17 @@ export default function MailClient() {
                 <div className="text-[11px] text-gray-400">to {detail.to}{detail.cc ? ` · cc ${detail.cc}` : ''}</div>
                 {detail.attachments.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {detail.attachments.map((a, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 text-[11px] bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded"><Paperclip size={10} /> {a.filename}</span>
-                    ))}
+                    {detail.attachments.map((a, i) => {
+                      const canPreview = (a.mimeType || '').startsWith('image/') || a.mimeType === 'application/pdf'
+                      return (
+                        <button key={i} onClick={() => openAttachment(detail.id, a)} disabled={attLoading === a.attachmentId}
+                          title={canPreview ? 'Preview' : 'Download'}
+                          className="inline-flex items-center gap-1 text-[11px] bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-200 px-2 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-white/20 disabled:opacity-50">
+                          {attLoading === a.attachmentId ? <Loader2 size={10} className="animate-spin" /> : canPreview ? <Paperclip size={10} /> : <Download size={10} />}
+                          {a.filename}
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -642,6 +678,27 @@ export default function MailClient() {
               ))}
               <a href="/api/email/google/connect" className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-amazon-blue hover:underline"><Plus size={13} /> Connect another mailbox</a>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Attachment preview */}
+      {attPreview && (
+        <div className="fixed inset-0 z-[60] flex flex-col bg-black/80" onClick={closePreview}>
+          <div className="flex items-center justify-between px-4 py-2.5 bg-gray-900 text-white shrink-0" onClick={e => e.stopPropagation()}>
+            <span className="text-sm font-medium truncate flex items-center gap-2"><Paperclip size={14} /> {attPreview.filename}</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => triggerDownload(attPreview.url, attPreview.filename)} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-white/10 hover:bg-white/20 text-sm font-medium"><Download size={15} /> Download</button>
+              <button onClick={closePreview} className="p-1.5 rounded-md hover:bg-white/10"><X size={18} /></button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto flex items-center justify-center p-4" onClick={closePreview}>
+            {attPreview.kind === 'image' ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={attPreview.url} alt={attPreview.filename} className="max-w-full max-h-full object-contain" onClick={e => e.stopPropagation()} />
+            ) : (
+              <iframe src={attPreview.url} title={attPreview.filename} className="w-full h-full bg-white rounded" onClick={e => e.stopPropagation()} />
+            )}
           </div>
         </div>
       )}
