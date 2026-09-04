@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { clsx } from 'clsx'
 import {
   Mail, Inbox, Star, Send, FileText, AlertOctagon, Trash2, Tag, Loader2, X,
-  RefreshCw, Reply, Archive, MailOpen, Plus, Search, Paperclip, Copy, Users, FolderPlus, FolderInput,
+  RefreshCw, Reply, Archive, MailOpen, Plus, Search, Paperclip, Copy, Users, FolderPlus, FolderInput, Sparkles, Check,
 } from 'lucide-react'
 
 interface Account { id: string; email: string; displayName?: string | null; assignedUserId?: string | null; assignedUser?: { id: string; name: string; email: string } | null }
@@ -177,6 +177,38 @@ export default function MailClient() {
   const [sending, setSending] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composeToPending = useRef('')
+
+  // AI rule creation
+  const [showRules, setShowRules] = useState(false)
+  const [ruleText, setRuleText] = useState('')
+  const [ruleBusy, setRuleBusy] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [ruleResult, setRuleResult] = useState<{ understanding?: string; rule?: any; needsClarification?: string | null } | null>(null)
+
+  async function interpretRule() {
+    if (!ruleText.trim()) return
+    setRuleBusy(true); setRuleResult(null)
+    try {
+      const res = await fetch('/api/email/rules/interpret', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: ruleText.trim() }) })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      setRuleResult(d)
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not interpret the rule') }
+    finally { setRuleBusy(false) }
+  }
+  async function applyRule() {
+    if (!ruleResult?.rule) return
+    setRuleBusy(true)
+    try {
+      const res = await fetch('/api/email/rules/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountId: activeAccount, rule: ruleResult.rule }) })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      toast.success(`Rule created${d.applied ? ` · ${d.applied} existing email${d.applied !== 1 ? 's' : ''} moved` : ''}`)
+      setShowRules(false); setRuleText(''); setRuleResult(null)
+      loadLabels(activeAccount)
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not create the rule') }
+    finally { setRuleBusy(false) }
+  }
 
   async function addFiles(files: FileList | null) {
     if (!files || files.length === 0) return
@@ -441,6 +473,7 @@ export default function MailClient() {
           <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && runSearch()} placeholder="Search mail…"
             className="h-8 w-56 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 pl-7 pr-2 text-xs text-gray-800 dark:text-gray-200" />
         </div>
+        <button onClick={() => { setShowRules(true); setRuleResult(null) }} title="Create a rule in plain English" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-gray-300 dark:border-white/15 text-gray-700 dark:text-gray-200 text-xs font-medium hover:bg-gray-50 dark:hover:bg-white/5"><Sparkles size={14} className="text-amazon-blue" /> Rules</button>
         <button onClick={startCompose} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-blue-700"><Plus size={14} /> Compose</button>
       </div>
 
@@ -588,6 +621,45 @@ export default function MailClient() {
                 </div>
               ))}
               <a href="/api/email/google/connect" className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-amazon-blue hover:underline"><Plus size={13} /> Connect another mailbox</a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI rule creation */}
+      {showRules && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowRules(false)}>
+          <div className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-xl shadow-2xl flex flex-col max-h-[88vh]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-2.5 border-b dark:border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1.5"><Sparkles size={15} className="text-amazon-blue" /> Create a rule</h3>
+              <button onClick={() => setShowRules(false)} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><X size={16} /></button>
+            </div>
+            <div className="px-4 py-3 space-y-3 overflow-y-auto">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Describe what you want in plain English. Example: <span className="italic">&quot;Put all emails from anyone at @pcsww.com into a folder called PCS.&quot;</span></p>
+              <textarea value={ruleText} onChange={e => setRuleText(e.target.value)} rows={3} placeholder="Type your rule…"
+                className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 py-2 text-sm text-gray-900 dark:text-white resize-none" />
+              <button onClick={interpretRule} disabled={ruleBusy || !ruleText.trim()} className="inline-flex items-center gap-1.5 h-8 px-4 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-40">
+                {ruleBusy && !ruleResult ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} Interpret
+              </button>
+
+              {ruleResult?.needsClarification && (
+                <div className="rounded-lg border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                  {ruleResult.needsClarification}
+                </div>
+              )}
+
+              {ruleResult?.understanding && !ruleResult?.needsClarification && (
+                <div className="rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 px-3 py-2.5 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Here&apos;s what I&apos;ll do</p>
+                  <p className="text-sm text-gray-800 dark:text-gray-200">{ruleResult.understanding}</p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button onClick={applyRule} disabled={ruleBusy} className="inline-flex items-center gap-1.5 h-8 px-4 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-40">
+                      {ruleBusy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Confirm & create rule
+                    </button>
+                    <button onClick={() => setRuleResult(null)} className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Edit</button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

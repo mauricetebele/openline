@@ -10,6 +10,7 @@ export const GMAIL_SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify', // read + label + trash
   'https://www.googleapis.com/auth/gmail.send',   // send
   'https://www.googleapis.com/auth/gmail.labels',  // manage labels/folders
+  'https://www.googleapis.com/auth/gmail.settings.basic', // create filters (rules)
   'https://www.googleapis.com/auth/contacts.readonly',        // saved contacts
   'https://www.googleapis.com/auth/contacts.other.readonly',  // auto-saved "other contacts"
   'openid', 'email', 'profile',
@@ -181,6 +182,18 @@ export async function createLabel(accountId: string, name: string) {
     method: 'POST',
     body: JSON.stringify({ name, labelListVisibility: 'labelShow', messageListVisibility: 'show' }),
   }) as Promise<{ id: string; name: string }>
+}
+
+export async function createFilter(accountId: string, body: { criteria: object; action: object }) {
+  return gmailFetch(accountId, '/settings/filters', { method: 'POST', body: JSON.stringify(body) }) as Promise<{ id: string }>
+}
+
+export async function batchModify(accountId: string, ids: string[], addLabelIds?: string[], removeLabelIds?: string[]) {
+  if (ids.length === 0) return null
+  return gmailFetch(accountId, '/messages/batchModify', {
+    method: 'POST',
+    body: JSON.stringify({ ids, addLabelIds, removeLabelIds }),
+  })
 }
 
 export async function sendRawMessage(accountId: string, rawBase64Url: string, threadId?: string) {
