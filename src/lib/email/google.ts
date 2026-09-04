@@ -17,13 +17,22 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
-export function googleConfigured(): boolean {
-  return !!(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET)
+/** OAuth client creds — from the Settings-stored config, falling back to env. */
+export async function getGoogleCreds(): Promise<{ clientId: string; clientSecret: string } | null> {
+  const cfg = await prisma.googleOAuthConfig.findUnique({ where: { id: 'singleton' } }).catch(() => null)
+  const clientId = cfg?.clientIdEnc ? decrypt(cfg.clientIdEnc) : process.env.GOOGLE_OAUTH_CLIENT_ID
+  const clientSecret = cfg?.clientSecretEnc ? decrypt(cfg.clientSecretEnc) : process.env.GOOGLE_OAUTH_CLIENT_SECRET
+  if (!clientId || !clientSecret) return null
+  return { clientId, clientSecret }
 }
 
-export function buildAuthUrl(redirectUri: string, state: string): string {
+export async function googleConfigured(): Promise<boolean> {
+  return !!(await getGoogleCreds())
+}
+
+export function buildAuthUrl(redirectUri: string, state: string, clientId: string): string {
   const params = new URLSearchParams({
-    client_id: process.env.GOOGLE_OAUTH_CLIENT_ID ?? '',
+    client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: GMAIL_SCOPES,
@@ -44,13 +53,15 @@ interface TokenResponse {
 }
 
 export async function exchangeCode(code: string, redirectUri: string): Promise<TokenResponse> {
+  const creds = await getGoogleCreds()
+  if (!creds) throw new Error('Google OAuth is not configured')
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code,
-      client_id: process.env.GOOGLE_OAUTH_CLIENT_ID ?? '',
-      client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? '',
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
       redirect_uri: redirectUri,
       grant_type: 'authorization_code',
     }),
@@ -60,13 +71,15 @@ export async function exchangeCode(code: string, redirectUri: string): Promise<T
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
+  const creds = await getGoogleCreds()
+  if (!creds) throw new Error('Google OAuth is not configured')
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       refresh_token: refreshToken,
-      client_id: process.env.GOOGLE_OAUTH_CLIENT_ID ?? '',
-      client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? '',
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
       grant_type: 'refresh_token',
     }),
   })

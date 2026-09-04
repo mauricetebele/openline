@@ -18,7 +18,7 @@ export async function GET() {
     orderBy: { createdAt: 'asc' },
     select: { id: true, email: true, displayName: true, provider: true, createdAt: true },
   })
-  return NextResponse.json({ accounts, configured: googleConfigured() })
+  return NextResponse.json({ accounts, configured: await googleConfigured() })
 }
 
 export async function DELETE(req: NextRequest) {

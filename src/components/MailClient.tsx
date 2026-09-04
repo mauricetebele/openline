@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { clsx } from 'clsx'
 import {
   Mail, Inbox, Star, Send, FileText, AlertOctagon, Trash2, Tag, Loader2, X,
-  RefreshCw, Reply, Archive, MailOpen, Plus, Search, Paperclip,
+  RefreshCw, Reply, Archive, MailOpen, Plus, Search, Paperclip, Copy,
 } from 'lucide-react'
 
 interface Account { id: string; email: string; displayName?: string | null }
@@ -58,7 +58,26 @@ export default function MailClient() {
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [compose, setCompose] = useState<null | { to: string; cc: string; subject: string; body: string; threadId?: string; inReplyTo?: string; references?: string }>(null)
   const [sending, setSending] = useState(false)
+  const [cfgClientId, setCfgClientId] = useState('')
+  const [cfgClientSecret, setCfgClientSecret] = useState('')
+  const [savingCfg, setSavingCfg] = useState(false)
   const bootstrapped = useRef(false)
+
+  const redirectUri = typeof window !== 'undefined' ? `${window.location.origin}/api/email/google/callback` : ''
+
+  async function saveConfig() {
+    if (!cfgClientId.trim() || !cfgClientSecret.trim()) { toast.error('Enter both the Client ID and Client Secret'); return }
+    setSavingCfg(true)
+    try {
+      const res = await fetch('/api/email/oauth-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId: cfgClientId.trim(), clientSecret: cfgClientSecret.trim() }) })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error ?? 'Failed to save')
+      toast.success('Saved — you can connect a mailbox now')
+      setCfgClientSecret(''); setConfigured(true)
+      await loadAccounts()
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to save') }
+    finally { setSavingCfg(false) }
+  }
 
   // ── Loaders ──
   const loadAccounts = useCallback(async () => {
@@ -169,18 +188,36 @@ export default function MailClient() {
   // ── Not-connected states ──
   if (!bootstrapped.current || accounts.length === 0) {
     return (
-      <div className="flex flex-col h-full items-center justify-center gap-4 p-8 text-center">
-        <Mail size={40} className="text-gray-300" />
+      <div className="flex flex-col h-full items-center justify-center gap-4 p-8">
         {!configured ? (
-          <>
-            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Gmail isn&apos;t configured yet</p>
-            <p className="text-xs text-gray-400 max-w-md">Add a Google OAuth client (GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET) in the environment, then reload to connect a mailbox.</p>
-          </>
+          <div className="w-full max-w-md space-y-3">
+            <div className="flex items-center gap-2"><Mail size={20} className="text-amazon-blue" /><h2 className="text-sm font-bold text-gray-900 dark:text-white">Connect Gmail — one-time setup</h2></div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Paste the Client ID and Client Secret from your Google Cloud OAuth client. They&apos;re stored encrypted in your database.</p>
+            <div className="rounded-md bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 px-3 py-2 text-[11px]">
+              <p className="text-gray-500 dark:text-gray-400 mb-1">In Google Cloud, set the OAuth client&apos;s <span className="font-semibold">Authorized redirect URI</span> to:</p>
+              <div className="flex items-center gap-1.5">
+                <code className="font-mono text-gray-800 dark:text-gray-200 break-all">{redirectUri}</code>
+                <button onClick={() => { navigator.clipboard.writeText(redirectUri); toast.success('Copied') }} className="shrink-0 text-amazon-blue hover:text-blue-700"><Copy size={12} /></button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Client ID</label>
+              <input value={cfgClientId} onChange={e => setCfgClientId(e.target.value)} placeholder="…apps.googleusercontent.com" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white font-mono" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Client Secret</label>
+              <input type="password" value={cfgClientSecret} onChange={e => setCfgClientSecret(e.target.value)} placeholder="GOCSPX-…" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white font-mono" />
+            </div>
+            <button onClick={saveConfig} disabled={savingCfg} className="w-full inline-flex items-center justify-center gap-2 h-9 rounded-md bg-amazon-blue text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40">
+              {savingCfg ? <Loader2 size={15} className="animate-spin" /> : null} Save credentials
+            </button>
+          </div>
         ) : (
-          <>
+          <div className="flex flex-col items-center gap-4 text-center">
+            <Mail size={40} className="text-gray-300" />
             <p className="text-sm font-medium text-gray-600 dark:text-gray-300">No mailbox connected</p>
             <a href="/api/email/google/connect" className="inline-flex items-center gap-2 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-blue-700"><Plus size={15} /> Connect a Gmail account</a>
-          </>
+          </div>
         )}
       </div>
     )

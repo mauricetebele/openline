@@ -2809,3 +2809,15 @@ model EmailAccount {
 
   @@map("email_accounts")
 }
+
+// ─── Google OAuth config (singleton) ─────────────────────────────────────────
+// Client ID/secret for the in-app Gmail client, entered in Settings and stored
+// encrypted (see @/lib/crypto). Falls back to env vars when unset.
+model GoogleOAuthConfig {
+  id              String   @id @default("singleton")
+  clientIdEnc     String?  @db.Text
+  clientSecretEnc String?  @db.Text
+  updatedAt       DateTime @updatedAt
+
+  @@map("google_oauth_config")
+}
