@@ -2788,3 +2788,24 @@ model LegacyRMASerial {
   @@index([inventorySerialId])
   @@map("legacy_rma_serials")
 }
+
+// ─── Email (Gmail) accounts ──────────────────────────────────────────────────
+// Connected Google mailboxes for the in-app email client. OAuth tokens are
+// stored encrypted (see @/lib/crypto). One row per linked address.
+model EmailAccount {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  provider         String    @default("google")
+  displayName      String?
+  accessTokenEnc   String?   @db.Text
+  refreshTokenEnc  String?   @db.Text
+  tokenExpiry      DateTime?
+  scope            String?
+  historyId        String?
+  connectedByLabel String?
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@map("email_accounts")
+}

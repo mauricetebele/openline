@@ -9,7 +9,7 @@ import {
   LayoutGrid, RefreshCcw, PackageMinus, PackageOpen, Barcode, List, ListTodo,
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
-  Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain, AlertCircle,
+  Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain, AlertCircle, Mail,
   Sparkles, Receipt, Ban,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -37,6 +37,7 @@ const NAV: NavItem[] = [
       { href: '/removal-cases',       label: 'Removal Cases',     icon: AlertCircle },
     ],
   },
+  { href: '/mail', label: 'Mail', icon: Mail },
   {
     group: true,
     label: 'Inventory',
