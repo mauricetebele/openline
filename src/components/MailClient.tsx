@@ -43,13 +43,29 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+function avatarColor(seed: string): string {
+  const colors = ['bg-blue-500', 'bg-emerald-500', 'bg-violet-500', 'bg-amber-500', 'bg-rose-500', 'bg-cyan-500', 'bg-indigo-500', 'bg-teal-500']
+  let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  return colors[h % colors.length]
+}
+
 // Gmail-style recipient field: committed addresses become pills; a comma, Enter,
-// or picking an autocomplete suggestion commits the current address and moves on.
+// or picking a suggestion commits the current address and moves on. Suggestions
+// render in a custom dropdown (avatar + name + email, keyboard-navigable).
 function RecipientInput({ emails, onChange, contacts, placeholder, onPending }: {
   emails: string[]; onChange: (e: string[]) => void; contacts: { name: string; email: string }[]; placeholder: string; onPending?: (t: string) => void
 }) {
   const [text, setTextState] = useState('')
-  const setText = (v: string) => { setTextState(v); onPending?.(v) }
+  const [focused, setFocused] = useState(false)
+  const [highlight, setHighlight] = useState(0)
+  const setText = (v: string) => { setTextState(v); setHighlight(0); onPending?.(v) }
+
+  const q = text.trim().toLowerCase()
+  const chosen = new Set(emails.map(e => e.toLowerCase()))
+  const matches = q
+    ? contacts.filter(c => !chosen.has(c.email) && (c.email.includes(q) || c.name.toLowerCase().includes(q))).slice(0, 8)
+    : []
+  const showDrop = focused && matches.length > 0
 
   function commit(values: string[]) {
     const set = new Set(emails.map(e => e.toLowerCase()))
@@ -60,51 +76,65 @@ function RecipientInput({ emails, onChange, contacts, placeholder, onPending }: 
     }
     if (merged.length !== emails.length) onChange(merged)
   }
+  function pick(email: string) { commit([email]); setText('') }
 
   function onChangeText(v: string) {
-    // Delimiter typed/pasted → commit the completed parts, keep the trailing text.
-    if (/[,;]/.test(v)) {
-      const parts = v.split(/[,;]+/)
-      const tail = parts.pop() ?? ''
-      commit(parts)
-      setText(tail)
-      return
-    }
-    // Exact match to a contact = a suggestion was picked → commit it.
-    if (v && contacts.some(c => c.email === v.trim().toLowerCase())) {
-      commit([v]); setText('')
-      return
-    }
+    if (/[,;]/.test(v)) { const parts = v.split(/[,;]+/); const tail = parts.pop() ?? ''; commit(parts); setText(tail); return }
     setText(v)
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.metaKey || e.ctrlKey) return // let ⌘/Ctrl+Enter bubble up to Send
-    if ((e.key === 'Enter' || e.key === 'Tab') && text.trim()) {
-      if (e.key === 'Enter') e.preventDefault()
-      commit([text]); setText('')
-    } else if (e.key === 'Backspace' && !text && emails.length) {
-      onChange(emails.slice(0, -1))
-    }
+    if (showDrop && e.key === 'ArrowDown') { e.preventDefault(); setHighlight(h => Math.min(h + 1, matches.length - 1)) }
+    else if (showDrop && e.key === 'ArrowUp') { e.preventDefault(); setHighlight(h => Math.max(h - 1, 0)) }
+    else if (e.key === 'Enter' || e.key === 'Tab') {
+      if (showDrop && matches[highlight]) { e.preventDefault(); pick(matches[highlight].email) }
+      else if (text.trim()) { if (e.key === 'Enter') e.preventDefault(); commit([text]); setText('') }
+    } else if (e.key === 'Escape') { setFocused(false) }
+    else if (e.key === 'Backspace' && !text && emails.length) { onChange(emails.slice(0, -1)) }
   }
 
   return (
-    <div className="w-full min-h-9 flex flex-wrap items-center gap-1 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-1.5 py-1">
-      {emails.map((e, i) => (
-        <span key={i} className="inline-flex items-center gap-1 text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-full pl-2 pr-1 py-0.5">
-          {e}
-          <button onClick={() => onChange(emails.filter((_, j) => j !== i))} className="text-blue-400 hover:text-red-500"><X size={11} /></button>
-        </span>
-      ))}
-      <input
-        list="mail-contacts"
-        value={text}
-        onChange={ev => onChangeText(ev.target.value)}
-        onKeyDown={onKeyDown}
-        onBlur={() => { if (text.trim()) { commit([text]); setText('') } }}
-        placeholder={emails.length === 0 ? placeholder : ''}
-        className="flex-1 min-w-[120px] h-6 bg-transparent text-sm text-gray-900 dark:text-white outline-none px-1"
-      />
+    <div className="relative">
+      <div className="w-full min-h-9 flex flex-wrap items-center gap-1 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-1.5 py-1 focus-within:ring-2 focus-within:ring-amazon-blue focus-within:border-amazon-blue">
+        {emails.map((e, i) => (
+          <span key={i} className="inline-flex items-center gap-1 text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-full pl-2 pr-1 py-0.5">
+            {e}
+            <button onClick={() => onChange(emails.filter((_, j) => j !== i))} className="text-blue-400 hover:text-red-500"><X size={11} /></button>
+          </span>
+        ))}
+        <input
+          value={text}
+          onChange={ev => onChangeText(ev.target.value)}
+          onKeyDown={onKeyDown}
+          onFocus={() => setFocused(true)}
+          onBlur={() => { setFocused(false); if (text.trim()) { commit([text]); setText('') } }}
+          placeholder={emails.length === 0 ? placeholder : ''}
+          className="flex-1 min-w-[120px] h-6 bg-transparent text-sm text-gray-900 dark:text-white outline-none px-1"
+        />
+      </div>
+      {showDrop && (
+        <ul className="absolute left-0 right-0 top-full mt-1 z-[60] max-h-72 overflow-y-auto rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-800 shadow-xl ring-1 ring-black/5 py-1">
+          {matches.map((c, i) => {
+            const initial = (c.name || c.email).trim().charAt(0).toUpperCase()
+            return (
+              <li key={c.email}>
+                <button
+                  onMouseDown={e => { e.preventDefault(); pick(c.email) }}
+                  onMouseEnter={() => setHighlight(i)}
+                  className={clsx('w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left transition-colors', i === highlight ? 'bg-amazon-blue/10' : 'hover:bg-gray-50 dark:hover:bg-white/5')}
+                >
+                  <span className={clsx('shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold', avatarColor(c.email))}>{initial}</span>
+                  <span className="min-w-0 flex-1">
+                    {c.name && <span className="block text-sm text-gray-900 dark:text-white truncate leading-tight">{c.name}</span>}
+                    <span className={clsx('block truncate leading-tight', c.name ? 'text-xs text-gray-500 dark:text-gray-400' : 'text-sm text-gray-900 dark:text-white')}>{c.email}</span>
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }
@@ -508,9 +538,6 @@ export default function MailClient() {
               <button onClick={() => setCompose(null)} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><X size={16} /></button>
             </div>
             <div className="px-4 py-3 space-y-2">
-              <datalist id="mail-contacts">
-                {contacts.map(c => <option key={c.email} value={c.email}>{c.name ? `${c.name} <${c.email}>` : c.email}</option>)}
-              </datalist>
               <RecipientInput emails={compose.to} onChange={to => setCompose(c => c ? { ...c, to } : c)} onPending={t => { composeToPending.current = t }} contacts={contacts} placeholder="To" />
               <RecipientInput emails={compose.cc} onChange={cc => setCompose(c => c ? { ...c, cc } : c)} contacts={contacts} placeholder="Cc (optional)" />
               <input value={compose.subject} onChange={e => setCompose({ ...compose, subject: e.target.value })} placeholder="Subject" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
