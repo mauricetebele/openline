@@ -2828,3 +2828,14 @@ model GoogleOAuthConfig {
 
   @@map("google_oauth_config")
 }
+
+// ─── Firebase Admin service account (singleton) ──────────────────────────────
+// Optional in-app Firebase Admin credentials (service account JSON, encrypted).
+// Enables admin ops like directly setting a user's password without env vars.
+model FirebaseAdminConfig {
+  id                String   @id @default("singleton")
+  serviceAccountEnc String?  @db.Text
+  updatedAt         DateTime @updatedAt
+
+  @@map("firebase_admin_config")
+}

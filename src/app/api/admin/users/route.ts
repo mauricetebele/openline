@@ -41,8 +41,9 @@ async function firebaseCreateUser(email: string, password: string, displayName: 
 }
 
 async function firebaseGetUidByEmail(email: string): Promise<string | null> {
-  const { adminAuth } = await import('@/lib/firebase-admin')
+  const { getAdminAuth } = await import('@/lib/firebase-admin')
   try {
+    const adminAuth = await getAdminAuth()
     const user = await adminAuth.getUserByEmail(email)
     return user.uid
   } catch {
@@ -51,7 +52,8 @@ async function firebaseGetUidByEmail(email: string): Promise<string | null> {
 }
 
 async function firebaseDeleteUserByAdmin(uid: string): Promise<void> {
-  const { adminAuth } = await import('@/lib/firebase-admin')
+  const { getAdminAuth } = await import('@/lib/firebase-admin')
+  const adminAuth = await getAdminAuth()
   await adminAuth.deleteUser(uid)
 }
 
@@ -169,7 +171,8 @@ export async function PATCH(req: NextRequest) {
     if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
     try {
-      const { adminAuth } = await import('@/lib/firebase-admin')
+      const { getAdminAuth } = await import('@/lib/firebase-admin')
+      const adminAuth = await getAdminAuth()
       const uid = target.firebaseUid || (await firebaseGetUidByEmail(target.email))
       if (!uid) throw new Error('No Firebase UID')
       await adminAuth.updateUser(uid, { password: newPassword })

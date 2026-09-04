@@ -1905,7 +1905,13 @@ function UsersSection() {
   const [formEmail, setFormEmail] = useState('')
   const [formName, setFormName] = useState('')
   const [formPassword, setFormPassword] = useState('')
-  const [formRole, setFormRole] = useState<'REVIEWER' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR'>('REVIEWER')
+  const [formRole, setFormRole] = useState<'REVIEWER' | 'EMPLOYEE' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR'>('REVIEWER')
+
+  // Firebase Admin (direct password setting) config
+  const [fbConfigured, setFbConfigured] = useState(false)
+  const [fbJson, setFbJson] = useState('')
+  const [fbSaving, setFbSaving] = useState(false)
+  const [fbShow, setFbShow] = useState(false)
 
   // Vendor selector state
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([])
@@ -1942,6 +1948,20 @@ function UsersSection() {
   }, [])
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
+  useEffect(() => { fetch('/api/admin/firebase-config').then(r => r.json()).then(d => setFbConfigured(!!d.configured)).catch(() => {}) }, [])
+
+  async function handleSaveFbConfig() {
+    if (!fbJson.trim()) { toast.error('Paste the service account JSON'); return }
+    setFbSaving(true)
+    try {
+      const res = await fetch('/api/admin/firebase-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serviceAccount: fbJson.trim() }) })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      toast.success('Saved — Reset password now sets the password directly')
+      setFbConfigured(true); setFbJson(''); setFbShow(false)
+    } catch (err) { toast.error((err as Error).message) }
+    finally { setFbSaving(false) }
+  }
 
   useEffect(() => {
     fetch('/api/vendors').then(r => r.ok ? r.json() : { data: [] }).then(json => setVendors(json.data ?? json ?? []))
@@ -2222,6 +2242,36 @@ function UsersSection() {
 
   return (
     <div className="max-w-3xl space-y-6">
+      {/* Direct password setting (Firebase Admin) */}
+      <div className="card">
+        <div className="px-5 py-3 border-b flex items-center justify-between">
+          <div>
+            <p className="font-semibold text-sm">Direct password setting</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {fbConfigured
+                ? 'Configured — Reset password sets the password directly.'
+                : 'Not configured — Reset password sends the user a reset email instead.'}
+            </p>
+          </div>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${fbConfigured ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{fbConfigured ? 'ON' : 'OFF'}</span>
+        </div>
+        <div className="px-5 py-3">
+          <button onClick={() => setFbShow(s => !s)} className="text-xs font-medium text-amazon-blue hover:underline">
+            {fbShow ? 'Cancel' : fbConfigured ? 'Replace service account' : 'Enable direct password setting'}
+          </button>
+          {fbShow && (
+            <div className="mt-2 space-y-2">
+              <p className="text-[11px] text-gray-500">Firebase Console → Project Settings → <span className="font-semibold">Service accounts</span> → <span className="font-semibold">Generate new private key</span>. Paste the entire downloaded JSON below. Stored encrypted.</p>
+              <textarea value={fbJson} onChange={e => setFbJson(e.target.value)} rows={6} placeholder='{ "type": "service_account", "project_id": "…", "private_key": "-----BEGIN PRIVATE KEY-----…", "client_email": "…" }'
+                className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 py-2 text-xs font-mono text-gray-900 dark:text-white resize-none" />
+              <button onClick={handleSaveFbConfig} disabled={fbSaving} className="inline-flex items-center gap-1.5 h-8 px-4 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-40">
+                {fbSaving ? 'Saving…' : 'Save service account'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Users table */}
       <div className="card">
         <div className="px-5 py-3 border-b flex items-center justify-between">
