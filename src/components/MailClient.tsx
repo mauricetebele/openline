@@ -60,8 +60,30 @@ export default function MailClient() {
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<MsgDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
-  const [compose, setCompose] = useState<null | { to: string; cc: string; subject: string; body: string; threadId?: string; inReplyTo?: string; references?: string }>(null)
+  const [compose, setCompose] = useState<null | { to: string; cc: string; subject: string; body: string; threadId?: string; inReplyTo?: string; references?: string; attachments?: { filename: string; mimeType: string; contentBase64: string; size: number }[] }>(null)
   const [sending, setSending] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function addFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    const readers = Array.from(files).map(f => new Promise<{ filename: string; mimeType: string; contentBase64: string; size: number }>((resolve, reject) => {
+      const r = new FileReader()
+      r.onload = () => resolve({ filename: f.name, mimeType: f.type || 'application/octet-stream', contentBase64: String(r.result).split(',').pop() || '', size: f.size })
+      r.onerror = reject
+      r.readAsDataURL(f)
+    }))
+    try {
+      const results = await Promise.all(readers)
+      setCompose(c => {
+        if (!c) return c
+        const next = [...(c.attachments ?? []), ...results]
+        const total = next.reduce((s, a) => s + a.size, 0)
+        if (total > 24 * 1024 * 1024) { toast.error('Attachments exceed 24 MB'); return c }
+        return { ...c, attachments: next }
+      })
+    } catch { toast.error('Could not read file') }
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
   const [cfgClientId, setCfgClientId] = useState('')
   const [cfgClientSecret, setCfgClientSecret] = useState('')
   const [savingCfg, setSavingCfg] = useState(false)
@@ -202,6 +224,7 @@ export default function MailClient() {
       const res = await fetch('/api/email/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         accountId: activeAccount, to: compose.to, cc: compose.cc || undefined, subject: compose.subject, html,
         threadId: compose.threadId, inReplyTo: compose.inReplyTo, references: compose.references,
+        attachments: compose.attachments?.map(a => ({ filename: a.filename, mimeType: a.mimeType, contentBase64: a.contentBase64 })),
       }) })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error ?? 'Send failed')
@@ -407,13 +430,29 @@ export default function MailClient() {
               <input value={compose.to} onChange={e => setCompose({ ...compose, to: e.target.value })} placeholder="To" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
               <input value={compose.cc} onChange={e => setCompose({ ...compose, cc: e.target.value })} placeholder="Cc (optional)" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
               <input value={compose.subject} onChange={e => setCompose({ ...compose, subject: e.target.value })} placeholder="Subject" className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 text-sm text-gray-900 dark:text-white" />
-              <textarea value={compose.body} onChange={e => setCompose({ ...compose, body: e.target.value })} rows={12} placeholder="Write your message…" className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 py-2 text-sm text-gray-900 dark:text-white resize-none" />
+              <textarea value={compose.body} onChange={e => setCompose({ ...compose, body: e.target.value })} rows={10} placeholder="Write your message…" className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 py-2 text-sm text-gray-900 dark:text-white resize-none" />
+              {compose.attachments && compose.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {compose.attachments.map((a, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 text-[11px] bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-200 pl-2 pr-1 py-0.5 rounded">
+                      <Paperclip size={10} /> {a.filename} <span className="text-gray-400">({(a.size / 1024).toFixed(0)} KB)</span>
+                      <button onClick={() => setCompose(c => c ? { ...c, attachments: c.attachments?.filter((_, j) => j !== i) } : c)} className="text-gray-400 hover:text-red-500"><X size={11} /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t dark:border-gray-700">
-              <button onClick={() => setCompose(null)} className="h-9 px-4 rounded-md border border-gray-300 dark:border-white/15 text-sm text-gray-600 dark:text-gray-300">Discard</button>
-              <button onClick={sendMail} disabled={sending} className="inline-flex items-center gap-1.5 h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40">
-                {sending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} Send
+            <input ref={fileInputRef} type="file" multiple hidden onChange={e => addFiles(e.target.files)} />
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-t dark:border-gray-700">
+              <button onClick={() => fileInputRef.current?.click()} title="Attach files" className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 dark:border-white/15 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">
+                <Paperclip size={15} /> Attach
               </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setCompose(null)} className="h-9 px-4 rounded-md border border-gray-300 dark:border-white/15 text-sm text-gray-600 dark:text-gray-300">Discard</button>
+                <button onClick={sendMail} disabled={sending} className="inline-flex items-center gap-1.5 h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40">
+                  {sending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} Send
+                </button>
+              </div>
             </div>
           </div>
         </div>

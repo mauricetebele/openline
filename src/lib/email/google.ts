@@ -177,3 +177,7 @@ export async function listLabels(accountId: string) {
 export async function sendRawMessage(accountId: string, rawBase64Url: string, threadId?: string) {
   return gmailFetch(accountId, '/messages/send', { method: 'POST', body: JSON.stringify({ raw: rawBase64Url, ...(threadId ? { threadId } : {}) }) })
 }
+
+export async function getAttachment(accountId: string, messageId: string, attachmentId: string) {
+  return gmailFetch(accountId, `/messages/${messageId}/attachments/${attachmentId}`) as Promise<{ data?: string; size?: number }>
+}

@@ -22,9 +22,10 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
-  const { accountId, to, cc, subject, html, threadId, inReplyTo, references } = body as {
+  const { accountId, to, cc, subject, html, threadId, inReplyTo, references, attachments } = body as {
     accountId?: string; to?: string; cc?: string; subject?: string; html?: string
     threadId?: string; inReplyTo?: string; references?: string
+    attachments?: { filename: string; mimeType: string; contentBase64: string }[]
   }
   if (!accountId) return NextResponse.json({ error: 'accountId is required' }, { status: 400 })
   if (!(await canUseMailAccount(accountId, user))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -34,7 +35,8 @@ export async function POST(req: NextRequest) {
   if (!account) return NextResponse.json({ error: 'Account not found' }, { status: 404 })
 
   const from = account.displayName ? `${encodeHeader(account.displayName)} <${account.email}>` : account.email
-  const lines = [
+  const atts = Array.isArray(attachments) ? attachments.filter(a => a?.filename && a?.contentBase64) : []
+  const headerLines = [
     `From: ${from}`,
     `To: ${to.trim()}`,
     ...(cc?.trim() ? [`Cc: ${cc.trim()}`] : []),
@@ -42,12 +44,45 @@ export async function POST(req: NextRequest) {
     ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
     ...(references ? [`References: ${references}`] : []),
     'MIME-Version: 1.0',
-    'Content-Type: text/html; charset="UTF-8"',
-    'Content-Transfer-Encoding: base64',
-    '',
-    Buffer.from(html ?? '', 'utf8').toString('base64'),
   ]
-  const raw = Buffer.from(lines.join('\r\n'), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+  let mime: string
+  if (atts.length === 0) {
+    mime = [
+      ...headerLines,
+      'Content-Type: text/html; charset="UTF-8"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      Buffer.from(html ?? '', 'utf8').toString('base64'),
+    ].join('\r\n')
+  } else {
+    const boundary = `b_${Date.now().toString(36)}_${headerLines.length}`
+    const parts: string[] = [
+      ...headerLines,
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      Buffer.from(html ?? '', 'utf8').toString('base64'),
+    ]
+    for (const a of atts) {
+      const clean = a.contentBase64.includes(',') ? a.contentBase64.split(',').pop()! : a.contentBase64 // strip data: prefix if present
+      parts.push(
+        `--${boundary}`,
+        `Content-Type: ${a.mimeType || 'application/octet-stream'}; name="${a.filename.replace(/"/g, '')}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-Disposition: attachment; filename="${a.filename.replace(/"/g, '')}"`,
+        '',
+        clean.replace(/[^A-Za-z0-9+/=]/g, ''),
+      )
+    }
+    parts.push(`--${boundary}--`)
+    mime = parts.join('\r\n')
+  }
+
+  const raw = Buffer.from(mime, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 
   try {
     const sent = await sendRawMessage(accountId, raw, threadId)

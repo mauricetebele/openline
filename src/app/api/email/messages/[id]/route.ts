@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { getMessage, modifyMessage, trashMessage } from '@/lib/email/google'
+import { getMessage, modifyMessage, trashMessage, getAttachment } from '@/lib/email/google'
 import { canUseMailAccount } from '@/lib/email/access'
 
 export const dynamic = 'force-dynamic'
@@ -20,11 +20,17 @@ function decodeB64Url(data?: string): string {
   if (!data) return ''
   try { return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8') } catch { return '' }
 }
-// Walk the MIME tree collecting the best body (prefer HTML) + attachment list.
-function extract(part: Part | undefined, acc: { html: string; text: string; atts: { filename: string; mimeType: string; attachmentId: string; size: number }[] }) {
+interface Inline { contentId: string; mimeType: string; attachmentId: string }
+// Walk the MIME tree collecting the best body (prefer HTML), attachments, and
+// inline images (referenced via cid: in the HTML).
+function extract(part: Part | undefined, acc: { html: string; text: string; atts: { filename: string; mimeType: string; attachmentId: string; size: number }[]; inlines: Inline[] }) {
   if (!part) return
   const mime = part.mimeType ?? ''
-  if (part.filename && part.body?.attachmentId) {
+  const contentId = h(part.headers, 'Content-ID').replace(/^<|>$/g, '')
+  if (mime.startsWith('image/') && contentId && part.body?.attachmentId) {
+    // Inline image (cid:) — resolve it below into a data: URI.
+    acc.inlines.push({ contentId, mimeType: mime, attachmentId: part.body.attachmentId })
+  } else if (part.filename && part.body?.attachmentId) {
     acc.atts.push({ filename: part.filename, mimeType: mime, attachmentId: part.body.attachmentId, size: part.body.size ?? 0 })
   } else if (mime === 'text/html' && part.body?.data) {
     acc.html += decodeB64Url(part.body.data)
@@ -46,8 +52,25 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       id: string; threadId: string; labelIds?: string[]; internalDate?: string; snippet?: string; payload?: Part
     }
     const headers = m.payload?.headers
-    const acc = { html: '', text: '', atts: [] as { filename: string; mimeType: string; attachmentId: string; size: number }[] }
+    const acc = { html: '', text: '', atts: [] as { filename: string; mimeType: string; attachmentId: string; size: number }[], inlines: [] as Inline[] }
     extract(m.payload, acc)
+
+    // Resolve inline (cid:) images into data: URIs so they render in the iframe.
+    if (acc.html && acc.inlines.length) {
+      await Promise.all(acc.inlines.map(async (img) => {
+        try {
+          const att = await getAttachment(accountId, params.id, img.attachmentId)
+          if (!att.data) return
+          const b64 = att.data.replace(/-/g, '+').replace(/_/g, '/')
+          const dataUri = `data:${img.mimeType};base64,${b64}`
+          // Replace src="cid:ID" / src='cid:ID' (Content-ID may be URL-encoded too).
+          const id = img.contentId
+          acc.html = acc.html
+            .replaceAll(`cid:${id}`, dataUri)
+            .replaceAll(`cid:${encodeURIComponent(id)}`, dataUri)
+        } catch { /* leave the cid: ref if it fails */ }
+      }))
+    }
 
     // Mark as read on open.
     if ((m.labelIds ?? []).includes('UNREAD')) {
