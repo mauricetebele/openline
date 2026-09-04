@@ -445,14 +445,47 @@ export default function TopNav() {
           </button>
         </div>
 
-        {/* Mobile hamburger */}
-        <button
-          onClick={() => setMobileOpen(v => !v)}
-          className="lg:hidden text-white/80 hover:text-white p-1 ml-auto"
-          aria-label="Toggle navigation"
-        >
-          {mobileOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
+        {/* Mobile alert indicators + hamburger */}
+        <div className="lg:hidden flex items-center gap-1 ml-auto">
+          {/* Orders due out today */}
+          {dueToday > 0 && (
+            <Link href="/unshipped-orders" title="Orders due out today"
+              className="relative flex items-center justify-center w-9 h-9 rounded-md text-gray-300 hover:bg-white/10 hover:text-white transition-colors">
+              <Package size={18} />
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
+                {dueToday > 99 ? '99+' : dueToday}
+              </span>
+            </Link>
+          )}
+          {/* Amazon refunds to review */}
+          {unreviewedRefunds > 0 && (
+            <Link href="/amazon-refunds" title="Amazon refunds to review"
+              className="relative flex items-center justify-center w-9 h-9 rounded-md text-gray-300 hover:bg-white/10 hover:text-white transition-colors">
+              <RotateCcw size={18} />
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
+                {unreviewedRefunds > 99 ? '99+' : unreviewedRefunds}
+              </span>
+            </Link>
+          )}
+          {/* Alerts bell */}
+          <Link href="/alerts" title="Alerts"
+            className="relative flex items-center justify-center w-9 h-9 rounded-md text-gray-300 hover:bg-white/10 hover:text-white transition-colors">
+            <Bell size={18} />
+            {unreadAlerts > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
+                {unreadAlerts > 99 ? '99+' : unreadAlerts}
+              </span>
+            )}
+          </Link>
+          {/* Hamburger */}
+          <button
+            onClick={() => setMobileOpen(v => !v)}
+            className="text-white/80 hover:text-white p-1"
+            aria-label="Toggle navigation"
+          >
+            {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
       </div>
 
       {/* Row 2: Desktop navigation links — top row */}
