@@ -558,7 +558,7 @@ export default function ProcessReturnsManager() {
                       {r.trackingNumber && (
                         <a
                           href={`https://sellercentral.amazon.com/gp/returns/list/v2/ref=xx_myr_dnav_xx?searchBy=CarrierTrackingId&searchString=${encodeURIComponent(r.trackingNumber)}&marketplaceIds=A1AM78C64UM0Y8%2CA33AVAJ2PDY3EV%2CA2Q3Y263D00KWC%2CA39IBJ37TRP1C6%2CA17E79C6D8DWNP%2CA2EUQ1WTGCTBG2%2CA19VAU5U5O7RUS%2CA1PA6795UKMFR9%2CA1F83G8C2ARO7P%2CATVPDKIKX0DER%2CA2VIGQ35RCS4UG&tabId=viewAll&returnRequestState=viewAll&orderBy=CreatedDateDesc&selectedDateRange=30&pendingActionsFilterBy=null&isOnPendingActionsTab=false`}
-                          target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                          target="amazonReturns" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
                           title="Find this tracking's return on Amazon Seller Central"
                           className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-amazon-orange border border-amazon-orange/40 rounded px-1 py-0.5 hover:bg-amazon-orange/10"
                         >
