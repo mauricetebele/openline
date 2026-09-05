@@ -198,9 +198,9 @@ export default function AmazonRefundsManager() {
                   <td className="px-3 py-2 font-mono whitespace-nowrap">
                     {r.orderId ? (
                       <span className="inline-flex items-center gap-1.5">
-                        <a href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`} target="amazonSellerCentral" rel="noopener noreferrer"
-                          onClick={() => setActiveRowId(r.id)}
-                          className="text-amazon-blue hover:underline">{r.orderId}</a>
+                        <a href={`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`}
+                          onClick={e => { e.preventDefault(); setActiveRowId(r.id); window.open(`https://sellercentral.amazon.com/orders-v3/order/${r.orderId}`, 'amazonSellerCentral') }}
+                          className="text-amazon-blue hover:underline cursor-pointer">{r.orderId}</a>
                         <button
                           onClick={() => { navigator.clipboard.writeText(r.orderId!); toast.success('Order ID copied') }}
                           title="Copy Order ID"
