@@ -163,6 +163,9 @@ export default function MailClient() {
   const [siteUsers, setSiteUsers] = useState<SiteUser[]>([])
   const [contacts, setContacts] = useState<{ name: string; email: string }[]>([])
   const [needsReconnect, setNeedsReconnect] = useState(false)
+  const [selectedMsgs, setSelectedMsgs] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [showBulkMove, setShowBulkMove] = useState(false)
   const [activeAccount, setActiveAccount] = useState<string>('')
   const [labels, setLabels] = useState<GLabel[]>([])
   const [folder, setFolder] = useState('INBOX')
@@ -341,7 +344,7 @@ export default function MailClient() {
   }, [])
 
   const loadMessages = useCallback(async (accountId: string, folderId: string, q: string) => {
-    setLoadingList(true); setSelected(null); setDetail(null); setNeedsReconnect(false)
+    setLoadingList(true); setSelected(null); setDetail(null); setNeedsReconnect(false); setSelectedMsgs(new Set()); setShowBulkMove(false)
     try {
       const qp = new URLSearchParams({ accountId, labelIds: folderId })
       if (q.trim()) qp.set('q', q.trim())
@@ -400,6 +403,41 @@ export default function MailClient() {
     if (removeFromList) { setMessages(prev => prev.filter(m => m.id !== id)); if (selected === id) { setSelected(null); setDetail(null) } }
   }
   async function archive(id: string) { await modify(id, undefined, ['INBOX'], folder === 'INBOX'); toast.success('Archived') }
+
+  // ── Bulk selection ──
+  const toggleMsg = (id: string) => setSelectedMsgs(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const allSelected = messages.length > 0 && messages.every(m => selectedMsgs.has(m.id))
+  const toggleSelectAll = () => setSelectedMsgs(prev => messages.every(m => prev.has(m.id)) ? new Set() : new Set(messages.map(m => m.id)))
+
+  async function runBulk(body: object, removeFromList: boolean, marksUnread?: boolean) {
+    const ids = Array.from(selectedMsgs)
+    if (!ids.length) return
+    setBulkBusy(true)
+    try {
+      const res = await fetch('/api/email/messages/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountId: activeAccount, ids, ...body }) })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      if (removeFromList) {
+        setMessages(prev => prev.filter(m => !selectedMsgs.has(m.id)))
+        if (selected && selectedMsgs.has(selected)) { setSelected(null); setDetail(null) }
+      } else if (marksUnread !== undefined) {
+        setMessages(prev => prev.map(m => selectedMsgs.has(m.id) ? { ...m, unread: marksUnread } : m))
+      }
+      toast.success(`${d.count} message${d.count !== 1 ? 's' : ''} updated`)
+      setSelectedMsgs(new Set()); setShowBulkMove(false)
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Bulk action failed') }
+    finally { setBulkBusy(false) }
+  }
+  const bulkArchive = () => runBulk({ removeLabelIds: ['INBOX'] }, folder === 'INBOX')
+  const bulkTrash = () => runBulk({ trash: true }, true)
+  const bulkRead = () => runBulk({ removeLabelIds: ['UNREAD'] }, false, false)
+  const bulkUnread = () => runBulk({ addLabelIds: ['UNREAD'] }, false, true)
+  function bulkMove(labelId: string) {
+    const remove = ['INBOX']
+    if (labels.some(l => l.type === 'user' && l.id === folder)) remove.push(folder)
+    runBulk({ addLabelIds: [labelId], removeLabelIds: remove }, true)
+  }
+  async function bulkMoveNewFolder() { const id = await createFolder(); if (id) bulkMove(id) }
 
   async function createFolder(): Promise<string | undefined> {
     const name = window.prompt('New folder name')
@@ -556,9 +594,43 @@ export default function MailClient() {
 
         {/* List */}
         <div className="w-[360px] shrink-0 border-r dark:border-gray-700 overflow-y-auto">
-          <div className="flex items-center justify-between px-3 py-1.5 border-b dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-900 z-10">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{SYSTEM_FOLDERS.find(f => f.id === folder)?.name ?? userLabels.find(l => l.id === folder)?.name ?? folder}</span>
-            <button onClick={() => loadMessages(activeAccount, folder, search)} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><RefreshCw size={13} /></button>
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-900 z-20">
+            <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} aria-label="Select all"
+              className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue cursor-pointer shrink-0" />
+            {selectedMsgs.size > 0 ? (
+              <div className="flex items-center gap-1 flex-1 min-w-0">
+                <span className="text-[11px] font-semibold text-amazon-blue mr-1">{selectedMsgs.size} selected</span>
+                <div className="flex-1" />
+                {bulkBusy && <Loader2 size={13} className="animate-spin text-gray-400" />}
+                <button onClick={bulkArchive} disabled={bulkBusy} title="Archive" className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500"><Archive size={14} /></button>
+                <button onClick={bulkTrash} disabled={bulkBusy} title="Trash" className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-500 hover:text-red-500"><Trash2 size={14} /></button>
+                <button onClick={bulkRead} disabled={bulkBusy} title="Mark read" className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500"><MailOpen size={14} /></button>
+                <button onClick={bulkUnread} disabled={bulkBusy} title="Mark unread" className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500"><Mail size={14} /></button>
+                <div className="relative">
+                  <button onClick={() => setShowBulkMove(v => !v)} disabled={bulkBusy} title="Move to folder" className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500"><FolderInput size={14} /></button>
+                  {showBulkMove && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowBulkMove(false)} />
+                      <div className="absolute right-0 top-full mt-1 z-50 w-52 max-h-72 overflow-y-auto rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-800 shadow-xl py-1">
+                        <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Move to</p>
+                        {userLabels.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">No folders yet</p>}
+                        {userLabels.map(l => (
+                          <button key={l.id} onClick={() => bulkMove(l.id)} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5"><Tag size={13} className="text-gray-400" /> <span className="truncate">{l.name}</span></button>
+                        ))}
+                        <button onClick={bulkMoveNewFolder} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm text-amazon-blue hover:bg-gray-50 dark:hover:bg-white/5 border-t border-gray-100 dark:border-white/5 mt-1 pt-2"><FolderPlus size={13} /> New folder…</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <button onClick={() => setSelectedMsgs(new Set())} title="Clear selection" className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 text-gray-400"><X size={14} /></button>
+              </div>
+            ) : (
+              <>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{SYSTEM_FOLDERS.find(f => f.id === folder)?.name ?? userLabels.find(l => l.id === folder)?.name ?? folder}</span>
+                <div className="flex-1" />
+                <button onClick={() => loadMessages(activeAccount, folder, search)} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><RefreshCw size={13} /></button>
+              </>
+            )}
           </div>
           {needsReconnect ? (
             <div className="p-4 m-3 rounded-lg border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 text-center space-y-2">
@@ -574,15 +646,21 @@ export default function MailClient() {
             <>
               {messages.map(m => {
                 const f = parseFrom(m.from)
+                const isSel = selectedMsgs.has(m.id)
                 return (
-                  <button key={m.id} onClick={() => openMessage(m.id)} className={clsx('w-full text-left px-3 py-2 border-b dark:border-gray-800 block', selected === m.id ? 'bg-amazon-blue/10' : 'hover:bg-gray-50 dark:hover:bg-white/5')}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className={clsx('text-xs truncate', m.unread ? 'font-bold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300')}>{f.name}</span>
-                      <span className="text-[10px] text-gray-400 shrink-0">{fmtDate(m.date)}</span>
-                    </div>
-                    <div className={clsx('text-xs truncate', m.unread ? 'font-semibold text-gray-800 dark:text-gray-200' : 'text-gray-600 dark:text-gray-400')}>{m.subject || '(no subject)'}</div>
-                    <div className="text-[11px] text-gray-400 truncate">{m.snippet}</div>
-                  </button>
+                  <div key={m.id} className={clsx('flex items-start gap-2 px-3 py-2 border-b dark:border-gray-800',
+                    selected === m.id ? 'bg-amazon-blue/10' : isSel ? 'bg-amber-50 dark:bg-amber-900/10' : 'hover:bg-gray-50 dark:hover:bg-white/5')}>
+                    <input type="checkbox" checked={isSel} onChange={() => toggleMsg(m.id)} onClick={e => e.stopPropagation()} aria-label="Select message"
+                      className="mt-0.5 rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue cursor-pointer shrink-0" />
+                    <button onClick={() => openMessage(m.id)} className="flex-1 min-w-0 text-left">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={clsx('text-xs truncate', m.unread ? 'font-bold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300')}>{f.name}</span>
+                        <span className="text-[10px] text-gray-400 shrink-0">{fmtDate(m.date)}</span>
+                      </div>
+                      <div className={clsx('text-xs truncate', m.unread ? 'font-semibold text-gray-800 dark:text-gray-200' : 'text-gray-600 dark:text-gray-400')}>{m.subject || '(no subject)'}</div>
+                      <div className="text-[11px] text-gray-400 truncate">{m.snippet}</div>
+                    </button>
+                  </div>
                 )
               })}
               {nextToken && <button onClick={loadMore} className="w-full py-2 text-xs text-amazon-blue hover:underline">Load more</button>}
