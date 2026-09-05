@@ -263,7 +263,9 @@ export default function ProductFamiliesManager() {
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {visible.map((m, i) => {
-                      const grades = details[m.id] ?? []
+                      const allGrades = details[m.id] ?? []
+                      // With the in-stock filter on, hide grades that have no ready-for-sale qty.
+                      const grades = inStockOnly ? allGrades.filter(g => g.readyForSale > 0) : allGrades
                       const isOpen = !collapsed.has(m.id)
                       const ready = totalReady(m.id)
                       const listingCount = grades.reduce((s, g) => s + g.listings.length, 0)
