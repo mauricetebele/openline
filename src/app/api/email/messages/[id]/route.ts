@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { getMessage, modifyMessage, trashMessage, getAttachment } from '@/lib/email/google'
+import { getMessage, modifyMessage, trashMessage, getAttachment, pMap } from '@/lib/email/google'
 import { canUseMailAccount } from '@/lib/email/access'
 
 export const dynamic = 'force-dynamic'
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     // Resolve inline (cid:) images into data: URIs so they render in the iframe.
     if (acc.html && acc.inlines.length) {
-      await Promise.all(acc.inlines.map(async (img) => {
+      await pMap(acc.inlines, async (img) => {
         try {
           const att = await getAttachment(accountId, params.id, img.attachmentId)
           if (!att.data) return
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
             .replaceAll(`cid:${id}`, dataUri)
             .replaceAll(`cid:${encodeURIComponent(id)}`, dataUri)
         } catch { /* leave the cid: ref if it fails */ }
-      }))
+      }, 3)
     }
 
     // Mark as read on open.

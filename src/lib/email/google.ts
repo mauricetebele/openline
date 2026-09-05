@@ -141,6 +141,18 @@ export async function saveAccountTokens(email: string, displayName: string | und
 
 // ── Gmail REST ────────────────────────────────────────────────────────────────
 
+/** Run an async fn over items with a small concurrency cap (Gmail limits
+ *  concurrent per-user requests — high parallelism triggers 429s). */
+export async function pMap<T, R>(items: T[], fn: (item: T, i: number) => Promise<R>, concurrency = 4): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let idx = 0
+  async function worker() {
+    while (idx < items.length) { const cur = idx++; results[cur] = await fn(items[cur], cur) }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length || 1) }, worker))
+  return results
+}
+
 async function gmailFetch(accountId: string, path: string, init?: RequestInit): Promise<unknown> {
   const token = await getAccessToken(accountId)
   const res = await fetch(`${GMAIL_API}${path}`, {

@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { listMessages, getMessage } from '@/lib/email/google'
+import { listMessages, getMessage, pMap } from '@/lib/email/google'
 import { canUseMailAccount } from '@/lib/email/access'
 
 export const dynamic = 'force-dynamic'
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   try {
     const list = await listMessages(accountId, { labelIds, q, pageToken, maxResults: 25 })
     const ids = list.messages ?? []
-    const summaries = await Promise.all(ids.map(async ({ id, threadId }) => {
+    const summaries = await pMap(ids, async ({ id, threadId }) => {
       const m = await getMessage(accountId, id, 'metadata') as {
         labelIds?: string[]; snippet?: string; internalDate?: string
         payload?: { headers?: Header[] }
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
         unread: (m.labelIds ?? []).includes('UNREAD'),
         labelIds: m.labelIds ?? [],
       }
-    }))
+    }, 4)
     return NextResponse.json({ messages: summaries, nextPageToken: list.nextPageToken ?? null })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed to load messages' }, { status: 502 })

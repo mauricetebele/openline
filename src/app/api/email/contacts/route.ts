@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { listMessages, getMessage, listPeopleContacts } from '@/lib/email/google'
+import { listMessages, getMessage, listPeopleContacts, pMap } from '@/lib/email/google'
 import { canUseMailAccount } from '@/lib/email/access'
 
 export const dynamic = 'force-dynamic'
@@ -60,20 +60,20 @@ export async function GET(req: NextRequest) {
       listMessages(accountId, { labelIds: ['SENT'], maxResults: 30 }),
       listMessages(accountId, { labelIds: ['INBOX'], maxResults: 20 }),
     ])
-    const sentIds = (sent.messages ?? []).map(m => m.id)
-    const inboxIds = (inbox.messages ?? []).map(m => m.id)
-
-    await Promise.all([
-      ...sentIds.map(async id => {
-        const m = await getMessage(accountId, id, 'metadata') as { payload?: { headers?: Header[] } }
+    const scan: { id: string; from: boolean }[] = [
+      ...(sent.messages ?? []).map(m => ({ id: m.id, from: false })),
+      ...(inbox.messages ?? []).map(m => ({ id: m.id, from: true })),
+    ]
+    // Throttled — Gmail rejects too many concurrent per-user requests.
+    await pMap(scan, async ({ id, from }) => {
+      const m = await getMessage(accountId, id, 'metadata') as { payload?: { headers?: Header[] } }
+      if (from) {
+        parseAddrs(header(m.payload?.headers, 'From')).forEach(add)
+      } else {
         parseAddrs(header(m.payload?.headers, 'To')).forEach(add)
         parseAddrs(header(m.payload?.headers, 'Cc')).forEach(add)
-      }),
-      ...inboxIds.map(async id => {
-        const m = await getMessage(accountId, id, 'metadata') as { payload?: { headers?: Header[] } }
-        parseAddrs(header(m.payload?.headers, 'From')).forEach(add)
-      }),
-    ])
+      }
+    }, 4)
 
     // Named contacts first, then the rest — capped for a responsive datalist.
     const contacts = Array.from(byEmail.values())

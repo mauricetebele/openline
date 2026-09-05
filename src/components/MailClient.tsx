@@ -209,6 +209,7 @@ export default function MailClient() {
   const [sending, setSending] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composeToPending = useRef('')
+  const contactsLoadedFor = useRef<string | null>(null)
 
   // AI rule creation
   const [showRules, setShowRules] = useState(false)
@@ -372,9 +373,9 @@ export default function MailClient() {
     if (bootstrapped.current) return; bootstrapped.current = true
     ;(async () => {
       const accts = await loadAccounts()
-      if (accts.length) { setActiveAccount(accts[0].id); loadLabels(accts[0].id); loadContacts(accts[0].id); loadMessages(accts[0].id, 'INBOX', '') }
+      if (accts.length) { setActiveAccount(accts[0].id); loadLabels(accts[0].id); loadMessages(accts[0].id, 'INBOX', '') }
     })()
-  }, [loadAccounts, loadLabels, loadContacts, loadMessages])
+  }, [loadAccounts, loadLabels, loadMessages])
 
   // OAuth redirect feedback
   useEffect(() => {
@@ -383,7 +384,9 @@ export default function MailClient() {
     else if (error) { toast.error(error === 'not_configured' ? 'Gmail OAuth is not configured yet' : error === 'no_access' ? 'You do not have Mail access' : `Connect failed: ${error}`); window.history.replaceState({}, '', '/mail') }
   }, [params])
 
-  function switchAccount(id: string) { setActiveAccount(id); setFolder('INBOX'); setSearch(''); loadLabels(id); loadContacts(id); loadMessages(id, 'INBOX', '') }
+  function switchAccount(id: string) { setActiveAccount(id); setFolder('INBOX'); setSearch(''); contactsLoadedFor.current = null; setContacts([]); loadLabels(id); loadMessages(id, 'INBOX', '') }
+  // Load contacts on demand (first compose) instead of on page load, to avoid a burst of Gmail calls.
+  function ensureContacts() { if (activeAccount && contactsLoadedFor.current !== activeAccount) { contactsLoadedFor.current = activeAccount; loadContacts(activeAccount) } }
   function openFolder(id: string) { setFolder(id); setSearch(''); loadMessages(activeAccount, id, '') }
   function runSearch() { loadMessages(activeAccount, folder, search) }
 
@@ -472,7 +475,7 @@ export default function MailClient() {
 
   function startReply() {
     if (!detail) return
-    composeToPending.current = ''
+    composeToPending.current = ''; ensureContacts()
     const to = parseFrom(detail.from).email
     setCompose({
       to: to ? [to] : [], cc: [], subject: detail.subject.startsWith('Re:') ? detail.subject : `Re: ${detail.subject}`,
@@ -480,7 +483,7 @@ export default function MailClient() {
       references: [detail.references, detail.messageId].filter(Boolean).join(' '),
     })
   }
-  function startCompose() { composeToPending.current = ''; setCompose({ to: [], cc: [], subject: '', body: '' }) }
+  function startCompose() { composeToPending.current = ''; ensureContacts(); setCompose({ to: [], cc: [], subject: '', body: '' }) }
 
   function composeKeyDown(e: React.KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); sendMail() }
