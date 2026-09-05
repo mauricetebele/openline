@@ -11,6 +11,7 @@ interface SearchResult { id: string; sku: string; description: string; familyId:
 interface Listing {
   mskuId: string; marketplace: string; sellerSku: string; accountId: string | null
   price: number | null; cost: number | null; commissionPct: number | null; marginPct: number | null
+  pushingQty: number | null; listingStatus: string | null
 }
 interface GradeRow { gradeId: string | null; grade: string; readyForSale: number; listings: Listing[] }
 
@@ -322,7 +323,20 @@ export default function ProductFamiliesManager() {
                                               return (
                                                 <tr key={l.mskuId} className="text-gray-700 dark:text-gray-300">
                                                   <td className="px-3 py-1.5"><span className={clsx('inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold capitalize', MKT_COLOR[l.marketplace] ?? 'bg-gray-100 text-gray-600')}>{l.marketplace}</span></td>
-                                                  <td className="px-3 py-1.5 font-mono text-gray-500 dark:text-gray-400 whitespace-nowrap">{l.sellerSku}</td>
+                                                  <td className="px-3 py-1.5 whitespace-nowrap">
+                                                    <span className="font-mono text-gray-500 dark:text-gray-400">{l.sellerSku}</span>
+                                                    {l.pushingQty != null && (
+                                                      <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-[10px] font-semibold" title="Quantity currently live on the listing">
+                                                        Push qty: {l.pushingQty}
+                                                      </span>
+                                                    )}
+                                                    {l.listingStatus && (
+                                                      <span className={clsx('ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold capitalize',
+                                                        /active/i.test(l.listingStatus) ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400')}>
+                                                        {l.listingStatus}
+                                                      </span>
+                                                    )}
+                                                  </td>
                                                   <td className="px-3 py-1.5 text-right whitespace-nowrap">
                                                     {editable ? (
                                                       <div className="inline-flex items-center gap-1">
