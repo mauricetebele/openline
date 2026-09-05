@@ -1,18 +1,18 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Boxes, Plus, Search, X, Loader2, Trash2, Pencil, Filter, Tag } from 'lucide-react'
+import { Boxes, Plus, Search, X, Loader2, Trash2, Pencil, Filter, Tag, ChevronRight, ChevronDown } from 'lucide-react'
 import type { ProductAttrs } from '@/lib/product-attributes'
 
 interface Family { id: string; name: string; memberCount: number }
 interface Member { id: string; sku: string; description: string; isSerializable?: boolean; attrs: ProductAttrs }
 interface SearchResult { id: string; sku: string; description: string; familyId: string | null; familyName: string | null }
-interface PriceRow {
-  mskuId: string; productId: string; productSku: string; description: string
-  marketplace: string; grade: string | null; sellerSku: string; accountId: string | null
-  asin: string | null; price: number | null; minPrice: number | null; maxPrice: number | null; listingStatus: string | null
+interface Listing {
+  mskuId: string; marketplace: string; sellerSku: string; accountId: string | null
+  price: number | null; cost: number | null; commissionPct: number | null; marginPct: number | null
 }
+interface GradeRow { gradeId: string | null; grade: string; readyForSale: number; listings: Listing[] }
 
 const MKT_COLOR: Record<string, string> = {
   amazon: 'bg-orange-100 text-orange-700', backmarket: 'bg-blue-100 text-blue-700', wholesale: 'bg-purple-100 text-purple-700',
@@ -28,15 +28,31 @@ const ATTRS = [
 ] as const
 type AttrKey = typeof ATTRS[number]['key']
 
+const COL_COUNT = 4 + ATTRS.length // chevron, SKU, Title, ready, + attrs, (remove shares last)
+
+/** Live net margin at a given price (null when cost/fees unknown or out of stock). */
+function liveMargin(l: Listing, priceStr: string): number | null {
+  if (l.cost == null || l.commissionPct == null) return null
+  const price = parseFloat(priceStr)
+  if (!(price > 0)) return null
+  return Math.round(((price - (l.commissionPct / 100) * price - l.cost) / price) * 1000) / 10
+}
+function marginClass(m: number | null): string {
+  if (m == null) return 'text-gray-400'
+  if (m >= 12) return 'text-emerald-600 dark:text-emerald-400'
+  if (m >= 0) return 'text-amber-600 dark:text-amber-400'
+  return 'text-red-600 dark:text-red-400'
+}
+
 export default function ProductFamiliesManager() {
   const [families, setFamilies] = useState<Family[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [family, setFamily] = useState<{ id: string; name: string; members: Member[] } | null>(null)
   const [loadingFamily, setLoadingFamily] = useState(false)
   const [filters, setFilters] = useState<Partial<Record<AttrKey, string>>>({})
-  const [view, setView] = useState<'attributes' | 'pricing'>('attributes')
-  const [pricing, setPricing] = useState<PriceRow[]>([])
-  const [loadingPricing, setLoadingPricing] = useState(false)
+  const [details, setDetails] = useState<Record<string, GradeRow[]>>({})
+  const [loadingDetails, setLoadingDetails] = useState(false)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [priceEdits, setPriceEdits] = useState<Record<string, string>>({})
   const [pushing, setPushing] = useState<string | null>(null)
 
@@ -52,37 +68,48 @@ export default function ProductFamiliesManager() {
   }, [])
   useEffect(() => { loadFamilies() }, [loadFamilies])
 
+  const loadDetails = useCallback(async (id: string) => {
+    setLoadingDetails(true)
+    try {
+      const d = await (await fetch(`/api/product-families/${id}/details`)).json()
+      const map: Record<string, GradeRow[]> = {}
+      for (const p of (d.products ?? [])) map[p.productId] = p.grades
+      setDetails(map)
+    } catch { /* ignore */ } finally { setLoadingDetails(false) }
+  }, [])
+
   const openFamily = useCallback(async (id: string) => {
-    setActiveId(id); setLoadingFamily(true); setFilters({}); setView('attributes'); setPricing([]); setPriceEdits({})
+    setActiveId(id); setLoadingFamily(true); setFilters({}); setDetails({}); setPriceEdits({}); setCollapsed(new Set())
+    loadDetails(id)
     try { const d = await (await fetch(`/api/product-families/${id}`)).json(); if (!d.error) setFamily(d) } catch { /* ignore */ }
     finally { setLoadingFamily(false) }
-  }, [])
+  }, [loadDetails])
 
-  const loadPricing = useCallback(async (id: string) => {
-    setLoadingPricing(true); setPriceEdits({})
-    try { const d = await (await fetch(`/api/product-families/${id}/pricing`)).json(); setPricing(d.rows ?? []) } catch { /* ignore */ }
-    finally { setLoadingPricing(false) }
-  }, [])
-  useEffect(() => { if (view === 'pricing' && activeId) loadPricing(activeId) }, [view, activeId, loadPricing])
-
-  async function pushPrice(row: PriceRow) {
-    const raw = priceEdits[row.mskuId] ?? (row.price != null ? String(row.price) : '')
+  async function pushPrice(l: Listing) {
+    const raw = priceEdits[l.mskuId] ?? (l.price != null ? String(l.price) : '')
     const price = parseFloat(raw)
     if (!(price > 0)) { toast.error('Enter a valid price'); return }
-    setPushing(row.mskuId)
+    setPushing(l.mskuId)
     try {
       let res: Response
-      if (row.marketplace === 'backmarket') {
-        res = await fetch('/api/marketplace-skus/backmarket-price', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sellerSku: row.sellerSku, price }) })
-      } else if (row.marketplace === 'amazon') {
-        if (!row.accountId) throw new Error('No Amazon account linked to this listing')
-        res = await fetch('/api/listings/update-price', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountId: row.accountId, sku: row.sellerSku, price }) })
+      if (l.marketplace === 'backmarket') {
+        res = await fetch('/api/marketplace-skus/backmarket-price', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sellerSku: l.sellerSku, price }) })
+      } else if (l.marketplace === 'amazon') {
+        if (!l.accountId) throw new Error('No Amazon account linked to this listing')
+        res = await fetch('/api/listings/update-price', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountId: l.accountId, sku: l.sellerSku, price }) })
       } else { throw new Error('Wholesale prices are managed on the order') }
       const d = await res.json()
       if (!res.ok) throw new Error(d.error ?? 'Push failed')
-      toast.success(`Pushed $${price.toFixed(2)} to ${row.marketplace}`)
-      setPricing(prev => prev.map(r => r.mskuId === row.mskuId ? { ...r, price } : r))
-      setPriceEdits(e => { const n = { ...e }; delete n[row.mskuId]; return n })
+      toast.success(`Pushed $${price.toFixed(2)} to ${l.marketplace}`)
+      // Update the price in place; margin recomputes live from the new price.
+      setDetails(prev => {
+        const next: Record<string, GradeRow[]> = {}
+        for (const [pid, grades] of Object.entries(prev)) {
+          next[pid] = grades.map(g => ({ ...g, listings: g.listings.map(x => x.mskuId === l.mskuId ? { ...x, price } : x) }))
+        }
+        return next
+      })
+      setPriceEdits(e => { const n = { ...e }; delete n[l.mskuId]; return n })
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Push failed') }
     finally { setPushing(null) }
   }
@@ -146,6 +173,8 @@ export default function ProductFamiliesManager() {
   const members = family?.members ?? []
   const optionsFor = (key: AttrKey) => Array.from(new Set(members.map(m => m.attrs[key]).filter(Boolean) as string[])).sort()
   const visible = members.filter(m => (Object.entries(filters) as [AttrKey, string][]).every(([k, v]) => !v || m.attrs[k] === v))
+  const toggle = (id: string) => setCollapsed(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const totalReady = (pid: string) => (details[pid] ?? []).reduce((s, g) => s + g.readyForSale, 0)
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -182,21 +211,15 @@ export default function ProductFamiliesManager() {
                   {family.name}
                   <button onClick={renameFamily} title="Rename" className="text-gray-300 hover:text-gray-600 dark:hover:text-gray-200"><Pencil size={13} /></button>
                 </h2>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{members.length} SKU{members.length !== 1 ? 's' : ''}{visible.length !== members.length ? ` · ${visible.length} shown` : ''}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{members.length} SKU{members.length !== 1 ? 's' : ''}{visible.length !== members.length ? ` · ${visible.length} shown` : ''}{loadingDetails ? ' · loading prices…' : ''}</p>
               </div>
               <div className="flex items-center gap-2">
-                <div className="inline-flex rounded-md border border-gray-300 dark:border-white/15 overflow-hidden text-xs font-medium">
-                  {(['attributes', 'pricing'] as const).map(v => (
-                    <button key={v} onClick={() => setView(v)} className={clsx('px-3 h-9 capitalize', view === v ? 'bg-amazon-blue text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5')}>{v}</button>
-                  ))}
-                </div>
                 <button onClick={deleteFamily} title="Delete family" className="text-gray-400 hover:text-red-500 p-1.5"><Trash2 size={15} /></button>
                 <button onClick={() => { setShowAdd(true); setAddResults([]); setAddSearch('') }} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-blue-700"><Plus size={15} /> Add SKUs</button>
               </div>
             </div>
 
             {/* Attribute filters */}
-            {view === 'attributes' && (
             <div className="px-6 py-2.5 border-b dark:border-gray-700 shrink-0 flex flex-wrap items-center gap-2 bg-gray-50 dark:bg-gray-900/40">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 inline-flex items-center gap-1"><Filter size={11} /> Filter</span>
               {ATTRS.map(a => {
@@ -212,99 +235,124 @@ export default function ProductFamiliesManager() {
               })}
               {Object.values(filters).some(Boolean) && <button onClick={() => setFilters({})} className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Clear</button>}
             </div>
-            )}
 
             <div className="flex-1 overflow-auto">
-              {view === 'attributes' ? (
-                loadingFamily ? (
-                  <div className="py-20 text-center text-sm text-gray-400 flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading…</div>
-                ) : members.length === 0 ? (
-                  <div className="py-20 text-center text-sm text-gray-400">No SKUs in this family yet. Click <span className="font-medium">Add SKUs</span>.</div>
-                ) : (
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-gray-800 z-10">
-                      <tr>
-                        <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">SKU</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-gray-100">Title</th>
-                        {ATTRS.map(a => <th key={a.key} className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">{a.label}</th>)}
-                        <th className="px-3 py-2.5 w-8"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                      {visible.map((m, i) => (
-                        <tr key={m.id} className={i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
-                          <td className="px-3 py-2 font-mono font-semibold text-amazon-blue whitespace-nowrap">{m.sku}</td>
-                          <td className="px-3 py-2 text-gray-700 dark:text-gray-300 max-w-[360px] truncate" title={m.description}>{m.description}</td>
-                          {ATTRS.map(a => (
-                            <td key={a.key} className="px-3 py-2 whitespace-nowrap">
-                              {m.attrs[a.key] ? <span className="text-gray-800 dark:text-gray-200">{m.attrs[a.key]}</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                            </td>
-                          ))}
-                          <td className="px-3 py-2">
-                            <button onClick={() => removeMember(m.id)} title="Remove from family" className="text-gray-300 hover:text-red-500"><X size={13} /></button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )
+              {loadingFamily ? (
+                <div className="py-20 text-center text-sm text-gray-400 flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading…</div>
+              ) : members.length === 0 ? (
+                <div className="py-20 text-center text-sm text-gray-400">No SKUs in this family yet. Click <span className="font-medium">Add SKUs</span>.</div>
               ) : (
-                // ── Pricing view ──
-                loadingPricing ? (
-                  <div className="py-20 text-center text-sm text-gray-400 flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading prices…</div>
-                ) : pricing.length === 0 ? (
-                  <div className="py-20 text-center text-sm text-gray-400">No marketplace listings for this family&apos;s SKUs.</div>
-                ) : (
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-gray-800 z-10">
-                      <tr>
-                        <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">SKU</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-gray-100">Title</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Marketplace</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Grade</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Seller SKU</th>
-                        <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Price</th>
-                        <th className="px-3 py-2.5 w-20"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                      {pricing.map((r, i) => {
-                        const editable = r.marketplace === 'amazon' || r.marketplace === 'backmarket'
-                        const val = priceEdits[r.mskuId] ?? (r.price != null ? String(r.price) : '')
-                        const changed = editable && val !== '' && parseFloat(val) !== (r.price ?? NaN)
-                        return (
-                          <tr key={r.mskuId} className={i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
-                            <td className="px-3 py-2 font-mono font-semibold text-amazon-blue whitespace-nowrap">{r.productSku}</td>
-                            <td className="px-3 py-2 text-gray-600 dark:text-gray-400 max-w-[260px] truncate" title={r.description}>{r.description}</td>
-                            <td className="px-3 py-2"><span className={clsx('inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold capitalize', MKT_COLOR[r.marketplace] ?? 'bg-gray-100 text-gray-600')}>{r.marketplace}</span></td>
-                            <td className="px-3 py-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.grade ?? '—'}</td>
-                            <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400 whitespace-nowrap">{r.sellerSku}</td>
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-gray-800 z-10">
+                    <tr>
+                      <th className="px-2 py-2.5 w-6"></th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">SKU</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-100">Title</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Ready</th>
+                      {ATTRS.map(a => <th key={a.key} className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">{a.label}</th>)}
+                      <th className="px-3 py-2.5 w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {visible.map((m, i) => {
+                      const grades = details[m.id] ?? []
+                      const isOpen = !collapsed.has(m.id)
+                      const ready = totalReady(m.id)
+                      const listingCount = grades.reduce((s, g) => s + g.listings.length, 0)
+                      return (
+                        <Fragment key={m.id}>
+                          <tr onClick={() => toggle(m.id)} className={clsx('cursor-pointer', i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50', 'hover:bg-amazon-blue/5')}>
+                            <td className="px-2 py-2 text-gray-400">{isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</td>
+                            <td className="px-3 py-2 font-mono font-semibold text-amazon-blue whitespace-nowrap">{m.sku}</td>
+                            <td className="px-3 py-2 text-gray-700 dark:text-gray-300 max-w-[340px] truncate" title={m.description}>{m.description}</td>
                             <td className="px-3 py-2 text-right whitespace-nowrap">
-                              {editable ? (
-                                <div className="inline-flex items-center gap-1">
-                                  <span className="text-gray-400">$</span>
-                                  <input type="number" step="0.01" min="0" value={val}
-                                    onChange={e => setPriceEdits(s => ({ ...s, [r.mskuId]: e.target.value }))}
-                                    onKeyDown={e => { if (e.key === 'Enter') pushPrice(r) }}
-                                    className="w-24 h-7 rounded border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2 text-right text-xs text-gray-900 dark:text-white" />
-                                </div>
-                              ) : <span className="text-gray-400">{r.price != null ? `$${r.price.toFixed(2)}` : '—'}</span>}
+                              <span className={clsx('font-semibold', ready > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-gray-600')}>{ready}</span>
+                              {listingCount > 0 && <span className="ml-1.5 text-[10px] text-gray-400">{listingCount} list.</span>}
                             </td>
-                            <td className="px-3 py-2 text-right">
-                              {editable && (
-                                <button onClick={() => pushPrice(r)} disabled={pushing === r.mskuId || !val}
-                                  className={clsx('inline-flex items-center gap-1 h-7 px-2.5 rounded text-[11px] font-semibold disabled:opacity-40',
-                                    changed ? 'bg-amazon-blue text-white hover:bg-blue-700' : 'border border-gray-300 dark:border-white/15 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5')}>
-                                  {pushing === r.mskuId ? <Loader2 size={11} className="animate-spin" /> : <Tag size={11} />} Push
-                                </button>
-                              )}
+                            {ATTRS.map(a => (
+                              <td key={a.key} className="px-3 py-2 whitespace-nowrap">
+                                {m.attrs[a.key] ? <span className="text-gray-800 dark:text-gray-200">{m.attrs[a.key]}</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                              </td>
+                            ))}
+                            <td className="px-3 py-2">
+                              <button onClick={e => { e.stopPropagation(); removeMember(m.id) }} title="Remove from family" className="text-gray-300 hover:text-red-500"><X size={13} /></button>
                             </td>
                           </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                )
+                          {isOpen && (
+                            <tr className="bg-gray-50/70 dark:bg-gray-800/30">
+                              <td className="p-0" colSpan={COL_COUNT + 1}>
+                                <div className="pl-9 pr-4 py-2 space-y-2">
+                                  {grades.length === 0 ? (
+                                    <p className="text-[11px] text-gray-400 py-1">{loadingDetails ? 'Loading marketplace listings…' : 'No marketplace listings or stock for this SKU.'}</p>
+                                  ) : grades.map(g => (
+                                    <div key={g.gradeId ?? 'none'} className="rounded-md border border-gray-200 dark:border-white/10 overflow-hidden bg-white dark:bg-gray-900">
+                                      <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-white/5 border-b border-gray-200 dark:border-white/10">
+                                        <span className="inline-flex px-1.5 py-0.5 rounded bg-gray-800 dark:bg-gray-700 text-white text-[10px] font-bold whitespace-nowrap">{g.gradeId ? `Grade ${g.grade}` : g.grade}</span>
+                                        <span className="text-[11px] text-gray-500 dark:text-gray-400">Ready for Sale: <b className={g.readyForSale > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'}>{g.readyForSale}</b></span>
+                                      </div>
+                                      {g.listings.length === 0 ? (
+                                        <div className="px-3 py-2 text-[11px] text-gray-400">No marketplace listings for this grade.</div>
+                                      ) : (
+                                        <table className="w-full text-[11px]">
+                                          <thead>
+                                            <tr className="text-gray-400 dark:text-gray-500">
+                                              <th className="px-3 py-1.5 text-left font-medium">Marketplace</th>
+                                              <th className="px-3 py-1.5 text-left font-medium">Seller SKU</th>
+                                              <th className="px-3 py-1.5 text-right font-medium">Price</th>
+                                              <th className="px-3 py-1.5 text-right font-medium">Margin</th>
+                                              <th className="px-3 py-1.5 w-16"></th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                                            {g.listings.map(l => {
+                                              const editable = l.marketplace === 'amazon' || l.marketplace === 'backmarket'
+                                              const val = priceEdits[l.mskuId] ?? (l.price != null ? String(l.price) : '')
+                                              const changed = editable && val !== '' && parseFloat(val) !== (l.price ?? NaN)
+                                              const margin = val !== '' ? liveMargin(l, val) : l.marginPct
+                                              return (
+                                                <tr key={l.mskuId} className="text-gray-700 dark:text-gray-300">
+                                                  <td className="px-3 py-1.5"><span className={clsx('inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold capitalize', MKT_COLOR[l.marketplace] ?? 'bg-gray-100 text-gray-600')}>{l.marketplace}</span></td>
+                                                  <td className="px-3 py-1.5 font-mono text-gray-500 dark:text-gray-400 whitespace-nowrap">{l.sellerSku}</td>
+                                                  <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                                                    {editable ? (
+                                                      <div className="inline-flex items-center gap-1">
+                                                        <span className="text-gray-400">$</span>
+                                                        <input type="number" step="0.01" min="0" value={val}
+                                                          onChange={e => setPriceEdits(s => ({ ...s, [l.mskuId]: e.target.value }))}
+                                                          onKeyDown={e => { if (e.key === 'Enter') pushPrice(l) }}
+                                                          className="w-24 h-7 rounded border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2 text-right text-[11px] text-gray-900 dark:text-white" />
+                                                      </div>
+                                                    ) : <span className="text-gray-400">{l.price != null ? `$${l.price.toFixed(2)}` : '—'}</span>}
+                                                  </td>
+                                                  <td className={clsx('px-3 py-1.5 text-right font-semibold whitespace-nowrap tabular-nums', marginClass(margin))}>
+                                                    {margin != null ? `${margin.toFixed(1)}%` : '—'}
+                                                  </td>
+                                                  <td className="px-3 py-1.5 text-right">
+                                                    {editable && (
+                                                      <button onClick={() => pushPrice(l)} disabled={pushing === l.mskuId || !val}
+                                                        className={clsx('inline-flex items-center gap-1 h-6 px-2 rounded text-[10px] font-semibold disabled:opacity-40',
+                                                          changed ? 'bg-amazon-blue text-white hover:bg-blue-700' : 'border border-gray-300 dark:border-white/15 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5')}>
+                                                        {pushing === l.mskuId ? <Loader2 size={10} className="animate-spin" /> : <Tag size={10} />} Push
+                                                      </button>
+                                                    )}
+                                                  </td>
+                                                </tr>
+                                              )
+                                            })}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
               )}
             </div>
           </>
