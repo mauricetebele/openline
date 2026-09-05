@@ -4,6 +4,15 @@ import { toast } from 'sonner'
 import { clsx } from 'clsx'
 import { Flag, CheckCircle2, RefreshCw, Loader2, DollarSign, Undo2, Copy } from 'lucide-react'
 
+// Small Amazon "a" mark for the FBA-returns shortcut.
+function AmazonIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M13.23 10.56c0-.94-.02-1.72-.5-2.55-.4-.68-1.05-1.1-1.75-1.1-.96 0-1.7.72-1.7 1.8 0 2.12 1.9 2.5 3.66 2.85v-1zm2.4 5.8c-.16.14-.38.15-.56.06-.8-.66-.94-.96-1.37-1.6-1.32 1.34-2.25 1.74-3.95 1.74-2.02 0-3.6-1.24-3.6-3.74 0-1.95 1.06-3.28 2.56-3.93 1.3-.57 3.13-.68 4.52-.83v-.3c0-.57.05-1.25-.3-1.74-.28-.44-.83-.62-1.32-.62-.9 0-1.7.46-1.9 1.42-.04.2-.2.42-.4.43l-2.32-.25c-.2-.05-.42-.2-.36-.5.53-2.8 3.07-3.65 5.34-3.65 1.16 0 2.68.3 3.6 1.18 1.16 1.08 1.05 2.53 1.05 4.1v3.72c0 1.12.46 1.6.9 2.2.14.2.18.45-.02.62-.5.4-1.36 1.16-1.84 1.6zM21.9 18.4c-2.72 2-6.67 3.07-10.06 3.07-4.76 0-9.04-1.76-12.28-4.68-.25-.23-.03-.54.28-.36 3.5 2.03 7.82 3.26 12.28 3.26 3.02 0 6.34-.63 9.4-1.92.46-.2.85.3.4.63zm1-.98c-.35-.44-2.3-.2-3.18-.1-.26.03-.3-.2-.06-.37 1.55-1.1 4.1-.78 4.4-.41.3.37-.08 2.94-1.54 4.16-.22.2-.44.1-.34-.16.32-.83 1.04-2.68.72-3.12z"/>
+    </svg>
+  )
+}
+
 interface Refund {
   id: string
   transactionId: string
@@ -212,7 +221,13 @@ export default function AmazonRefundsManager() {
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {r.channel === 'FBA' ? (
-                      <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">FBA</span>
+                      <span className="inline-flex items-center gap-1">
+                        <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">FBA</span>
+                        <a href="https://sellercentral.amazon.com/fba-return"
+                          onClick={e => { e.preventDefault(); window.open('https://sellercentral.amazon.com/fba-return', 'amazonSellerCentral') }}
+                          title="Open FBA Returns on Amazon Seller Central"
+                          className="inline-flex items-center text-amazon-orange hover:opacity-70 align-middle"><AmazonIcon /></a>
+                      </span>
                     ) : r.channel === 'MFN' ? (
                       <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">MFN</span>
                     ) : (
