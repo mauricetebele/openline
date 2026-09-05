@@ -20,8 +20,8 @@ const COLORS = [
   'Space Gray', 'Space Grey', 'Space Black', 'Natural Titanium', 'Blue Titanium', 'White Titanium',
   'Black Titanium', 'Desert Titanium', 'Rose Gold', 'Sierra Blue', 'Alpine Green', 'Deep Purple',
   'Pacific Blue', 'Sky Blue', 'Product Red', 'Jet Black', 'Midnight', 'Starlight', 'Graphite',
-  'Titanium', 'Silver', 'Gold', 'Coral', 'Yellow', 'Green', 'Blue', 'Purple', 'Pink', 'Red',
-  'Black', 'White', 'Gray', 'Grey', 'Rose',
+  'Titanium', 'Silver', 'Gold', 'Coral', 'Orange', 'Yellow', 'Green', 'Blue', 'Purple', 'Pink', 'Red',
+  'Teal', 'Cyan', 'Lavender', 'Mint', 'Bronze', 'Beige', 'Cream', 'Black', 'White', 'Gray', 'Grey', 'Rose',
 ]
 
 function detectColor(s: string): string | null {
@@ -48,6 +48,9 @@ function detectCpu(s: string): string | null {
 }
 
 function detectGpu(s: string): string | null {
+  // Apple Silicon GPU core count, e.g. "10-core GPU" / "10 Core GPU".
+  const core = s.match(/(\d{1,2})[\s-]*core\s*GPU/i)
+  if (core) return `${core[1]}-core GPU`
   const m = s.match(/\b(?:RTX|GTX|RX)\s?\d{3,4}(?:\s?Ti)?\b|\bRadeon\s?[\w ]{0,10}\b|\bIris\s?Xe\b|\bUHD\s?Graphics\b/i)
   return m ? m[0].replace(/\s+/g, ' ').trim() : null
 }
