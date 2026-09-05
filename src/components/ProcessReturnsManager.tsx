@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Plus, Trash2, X, Loader2, CheckCircle2, XCircle, AlertTriangle, Flag, PackageOpen, MessageSquare, Clock, PauseCircle, Gavel, Archive, ArchiveRestore, Pencil, Printer } from 'lucide-react'
+import { Plus, Trash2, X, Loader2, CheckCircle2, XCircle, AlertTriangle, Flag, PackageOpen, MessageSquare, Clock, PauseCircle, Gavel, Archive, ArchiveRestore, Pencil, Printer, ExternalLink } from 'lucide-react'
 import { printSerialLabels } from '@/lib/print-serial-labels'
 
 // Administrator processing outcomes
@@ -552,7 +552,21 @@ export default function ProcessReturnsManager() {
                   </td>
                   <td className="px-3 py-2 font-semibold text-amazon-blue whitespace-nowrap">RET-{r.returnNumber}</td>
                   <td className="px-3 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">{r.carrier}</td>
-                  <td className="px-3 py-2 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.trackingNumber}</td>
+                  <td className="px-3 py-2 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5">
+                      {r.trackingNumber}
+                      {r.trackingNumber && (
+                        <a
+                          href={`https://sellercentral.amazon.com/gp/returns/list/v2/ref=xx_myr_dnav_xx?searchBy=CarrierTrackingId&searchString=${encodeURIComponent(r.trackingNumber)}&marketplaceIds=A1AM78C64UM0Y8%2CA33AVAJ2PDY3EV%2CA2Q3Y263D00KWC%2CA39IBJ37TRP1C6%2CA17E79C6D8DWNP%2CA2EUQ1WTGCTBG2%2CA19VAU5U5O7RUS%2CA1PA6795UKMFR9%2CA1F83G8C2ARO7P%2CATVPDKIKX0DER%2CA2VIGQ35RCS4UG&tabId=viewAll&returnRequestState=viewAll&orderBy=CreatedDateDesc&selectedDateRange=30&pendingActionsFilterBy=null&isOnPendingActionsTab=false`}
+                          target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                          title="Find this tracking's return on Amazon Seller Central"
+                          className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-amazon-orange border border-amazon-orange/40 rounded px-1 py-0.5 hover:bg-amazon-orange/10"
+                        >
+                          <ExternalLink size={9} /> Amazon
+                        </a>
+                      )}
+                    </span>
+                  </td>
                   <td className="px-3 py-2">
                     {r.units.length === 0 ? <span className="text-gray-300 dark:text-gray-600">—</span> : (
                       <div className="flex flex-col gap-0.5">
