@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Boxes, Plus, Search, X, Loader2, Trash2, Pencil, Filter, Tag, ChevronRight, ChevronDown } from 'lucide-react'
+import { Boxes, Plus, Search, X, Loader2, Trash2, Pencil, Filter, Tag, ChevronRight, ChevronDown, PackageCheck } from 'lucide-react'
 import type { ProductAttrs } from '@/lib/product-attributes'
 
 interface Family { id: string; name: string; memberCount: number }
@@ -50,6 +50,7 @@ export default function ProductFamiliesManager() {
   const [family, setFamily] = useState<{ id: string; name: string; members: Member[] } | null>(null)
   const [loadingFamily, setLoadingFamily] = useState(false)
   const [filters, setFilters] = useState<Partial<Record<AttrKey, string>>>({})
+  const [inStockOnly, setInStockOnly] = useState(false)
   const [details, setDetails] = useState<Record<string, GradeRow[]>>({})
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -79,7 +80,7 @@ export default function ProductFamiliesManager() {
   }, [])
 
   const openFamily = useCallback(async (id: string) => {
-    setActiveId(id); setLoadingFamily(true); setFilters({}); setDetails({}); setPriceEdits({}); setCollapsed(new Set())
+    setActiveId(id); setLoadingFamily(true); setFilters({}); setInStockOnly(false); setDetails({}); setPriceEdits({}); setCollapsed(new Set())
     loadDetails(id)
     try { const d = await (await fetch(`/api/product-families/${id}`)).json(); if (!d.error) setFamily(d) } catch { /* ignore */ }
     finally { setLoadingFamily(false) }
@@ -172,9 +173,11 @@ export default function ProductFamiliesManager() {
   // Filtering
   const members = family?.members ?? []
   const optionsFor = (key: AttrKey) => Array.from(new Set(members.map(m => m.attrs[key]).filter(Boolean) as string[])).sort()
-  const visible = members.filter(m => (Object.entries(filters) as [AttrKey, string][]).every(([k, v]) => !v || m.attrs[k] === v))
-  const toggle = (id: string) => setCollapsed(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const totalReady = (pid: string) => (details[pid] ?? []).reduce((s, g) => s + g.readyForSale, 0)
+  const visible = members.filter(m =>
+    (Object.entries(filters) as [AttrKey, string][]).every(([k, v]) => !v || m.attrs[k] === v)
+    && (!inStockOnly || totalReady(m.id) > 0))
+  const toggle = (id: string) => setCollapsed(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -234,6 +237,11 @@ export default function ProductFamiliesManager() {
                 )
               })}
               {Object.values(filters).some(Boolean) && <button onClick={() => setFilters({})} className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Clear</button>}
+              <button onClick={() => setInStockOnly(v => !v)} title="Only show SKUs with stock in a Ready-for-Sale location"
+                className={clsx('ml-auto inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-xs font-semibold',
+                  inStockOnly ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-gray-300 dark:border-white/15 text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-white/5')}>
+                <PackageCheck size={13} /> In stock only
+              </button>
             </div>
 
             <div className="flex-1 overflow-auto">
