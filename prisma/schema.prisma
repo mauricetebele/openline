@@ -999,6 +999,10 @@ model Product {
   defaultPackagePresetId String?
   defaultPackagePreset   PackagePreset? @relation("ProductDefaultPackagePreset", fields: [defaultPackagePresetId], references: [id], onDelete: SetNull)
 
+  // Product family — groups SKUs that are the same product with different configs.
+  familyId String?
+  family   ProductFamily? @relation(fields: [familyId], references: [id], onDelete: SetNull)
+
   poLines                PurchaseOrderLine[]
   receiptLines           POReceiptLine[]
   inventoryItems         InventoryItem[]
@@ -1017,7 +1021,22 @@ model Product {
   fbaReturnReceipts      FbaReturnReceipt[]
   legacyRMAItems         LegacyRMAItem[]
 
+  @@index([familyId])
   @@map("products")
+}
+
+// ─── Product Families ───────────────────────────────
+// Groups SKUs that are the same product in different configurations (RAM,
+// storage, color, GPU…) so their pricing can be managed together.
+model ProductFamily {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  products  Product[]
+
+  @@map("product_families")
 }
 
 // ─── Grades (global / store-level) ────────────────────────────────────────────
