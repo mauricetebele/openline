@@ -162,6 +162,7 @@ export default function MailClient() {
   const [showMailboxes, setShowMailboxes] = useState(false)
   const [siteUsers, setSiteUsers] = useState<SiteUser[]>([])
   const [contacts, setContacts] = useState<{ name: string; email: string }[]>([])
+  const [needsReconnect, setNeedsReconnect] = useState(false)
   const [activeAccount, setActiveAccount] = useState<string>('')
   const [labels, setLabels] = useState<GLabel[]>([])
   const [folder, setFolder] = useState('INBOX')
@@ -340,14 +341,18 @@ export default function MailClient() {
   }, [])
 
   const loadMessages = useCallback(async (accountId: string, folderId: string, q: string) => {
-    setLoadingList(true); setSelected(null); setDetail(null)
+    setLoadingList(true); setSelected(null); setDetail(null); setNeedsReconnect(false)
     try {
       const qp = new URLSearchParams({ accountId, labelIds: folderId })
       if (q.trim()) qp.set('q', q.trim())
       const d = await (await fetch(`/api/email/messages?${qp.toString()}`)).json()
       if (d.error) throw new Error(d.error)
       setMessages(d.messages ?? []); setNextToken(d.nextPageToken ?? null)
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to load mail') }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to load mail'
+      if (/invalid_grant|invalid_rapt|reauth|token refresh|reconnect/i.test(msg)) { setNeedsReconnect(true); setMessages([]) }
+      else toast.error(msg)
+    }
     finally { setLoadingList(false) }
   }, [])
 
@@ -555,7 +560,13 @@ export default function MailClient() {
             <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{SYSTEM_FOLDERS.find(f => f.id === folder)?.name ?? userLabels.find(l => l.id === folder)?.name ?? folder}</span>
             <button onClick={() => loadMessages(activeAccount, folder, search)} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><RefreshCw size={13} /></button>
           </div>
-          {loadingList ? (
+          {needsReconnect ? (
+            <div className="p-4 m-3 rounded-lg border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 text-center space-y-2">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">This mailbox needs to be reconnected</p>
+              <p className="text-xs text-amber-700 dark:text-amber-300/90">Google requires re-authentication (Workspace session policy). Reconnect to refresh access.</p>
+              <a href="/api/email/google/connect" className="inline-flex items-center gap-1.5 h-8 px-4 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-blue-700"><RefreshCw size={13} /> Reconnect mailbox</a>
+            </div>
+          ) : loadingList ? (
             <div className="py-16 text-center text-sm text-gray-400 flex items-center justify-center gap-2"><Loader2 size={15} className="animate-spin" /> Loading…</div>
           ) : messages.length === 0 ? (
             <div className="py-16 text-center text-sm text-gray-400">No messages</div>
