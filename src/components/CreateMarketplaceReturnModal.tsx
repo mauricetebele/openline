@@ -54,6 +54,8 @@ export interface MarketplaceRMA {
   commissionRefund?: number | null
   // Captured at receiving: is a BackMarket commission refund expected? (Y/N)
   commissionRefundExpected?: boolean | null
+  // Value of the returned units (orderItem price prorated by qty returned).
+  saleValue?: number | null
 }
 
 export interface OrderSearchResult {

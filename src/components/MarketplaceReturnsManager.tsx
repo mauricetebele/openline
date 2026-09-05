@@ -258,6 +258,7 @@ export default function MarketplaceReturnsManager() {
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Status</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Date</th>
                 <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Qty</th>
+                <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Sale Value</th>
               </tr>
             </thead>
             <tbody>
@@ -337,10 +338,13 @@ export default function MarketplaceReturnsManager() {
                         {new Date(rma.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
                       <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-300">{rma.items.reduce((sum, it) => sum + it.quantityReturned, 0)}</td>
+                      <td className="px-3 py-1.5 text-right font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
+                        {rma.saleValue != null ? `$${rma.saleValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                      </td>
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={12} className="bg-gray-50 dark:bg-gray-800/60 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                        <td colSpan={13} className="bg-gray-50 dark:bg-gray-800/60 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
                           {rma.notes && (
                             <p className="text-[11px] text-gray-500 mb-2"><span className="font-semibold text-gray-600 dark:text-gray-400">Notes:</span> {rma.notes}</p>
                           )}
