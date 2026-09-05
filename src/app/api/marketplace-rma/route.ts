@@ -17,6 +17,16 @@ export async function GET(req: NextRequest) {
   if (status) where.status = status
   // Filter by marketplace (the parent order's source)
   if (source === 'amazon' || source === 'backmarket') where.order = { orderSource: source }
+
+  // Date-range filter on the RMA date (createdAt), inclusive.
+  const from = searchParams.get('from')?.trim()
+  const to = searchParams.get('to')?.trim()
+  if (from || to) {
+    const range: Record<string, Date> = {}
+    if (from) { const d = new Date(`${from}T00:00:00`); if (!isNaN(d.getTime())) range.gte = d }
+    if (to) { const d = new Date(`${to}T23:59:59.999`); if (!isNaN(d.getTime())) range.lte = d }
+    if (Object.keys(range).length) where.createdAt = range
+  }
   if (search) {
     where.OR = [
       { rmaNumber: { contains: search, mode: 'insensitive' } },
@@ -48,6 +58,7 @@ export async function GET(req: NextRequest) {
           title: true,
           quantityReturned: true,
           returnReason: true,
+          orderItem: { select: { itemPrice: true, quantityOrdered: true } },
           product: { select: { sku: true } },
           serials: {
             select: {
@@ -82,12 +93,23 @@ export async function GET(req: NextRequest) {
     for (const row of refundRows) commissionRefundMap.set(row.order_id, Number(row.amount))
   }
 
-  const data = rmas.map(r => ({
-    ...r,
-    commissionRefund: r.order?.orderSource === 'backmarket'
-      ? (commissionRefundMap.get(r.order.amazonOrderId) ?? null)
-      : null,
-  }))
+  const data = rmas.map(r => {
+    // Sale value of the returned units: per item, (line itemPrice ÷ qty ordered)
+    // × qty returned, summed across items.
+    const saleValue = r.items.reduce((sum, it) => {
+      const line = it.orderItem?.itemPrice != null ? Number(it.orderItem.itemPrice) : 0
+      const ordered = it.orderItem?.quantityOrdered ?? 0
+      const unit = ordered > 0 ? line / ordered : line
+      return sum + unit * (it.quantityReturned ?? 0)
+    }, 0)
+    return {
+      ...r,
+      saleValue: Math.round(saleValue * 100) / 100,
+      commissionRefund: r.order?.orderSource === 'backmarket'
+        ? (commissionRefundMap.get(r.order.amazonOrderId) ?? null)
+        : null,
+    }
+  })
 
   // Commission-refund filter (BackMarket returns only): keep those that have a
   // commission-refund entry, or those that don't.
@@ -99,7 +121,9 @@ export async function GET(req: NextRequest) {
         ? data.filter(r => r.order?.orderSource === 'backmarket' && r.commissionRefund == null)
         : data
 
-  return NextResponse.json({ data: filtered })
+  const totalSaleValue = Math.round(filtered.reduce((s, r) => s + (r.saleValue ?? 0), 0) * 100) / 100
+
+  return NextResponse.json({ data: filtered, totalSaleValue })
 }
 
 export async function POST(req: NextRequest) {

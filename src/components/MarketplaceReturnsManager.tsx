@@ -38,6 +38,9 @@ export default function MarketplaceReturnsManager() {
   const [statusFilter, setStatusFilter] = useState<'' | RMAStatus>('')
   const [sourceFilter, setSourceFilter] = useState<'' | 'amazon' | 'backmarket'>('')
   const [commissionFilter, setCommissionFilter] = useState<'' | 'refunded' | 'not_refunded'>('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [totalSaleValue, setTotalSaleValue] = useState(0)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -57,12 +60,15 @@ export default function MarketplaceReturnsManager() {
       if (statusFilter) params.set('status', statusFilter)
       if (sourceFilter) params.set('source', sourceFilter)
       if (commissionFilter) params.set('commission', commissionFilter)
+      if (dateFrom) params.set('from', dateFrom)
+      if (dateTo) params.set('to', dateTo)
       const res = await fetch(`/api/marketplace-rma?${params}`)
       const json = await res.json()
       setRmas(json.data ?? [])
+      setTotalSaleValue(json.totalSaleValue ?? 0)
     } catch { /* ignore */ }
     setLoading(false)
-  }, [search, statusFilter, sourceFilter, commissionFilter])
+  }, [search, statusFilter, sourceFilter, commissionFilter, dateFrom, dateTo])
 
   useEffect(() => { fetchRmas() }, [fetchRmas])
 
@@ -186,11 +192,29 @@ export default function MarketplaceReturnsManager() {
           <option value="not_refunded">Commission not refunded</option>
         </select>
 
+        {/* Date range (RMA date) */}
+        <div className="flex items-center gap-1">
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="From date"
+            className="h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue" />
+          <span className="text-gray-400 text-xs">–</span>
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} title="To date"
+            className="h-9 rounded-md border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue" />
+          {(dateFrom || dateTo) && (
+            <button onClick={() => { setDateFrom(''); setDateTo('') }} title="Clear dates" className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"><X size={14} /></button>
+          )}
+        </div>
+
         {rmas.length > 0 && (
           <span className="text-xs text-gray-400">
             {rmas.length} return{rmas.length !== 1 ? 's' : ''}
           </span>
         )}
+
+        {/* Total sale value of the current (filtered or all) view */}
+        <span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-sm">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">{(dateFrom || dateTo) ? 'Filtered total' : 'Total'} sale value</span>
+          <span className="font-bold text-emerald-800 dark:text-emerald-200">${totalSaleValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        </span>
 
         <div className="flex-1" />
 
