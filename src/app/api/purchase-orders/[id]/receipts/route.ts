@@ -223,7 +223,9 @@ export async function POST(
           }
         }
 
-        // Re-activate existing serials (update status, location, grade, receiptLine, vendor)
+        // Re-activate existing serials (update status, location, grade, receiptLine, vendor).
+        // Clear the former BIN location — it belonged to a prior receipt/life of this
+        // serial and is meaningless until it's put away again.
         if (reactivateIds.length > 0) {
           await tx.inventorySerial.updateMany({
             where: { id: { in: reactivateIds } },
@@ -234,6 +236,7 @@ export async function POST(
               receiptLineId: receiptLine.id,
               productId:     line.productId,
               vendorId:      po.vendorId,
+              binLocation:   null,
             },
           })
         }
