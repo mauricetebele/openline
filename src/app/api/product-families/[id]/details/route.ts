@@ -26,7 +26,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const mskus = await prisma.productGradeMarketplaceSku.findMany({
     where: { productId: { in: productIds } },
-    select: { id: true, productId: true, gradeId: true, marketplace: true, sellerSku: true, calculationTemplateId: true, grade: { select: { grade: true } } },
+    select: { id: true, productId: true, gradeId: true, marketplace: true, sellerSku: true, calculationTemplateId: true, targetMarginPct: true, grade: { select: { grade: true } } },
     orderBy: [{ marketplace: 'asc' }, { sellerSku: 'asc' }],
   })
 
@@ -113,7 +113,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
           price: priceNum,
           pushingQty: sl ? sl.quantity : null, // live qty on the listing (Amazon only; BM doesn't store qty)
           listingStatus: sl?.listingStatus ?? bm?.listingStatus ?? null,
+          // `cost` is null unless there's finished-goods stock + known cost + a template,
+          // so any target-margin computation from it is implicitly stock-gated.
           cost, commissionPct: fees ? fees.commissionPct : null,
+          targetMarginPct: m.targetMarginPct != null ? Number(m.targetMarginPct) : null,
           marginPct: marginPct != null ? Math.round(marginPct * 10) / 10 : null,
         }
       })

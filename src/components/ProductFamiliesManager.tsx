@@ -11,7 +11,7 @@ interface SearchResult { id: string; sku: string; description: string; familyId:
 interface Listing {
   mskuId: string; marketplace: string; sellerSku: string; accountId: string | null
   price: number | null; cost: number | null; commissionPct: number | null; marginPct: number | null
-  pushingQty: number | null; listingStatus: string | null
+  pushingQty: number | null; listingStatus: string | null; targetMarginPct: number | null
 }
 interface GradeRow { gradeId: string | null; grade: string; readyForSale: number; listings: Listing[] }
 
@@ -37,6 +37,19 @@ function liveMargin(l: Listing, priceStr: string): number | null {
   const price = parseFloat(priceStr)
   if (!(price > 0)) return null
   return Math.round(((price - (l.commissionPct / 100) * price - l.cost) / price) * 1000) / 10
+}
+
+/**
+ * Price that realizes a target net margin. `l.cost` is only non-null when there is
+ * finished-goods stock (+ known cost + template), so this is inherently stock-gated —
+ * matching the Marketplace SKUs grid. Null when unreachable / not applicable.
+ */
+function computeTarget(l: Listing, marginPct: number): number | null {
+  if (l.cost == null || l.commissionPct == null) return null
+  const denom = 1 - l.commissionPct / 100 - marginPct / 100
+  if (denom <= 0) return null
+  const p = l.cost / denom
+  return Number.isFinite(p) && p > 0 ? p : null
 }
 function marginClass(m: number | null): string {
   if (m == null) return 'text-gray-400'
@@ -87,9 +100,9 @@ export default function ProductFamiliesManager() {
     finally { setLoadingFamily(false) }
   }, [loadDetails])
 
-  async function pushPrice(l: Listing) {
+  async function pushPrice(l: Listing, explicit?: number) {
     const raw = priceEdits[l.mskuId] ?? (l.price != null ? String(l.price) : '')
-    const price = parseFloat(raw)
+    const price = explicit != null ? explicit : parseFloat(raw)
     if (!(price > 0)) { toast.error('Enter a valid price'); return }
     setPushing(l.mskuId)
     try {
@@ -114,6 +127,26 @@ export default function ProductFamiliesManager() {
       setPriceEdits(e => { const n = { ...e }; delete n[l.mskuId]; return n })
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Push failed') }
     finally { setPushing(null) }
+  }
+
+  // Persist a target margin on the msku (shared with the Marketplace SKUs grid).
+  async function setTargetMargin(mskuId: string, val: number | null) {
+    try {
+      const res = await fetch(`/api/marketplace-skus/${mskuId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetMarginPct: val }) })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed to set target margin')
+      setDetails(prev => {
+        const next: Record<string, GradeRow[]> = {}
+        for (const [pid, grades] of Object.entries(prev)) {
+          next[pid] = grades.map(g => ({ ...g, listings: g.listings.map(x => x.mskuId === mskuId ? { ...x, targetMarginPct: val } : x) }))
+        }
+        return next
+      })
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to set target margin') }
+  }
+
+  function applyTarget(l: Listing, target: number, margin: number) {
+    if (!window.confirm(`Push $${target.toFixed(2)} to ${l.marketplace} for ${l.sellerSku}?\n(target ${margin}% net margin)`)) return
+    pushPrice(l, target)
   }
 
   async function createFamily() {
@@ -311,6 +344,7 @@ export default function ProductFamiliesManager() {
                                               <th className="px-3 py-1.5 text-left font-medium">Seller SKU</th>
                                               <th className="px-3 py-1.5 text-right font-medium">Price</th>
                                               <th className="px-3 py-1.5 text-right font-medium">Margin</th>
+                                              <th className="px-3 py-1.5 text-right font-medium" title="Enter a target net margin %; the system computes the price that realizes it. Requires stock in a Ready-for-Sale location.">Target Margin</th>
                                               <th className="px-3 py-1.5 w-16"></th>
                                             </tr>
                                           </thead>
@@ -350,6 +384,28 @@ export default function ProductFamiliesManager() {
                                                   </td>
                                                   <td className={clsx('px-3 py-1.5 text-right font-semibold whitespace-nowrap tabular-nums', marginClass(margin))}>
                                                     {margin != null ? `${margin.toFixed(1)}%` : '—'}
+                                                  </td>
+                                                  <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                                                    {editable && (l.cost == null || l.commissionPct == null) ? (
+                                                      <span className="text-gray-300" title="Requires stock in a Ready-for-Sale location + a Calculation Template">—</span>
+                                                    ) : editable ? (
+                                                      <div className="inline-flex items-center gap-1.5">
+                                                        <input type="number" step="0.5" min={0} max={95}
+                                                          defaultValue={l.targetMarginPct ?? ''} key={`${l.mskuId}-${l.targetMarginPct ?? ''}`}
+                                                          placeholder="—"
+                                                          onBlur={e => { const raw = e.target.value.trim(); setTargetMargin(l.mskuId, raw === '' ? null : parseFloat(raw)) }}
+                                                          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                                                          title="Target net margin %. Leave blank to disable."
+                                                          className="w-12 h-6 text-center font-mono text-[11px] rounded border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-1 text-gray-900 dark:text-white" />
+                                                        <span className="text-[10px] text-gray-400">%</span>
+                                                        {l.targetMarginPct != null && (() => {
+                                                          const t = computeTarget(l, l.targetMarginPct!)
+                                                          return t == null
+                                                            ? <span className="text-[10px] text-red-400" title="Margin too high to reach a valid price">unreachable</span>
+                                                            : <button onClick={() => applyTarget(l, t, l.targetMarginPct!)} className="font-mono text-[11px] text-emerald-700 dark:text-emerald-400 hover:underline" title={`Target price for ${l.targetMarginPct}% margin. Click to push.`}>${t.toFixed(2)}</button>
+                                                        })()}
+                                                      </div>
+                                                    ) : <span className="text-gray-300">—</span>}
                                                   </td>
                                                   <td className="px-3 py-1.5 text-right">
                                                     {editable && (

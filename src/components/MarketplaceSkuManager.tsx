@@ -544,7 +544,9 @@ function TargetMarginCell({ row, template, breakdown, onSetMargin, onApply }: {
   const fees = resolveFees(template, row.product.defaultPackagePresetId)
   const avgUnitCost = breakdown?.avgUnitCost ?? null
   const avgCostCode = breakdown?.avgCostCode ?? 0
-  const target = margin != null && fees && avgUnitCost != null
+  // Target margin only applies to items with stock in a Ready-for-Sale (finished-goods) location.
+  const inStock = (breakdown?.readyForSale ?? 0) > 0
+  const target = margin != null && fees && avgUnitCost != null && inStock
     ? computeTargetPrice(avgUnitCost, avgCostCode, fees, margin)
     : null
   return (
@@ -558,16 +560,18 @@ function TargetMarginCell({ row, template, breakdown, onSetMargin, onApply }: {
           defaultValue={row.targetMarginPct ?? ''}
           key={`${row.id}-${row.targetMarginPct ?? ''}`}
           placeholder="—"
-          disabled={!fees}
+          disabled={!fees || !inStock}
           onBlur={(e) => { const raw = e.target.value.trim(); onSetMargin(row.id, raw === '' ? null : parseFloat(raw)) }}
           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-          title={fees ? 'Target net margin %. Leave blank to disable.' : 'Assign a Calculation Template to enable target margin'}
+          title={!fees ? 'Assign a Calculation Template to enable target margin' : !inStock ? 'Requires stock in a Ready-for-Sale location' : 'Target net margin %. Leave blank to disable.'}
           className="w-14 text-center font-mono text-xs rounded border border-gray-300 px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-amazon-blue disabled:bg-gray-50 disabled:text-gray-300"
         />
         <span className="text-[10px] text-gray-400">%</span>
       </div>
       {!fees ? (
         <span className="text-[10px] text-gray-300" title="Assign a Calculation Template to enable target margin">no template</span>
+      ) : !inStock ? (
+        <span className="text-[10px] text-gray-300" title="Requires stock in a Ready-for-Sale location">no stock</span>
       ) : margin != null && (
         avgUnitCost == null ? (
           <span className="text-[10px] text-gray-300" title="No in-stock cost available for this SKU/grade">no cost</span>
