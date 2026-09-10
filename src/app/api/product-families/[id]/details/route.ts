@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { resolveFees, marginAtPrice, type CalcTemplate } from '@/lib/target-margin'
+import { expireStaleTargetMargins } from '@/lib/expire-target-margins'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,6 +24,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   })
   if (products.length === 0) return NextResponse.json({ products: [] })
   const productIds = products.map(p => p.id)
+
+  await expireStaleTargetMargins(productIds)
 
   const mskus = await prisma.productGradeMarketplaceSku.findMany({
     where: { productId: { in: productIds } },

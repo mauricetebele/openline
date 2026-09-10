@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Boxes, Plus, Search, X, Loader2, Trash2, Pencil, Filter, Tag, ChevronRight, ChevronDown, PackageCheck, RefreshCw } from 'lucide-react'
+import { Boxes, Plus, Search, X, Loader2, Trash2, Pencil, Filter, Tag, ChevronRight, ChevronDown, PackageCheck, RefreshCw, Eraser } from 'lucide-react'
 import type { ProductAttrs } from '@/lib/product-attributes'
 
 interface Family { id: string; name: string; memberCount: number }
@@ -165,7 +165,8 @@ export default function ProductFamiliesManager() {
         return next
       })
       setPriceEdits(e => { const n = { ...e }; delete n[l.mskuId]; return n })
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Push failed') }
+      return true
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Push failed'); return false }
     finally { setPushing(null) }
   }
 
@@ -184,9 +185,22 @@ export default function ProductFamiliesManager() {
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to set target margin') }
   }
 
-  function applyTarget(l: Listing, target: number, margin: number) {
+  async function applyTarget(l: Listing, target: number, margin: number) {
     if (!window.confirm(`Push $${target.toFixed(2)} to ${l.marketplace} for ${l.sellerSku}?\n(target ${margin}% net margin)`)) return
-    pushPrice(l, target)
+    const ok = await pushPrice(l, target)
+    if (ok) setTargetMargin(l.mskuId, null) // pushing dequeues the target margin
+  }
+
+  async function clearUnpushedTargets() {
+    if (!activeId) return
+    if (!window.confirm('Clear all unpushed target margins for this family?')) return
+    try {
+      const res = await fetch(`/api/product-families/${activeId}/clear-target-margins`, { method: 'POST' })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error ?? 'Failed')
+      toast.success(`Cleared ${d.cleared} target margin${d.cleared !== 1 ? 's' : ''}`)
+      await loadDetails(activeId)
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to clear') }
   }
 
   async function createFamily() {
@@ -294,6 +308,10 @@ export default function ProductFamiliesManager() {
                 <button onClick={runSyncPricing} disabled={syncing} title="Pull live price + listing status from Amazon & Back Market for this family"
                   className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md border border-gray-300 dark:border-white/15 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50">
                   <RefreshCw size={15} className={syncing ? 'animate-spin' : ''} /> Sync Pricing
+                </button>
+                <button onClick={clearUnpushedTargets} title="Clear target margins that were set but never pushed (they also auto-expire after 30 min)"
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md border border-gray-300 dark:border-white/15 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5">
+                  <Eraser size={15} /> Clear Unpushed Target Margin
                 </button>
                 <button onClick={deleteFamily} title="Delete family" className="text-gray-400 hover:text-red-500 p-1.5"><Trash2 size={15} /></button>
                 <button onClick={() => { setShowAdd(true); setAddResults([]); setAddSearch('') }} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-blue-700"><Plus size={15} /> Add SKUs</button>

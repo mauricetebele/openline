@@ -1090,6 +1090,7 @@ model ProductGradeMarketplaceSku {
   // Mutually exclusive with isDefaultSku and seeSaw within a (productId, gradeId) group.
   simulList     Boolean   @default(false)
   targetMarginPct Decimal? @db.Decimal(5, 2) // Target net margin % (e.g. 25.00); null = disabled
+  targetMarginSetAt DateTime? // when targetMarginPct was last set; used to expire unpushed queues after 30 min
   calculationTemplateId String?
   calculationTemplate   CalculationTemplate? @relation(fields: [calculationTemplateId], references: [id], onDelete: SetNull)
   isSynced      Boolean   @default(false) // true = came from marketplace sync

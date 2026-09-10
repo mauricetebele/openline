@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { expireStaleTargetMargins } from '@/lib/expire-target-margins'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +16,7 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
+    await expireStaleTargetMargins()
     const marketplace = req.nextUrl.searchParams.get('marketplace')?.toLowerCase()
 
     const skus = await prisma.productGradeMarketplaceSku.findMany({

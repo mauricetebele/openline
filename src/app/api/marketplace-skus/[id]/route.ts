@@ -81,11 +81,15 @@ export async function PATCH(
   }
 
   // Target-row fields (group-wide strategy changes already applied above).
-  const data: { syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean; targetMarginPct?: number | null; calculationTemplateId?: string | null } = {}
+  const data: { syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean; targetMarginPct?: number | null; targetMarginSetAt?: Date | null; calculationTemplateId?: string | null } = {}
   if (typeof syncQty === 'boolean') data.syncQty = syncQty
   if (maxQty !== undefined) data.maxQty = maxQty
   if (typeof isDefaultSku === 'boolean') data.isDefaultSku = isDefaultSku
-  if (targetMarginPct !== undefined) data.targetMarginPct = targetMarginPct
+  if (targetMarginPct !== undefined) {
+    data.targetMarginPct = targetMarginPct
+    // Stamp when the target margin was queued so it can expire after 30 min if unpushed.
+    data.targetMarginSetAt = targetMarginPct != null ? new Date() : null
+  }
   if (calculationTemplateId !== undefined) data.calculationTemplateId = calculationTemplateId || null
 
   const updated = await prisma.productGradeMarketplaceSku.update({

@@ -1,7 +1,7 @@
 'use client'
 import { createPortal } from 'react-dom'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2, DollarSign } from 'lucide-react'
+import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2, DollarSign, Eraser } from 'lucide-react'
 import { clsx } from 'clsx'
 import { resolveFees, computeTargetPrice, breakdownAtPrice, marginAtPrice, type CalcTemplate, type TemplateFees } from '@/lib/target-margin'
 import CalculationTemplateManager from './CalculationTemplateManager'
@@ -782,6 +782,21 @@ export default function MarketplaceSkuManager() {
     }
   }
 
+  const [clearingTargets, setClearingTargets] = useState(false)
+  async function clearUnpushedTargets() {
+    if (!window.confirm('Clear all unpushed target margins?')) return
+    setClearingTargets(true)
+    try {
+      const res = await apiPost('/api/marketplace-skus/clear-target-margins', {})
+      setSkus(prev => prev.map(x => (x.targetMarginPct != null ? { ...x, targetMarginPct: null } : x)))
+      setToast(`Cleared ${res.cleared} target margin${res.cleared !== 1 ? 's' : ''}`)
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to clear target margins')
+    } finally {
+      setClearingTargets(false)
+    }
+  }
+
   async function applyTargetPrice() {
     const t = marginConfirm
     if (!t) return
@@ -795,9 +810,11 @@ export default function MarketplaceSkuManager() {
         if (!accountId) throw new Error('No Amazon account resolved for this SKU')
         await apiPost('/api/listings/update-price', { accountId, sku: t.row.sellerSku, price })
       }
-      setSkus(prev => prev.map(x => (x.id === t.row.id ? { ...x, price: String(price) } : x)))
+      setSkus(prev => prev.map(x => (x.id === t.row.id ? { ...x, price: String(price), targetMarginPct: null } : x)))
       setToast(`Pushed $${price.toFixed(2)} to ${t.row.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'} (${t.margin}% margin)`)
       setMarginConfirm(null)
+      // Pushing dequeues the target margin so it's no longer "unpushed".
+      handleSetTargetMargin(t.row.id, null)
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to push price')
     } finally {
@@ -1528,6 +1545,17 @@ export default function MarketplaceSkuManager() {
         >
           <Tags size={14} className="text-gray-500" />
           Calculation Templates
+        </button>
+
+        <button
+          type="button"
+          onClick={clearUnpushedTargets}
+          disabled={clearingTargets}
+          title="Clear target margins that were set but never pushed (they also auto-expire after 30 min)"
+          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+        >
+          <Eraser size={14} className="text-gray-500" />
+          Clear Unpushed Target Margin
         </button>
 
         <button
