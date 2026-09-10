@@ -231,9 +231,21 @@ export default function BulkListingCreator() {
       const found: LookupProduct[] = data.found
       const notFound: string[] = data.notFound
 
+      // Keep the pasted order: walk uniqueSkus and emit each match in that sequence
+      // (the API may return them in any order). Match case-insensitively; append any
+      // unexpected leftovers at the end so nothing is silently dropped.
+      const foundBySku = new Map(found.map(f => [f.product.sku.toUpperCase(), f]))
+      const orderedFound: LookupProduct[] = []
+      const usedIds = new Set<string>()
+      for (const sku of uniqueSkus) {
+        const item = foundBySku.get(sku.toUpperCase())
+        if (item && !usedIds.has(item.product.id)) { orderedFound.push(item); usedIds.add(item.product.id) }
+      }
+      for (const item of found) if (!usedIds.has(item.product.id)) orderedFound.push(item)
+
       // Expand into staging rows
       const rows: StagingRow[] = []
-      for (const item of found) {
+      for (const item of orderedFound) {
         const { product, grades } = item
         if (grades.length === 0) {
           // Product exists but no inventory — show grayed out
