@@ -102,8 +102,10 @@ export default function ProductFamiliesManager() {
 
   async function pushPrice(l: Listing, explicit?: number) {
     const raw = priceEdits[l.mskuId] ?? (l.price != null ? String(l.price) : '')
-    const price = explicit != null ? explicit : parseFloat(raw)
-    if (!(price > 0)) { toast.error('Enter a valid price'); return }
+    const parsed = explicit != null ? explicit : parseFloat(raw)
+    if (!(parsed > 0)) { toast.error('Enter a valid price'); return }
+    // Marketplaces (Back Market) reject >2 decimals — round like the Marketplace SKUs grid.
+    const price = Math.round(parsed * 100) / 100
     setPushing(l.mskuId)
     try {
       let res: Response
