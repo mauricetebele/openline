@@ -194,79 +194,85 @@ async function syncAmazon(jobId: string) {
 
 // ─── Back Market sync ────────────────────────────────────────────────────────
 
-async function syncBackMarket() {
-  const cred = await prisma.backMarketCredential.findFirst({
-    where: { isActive: true },
+// Streams SSE progress: data: { processed, total } … { done, synced, new } (or { error }).
+function syncBackMarket(): Response {
+  const stream = new ReadableStream({
+    async start(controller) {
+      const enc = new TextEncoder()
+      const send = (data: object) => controller.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`))
+      try {
+        const cred = await prisma.backMarketCredential.findFirst({ where: { isActive: true } })
+        if (!cred) { send({ error: 'No active Back Market credential found', done: true }); return }
+
+        send({ message: 'Fetching Back Market listings…' })
+        const client = new BackMarketClient(decrypt(cred.apiKeyEnc))
+        const bmListings = await client.fetchAllPages<BackMarketListing>('/listings')
+        const total = bmListings.length
+        let processed = 0
+        let newCount = 0
+        send({ processed, total })
+
+        for (const bm of bmListings) {
+          const sku = bm.sku
+          if (sku) {
+            // BM numeric fields can come back as strings — parse defensively.
+            const qtyNum = bm.quantity != null ? Number(bm.quantity) : NaN
+            const priceNum = bm.price != null ? Number(bm.price) : NaN
+            const refNum = bm.listing_id != null ? Number(bm.listing_id) : NaN
+
+            // Active iff there's stock on Back Market (0 stock = not for sale). Unknown
+            // quantity leaves status untouched rather than guessing.
+            const listingStatus = Number.isFinite(qtyNum) ? (qtyNum > 0 ? 'Active' : 'Inactive') : undefined
+            const price = Number.isFinite(priceNum) ? priceNum : undefined
+            const bmListingRef = Number.isFinite(refNum) ? Math.trunc(refNum) : undefined
+
+            const existing = await prisma.marketplaceListing.findFirst({
+              where: { marketplace: 'backmarket', sellerSku: sku, accountId: null },
+            })
+
+            if (existing) {
+              await prisma.marketplaceListing.update({
+                where: { id: existing.id },
+                data: {
+                  title: bm.title || bm.product || null,
+                  externalId: bm.backmarket_id != null ? String(bm.backmarket_id) : null,
+                  condition: bm.grade || null,
+                  ...(listingStatus !== undefined ? { listingStatus } : {}),
+                  ...(price !== undefined ? { price } : {}),
+                  ...(bmListingRef !== undefined ? { bmListingRef } : {}),
+                  lastSyncedAt: new Date(),
+                },
+              })
+            } else {
+              await prisma.marketplaceListing.create({
+                data: {
+                  marketplace: 'backmarket',
+                  sellerSku: sku,
+                  accountId: null,
+                  title: bm.title || bm.product || null,
+                  externalId: bm.backmarket_id != null ? String(bm.backmarket_id) : null,
+                  condition: bm.grade || null,
+                  listingStatus: listingStatus ?? null,
+                  price: price ?? null,
+                  bmListingRef: bmListingRef ?? null,
+                },
+              })
+              newCount++
+            }
+          }
+          processed++
+          if (processed % 5 === 0 || processed === total) send({ processed, total })
+        }
+
+        send({ processed, total, done: true, synced: total, new: newCount })
+      } catch (e) {
+        send({ error: e instanceof Error ? e.message : 'Back Market sync failed', done: true })
+      } finally {
+        controller.close()
+      }
+    },
   })
-
-  if (!cred) {
-    return NextResponse.json(
-      { error: 'No active Back Market credential found' },
-      { status: 400 },
-    )
-  }
-
-  const apiKey = decrypt(cred.apiKeyEnc)
-  const client = new BackMarketClient(apiKey)
-  const bmListings = await client.fetchAllPages<BackMarketListing>('/listings')
-
-  let newCount = 0
-
-  for (const bm of bmListings) {
-    const sku = bm.sku
-    if (!sku) continue
-
-    // BM numeric fields can come back as strings — parse defensively.
-    const qtyNum = bm.quantity != null ? Number(bm.quantity) : NaN
-    const priceNum = bm.price != null ? Number(bm.price) : NaN
-    const refNum = bm.listing_id != null ? Number(bm.listing_id) : NaN
-
-    // Active iff there's stock on Back Market (0 stock = not for sale). Unknown
-    // quantity leaves status untouched rather than guessing.
-    const listingStatus = Number.isFinite(qtyNum)
-      ? (qtyNum > 0 ? 'Active' : 'Inactive')
-      : undefined
-    const price = Number.isFinite(priceNum) ? priceNum : undefined
-    const bmListingRef = Number.isFinite(refNum) ? Math.trunc(refNum) : undefined
-
-    const existing = await prisma.marketplaceListing.findFirst({
-      where: {
-        marketplace: 'backmarket',
-        sellerSku: sku,
-        accountId: null,
-      },
-    })
-
-    if (existing) {
-      await prisma.marketplaceListing.update({
-        where: { id: existing.id },
-        data: {
-          title: bm.title || bm.product || null,
-          externalId: bm.backmarket_id != null ? String(bm.backmarket_id) : null,
-          condition: bm.grade || null,
-          ...(listingStatus !== undefined ? { listingStatus } : {}),
-          ...(price !== undefined ? { price } : {}),
-          ...(bmListingRef !== undefined ? { bmListingRef } : {}),
-          lastSyncedAt: new Date(),
-        },
-      })
-    } else {
-      await prisma.marketplaceListing.create({
-        data: {
-          marketplace: 'backmarket',
-          sellerSku: sku,
-          accountId: null,
-          title: bm.title || bm.product || null,
-          externalId: bm.backmarket_id != null ? String(bm.backmarket_id) : null,
-          condition: bm.grade || null,
-          listingStatus: listingStatus ?? null,
-          price: price ?? null,
-          bmListingRef: bmListingRef ?? null,
-        },
-      })
-      newCount++
-    }
-  }
-
-  return NextResponse.json({ synced: bmListings.length, new: newCount })
+  return new Response(stream, {
+    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
+  })
 }

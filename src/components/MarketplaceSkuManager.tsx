@@ -1068,6 +1068,45 @@ export default function MarketplaceSkuManager() {
     setSyncing(marketplace)
     setErr('')
     setSyncProgress('')
+
+    // Back Market streams SSE progress (processed / total).
+    if (marketplace === 'backmarket') {
+      try {
+        const res = await fetch('/api/marketplace-skus/sync', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ marketplace }),
+        })
+        if (!res.ok || !res.body) throw new Error(await res.text().catch(() => '') || 'Sync failed')
+        const reader = res.body.getReader()
+        const dec = new TextDecoder()
+        let buf = ''
+        let result: { synced?: number; new?: number } | null = null
+        let errMsg: string | null = null
+        for (;;) {
+          const chunk = await reader.read()
+          if (chunk.done) break
+          buf += dec.decode(chunk.value, { stream: true })
+          const parts = buf.split('\n\n'); buf = parts.pop() ?? ''
+          for (const part of parts) {
+            const line = part.split('\n').find(l => l.startsWith('data: '))
+            if (!line) continue
+            const evt = JSON.parse(line.slice(6))
+            if (evt.error) errMsg = evt.error
+            else if (typeof evt.processed === 'number' && typeof evt.total === 'number') setSyncProgress(`Syncing: ${evt.processed} / ${evt.total} listings`)
+            else if (evt.message) setSyncProgress(evt.message)
+            if (evt.done && !evt.error) result = evt
+          }
+        }
+        setSyncProgress(''); setSyncing(null)
+        if (errMsg) { setErr(errMsg); return }
+        setToast(`Synced ${result?.synced ?? 0} Back Market listings (${result?.new ?? 0} new)`)
+        loadAll()
+      } catch (e: unknown) {
+        setSyncProgress(''); setSyncing(null)
+        setErr(e instanceof Error ? e.message : 'Sync failed')
+      }
+      return
+    }
+
     try {
       const data = await apiPost('/api/marketplace-skus/sync', { marketplace })
 
@@ -1098,7 +1137,7 @@ export default function MarketplaceSkuManager() {
         return
       }
 
-      setToast(`Synced ${data.synced} ${marketplace === 'backmarket' ? 'Back Market' : 'Amazon'} listings (${data.new} new)`)
+      setToast(`Synced ${data.synced} Amazon listings (${data.new} new)`)
       loadAll()
       setSyncing(null)
     } catch (e: unknown) {
@@ -1447,7 +1486,9 @@ export default function MarketplaceSkuManager() {
   return (
     <div className="flex-1 overflow-auto px-6 py-4 space-y-4">
       {/* Toolbar */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-2">
+        {/* Row 1: filters + primary action */}
+        <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
@@ -1481,91 +1522,94 @@ export default function MarketplaceSkuManager() {
           <option value="inactive">Inactive only</option>
         </select>
         <div className="flex-1" />
-
-        {/* Sync buttons */}
-        <button
-          type="button"
-          onClick={() => handleSync('amazon')}
-          disabled={syncing !== null}
-          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-orange-300 text-orange-700 text-sm font-medium hover:bg-orange-50 disabled:opacity-50"
-        >
-          <RefreshCw size={14} className={clsx(syncing === 'amazon' && 'animate-spin')} />
-          Sync Amazon
-        </button>
-        <button
-          type="button"
-          onClick={() => handleSync('backmarket')}
-          disabled={syncing !== null}
-          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-green-300 text-green-700 text-sm font-medium hover:bg-green-50 disabled:opacity-50"
-        >
-          <RefreshCw size={14} className={clsx(syncing === 'backmarket' && 'animate-spin')} />
-          Sync Back Market
-        </button>
-        <button
-          type="button"
-          onClick={handleSyncFbaInventory}
-          disabled={syncing !== null || syncingFba}
-          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-blue-300 text-blue-700 text-sm font-medium hover:bg-blue-50 disabled:opacity-50"
-        >
-          <Package size={14} className={clsx(syncingFba && 'animate-pulse')} />
-          {syncingFba ? 'Syncing FBA…' : 'Sync FBA Inventory'}
-        </button>
-
-        {syncProgress && (
-          <span className="text-sm text-orange-600 font-medium animate-pulse">{syncProgress}</span>
-        )}
-
-        <button
-          type="button"
-          onClick={handlePushQty}
-          disabled={pushing}
-          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-blue-300 text-blue-700 text-sm font-medium hover:bg-blue-50 disabled:opacity-50"
-        >
-          <Upload size={14} className={clsx(pushing && 'animate-pulse')} />
-          {pushing ? 'Pushing…' : 'Push Quantities'}
-        </button>
-
-        <button
-          type="button"
-          onClick={refreshAllPrices}
-          disabled={refreshingAllPrices}
-          title="Pull the current live price from Amazon for every Amazon SKU and fill the Current Price column"
-          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-amazon-blue text-amazon-blue text-sm font-medium hover:bg-amazon-blue/5 disabled:opacity-50"
-        >
-          <DollarSign size={14} className={clsx(refreshingAllPrices && 'animate-pulse')} />
-          {refreshingAllPrices && priceProgress
-            ? `Getting pricing… ${priceProgress.done}/${priceProgress.total}`
-            : 'Get Current Pricing'}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setShowTemplates(true)}
-          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
-        >
-          <Tags size={14} className="text-gray-500" />
-          Calculation Templates
-        </button>
-
-        <button
-          type="button"
-          onClick={clearUnpushedTargets}
-          disabled={clearingTargets}
-          title="Clear target margins that were set but never pushed (they also auto-expire after 30 min)"
-          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
-        >
-          <Eraser size={14} className="text-gray-500" />
-          Clear Unpushed Target Margin
-        </button>
-
         <button
           type="button"
           onClick={() => setShowForm(v => !v)}
-          className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90"
+          className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-amazon-blue/90 whitespace-nowrap"
         >
           <Plus size={14} />
-          Add Marketplace SKU
+          Add SKU
         </button>
+        </div>
+
+        {/* Row 2: actions */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleSync('amazon')}
+            disabled={syncing !== null}
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-orange-300 text-orange-700 text-xs font-medium hover:bg-orange-50 disabled:opacity-50 whitespace-nowrap"
+          >
+            <RefreshCw size={13} className={clsx(syncing === 'amazon' && 'animate-spin')} />
+            Sync Amazon
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSync('backmarket')}
+            disabled={syncing !== null}
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50 disabled:opacity-50 whitespace-nowrap"
+          >
+            <RefreshCw size={13} className={clsx(syncing === 'backmarket' && 'animate-spin')} />
+            Sync Back Market
+          </button>
+          <button
+            type="button"
+            onClick={handleSyncFbaInventory}
+            disabled={syncing !== null || syncingFba}
+            title="Sync FBA inventory"
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-blue-300 text-blue-700 text-xs font-medium hover:bg-blue-50 disabled:opacity-50 whitespace-nowrap"
+          >
+            <Package size={13} className={clsx(syncingFba && 'animate-pulse')} />
+            {syncingFba ? 'Syncing FBA…' : 'Sync FBA'}
+          </button>
+          <button
+            type="button"
+            onClick={handlePushQty}
+            disabled={pushing}
+            title="Push quantities to marketplaces"
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-blue-300 text-blue-700 text-xs font-medium hover:bg-blue-50 disabled:opacity-50 whitespace-nowrap"
+          >
+            <Upload size={13} className={clsx(pushing && 'animate-pulse')} />
+            {pushing ? 'Pushing…' : 'Push Qty'}
+          </button>
+          <button
+            type="button"
+            onClick={refreshAllPrices}
+            disabled={refreshingAllPrices}
+            title="Pull the current live price from Amazon for every Amazon SKU and fill the Current Price column"
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-amazon-blue text-amazon-blue text-xs font-medium hover:bg-amazon-blue/5 disabled:opacity-50 whitespace-nowrap"
+          >
+            <DollarSign size={13} className={clsx(refreshingAllPrices && 'animate-pulse')} />
+            {refreshingAllPrices && priceProgress
+              ? `Pricing… ${priceProgress.done}/${priceProgress.total}`
+              : 'Get Pricing'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowTemplates(true)}
+            title="Calculation Templates"
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-50 whitespace-nowrap"
+          >
+            <Tags size={13} className="text-gray-500" />
+            Templates
+          </button>
+          <button
+            type="button"
+            onClick={clearUnpushedTargets}
+            disabled={clearingTargets}
+            title="Clear target margins that were set but never pushed (they also auto-expire after 30 min)"
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
+          >
+            <Eraser size={13} className="text-gray-500" />
+            Clear Targets
+          </button>
+
+          {syncProgress && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-orange-600 font-medium animate-pulse">
+              <Loader2 size={12} className="animate-spin" />{syncProgress}
+            </span>
+          )}
+        </div>
       </div>
 
       {lastPushAt && (
