@@ -915,11 +915,16 @@ export default function MarketplaceSkuManager() {
   }
 
   async function refreshPrice(s: MarketplaceSku) {
-    const accountId = accountIdFor(s)
-    if (!accountId) { setErr('No Amazon account resolved for this SKU'); return }
+    let accountId: string | undefined
+    if (s.marketplace === 'amazon') {
+      accountId = accountIdFor(s) ?? undefined
+      if (!accountId) { setErr('No Amazon account resolved for this SKU'); return }
+    }
     setRefreshingPriceId(s.id)
     try {
-      const res = await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku })
+      const res = s.marketplace === 'backmarket'
+        ? await apiPost('/api/marketplace-skus/backmarket-refresh-price', { sellerSku: s.sellerSku })
+        : await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku })
       const price = res.price != null ? String(res.price) : null
       setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price, listingStatus: res.listingStatus ?? x.listingStatus } : x)))
     } catch (e: unknown) {
@@ -2024,12 +2029,12 @@ export default function MarketplaceSkuManager() {
                           >
                             {s.price != null ? `$${parseFloat(s.price).toFixed(2)}` : '—'}
                           </button>
-                          {s.marketplace === 'amazon' && (
+                          {(s.marketplace === 'amazon' || s.marketplace === 'backmarket') && (
                             <button
                               onClick={() => refreshPrice(s)}
                               disabled={refreshingPriceId === s.id}
                               className="text-gray-400 hover:text-amazon-blue p-0.5 disabled:opacity-50"
-                              title="Pull the current live price from Amazon"
+                              title={`Pull the current live price from ${s.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'}`}
                             >
                               <RefreshCw size={12} className={clsx(refreshingPriceId === s.id && 'animate-spin')} />
                             </button>

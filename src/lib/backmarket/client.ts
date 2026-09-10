@@ -87,6 +87,13 @@ export class BackMarketClient {
   }
 
   /**
+   * Fetch a single Back Market listing by its listing ID (live price/qty/status).
+   */
+  async getListing(listingId: number): Promise<{ sku?: string; price?: number | string; quantity?: number | string; grade?: string; listing_id?: number | string }> {
+    return this.get(`/listings/${listingId}`)
+  }
+
+  /**
    * Update the price for a Back Market listing by its listing ID.
    */
   async updateListingPrice(listingId: number, price: number): Promise<void> {
