@@ -34,7 +34,9 @@ async function withRetry<T>(fn: () => Promise<T>, attempt = 0): Promise<T> {
   }
 }
 
+// BackMarket aesthetic-grade → numeric `state` (verified against the live /listings API).
 export const BM_CONDITION_TO_STATE: Record<string, number> = {
+  Premium: 9,
   Excellent: 0,
   Good: 2,
   Stallone: 3,

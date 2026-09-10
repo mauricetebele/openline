@@ -27,7 +27,7 @@ const CONDITIONS = [
   'Refurbished',
 ]
 
-const BM_CONDITIONS = ['Excellent', 'Good', 'Stallone']
+const BM_CONDITIONS = ['Premium', 'Excellent', 'Good', 'Stallone']
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -298,7 +298,7 @@ export default function BulkListingCreator() {
       marketplaceSku: '',
       asin: isBM ? '' : (suggestions[r.productId] ?? ''),
       price: '',
-      condition: isBM ? BM_CONDITIONS[0] : 'New',
+      condition: isBM ? 'Excellent' : 'New',
       quantity: isBM ? '1' : '0',
       shippingTemplate: '',
     }))
