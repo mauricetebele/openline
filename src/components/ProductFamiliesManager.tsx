@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Boxes, Plus, Search, X, Loader2, Trash2, Pencil, Filter, Tag, ChevronRight, ChevronDown, PackageCheck } from 'lucide-react'
+import { Boxes, Plus, Search, X, Loader2, Trash2, Pencil, Filter, Tag, ChevronRight, ChevronDown, PackageCheck, RefreshCw } from 'lucide-react'
 import type { ProductAttrs } from '@/lib/product-attributes'
 
 interface Family { id: string; name: string; memberCount: number }
@@ -70,6 +70,9 @@ export default function ProductFamiliesManager() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [priceEdits, setPriceEdits] = useState<Record<string, string>>({})
   const [pushing, setPushing] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncStat, setSyncStat] = useState<{ processed: number; total: number } | null>(null)
+  const [syncLast, setSyncLast] = useState<string | null>(null)
 
   // Add-SKUs modal
   const [showAdd, setShowAdd] = useState(false)
@@ -92,6 +95,41 @@ export default function ProductFamiliesManager() {
       setDetails(map)
     } catch { /* ignore */ } finally { setLoadingDetails(false) }
   }, [])
+
+  async function runSyncPricing() {
+    if (!activeId || syncing) return
+    setSyncing(true); setSyncStat({ processed: 0, total: 0 }); setSyncLast(null)
+    try {
+      const res = await fetch(`/api/product-families/${activeId}/sync-pricing`)
+      if (!res.ok || !res.body) throw new Error('Failed to start sync')
+      const reader = res.body.getReader()
+      const dec = new TextDecoder()
+      let buf = ''
+      let done = false
+      for (;;) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        buf += dec.decode(chunk.value, { stream: true })
+        const parts = buf.split('\n\n')
+        buf = parts.pop() ?? ''
+        for (const part of parts) {
+          const line = part.split('\n').find(l => l.startsWith('data: '))
+          if (!line) continue
+          const evt = JSON.parse(line.slice(6))
+          if (typeof evt.processed === 'number' && typeof evt.total === 'number') setSyncStat({ processed: evt.processed, total: evt.total })
+          if (evt.sku) setSyncLast(`${evt.marketplace === 'amazon' ? 'Amazon' : 'Back Market'} · ${evt.sku} — ${evt.message ?? evt.status}`)
+          else if (evt.message) setSyncLast(evt.message)
+          if (evt.done) done = true
+        }
+      }
+      if (done) toast.success('Marketplace pricing synced')
+      await loadDetails(activeId)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Sync failed')
+    } finally {
+      setSyncing(false); setSyncStat(null); setSyncLast(null)
+    }
+  }
 
   const openFamily = useCallback(async (id: string) => {
     setActiveId(id); setLoadingFamily(true); setFilters({}); setInStockOnly(false); setDetails({}); setPriceEdits({}); setCollapsed(new Set())
@@ -253,10 +291,27 @@ export default function ProductFamiliesManager() {
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{members.length} SKU{members.length !== 1 ? 's' : ''}{visible.length !== members.length ? ` · ${visible.length} shown` : ''}{loadingDetails ? ' · loading prices…' : ''}</p>
               </div>
               <div className="flex items-center gap-2">
+                <button onClick={runSyncPricing} disabled={syncing} title="Pull live price + listing status from Amazon & Back Market for this family"
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md border border-gray-300 dark:border-white/15 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50">
+                  <RefreshCw size={15} className={syncing ? 'animate-spin' : ''} /> Sync Pricing
+                </button>
                 <button onClick={deleteFamily} title="Delete family" className="text-gray-400 hover:text-red-500 p-1.5"><Trash2 size={15} /></button>
                 <button onClick={() => { setShowAdd(true); setAddResults([]); setAddSearch('') }} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-blue-700"><Plus size={15} /> Add SKUs</button>
               </div>
             </div>
+
+            {/* Sync progress */}
+            {syncing && syncStat && (
+              <div className="px-6 py-2 border-b dark:border-gray-700 shrink-0 bg-amazon-blue/5">
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="font-medium text-gray-700 dark:text-gray-200">Syncing marketplace pricing… {syncStat.processed}/{syncStat.total}</span>
+                  <span className="text-gray-500 dark:text-gray-400 truncate max-w-[60%] text-right" title={syncLast ?? ''}>{syncLast}</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                  <div className="h-full bg-amazon-blue transition-all duration-200" style={{ width: `${syncStat.total > 0 ? Math.round((syncStat.processed / syncStat.total) * 100) : 0}%` }} />
+                </div>
+              </div>
+            )}
 
             {/* Attribute filters */}
             <div className="px-6 py-2.5 border-b dark:border-gray-700 shrink-0 flex flex-wrap items-center gap-2 bg-gray-50 dark:bg-gray-900/40">
