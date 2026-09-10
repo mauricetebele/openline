@@ -398,6 +398,26 @@ export default function ProductFamiliesManager() {
                   className="w-full h-9 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 pl-8 pr-2.5 text-sm text-gray-900 dark:text-white" />
               </div>
             </div>
+            {(() => {
+              const selectable = addResults.filter(p => p.familyId !== family.id)
+              if (selectable.length === 0) return null
+              const allSel = selectable.every(p => addSelected.has(p.id))
+              return (
+                <div className="flex items-center justify-between px-5 py-1.5 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
+                  <span className="text-[11px] text-gray-500">{selectable.length} result{selectable.length !== 1 ? 's' : ''}</span>
+                  <button
+                    onClick={() => setAddSelected(s => {
+                      const n = new Set(s)
+                      if (allSel) selectable.forEach(p => n.delete(p.id))
+                      else selectable.forEach(p => n.add(p.id))
+                      return n
+                    })}
+                    className="text-xs font-semibold text-amazon-blue hover:text-blue-700">
+                    {allSel ? 'Deselect all' : 'Select all'}
+                  </button>
+                </div>
+              )
+            })()}
             <div className="flex-1 overflow-y-auto">
               {addResults.length === 0 ? (
                 <p className="py-10 text-center text-xs text-gray-400">Search for products to add.</p>
