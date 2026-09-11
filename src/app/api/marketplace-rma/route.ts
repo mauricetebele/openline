@@ -180,6 +180,63 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Prevent duplicate returns for the same item/serial on this order ──
+  const orderItemIds = Array.from(new Set(items.map(i => i.orderItemId)))
+
+  // (a) Serial-level: a specific unit already returned on this order can't be returned again.
+  const newInvSerialIds = items.flatMap(i => (i.serials ?? []).map(s => s.inventorySerialId?.trim()).filter(Boolean) as string[])
+  const newSerialNumbers = items.flatMap(i => (i.serials ?? []).map(s => s.serialNumber?.trim()).filter(Boolean) as string[])
+  if (newInvSerialIds.length || newSerialNumbers.length) {
+    const dup = await prisma.marketplaceRMASerial.findFirst({
+      where: {
+        rmaItem: { rma: { orderId } },
+        OR: [
+          ...(newInvSerialIds.length ? [{ inventorySerialId: { in: newInvSerialIds } }] : []),
+          ...(newSerialNumbers.length ? [{ serialNumber: { in: newSerialNumbers } }] : []),
+        ],
+      },
+      include: { rmaItem: { include: { rma: { select: { rmaNumber: true } } } } },
+    })
+    if (dup) {
+      return NextResponse.json(
+        { error: `A return already exists for serial ${dup.serialNumber} on this order (${dup.rmaItem.rma.rmaNumber}).` },
+        { status: 409 },
+      )
+    }
+  }
+
+  // (b) Quantity-level: returns already logged for an order item can't exceed the ordered qty.
+  const existingRmaItems = await prisma.marketplaceRMAItem.findMany({
+    where: { orderItemId: { in: orderItemIds }, rma: { orderId } },
+    select: { orderItemId: true, quantityReturned: true },
+  })
+  const returnedByItem = new Map<string, number>()
+  for (const e of existingRmaItems) returnedByItem.set(e.orderItemId, (returnedByItem.get(e.orderItemId) ?? 0) + e.quantityReturned)
+
+  if (returnedByItem.size > 0) {
+    const orderItems = await prisma.orderItem.findMany({
+      where: { id: { in: orderItemIds } },
+      select: { id: true, quantityOrdered: true, sellerSku: true, title: true },
+    })
+    const orderedById = new Map(orderItems.map(o => [o.id, o]))
+    const requestedByItem = new Map<string, number>()
+    for (const i of items) requestedByItem.set(i.orderItemId, (requestedByItem.get(i.orderItemId) ?? 0) + (i.quantityReturned ?? 0))
+
+    for (const [oiId, requested] of Array.from(requestedByItem.entries())) {
+      const already = returnedByItem.get(oiId) ?? 0
+      if (already <= 0) continue
+      const oi = orderedById.get(oiId)
+      const ordered = oi?.quantityOrdered ?? 0
+      if (already + requested > ordered) {
+        const label = oi?.sellerSku ?? oi?.title ?? 'this item'
+        return NextResponse.json(
+          { error: `A return already exists for ${label} on this order (${already} of ${ordered} already returned). Creating this return would exceed the ordered quantity.` },
+          { status: 409 },
+        )
+      }
+    }
+  }
+
   // Auto-generate rmaNumber: MP-RMA-0001
   const last = await prisma.marketplaceRMA.findFirst({ orderBy: { createdAt: 'desc' } })
   let nextNum = 1
