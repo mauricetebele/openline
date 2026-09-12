@@ -33,7 +33,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     orderBy: [{ marketplace: 'asc' }, { sellerSku: 'asc' }],
   })
 
-  // Ready-for-sale = on-hand in finished-goods locations, per product+grade.
+  // Finished-goods on-hand per product+grade. InventoryItem.qty is already net of
+  // hard order reservations (those decrement it), so this is on-hand-minus-hard.
   const invGroups = await prisma.inventoryItem.groupBy({
     by: ['productId', 'gradeId'],
     where: { productId: { in: productIds }, location: { isFinishedGoods: true } },
@@ -41,6 +42,16 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   })
   const readyMap = new Map<string, number>()
   for (const g of invGroups) readyMap.set(pgKey(g.productId, g.gradeId), g._sum.qty ?? 0)
+
+  // Wholesale soft reservations (orders in PROCESSING) are NOT decremented from
+  // InventoryItem.qty, so subtract them to get available-to-sell net of reservations.
+  const wholesaleGroups = await prisma.salesOrderInventoryReservation.groupBy({
+    by: ['productId', 'gradeId'],
+    where: { productId: { in: productIds }, location: { isFinishedGoods: true }, salesOrder: { fulfillmentStatus: { in: ['PROCESSING'] } } },
+    _sum: { qtyReserved: true },
+  })
+  const wholesaleMap = new Map<string, number>()
+  for (const g of wholesaleGroups) wholesaleMap.set(pgKey(g.productId, g.gradeId), g._sum.qtyReserved ?? 0)
 
   // Avg landed cost (unit + cost-code) of in-stock finished-goods serials, per product+grade.
   const avgCostRows = await prisma.$queryRaw<{ productId: string; gradeId: string | null; avgUnitCost: number; avgCostCode: number }[]>`
@@ -95,7 +106,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
     const gradeRows = Array.from(gradeIds).map(gid => {
       const key = pgKey(p.id, gid)
-      const readyForSale = readyMap.get(key) ?? 0
+      const fgOnHand = readyMap.get(key) ?? 0
+      // Displayed "Ready for Sale" = available net of reservations.
+      const readyForSale = Math.max(0, fgOnHand - (wholesaleMap.get(key) ?? 0))
       const avgUnitCost = avgUnitCostMap.get(key) ?? fbUnitCostMap.get(key) ?? null
       const avgCostCode = avgCostCodeMap.get(key) ?? fbCostCodeMap.get(key) ?? 0
       const listings = productMskus.filter(m => (m.gradeId ?? null) === gid).map(m => {
@@ -105,7 +118,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         // Margin only meaningful with finished-goods stock + known cost + a template.
         // Ship cost + landed cost as `cost`/`commissionPct` so the client recomputes
         // margin live as the price is edited (null ⇒ margin not applicable).
-        const canMargin = readyForSale > 0 && avgUnitCost != null && !!fees
+        // Margin needs physical finished-goods stock (real cost basis), independent
+        // of reservations, so gate on on-hand rather than net-available.
+        const canMargin = fgOnHand > 0 && avgUnitCost != null && !!fees
         const cost = canMargin ? avgUnitCost! + avgCostCode + fees!.shipping : null
         const marginPct = canMargin && priceNum != null ? marginAtPrice(priceNum, avgUnitCost!, avgCostCode, fees!) : null
         const sl = m.marketplace === 'amazon' ? slMap.get(m.sellerSku) : null
