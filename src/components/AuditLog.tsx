@@ -22,6 +22,8 @@ const ACTION_COLORS: Record<string, string> = {
   IMPORT_COMPLETED: 'badge-green',
   IMPORT_FAILED: 'badge-red',
   REFUND_AMOUNT_CHANGED: 'badge-orange',
+  label_printed: 'badge-green',
+  label_voided: 'badge-red',
 }
 
 export default function AuditLog({ refundId }: { refundId?: string }) {

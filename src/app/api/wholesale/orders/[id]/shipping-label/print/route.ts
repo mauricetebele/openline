@@ -31,6 +31,28 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const set = (latestSet ? labels.filter(l => l.shipmentId === latestSet) : [labels[0]])
     .slice().sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
 
+  // Log the wholesale shipping-label print to the transaction/audit history (best-effort).
+  try {
+    const so = await prisma.salesOrder.findUnique({ where: { id: params.id }, select: { orderNumber: true } })
+    await prisma.auditEvent.create({
+      data: {
+        entityType: 'orderLabel',
+        entityId: params.id,
+        action: 'label_printed',
+        actorId: user.dbId ?? null,
+        actorLabel: user.email ?? 'unknown',
+        after: {
+          orderType: 'wholesale',
+          orderNumber: so?.orderNumber ?? null,
+          shipmentId: latestSet ?? null,
+          pieces: set.length,
+        },
+      },
+    })
+  } catch (e) {
+    console.error('[WholesaleLabel] Failed to log label-print audit event:', e)
+  }
+
   if (set.length === 1) {
     return NextResponse.json({ labelData: set[0].labelData, count: 1 })
   }

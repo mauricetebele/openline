@@ -48,6 +48,33 @@ export async function GET(
     }
   }
 
+  // Log a "shipping label printed" event to the transaction/audit history so we can
+  // trace exactly when (and by whom) an order's label was printed when investigating
+  // shipping discrepancies. Best-effort — a logging failure must never block the print.
+  try {
+    const ord = await prisma.order.findUnique({ where: { id: params.orderId }, select: { amazonOrderId: true, orderSource: true } })
+    await prisma.auditEvent.create({
+      data: {
+        entityType: 'orderLabel',
+        entityId: params.orderId,
+        action: 'label_printed',
+        actorId: user.dbId ?? null,
+        actorLabel: user.email ?? 'unknown',
+        after: {
+          orderType: 'marketplace',
+          orderSource: ord?.orderSource ?? null,
+          orderNumber: ord?.amazonOrderId ?? null,
+          trackingNumber: label.trackingNumber ?? null,
+          carrier: label.carrier ?? null,
+          serviceCode: label.serviceCode ?? null,
+          labelFormat: label.labelFormat ?? null,
+        },
+      },
+    })
+  } catch (e) {
+    console.error('[label] Failed to log label-print audit event:', e)
+  }
+
   return NextResponse.json({
     trackingNumber: label.trackingNumber,
     labelData,
