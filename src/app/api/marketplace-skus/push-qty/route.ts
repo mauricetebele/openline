@@ -27,6 +27,7 @@ import { getAuthUser } from '@/lib/get-auth-user'
 import { updateListingQuantity as updateAmazonQty } from '@/lib/amazon/listings'
 import { BackMarketClient } from '@/lib/backmarket/client'
 import { decrypt } from '@/lib/crypto'
+import { getReconciledFgOnHand } from '@/lib/fg-onhand'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -63,18 +64,14 @@ async function computeBulkQuantities(mskus: MskuWithRelations[]): Promise<BulkQu
   const productIds = Array.from(new Set(mskus.map(m => m.productId)))
   const amazonSkus = Array.from(new Set(mskus.filter(m => m.marketplace === 'amazon').map(m => m.sellerSku)))
 
-  // 1. On-hand inventory grouped by product+grade (finished-goods locations only)
-  const invGroups = await prisma.inventoryItem.groupBy({
-    by: ['productId', 'gradeId'],
-    where: {
-      productId: { in: productIds },
-      location: { isFinishedGoods: true },
-    },
-    _sum: { qty: true },
-  })
+  // 1. On-hand inventory per product+grade (finished-goods only). Serial-truth for
+  //    serializable products (live IN_STOCK count net of hard reserves) so we never
+  //    push ghost units; counter for non-serializable.
+  const fgOnHand = await getReconciledFgOnHand(productIds)
   const inventoryMap = new Map<string, number>()
-  for (const g of invGroups) {
-    inventoryMap.set(pgKey(g.productId, g.gradeId), g._sum.qty ?? 0)
+  for (const [k, v] of Array.from(fgOnHand.entries())) {
+    const sep = k.indexOf(':')
+    inventoryMap.set(pgKey(k.slice(0, sep), k.slice(sep + 1) || null), v)
   }
 
   // 2. Pending Amazon MFN order quantities by sellerSku

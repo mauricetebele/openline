@@ -9,6 +9,7 @@ import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { resolveFees, marginAtPrice, type CalcTemplate } from '@/lib/target-margin'
 import { expireStaleTargetMargins } from '@/lib/expire-target-margins'
+import { getReconciledFgOnHand } from '@/lib/fg-onhand'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,15 +34,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     orderBy: [{ marketplace: 'asc' }, { sellerSku: 'asc' }],
   })
 
-  // Finished-goods on-hand per product+grade. InventoryItem.qty is already net of
-  // hard order reservations (those decrement it), so this is on-hand-minus-hard.
-  const invGroups = await prisma.inventoryItem.groupBy({
-    by: ['productId', 'gradeId'],
-    where: { productId: { in: productIds }, location: { isFinishedGoods: true } },
-    _sum: { qty: true },
-  })
-  const readyMap = new Map<string, number>()
-  for (const g of invGroups) readyMap.set(pgKey(g.productId, g.gradeId), g._sum.qty ?? 0)
+  // Finished-goods on-hand per product+grade — serial-truth for serializable products
+  // (live IN_STOCK serial count net of hard reserves), counter for non-serializable.
+  // Net of hard reservations, so we only subtract soft (wholesale) reservations below.
+  const readyMap = await getReconciledFgOnHand(productIds)
 
   // Wholesale soft reservations (orders in PROCESSING) are NOT decremented from
   // InventoryItem.qty, so subtract them to get available-to-sell net of reservations.
@@ -102,7 +98,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     // Grade set: any grade with mskus, plus any grade with finished-goods stock.
     const gradeIds = new Set<string | null>()
     productMskus.forEach(m => gradeIds.add(m.gradeId ?? null))
-    invGroups.filter(g => g.productId === p.id && (g._sum.qty ?? 0) > 0).forEach(g => gradeIds.add(g.gradeId ?? null))
+    for (const [k, qty] of Array.from(readyMap.entries())) {
+      if (qty > 0 && k.startsWith(`${p.id}:`)) { const g = k.slice(p.id.length + 1); gradeIds.add(g === '' ? null : g) }
+    }
 
     const gradeRows = Array.from(gradeIds).map(gid => {
       const key = pgKey(p.id, gid)

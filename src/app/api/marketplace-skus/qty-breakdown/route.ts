@@ -14,6 +14,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { splitQtyForGroup } from '@/app/api/marketplace-skus/push-qty/route'
+import { getReconciledFgOnHand } from '@/lib/fg-onhand'
 
 export const dynamic = 'force-dynamic'
 
@@ -64,16 +65,10 @@ export async function GET() {
     return NextResponse.json({ data: [] })
   }
 
-  // Batch: inventory qty grouped by productId + gradeId (finished-goods locations only)
-  const invGroups = await prisma.inventoryItem.groupBy({
-    by: ['productId', 'gradeId'],
-    where: { location: { isFinishedGoods: true } },
-    _sum: { qty: true },
-  })
-  const invMap = new Map<string, number>()
-  for (const g of invGroups) {
-    invMap.set(pgKey(g.productId, g.gradeId), g._sum.qty ?? 0)
-  }
+  // Finished-goods on-hand per product+grade — serial-truth (live IN_STOCK count net
+  // of hard reserves) for serializable products, counter for non-serializable, so
+  // ghost inventory can't inflate the pushed/available quantities.
+  const invMap = await getReconciledFgOnHand(Array.from(new Set(mskus.map(m => m.productId))))
 
   // Average landed cost (unit cost + cost-code amount) of IN_STOCK finished-goods
   // serials, per product+grade. Cost comes from the serial's PO line (fallback to the

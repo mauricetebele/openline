@@ -16,6 +16,7 @@ import {
 } from '@/app/api/marketplace-skus/push-qty/route'
 import type { BulkQuantities, SeeSawFlip } from '@/app/api/marketplace-skus/push-qty/route'
 import { updateListingQuantity as updateAmazonQty } from '@/lib/amazon/listings'
+import { getReconciledFgOnHand } from '@/lib/fg-onhand'
 
 function pgKey(productId: string, gradeId: string | null | undefined): string {
   return `${productId}::${gradeId ?? 'NULL'}`
@@ -63,13 +64,14 @@ export function pushQtyForProducts(productIds: string[]): void {
       const allProductIds = Array.from(new Set(filtered.map(m => m.productId)))
       const amazonSkus = Array.from(new Set(filtered.filter(m => m.marketplace === 'amazon').map(m => m.sellerSku)))
 
-      const invGroups = await prisma.inventoryItem.groupBy({
-        by: ['productId', 'gradeId'],
-        where: { productId: { in: allProductIds }, location: { isFinishedGoods: true } },
-        _sum: { qty: true },
-      })
+      // Serial-truth finished-goods on-hand (net of hard reserves) — avoids pushing
+      // ghost units when the InventoryItem.qty counter has drifted high.
+      const fgOnHand = await getReconciledFgOnHand(allProductIds)
       const inventoryMap = new Map<string, number>()
-      for (const g of invGroups) inventoryMap.set(pgKey(g.productId, g.gradeId), g._sum.qty ?? 0)
+      for (const [k, v] of Array.from(fgOnHand.entries())) {
+        const sep = k.indexOf(':')
+        inventoryMap.set(pgKey(k.slice(0, sep), k.slice(sep + 1) || null), v)
+      }
 
       const pendingMap = new Map<string, number>()
       if (amazonSkus.length > 0) {
