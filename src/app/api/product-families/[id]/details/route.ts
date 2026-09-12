@@ -75,7 +75,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const bmSkus = mskus.filter(m => m.marketplace === 'backmarket').map(m => m.sellerSku)
   const sellerListings = amazonSkus.length ? await prisma.sellerListing.findMany({ where: { sku: { in: amazonSkus } }, select: { sku: true, accountId: true, price: true, quantity: true, listingStatus: true, buyBoxPrice: true, buyBoxSeller: true } }) : []
   const slMap = new Map(sellerListings.map(l => [l.sku, l]))
-  const bmListings = bmSkus.length ? await prisma.marketplaceListing.findMany({ where: { marketplace: 'backmarket', sellerSku: { in: bmSkus } }, select: { sellerSku: true, price: true, listingStatus: true, backboxWon: true, backboxPrice: true } }) : []
+  const bmListings = bmSkus.length ? await prisma.marketplaceListing.findMany({ where: { marketplace: 'backmarket', sellerSku: { in: bmSkus } }, select: { sellerSku: true, price: true, quantity: true, listingStatus: true, backboxWon: true, backboxPrice: true } }) : []
   const bmMap = new Map(bmListings.map(l => [l.sellerSku, l]))
 
   // Calculation templates (fees).
@@ -119,7 +119,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
           buyBoxSeller: sl?.buyBoxSeller ?? null,
           backboxPrice: bm?.backboxPrice != null ? Number(bm.backboxPrice) : null,
           backboxWon: bm?.backboxWon ?? null,
-          pushingQty: sl ? sl.quantity : null, // live qty on the listing (Amazon only; BM doesn't store qty)
+          pushingQty: sl ? sl.quantity : (bm ? bm.quantity : null), // live/pushed qty on the listing
           listingStatus: sl?.listingStatus ?? bm?.listingStatus ?? null,
           // `cost` is null unless there's finished-goods stock + known cost + a template,
           // so any target-margin computation from it is implicitly stock-gated.

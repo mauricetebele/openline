@@ -1125,6 +1125,7 @@ model MarketplaceListing {
   condition          String? // BM grade (e.g. "EXCELLENT", "GOOD")
   listingStatus      String? // "Active" | "Inactive" — for BM, derived from stock qty > 0
   price              Decimal? @db.Decimal(12, 2) // BM current listing price (from sync)
+  quantity           Int? // BM current stock (from sync) — the pushed/live qty
   bmListingRef       Int? // BM listing_id — needed to push price/qty updates
   // Live BackBox (BM buybox) from /ws/listings_bi, refreshed on demand.
   backboxWon         Boolean? // do we currently hold the BackBox for this listing

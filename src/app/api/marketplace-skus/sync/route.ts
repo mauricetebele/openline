@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { decrypt } from '@/lib/crypto'
-import { BackMarketClient } from '@/lib/backmarket/client'
+import { BackMarketClient, deriveBmStatus } from '@/lib/backmarket/client'
 import { waitUntil } from '@vercel/functions'
 
 export const dynamic = 'force-dynamic'
@@ -63,6 +63,7 @@ interface BackMarketListing {
   grade?: string
   quantity?: number | string // current BM stock; a listing with 0 stock is not for sale
   price?: number | string // current BM listing price
+  publication_state?: number | string // 2 = Online (Active); 3 = Offline/deactivated
 }
 
 export async function POST(req: NextRequest) {
@@ -220,10 +221,11 @@ function syncBackMarket(): Response {
             const priceNum = bm.price != null ? Number(bm.price) : NaN
             const refNum = bm.listing_id != null ? Number(bm.listing_id) : NaN
 
-            // Active iff there's stock on Back Market (0 stock = not for sale). Unknown
-            // quantity leaves status untouched rather than guessing.
-            const listingStatus = Number.isFinite(qtyNum) ? (qtyNum > 0 ? 'Active' : 'Inactive') : undefined
+            // Active iff Online (publication_state === 2) AND in stock. publication_state
+            // 3 = offline/deactivated even with stock. Unknown → leave status untouched.
+            const listingStatus = deriveBmStatus(bm.publication_state, qtyNum)
             const price = Number.isFinite(priceNum) ? priceNum : undefined
+            const quantity = Number.isFinite(qtyNum) ? qtyNum : undefined
             const bmListingRef = Number.isFinite(refNum) ? Math.trunc(refNum) : undefined
 
             const existing = await prisma.marketplaceListing.findFirst({
@@ -239,6 +241,7 @@ function syncBackMarket(): Response {
                   condition: bm.grade || null,
                   ...(listingStatus !== undefined ? { listingStatus } : {}),
                   ...(price !== undefined ? { price } : {}),
+                  ...(quantity !== undefined ? { quantity } : {}),
                   ...(bmListingRef !== undefined ? { bmListingRef } : {}),
                   lastSyncedAt: new Date(),
                 },
@@ -254,6 +257,7 @@ function syncBackMarket(): Response {
                   condition: bm.grade || null,
                   listingStatus: listingStatus ?? null,
                   price: price ?? null,
+                  quantity: quantity ?? null,
                   bmListingRef: bmListingRef ?? null,
                 },
               })

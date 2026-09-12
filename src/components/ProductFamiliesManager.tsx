@@ -72,6 +72,7 @@ export default function ProductFamiliesManager() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [priceEdits, setPriceEdits] = useState<Record<string, string>>({})
   const [pushing, setPushing] = useState<string | null>(null)
+  const [refreshingListing, setRefreshingListing] = useState<Set<string>>(new Set())
   const [syncing, setSyncing] = useState(false)
   const [syncStat, setSyncStat] = useState<{ processed: number; total: number } | null>(null)
   const [syncLast, setSyncLast] = useState<string | null>(null)
@@ -167,9 +168,44 @@ export default function ProductFamiliesManager() {
         return next
       })
       setPriceEdits(e => { const n = { ...e }; delete n[l.mskuId]; return n })
+      // Marketplaces take a few seconds to reflect a new price in their Buy Box /
+      // BackBox — re-pull this listing's live pricing + buybox 10s later.
+      scheduleListingRefresh(l.mskuId)
       return true
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Push failed'); return false }
     finally { setPushing(null) }
+  }
+
+  // Re-pull one listing's live price/status/buybox a few seconds after a push.
+  function scheduleListingRefresh(mskuId: string) {
+    setRefreshingListing(prev => new Set(prev).add(mskuId))
+    setTimeout(async () => {
+      try {
+        const res = await fetch('/api/product-families/refresh-listing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mskuId }) })
+        const d = await res.json()
+        if (res.ok) {
+          setDetails(prev => {
+            const next: Record<string, GradeRow[]> = {}
+            for (const [pid, grades] of Object.entries(prev)) {
+              next[pid] = grades.map(g => ({ ...g, listings: g.listings.map(x => x.mskuId === mskuId ? {
+                ...x,
+                price: d.price ?? x.price,
+                listingStatus: d.listingStatus ?? x.listingStatus,
+                pushingQty: d.pushingQty ?? x.pushingQty,
+                buyBoxPrice: d.buyBoxPrice ?? x.buyBoxPrice,
+                buyBoxSeller: d.buyBoxSeller ?? x.buyBoxSeller,
+                backboxPrice: d.backboxPrice ?? x.backboxPrice,
+                backboxWon: d.backboxWon ?? x.backboxWon,
+              } : x) }))
+            }
+            return next
+          })
+        }
+      } catch { /* ignore — best effort */ }
+      finally {
+        setRefreshingListing(prev => { const n = new Set(prev); n.delete(mskuId); return n })
+      }
+    }, 10_000)
   }
 
   // Persist a target margin on the msku (shared with the Marketplace SKUs grid).

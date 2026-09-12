@@ -35,6 +35,24 @@ async function withRetry<T>(fn: () => Promise<T>, attempt = 0): Promise<T> {
 }
 
 // BackMarket aesthetic-grade → numeric `state` (verified against the live /listings API).
+/**
+ * Derive our Active/Inactive status for a Back Market listing. A listing is only
+ * live when it's Online (publication_state === 2) AND has stock. publication_state
+ * 3 = offline/deactivated even if quantity > 0. Falls back to stock-only when the
+ * publication_state isn't available.
+ */
+export function deriveBmStatus(
+  publicationState: number | string | null | undefined,
+  quantity: number | string | null | undefined,
+): 'Active' | 'Inactive' | undefined {
+  const pub = publicationState == null ? NaN : Number(publicationState)
+  const qty = quantity == null ? NaN : Number(quantity)
+  const inStock = Number.isFinite(qty) ? qty > 0 : true
+  if (Number.isFinite(pub)) return pub === 2 && inStock ? 'Active' : 'Inactive'
+  if (Number.isFinite(qty)) return inStock ? 'Active' : 'Inactive'
+  return undefined
+}
+
 export const BM_CONDITION_TO_STATE: Record<string, number> = {
   Premium: 9,
   Excellent: 0,
@@ -89,8 +107,23 @@ export class BackMarketClient {
   /**
    * Fetch a single Back Market listing by its listing ID (live price/qty/status).
    */
-  async getListing(listingId: number): Promise<{ sku?: string; price?: number | string; quantity?: number | string; grade?: string; listing_id?: number | string }> {
+  async getListing(listingId: number): Promise<{ id?: string; sku?: string; price?: number | string; quantity?: number | string; grade?: string; listing_id?: number | string; publication_state?: number | string }> {
     return this.get(`/listings/${listingId}`)
+  }
+
+  /**
+   * BackBox competitors for a listing (by its UUID). Each entry is a competing
+   * listing×market; `winner_price` is the current BackBox selling price and
+   * `is_winning` marks the holder. Rate-limited ~2/s/token (client retries 429s).
+   */
+  async getBackboxCompetitors(listingUuid: string): Promise<Array<{
+    listing_id?: string
+    is_winning?: boolean
+    winner_price?: { amount?: string | number } | null
+    price_to_win?: { amount?: string | number } | null
+    price?: { amount?: string | number } | null
+  }>> {
+    return this.get(`/backbox/v1/competitors/${listingUuid}`)
   }
 
   /**
