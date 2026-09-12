@@ -51,7 +51,7 @@ export async function POST(
       const snList = serials.map(s => (s.serialNumber ?? '').trim()).filter(Boolean)
       const found = await prisma.inventorySerial.findMany({
         where: { serialNumber: { in: snList } },
-        select: { id: true, serialNumber: true, status: true },
+        select: { id: true, serialNumber: true, status: true, productId: true, gradeId: true, locationId: true },
       })
       const snToSerial = new Map(found.map(s => [s.serialNumber, s]))
 
@@ -82,7 +82,7 @@ export async function POST(
       const serialIds = serials.map(s => s.serialId!).filter(Boolean)
       const found = await prisma.inventorySerial.findMany({
         where: { id: { in: serialIds } },
-        select: { id: true, status: true, serialNumber: true },
+        select: { id: true, status: true, serialNumber: true, productId: true, gradeId: true, locationId: true },
       })
       if (found.length !== serialIds.length) {
         return NextResponse.json({ error: 'One or more serial IDs not found' }, { status: 400 })
@@ -96,18 +96,49 @@ export async function POST(
       resolvedSerials = serials.map(s => ({ serialId: s.serialId!, salesOrderItemId: s.salesOrderItemId }))
     }
 
-    // Remove any existing assignments for this order first (re-serialize scenario)
-    await prisma.salesOrderSerialAssignment.deleteMany({
-      where: { salesOrderId: params.id },
+    // Actual location/product/grade of each assigned serial — the reservation is
+    // shifted to follow the serials regardless of where they were pre-reserved.
+    const metaRows = await prisma.inventorySerial.findMany({
+      where: { id: { in: resolvedSerials.map(s => s.serialId) } },
+      select: { id: true, productId: true, gradeId: true, locationId: true },
     })
+    const serialMeta = new Map(metaRows.map(m => [m.id, m]))
 
-    // Create all assignment records in one batch (serials stay IN_STOCK)
-    await prisma.salesOrderSerialAssignment.createMany({
-      data: resolvedSerials.map(s => ({
-        salesOrderId:     params.id,
-        salesOrderItemId: s.salesOrderItemId,
-        serialId:         s.serialId,
-      })),
+    // Group assigned serials by (item, product, grade, location) → reservation rows.
+    const resGroups = new Map<string, { salesOrderItemId: string; productId: string; gradeId: string | null; locationId: string; qty: number }>()
+    for (const s of resolvedSerials) {
+      const meta = serialMeta.get(s.serialId)
+      if (!meta) continue
+      const key = `${s.salesOrderItemId}|${meta.productId}|${meta.gradeId ?? 'null'}|${meta.locationId}`
+      const g = resGroups.get(key)
+      if (g) g.qty++
+      else resGroups.set(key, { salesOrderItemId: s.salesOrderItemId, productId: meta.productId, gradeId: meta.gradeId, locationId: meta.locationId, qty: 1 })
+    }
+
+    await prisma.$transaction(async tx => {
+      // Re-serialize: clear existing assignments first.
+      await tx.salesOrderSerialAssignment.deleteMany({ where: { salesOrderId: params.id } })
+      await tx.salesOrderSerialAssignment.createMany({
+        data: resolvedSerials.map(s => ({
+          salesOrderId:     params.id,
+          salesOrderItemId: s.salesOrderItemId,
+          serialId:         s.serialId,
+        })),
+      })
+
+      // Release the pre-serialization soft reservations and re-create them at the
+      // serials' actual locations, so per-location availability stays accurate.
+      await tx.salesOrderInventoryReservation.deleteMany({ where: { salesOrderId: params.id } })
+      await tx.salesOrderInventoryReservation.createMany({
+        data: Array.from(resGroups.values()).map(g => ({
+          salesOrderId:     params.id,
+          salesOrderItemId: g.salesOrderItemId,
+          productId:        g.productId,
+          locationId:       g.locationId,
+          gradeId:          g.gradeId,
+          qtyReserved:      g.qty,
+        })),
+      })
     })
 
     return NextResponse.json({ ok: true, assigned: resolvedSerials.length })

@@ -40,6 +40,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'All selected serials are already at that location' }, { status: 400 })
   }
 
+  // Serials assigned to an active (serialized, not-yet-shipped) order or FBA
+  // shipment are locked to their location — they can't be moved until the order
+  // is unserialized / shipped / cancelled. Keeps a serialized order's reservation
+  // aligned with where its serials physically are.
+  const moveIds = toMove.map(s => s.id)
+  const [oAssign, soAssign, fbaAssign] = await Promise.all([
+    prisma.orderSerialAssignment.findMany({ where: { inventorySerialId: { in: moveIds }, order: { workflowStatus: { notIn: ['SHIPPED', 'CANCELLED'] } } }, select: { inventorySerialId: true } }),
+    prisma.salesOrderSerialAssignment.findMany({ where: { serialId: { in: moveIds }, salesOrder: { fulfillmentStatus: { notIn: ['SHIPPED', 'CANCELLED'] } } }, select: { serialId: true } }),
+    prisma.fbaShipmentSerialAssignment.findMany({ where: { inventorySerialId: { in: moveIds }, fbaShipment: { status: { notIn: ['SHIPPED', 'CANCELLED'] } } }, select: { inventorySerialId: true } }),
+  ])
+  const lockedIds = new Set<string>([
+    ...oAssign.map(a => a.inventorySerialId),
+    ...soAssign.map(a => a.serialId),
+    ...fbaAssign.map(a => a.inventorySerialId),
+  ])
+  if (lockedIds.size > 0) {
+    const locked = await prisma.inventorySerial.findMany({ where: { id: { in: Array.from(lockedIds) } }, select: { serialNumber: true } })
+    const names = locked.map(l => l.serialNumber)
+    return NextResponse.json({
+      error: `Cannot move — ${lockedIds.size} serial${lockedIds.size > 1 ? 's are' : ' is'} assigned to an active order/shipment and locked to their location: ${names.slice(0, 5).join(', ')}${names.length > 5 ? ` (+${names.length - 5} more)` : ''}. Unserialize the order first.`,
+    }, { status: 409 })
+  }
+
   // Group by (productId, fromLocationId, gradeId) for batched inventory adjustments
   const groups = new Map<string, { productId: string; fromLocationId: string; gradeId: string | null; count: number }>()
   for (const serial of toMove) {

@@ -43,9 +43,30 @@ export async function POST(
     )
   }
 
-  await prisma.fbaShipment.update({
-    where: { id: params.id },
-    data: { status: 'SERIALIZED' },
+  // Shift the reservation to follow the scanned serials: release the pre-serialization
+  // soft reservations and re-create them at the serials' actual locations.
+  const serialIds = shipment.items.flatMap(i => i.serialAssignments.map(sa => sa.inventorySerialId))
+  const metaRows = serialIds.length
+    ? await prisma.inventorySerial.findMany({ where: { id: { in: serialIds } }, select: { productId: true, gradeId: true, locationId: true } })
+    : []
+  const resGroups = new Map<string, { productId: string; gradeId: string | null; locationId: string; qty: number }>()
+  for (const m of metaRows) {
+    const key = `${m.productId}|${m.gradeId ?? 'null'}|${m.locationId}`
+    const g = resGroups.get(key)
+    if (g) g.qty++
+    else resGroups.set(key, { productId: m.productId, gradeId: m.gradeId, locationId: m.locationId, qty: 1 })
+  }
+
+  await prisma.$transaction(async tx => {
+    await tx.fbaInventoryReservation.deleteMany({ where: { fbaShipmentId: params.id } })
+    if (resGroups.size) {
+      await tx.fbaInventoryReservation.createMany({
+        data: Array.from(resGroups.values()).map(g => ({
+          fbaShipmentId: params.id, productId: g.productId, locationId: g.locationId, gradeId: g.gradeId, qtyReserved: g.qty,
+        })),
+      })
+    }
+    await tx.fbaShipment.update({ where: { id: params.id }, data: { status: 'SERIALIZED' } })
   })
 
   return NextResponse.json({ success: true })
