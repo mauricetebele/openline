@@ -22,6 +22,25 @@ interface AssignmentInput {
   serialNumbers: string[]
 }
 
+/** Adjust InventoryItem.qty at (product, grade, location) by `delta` (may be negative). */
+async function adjustQty(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  productId: string, gradeId: string | null, locationId: string, delta: number,
+): Promise<void> {
+  if (delta === 0) return
+  if (gradeId) {
+    await tx.inventoryItem.upsert({
+      where: { productId_locationId_gradeId: { productId, locationId, gradeId } },
+      create: { productId, locationId, gradeId, qty: Math.max(0, delta) },
+      update: { qty: { increment: delta } },
+    })
+  } else {
+    const ex = await tx.inventoryItem.findFirst({ where: { productId, locationId, gradeId: null } })
+    if (ex) await tx.inventoryItem.update({ where: { id: ex.id }, data: { qty: { increment: delta } } })
+    else await tx.inventoryItem.create({ data: { productId, locationId, gradeId: null, qty: Math.max(0, delta) } })
+  }
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { orderId: string } },
@@ -164,6 +183,28 @@ export async function POST(
     serialsByItem.set(r.orderItemId, arr)
   }
 
+  // ── Reservation shift: marketplace decrements InventoryItem.qty at the reserved
+  //    location, so to make the reservation follow the assigned serials we release
+  //    the qty at the old reservation locations and re-apply it at the serials'
+  //    actual locations (keeps per-location on-hand correct). ──────────────────
+  const oldReservations = await prisma.orderInventoryReservation.findMany({
+    where: { orderId: params.orderId },
+    select: { productId: true, gradeId: true, locationId: true, qtyReserved: true },
+  })
+  const serialMetaRows = await prisma.inventorySerial.findMany({
+    where: { id: { in: resolvedSerials.map(r => r.serialId) } },
+    select: { id: true, productId: true, gradeId: true, locationId: true },
+  })
+  const serialMeta = new Map(serialMetaRows.map(m => [m.id, m]))
+  const newResGroups = new Map<string, { orderItemId: string; productId: string; gradeId: string | null; locationId: string; qty: number }>()
+  for (const r of resolvedSerials) {
+    const meta = serialMeta.get(r.serialId); if (!meta) continue
+    const key = `${r.orderItemId}|${meta.productId}|${meta.gradeId ?? 'null'}|${meta.locationId}`
+    const g = newResGroups.get(key)
+    if (g) g.qty++
+    else newResGroups.set(key, { orderItemId: r.orderItemId, productId: meta.productId, gradeId: meta.gradeId, locationId: meta.locationId, qty: 1 })
+  }
+
   // ── Apply all changes in a transaction ────────────────────────────────────
   const isShipping = order.workflowStatus === 'AWAITING_VERIFICATION'
 
@@ -214,13 +255,23 @@ export async function POST(
       }
     }
 
-    if (isShipping) {
-      // Release inventory reservations — qty was already decremented during processing
-      await tx.orderInventoryReservation.deleteMany({ where: { orderId: params.orderId } })
+    // Shift the hard inventory decrement to follow the serials: release the qty at
+    // the old reservation locations, then re-apply it at the serials' locations.
+    for (const res of oldReservations) await adjustQty(tx, res.productId, res.gradeId, res.locationId, res.qtyReserved)
+    for (const g of Array.from(newResGroups.values())) await adjustQty(tx, g.productId, g.gradeId, g.locationId, -g.qty)
 
+    await tx.orderInventoryReservation.deleteMany({ where: { orderId: params.orderId } })
+    if (isShipping) {
       await tx.order.update({
         where: { id: params.orderId },
         data:  { workflowStatus: 'SHIPPED', shippedAt: new Date() },
+      })
+    } else {
+      // Still PROCESSING — keep it reserved, but now at the serials' actual locations.
+      await tx.orderInventoryReservation.createMany({
+        data: Array.from(newResGroups.values()).map(g => ({
+          orderId: params.orderId, orderItemId: g.orderItemId, productId: g.productId, locationId: g.locationId, gradeId: g.gradeId, qtyReserved: g.qty,
+        })),
       })
     }
   })
