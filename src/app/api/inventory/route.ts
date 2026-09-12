@@ -251,12 +251,31 @@ export async function GET(req: NextRequest) {
     mpSalesMap.set(`${r.productId}:${r.gradeId ?? ''}`, Number(r.units))
   }
 
+  // Live IN_STOCK serial counts per product+location+grade — the SOURCE OF TRUTH for
+  // on-hand of serializable products (the InventoryItem.qty counter can drift high
+  // between reconciles → "ghost" inventory). Non-serializable products have no serials
+  // and keep using the counter.
+  const serialProductIds = Array.from(new Set(items.filter(i => i.product.isSerializable).map(i => i.productId)))
+  const serialCountGroups = serialProductIds.length
+    ? await prisma.inventorySerial.groupBy({
+        by: ['productId', 'locationId', 'gradeId'],
+        where: { status: 'IN_STOCK', productId: { in: serialProductIds } },
+        _count: { _all: true },
+      })
+    : []
+  const serialCountMap = new Map<string, number>()
+  for (const g of serialCountGroups) serialCountMap.set(`${g.productId}:${g.locationId}:${g.gradeId ?? ''}`, g._count._all)
+
   const data = items
     .map(item => {
       const key      = `${item.productId}:${item.locationId}:${item.gradeId ?? ''}`
       const hardReserved      = hardReservedMap.get(key) ?? 0
       const wholesaleReserved = wholesaleReservedMap.get(key) ?? 0
-      const fullOnHand = item.qty + hardReserved          // qty has hard-reserves subtracted
+      // Serializable → physical on-hand = live IN_STOCK serial count (matches the
+      // serials modal exactly). Non-serializable → counter + hard reserves.
+      const fullOnHand = item.product.isSerializable
+        ? (serialCountMap.get(key) ?? 0)
+        : item.qty + hardReserved          // qty has hard-reserves subtracted
       const onHand   = agedQtyMap.has(key) ? agedQtyMap.get(key)! : fullOnHand
       const reserved = hardReserved + wholesaleReserved  // total committed to orders
       const costKey = `${item.productId}:${item.gradeId ?? ''}`
