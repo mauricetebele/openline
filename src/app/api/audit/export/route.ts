@@ -9,7 +9,8 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { searchParams } = req.nextUrl
-  const where: Prisma.AuditEventWhereInput = {}
+  // Label-print events live in their own "Label Print History" report, not here.
+  const where: Prisma.AuditEventWhereInput = { NOT: { action: 'label_printed' } }
 
   const refundId = searchParams.get('refundId')
   if (refundId) where.refundId = refundId

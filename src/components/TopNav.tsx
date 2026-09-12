@@ -105,6 +105,7 @@ const NAV: NavItem[] = [
       { href: '/amazon-refunds',    label: 'Review Amazon Refunds', icon: RotateCcw },
       { href: '/shipping-bill-audit', label: 'Shipping Bill Audit', icon: Receipt },
       { href: '/orphan-labels',      label: 'Orphaned Labels', icon: Ban },
+      { href: '/label-print-history', label: 'Label Print History', icon: Printer },
     ],
   },
   {

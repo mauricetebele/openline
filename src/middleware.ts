@@ -88,9 +88,10 @@ export function middleware(req: NextRequest) {
     const REPORTS = [
       '/profitability', '/backmarket-financials', '/sales-stats', '/return-rates', '/fba-sales-report',
       '/shipping-manifest', '/transactions', '/amazon-refunds', '/shipping-bill-audit', '/orphan-labels',
+      '/label-print-history',
       '/api/profitability', '/api/backmarket-financials', '/api/sales-stats', '/api/return-rates',
       '/api/fba-sales-report', '/api/shipping-manifest', '/api/transactions', '/api/amazon-refunds',
-      '/api/shipping-bill-audit', '/api/shipstation/orphan-labels',
+      '/api/shipping-bill-audit', '/api/shipstation/orphan-labels', '/api/label-print-history',
     ]
     if (REPORTS.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
       if (pathname.startsWith('/api/')) {

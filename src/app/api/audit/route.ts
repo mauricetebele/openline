@@ -12,7 +12,8 @@ export async function GET(req: NextRequest) {
   const pageSize = Math.min(100, Math.max(1, Number(searchParams.get('pageSize') ?? '50')))
   const skip = (page - 1) * pageSize
 
-  const where: Prisma.AuditEventWhereInput = {}
+  // Label-print events live in their own "Label Print History" report, not here.
+  const where: Prisma.AuditEventWhereInput = { NOT: { action: 'label_printed' } }
 
   const refundId = searchParams.get('refundId')
   if (refundId) where.refundId = refundId
