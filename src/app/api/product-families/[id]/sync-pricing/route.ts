@@ -10,6 +10,7 @@ import { getAuthUser } from '@/lib/get-auth-user'
 import { decrypt } from '@/lib/crypto'
 import { SpApiClient } from '@/lib/amazon/sp-api'
 import { BackMarketClient } from '@/lib/backmarket/client'
+import { resolveSellerNames } from '@/lib/amazon/seller-name'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -17,6 +18,27 @@ export const maxDuration = 300
 interface ListingItemResponse {
   summaries?: { marketplaceId: string; status?: string[] }[]
   offers?: { marketplaceId?: string; price?: { amount?: string | number } }[]
+}
+
+interface ItemOffersResponse {
+  payload?: {
+    status?: string
+    Offers?: Array<{
+      SellerId?: string
+      IsBuyBoxWinner?: boolean
+      ListingPrice?: { Amount?: number }
+      Shipping?: { Amount?: number }
+      LandedPrice?: { Amount?: number }
+    }>
+  }
+}
+
+// BackBox row from GET /ws/listings_bi (see api.backmarket.dev GetBackboxData).
+interface BmBackbox {
+  sku?: string
+  price?: number | string
+  buybox?: boolean
+  price_for_buybox?: number | string
 }
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -35,7 +57,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const bmSkus = Array.from(new Set(mskus.filter(m => m.marketplace === 'backmarket').map(m => m.sellerSku)))
 
   const amazonListings = amazonSkus.length ? await prisma.sellerListing.findMany({
-    where: { sku: { in: amazonSkus } }, select: { id: true, sku: true, accountId: true },
+    where: { sku: { in: amazonSkus } }, select: { id: true, sku: true, accountId: true, asin: true },
   }) : []
   const bmListings = bmSkus.length ? await prisma.marketplaceListing.findMany({
     where: { marketplace: 'backmarket', sellerSku: { in: bmSkus } }, select: { id: true, sellerSku: true, bmListingRef: true },
@@ -61,6 +83,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         let account: { sellerId: string; marketplaceId: string } | null = null
         try { account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId }, select: { sellerId: true, marketplaceId: true } }) } catch { /* handled below */ }
         const client = account ? new SpApiClient(accountId) : null
+        // Cache buy box per ASIN so shared-ASIN grades only cost one lookup.
+        const buyBoxByAsin = new Map<string, { price: number | null; seller: string | null }>()
         for (const l of listings) {
           try {
             if (!account || !client) throw new Error('Amazon account unavailable')
@@ -72,16 +96,46 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
             const listingStatus = summary?.status?.includes('BUYABLE') ? 'Active' : 'Inactive'
             const offer = item.offers?.find(o => o.marketplaceId === account!.marketplaceId) ?? item.offers?.[0]
             const amount = offer?.price?.amount != null ? Number(offer.price.amount) : NaN
+
+            // Buy Box for the mapped ASIN (price + winning seller name).
+            let bb: { price: number | null; seller: string | null } | null = null
+            if (l.asin) {
+              if (buyBoxByAsin.has(l.asin)) {
+                bb = buyBoxByAsin.get(l.asin)!
+              } else {
+                try {
+                  const offers = await client.get<ItemOffersResponse>(
+                    `/products/pricing/v0/items/${encodeURIComponent(l.asin)}/offers`,
+                    { MarketplaceId: account.marketplaceId, ItemCondition: 'New', CustomerType: 'Consumer' },
+                  )
+                  const win = offers.payload?.Offers?.find(o => o.IsBuyBoxWinner)
+                  if (win) {
+                    const price = win.LandedPrice?.Amount ?? ((win.ListingPrice?.Amount ?? 0) + (win.Shipping?.Amount ?? 0))
+                    const sid = win.SellerId ?? null
+                    let seller: string | null = null
+                    if (sid && sid === account.sellerId) seller = 'You'
+                    else if (sid) { const m = await resolveSellerNames([sid], account.marketplaceId); seller = m.get(sid) ?? sid }
+                    bb = { price, seller }
+                  } else {
+                    bb = { price: null, seller: null }
+                  }
+                } catch { bb = null }
+                if (bb) buyBoxByAsin.set(l.asin, bb)
+              }
+            }
+
             await prisma.sellerListing.update({
               where: { id: l.id },
               data: {
                 listingStatus,
                 ...(Number.isFinite(amount) ? { price: amount } : {}),
+                ...(bb ? { buyBoxPrice: bb.price, buyBoxSeller: bb.seller, buyBoxSyncedAt: new Date() } : {}),
                 lastSyncedAt: new Date(),
               },
             })
             processed++
-            send({ processed, total, sku: l.sku, marketplace: 'amazon', status: 'ok', message: `${listingStatus}${Number.isFinite(amount) ? ` · $${amount.toFixed(2)}` : ''}` })
+            const bbMsg = bb?.price != null ? ` · BB $${bb.price.toFixed(2)}${bb.seller ? ` (${bb.seller})` : ''}` : ''
+            send({ processed, total, sku: l.sku, marketplace: 'amazon', status: 'ok', message: `${listingStatus}${Number.isFinite(amount) ? ` · $${amount.toFixed(2)}` : ''}${bbMsg}` })
           } catch (e) {
             processed++
             send({ processed, total, sku: l.sku, marketplace: 'amazon', status: 'error', message: e instanceof Error ? e.message : 'failed' })
@@ -94,11 +148,18 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         send({ processed, total, message: 'Fetching Back Market listings…' })
         const cred = await prisma.backMarketCredential.findFirst({ where: { isActive: true } })
         let bmMap = new Map<string, { price?: number | string; quantity?: number | string }>()
+        const backboxMap = new Map<string, BmBackbox>()
         try {
           if (!cred) throw new Error('No active Back Market credential')
           const client = new BackMarketClient(decrypt(cred.apiKeyEnc))
           const live = await client.fetchAllPages<{ sku?: string; price?: number | string; quantity?: number | string }>('/listings')
           bmMap = new Map(live.filter(x => x.sku).map(x => [String(x.sku).toUpperCase(), { price: x.price, quantity: x.quantity }]))
+          // BackBox competitive data (best-effort — requires BackBox API access).
+          try {
+            send({ processed, total, message: 'Fetching Back Market BackBox…' })
+            const bb = await client.fetchAllPages<BmBackbox>('/listings_bi')
+            for (const x of bb) if (x.sku) backboxMap.set(String(x.sku).toUpperCase(), x)
+          } catch { /* BackBox unavailable — leave prices as-is */ }
         } catch (e) {
           // Mark all BM SKUs as errored and finish.
           for (const l of bmListings) {
@@ -114,16 +175,29 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
             const qty = live.quantity != null ? Number(live.quantity) : NaN
             const price = live.price != null ? Number(live.price) : NaN
             const listingStatus = Number.isFinite(qty) ? (qty > 0 ? 'Active' : 'Inactive') : undefined
+
+            // BackBox: current backbox price = our price when we hold it, else the price-to-win.
+            const bx = backboxMap.get(l.sellerSku.toUpperCase())
+            let backboxWon: boolean | undefined
+            let backboxPrice: number | undefined
+            if (bx) {
+              backboxWon = bx.buybox === true
+              const cand = backboxWon ? Number(bx.price) : Number(bx.price_for_buybox)
+              if (Number.isFinite(cand)) backboxPrice = cand
+            }
+
             await prisma.marketplaceListing.update({
               where: { id: l.id },
               data: {
                 ...(Number.isFinite(price) ? { price } : {}),
                 ...(listingStatus !== undefined ? { listingStatus } : {}),
+                ...(bx ? { backboxWon: backboxWon ?? null, backboxPrice: backboxPrice ?? null, backboxSyncedAt: new Date() } : {}),
                 lastSyncedAt: new Date(),
               },
             })
             processed++
-            send({ processed, total, sku: l.sellerSku, marketplace: 'backmarket', status: 'ok', message: `${listingStatus ?? '?'}${Number.isFinite(price) ? ` · $${price.toFixed(2)}` : ''}` })
+            const bxMsg = backboxPrice != null ? ` · BackBox $${backboxPrice.toFixed(2)}${backboxWon ? ' (won)' : ''}` : ''
+            send({ processed, total, sku: l.sellerSku, marketplace: 'backmarket', status: 'ok', message: `${listingStatus ?? '?'}${Number.isFinite(price) ? ` · $${price.toFixed(2)}` : ''}${bxMsg}` })
           } catch (e) {
             processed++
             send({ processed, total, sku: l.sellerSku, marketplace: 'backmarket', status: 'error', message: e instanceof Error ? e.message : 'failed' })

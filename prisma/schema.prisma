@@ -434,6 +434,11 @@ model SellerListing {
   sold7d           Int       @default(0)
   velocitySyncedAt DateTime?
 
+  // Live Buy Box (from SP-API competitive pricing), refreshed on demand.
+  buyBoxPrice    Decimal?  @db.Decimal(12, 2)
+  buyBoxSeller   String? // winning seller name ("You" when we hold it)
+  buyBoxSyncedAt DateTime?
+
   @@unique([accountId, sku])
   @@index([accountId])
   @@index([shippingTemplate])
@@ -1121,6 +1126,10 @@ model MarketplaceListing {
   listingStatus      String? // "Active" | "Inactive" — for BM, derived from stock qty > 0
   price              Decimal? @db.Decimal(12, 2) // BM current listing price (from sync)
   bmListingRef       Int? // BM listing_id — needed to push price/qty updates
+  // Live BackBox (BM buybox) from /ws/listings_bi, refreshed on demand.
+  backboxWon         Boolean? // do we currently hold the BackBox for this listing
+  backboxPrice       Decimal? @db.Decimal(12, 2) // current BackBox price (our price if won, else price-to-win)
+  backboxSyncedAt    DateTime?
   lastSyncedAt       DateTime @default(now())
   createdAt          DateTime @default(now())
 

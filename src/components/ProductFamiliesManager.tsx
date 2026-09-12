@@ -12,6 +12,8 @@ interface Listing {
   mskuId: string; marketplace: string; sellerSku: string; accountId: string | null
   price: number | null; cost: number | null; commissionPct: number | null; marginPct: number | null
   pushingQty: number | null; listingStatus: string | null; targetMarginPct: number | null
+  buyBoxPrice: number | null; buyBoxSeller: string | null
+  backboxPrice: number | null; backboxWon: boolean | null
 }
 interface GradeRow { gradeId: string | null; grade: string; readyForSale: number; listings: Listing[] }
 
@@ -418,6 +420,7 @@ export default function ProductFamiliesManager() {
                                               <th className="px-3 py-1.5 text-left font-medium">Marketplace</th>
                                               <th className="px-3 py-1.5 text-left font-medium">Seller SKU</th>
                                               <th className="px-3 py-1.5 text-right font-medium">Price</th>
+                                              <th className="px-3 py-1.5 text-right font-medium" title="Amazon: Buy Box price + winning seller · Back Market: current BackBox price">Buy Box</th>
                                               <th className="px-3 py-1.5 text-right font-medium">Margin</th>
                                               <th className="px-3 py-1.5 text-right font-medium" title="Enter a target net margin %; the system computes the price that realizes it. Requires stock in a Ready-for-Sale location.">Target Margin</th>
                                               <th className="px-3 py-1.5 w-16"></th>
@@ -456,6 +459,31 @@ export default function ProductFamiliesManager() {
                                                           className="w-24 h-7 rounded border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2 text-right text-[11px] text-gray-900 dark:text-white" />
                                                       </div>
                                                     ) : <span className="text-gray-400">{l.price != null ? `$${l.price.toFixed(2)}` : '—'}</span>}
+                                                  </td>
+                                                  <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                                                    {l.marketplace === 'amazon' ? (
+                                                      l.buyBoxPrice != null ? (
+                                                        <span className="inline-flex items-center gap-1 justify-end">
+                                                          <span className="font-mono tabular-nums text-gray-700 dark:text-gray-200">${l.buyBoxPrice.toFixed(2)}</span>
+                                                          {l.buyBoxSeller && (
+                                                            <span className={clsx('px-1 py-0.5 rounded text-[9px] font-semibold max-w-[90px] truncate',
+                                                              l.buyBoxSeller === 'You' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-400')}
+                                                              title={l.buyBoxSeller}>{l.buyBoxSeller}</span>
+                                                          )}
+                                                        </span>
+                                                      ) : <span className="text-gray-300">—</span>
+                                                    ) : l.marketplace === 'backmarket' ? (
+                                                      l.backboxPrice != null ? (
+                                                        <span className="inline-flex items-center gap-1 justify-end">
+                                                          <span className="font-mono tabular-nums text-gray-700 dark:text-gray-200">${l.backboxPrice.toFixed(2)}</span>
+                                                          <span className={clsx('px-1 py-0.5 rounded text-[9px] font-semibold',
+                                                            l.backboxWon ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-400')}
+                                                            title={l.backboxWon ? 'You currently hold the BackBox' : 'Price to win the BackBox'}>
+                                                            {l.backboxWon ? 'Won' : 'to win'}
+                                                          </span>
+                                                        </span>
+                                                      ) : <span className="text-gray-300">—</span>
+                                                    ) : <span className="text-gray-300">—</span>}
                                                   </td>
                                                   <td className={clsx('px-3 py-1.5 text-right font-semibold whitespace-nowrap tabular-nums', marginClass(margin))}>
                                                     {margin != null ? `${margin.toFixed(1)}%` : '—'}
