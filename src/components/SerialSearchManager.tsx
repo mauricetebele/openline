@@ -5,6 +5,7 @@ import { jsPDF } from 'jspdf'
 import JsBarcode from 'jsbarcode'
 import { clsx } from 'clsx'
 import GradeBadge from '@/components/GradeBadge'
+import SerialFmiChecker from '@/components/SerialFmiChecker'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1015,6 +1016,7 @@ export default function SerialSearchManager() {
                         </span>
                       </th>
                     ))}
+                    <th className="px-3 py-3 text-[11px] font-semibold text-gray-300 uppercase tracking-wider whitespace-nowrap">FMI</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1080,6 +1082,10 @@ export default function SerialSearchManager() {
                             </span>
                           )}
                         </button>
+                      </td>
+                      {/* FMI / SICKW checker */}
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <SerialFmiChecker serial={r.serialNumber} deviceHint={`${r.sku} ${r.description}`} />
                       </td>
                     </tr>
                   ))}
