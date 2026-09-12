@@ -61,10 +61,14 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
-  const data: { commissionRefundExpected?: boolean | null } = {}
+  const data: { commissionRefundExpected?: boolean | null; commissionRefundNote?: string | null } = {}
   if ('commissionRefundExpected' in body) {
     const v = body.commissionRefundExpected
     data.commissionRefundExpected = v === true || v === false ? v : null
+  }
+  if ('commissionRefundNote' in body) {
+    const v = body.commissionRefundNote
+    data.commissionRefundNote = typeof v === 'string' && v.trim() ? v.trim() : null
   }
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })

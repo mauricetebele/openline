@@ -10,7 +10,7 @@ export async function POST(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { serialUpdates, nonSerialItems, commissionRefundExpected } = body as {
+  const { serialUpdates, nonSerialItems, commissionRefundExpected, commissionRefundNote } = body as {
     serialUpdates: Array<{
       rmaSerialId: string
       inventorySerialId?: string
@@ -26,6 +26,7 @@ export async function POST(
       quantityReturned: number
     }>
     commissionRefundExpected?: boolean | null
+    commissionRefundNote?: string | null
   }
 
   // Load the RMA
@@ -186,6 +187,7 @@ export async function POST(
         data: {
           status: 'RECEIVED',
           ...(commissionRefundExpected !== undefined ? { commissionRefundExpected } : {}),
+          ...(commissionRefundNote !== undefined ? { commissionRefundNote: commissionRefundNote?.trim() || null } : {}),
         },
         include: {
           order: {

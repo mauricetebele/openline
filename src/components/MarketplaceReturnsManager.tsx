@@ -1,6 +1,6 @@
 'use client'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, X, Search, CheckCircle2, RotateCcw, Package, ChevronDown, Trash2 } from 'lucide-react'
+import { Plus, X, Search, CheckCircle2, RotateCcw, Package, ChevronDown, Trash2, StickyNote } from 'lucide-react'
 import { clsx } from 'clsx'
 import CreateReturnModal from './CreateMarketplaceReturnModal'
 import SickwCheckButton from './SickwCheckButton'
@@ -89,6 +89,34 @@ export default function MarketplaceReturnsManager() {
       if (!res.ok) throw new Error()
     } catch {
       fetchRmas() // revert to server truth on failure
+    }
+  }
+
+  // Commission-refund note: edit from the grid via a small modal.
+  const [noteModalRma, setNoteModalRma] = useState<MarketplaceRMA | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
+  function openNoteModal(rma: MarketplaceRMA) {
+    setNoteModalRma(rma)
+    setNoteDraft(rma.commissionRefundNote ?? '')
+  }
+  async function saveCommissionNote() {
+    if (!noteModalRma) return
+    const rmaId = noteModalRma.id
+    const note = noteDraft.trim() || null
+    setSavingNote(true)
+    try {
+      const res = await fetch(`/api/marketplace-rma/${rmaId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commissionRefundNote: note }),
+      })
+      if (!res.ok) throw new Error()
+      setRmas(prev => prev.map(r => r.id === rmaId ? { ...r, commissionRefundNote: note } : r))
+      setNoteModalRma(null)
+    } catch {
+      fetchRmas()
+    } finally {
+      setSavingNote(false)
     }
   }
 
@@ -314,19 +342,30 @@ export default function MarketplaceReturnsManager() {
                         {rma.order.orderSource !== 'backmarket' ? (
                           <span className="text-gray-300 dark:text-gray-600">—</span>
                         ) : (
-                          <select
-                            value={rma.commissionRefundExpected === true ? 'yes' : rma.commissionRefundExpected === false ? 'no' : ''}
-                            onChange={(e) => setCommissionExpected(rma.id, e.target.value === 'yes' ? true : e.target.value === 'no' ? false : null)}
-                            title="Commission Refund Expected?"
-                            className={clsx('rounded text-[10px] font-semibold px-1 py-0.5 border cursor-pointer focus:outline-none focus:ring-1 focus:ring-amazon-blue',
-                              rma.commissionRefundExpected === true ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300'
-                              : rma.commissionRefundExpected === false ? 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-700 dark:text-gray-300'
-                              : 'bg-white text-gray-400 border-gray-200 dark:bg-gray-800')}
-                          >
-                            <option value="">—</option>
-                            <option value="yes">Yes</option>
-                            <option value="no">No</option>
-                          </select>
+                          <div className="inline-flex items-center gap-1">
+                            <select
+                              value={rma.commissionRefundExpected === true ? 'yes' : rma.commissionRefundExpected === false ? 'no' : ''}
+                              onChange={(e) => setCommissionExpected(rma.id, e.target.value === 'yes' ? true : e.target.value === 'no' ? false : null)}
+                              title="Commission Refund Expected?"
+                              className={clsx('rounded text-[10px] font-semibold px-1 py-0.5 border cursor-pointer focus:outline-none focus:ring-1 focus:ring-amazon-blue',
+                                rma.commissionRefundExpected === true ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300'
+                                : rma.commissionRefundExpected === false ? 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-700 dark:text-gray-300'
+                                : 'bg-white text-gray-400 border-gray-200 dark:bg-gray-800')}
+                            >
+                              <option value="">—</option>
+                              <option value="yes">Yes</option>
+                              <option value="no">No</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => openNoteModal(rma)}
+                              title={rma.commissionRefundNote ? rma.commissionRefundNote : 'Add a commission-refund note'}
+                              className={clsx('p-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10',
+                                rma.commissionRefundNote ? 'text-amber-500' : 'text-gray-300 dark:text-gray-600 hover:text-gray-400')}
+                            >
+                              <StickyNote size={13} className={rma.commissionRefundNote ? 'fill-amber-100' : ''} />
+                            </button>
+                          </div>
                         )}
                       </td>
                       <td className="px-3 py-1.5">
@@ -478,6 +517,37 @@ export default function MarketplaceReturnsManager() {
       )}
       </>
       )}
+
+      {/* Commission-refund note editor */}
+      {noteModalRma && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={() => setNoteModalRma(null)}>
+          <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b dark:border-gray-700">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Commission Refund Note</h3>
+                <p className="text-[11px] text-gray-500">{noteModalRma.rmaNumber} · {noteModalRma.order.amazonOrderId}</p>
+              </div>
+              <button onClick={() => setNoteModalRma(null)} className="text-gray-400 hover:text-gray-700 dark:hover:text-white"><X size={16} /></button>
+            </div>
+            <div className="px-5 py-4">
+              <textarea
+                autoFocus
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                rows={4}
+                placeholder="e.g. Opened a case with BackMarket, awaiting response…"
+                className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800 px-2.5 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t dark:border-gray-700">
+              <button onClick={() => setNoteModalRma(null)} className="h-9 px-4 rounded-md border border-gray-300 dark:border-white/15 text-sm text-gray-600 dark:text-gray-300">Cancel</button>
+              <button onClick={saveCommissionNote} disabled={savingNote} className="h-9 px-5 rounded-md bg-amazon-blue text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+                {savingNote ? 'Saving…' : 'Save Note'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -599,8 +669,9 @@ function ReceiveReturnModal({
   }>>({})
   const [receiving, setReceiving] = useState(false)
   const [regradeSerials, setRegradeSerials] = useState<Set<string>>(new Set())
-  // BackMarket returns: whether a BM commission refund is expected (Y/N)
+  // BackMarket returns: whether a BM commission refund is expected (Y/N) + a note.
   const [commissionRefundExpected, setCommissionRefundExpected] = useState<boolean | null>(null)
+  const [commissionRefundNote, setCommissionRefundNote] = useState('')
 
   const [applyAllWh, setApplyAllWh] = useState('')
   const [applyAllLoc, setApplyAllLoc] = useState('')
@@ -619,6 +690,7 @@ function ReceiveReturnModal({
       if (rmaData && typeof rmaData.commissionRefundExpected === 'boolean') {
         setCommissionRefundExpected(rmaData.commissionRefundExpected)
       }
+      if (rmaData?.commissionRefundNote) setCommissionRefundNote(rmaData.commissionRefundNote)
 
       if (rmaData) {
         // Init serial receive state
@@ -715,7 +787,7 @@ function ReceiveReturnModal({
         body: JSON.stringify({
           serialUpdates,
           nonSerialItems: nonSerialItems.length ? nonSerialItems : undefined,
-          ...(isBackMarket ? { commissionRefundExpected } : {}),
+          ...(isBackMarket ? { commissionRefundExpected, commissionRefundNote: commissionRefundNote.trim() || null } : {}),
         }),
       })
 
@@ -998,6 +1070,17 @@ function ReceiveReturnModal({
             {!isReceived && commissionRefundExpected === null && (
               <p className="text-[11px] text-amber-600 mt-1.5">Select Yes or No to receive this BackMarket return.</p>
             )}
+            <div className="mt-3">
+              <label className="text-xs font-medium text-gray-600">Commission refund note <span className="text-gray-400 font-normal">(optional)</span></label>
+              <textarea
+                value={commissionRefundNote}
+                onChange={(e) => setCommissionRefundNote(e.target.value)}
+                disabled={isReceived}
+                rows={2}
+                placeholder="e.g. Opened a case with BackMarket, awaiting response…"
+                className="mt-1 w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amazon-blue disabled:bg-gray-50 disabled:text-gray-500"
+              />
+            </div>
           </div>
         )}
 

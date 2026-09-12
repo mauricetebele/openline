@@ -2054,6 +2054,7 @@ model MarketplaceRMA {
   notes     String?
   // For BackMarket returns: captured at receiving — is a BM commission refund expected?
   commissionRefundExpected Boolean?
+  commissionRefundNote     String?  @db.Text // free note about the commission-refund expectation
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
