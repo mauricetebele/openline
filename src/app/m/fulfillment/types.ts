@@ -111,6 +111,18 @@ export function openLabelData(labelData: string, labelFormat: string, name: stri
   window.open(URL.createObjectURL(blob), '_blank')
 }
 
+/** Carrier logo path from carrier code / service name (mirrors the desktop grid). */
+export function carrierLogo(carrierCode: string | null | undefined, serviceName?: string | null): string | null {
+  const candidates = [carrierCode, serviceName].filter(Boolean).map(s => s!.toLowerCase())
+  for (const key of candidates) {
+    if (key.includes('usps') || key.includes('stamps')) return '/logos/usps.svg'
+    if (key.includes('ups')) return '/logos/ups.svg'
+    if (key.includes('fedex')) return '/logos/fedex.svg'
+    if (key.includes('dhl')) return '/logos/dhl.svg'
+  }
+  return null
+}
+
 export function orderNumber(o: Order): string {
   if (o.orderSource === 'wholesale') return o.wholesaleOrderNumber ?? o.amazonOrderId
   return o.olmNumber ? `OLM-${o.olmNumber}` : o.amazonOrderId

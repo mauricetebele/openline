@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
 import {
-  apiPost, fmtMoney, fmtDate, openLabelData, orderNumber, shipByDays,
+  apiPost, fmtMoney, fmtDate, openLabelData, orderNumber, shipByDays, carrierLogo,
   TAB_LABEL, WORKFLOW_DISPLAY, type Tab, type Order, type Pagination,
 } from './types'
 import {
@@ -398,7 +398,7 @@ function OrderCard({ order: o, onOpen, busy, selected, onToggle }: { order: Orde
   const src = o.orderSource ?? 'amazon'
   const days = shipByDays(o)
   const item0 = o.items[0]
-  const rate = o.presetRateAmount ? `${o.presetRateCarrier ?? ''} ${fmtMoney(o.presetRateAmount)}` : o.presetRateError ? 'rate err' : null
+  const rateLogo = o.presetRateAmount ? carrierLogo(o.presetRateCarrier, o.presetRateService) : null
   return (
     <div className={clsx('flex items-stretch gap-1 bg-white rounded-xl shadow-sm', selected && 'ring-2 ring-amazon-blue')}>
       {/* select checkbox */}
@@ -429,7 +429,13 @@ function OrderCard({ order: o, onOpen, busy, selected, onToggle }: { order: Orde
         <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-500">
           {o.shipTracking || o.label?.trackingNumber ? <span className="font-mono truncate">{o.shipTracking ?? o.label?.trackingNumber}</span> : days != null ? <span className={clsx(days < 0 ? 'text-red-600 font-semibold' : days === 0 ? 'text-amber-600 font-semibold' : '')}>Ship by {fmtDate(o.latestShipDate)}{days < 0 ? ' (late)' : days === 0 ? ' (today)' : ''}</span> : <span>Ordered {fmtDate(o.purchaseDate)}</span>}
           {o.appliedPackagePreset && <span className="truncate">· {o.appliedPackagePreset.name}</span>}
-          {rate && <span className="ml-auto text-gray-700 font-medium">{rate}</span>}
+          {o.presetRateAmount ? (
+            <span className="ml-auto inline-flex items-center gap-1 text-gray-800 font-medium">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {rateLogo ? <img src={rateLogo} alt={o.presetRateCarrier ?? ''} className="h-3.5 w-auto object-contain" /> : <span className="text-[10px]">{o.presetRateCarrier}</span>}
+              {fmtMoney(o.presetRateAmount)}
+            </span>
+          ) : o.presetRateError ? <span className="ml-auto text-red-500">rate err</span> : null}
         </div>
       </button>
     </div>
