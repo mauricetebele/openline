@@ -325,9 +325,16 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                 <p className="text-xs text-gray-500 pl-0.5">
                   Bin: <span className="font-mono font-medium text-gray-700">{result.binLocation ?? '—'}</span>
                 </p>
-                <p className="text-xs text-gray-500 pl-0.5">
-                  Unit Cost: <span className="font-mono font-semibold text-gray-800">{result.unitCost != null ? `$${result.unitCost.toFixed(2)}` : '—'}</span>
-                </p>
+                <div className="pl-0.5 pt-0.5">
+                  <span className="relative inline-flex items-center gap-1.5 bg-emerald-500 text-white font-mono font-bold text-sm pl-4 pr-3 py-1 rounded-r-md shadow-sm"
+                    style={{ clipPath: 'polygon(12px 0, 100% 0, 100% 100%, 12px 100%, 0 50%)' }}
+                    title="Unit cost of this serial">
+                    {/* tag punch-hole */}
+                    <span className="absolute left-[5px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-white/90" />
+                    <Tag size={12} className="ml-1" />
+                    {result.unitCost != null ? `$${result.unitCost.toFixed(2)}` : '—'}
+                  </span>
+                </div>
               </div>
 
               {/* History timeline */}
