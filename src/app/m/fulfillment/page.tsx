@@ -45,7 +45,7 @@ function AmazonLogo() {
 }
 function BackMarketLogo() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={18} height={18} viewBox="0 0.72 182 166.32" aria-label="Back Market" className="text-[#2E4CE5]">
+    <svg xmlns="http://www.w3.org/2000/svg" width={20} height={20} viewBox="0 0.72 182 166.32" aria-label="Back Market" className="text-gray-900">
       <path d="M167.45.72H14.55C6.51.72 0 7.21 0 15.23v136.58c0 8.02 6.51 14.51 14.55 14.51h152.9c8.03 0 14.55-6.5 14.55-14.51V15.23C182 7.22 175.49.72 167.45.72ZM99.14 133.69H69.13c-.96 0-1.87-.38-2.55-1.06L18.54 84.59c-.59-.59-.59-1.55 0-2.15L66.58 34.4c.68-.68 1.59-1.06 2.55-1.06h30.01c.82 0 1.23.99.65 1.56L52.25 82.44c-.59.59-.59 1.55 0 2.15l47.54 47.54c.58.58.17 1.56-.65 1.56Zm16.04-49.1 47.54 47.54c.58.58.17 1.56-.65 1.56h-30.01c-.96 0-1.87-.38-2.55-1.06L81.47 84.58c-.59-.59-.59-1.55 0-2.15l48.04-48.04c.68-.68 1.59-1.06 2.55-1.06h30.01c.82 0 1.23.99.65 1.56l-47.54 47.54c-.59.59-.59 1.55 0 2.15Z" fill="currentColor" />
     </svg>
   )
@@ -53,7 +53,7 @@ function BackMarketLogo() {
 function SourceLogo({ src }: { src: string }) {
   if (src === 'backmarket') return <BackMarketLogo />
   // eslint-disable-next-line @next/next/no-img-element
-  if (src === 'wholesale') return <img src="/logos/olm-icon.svg" alt="Wholesale" title="Wholesale" className="w-[18px] h-[18px]" />
+  if (src === 'wholesale') return <img src="/logos/olm-icon.svg" alt="Wholesale" title="Wholesale" className="w-5 h-5" />
   return <AmazonLogo />
 }
 
@@ -397,7 +397,7 @@ function OrderCard({ order: o, onOpen, busy, selected, onToggle }: { order: Orde
       {/* main content */}
       <button onClick={onOpen} disabled={busy} className="flex-1 min-w-0 text-left py-3 pr-3 active:bg-gray-50 disabled:opacity-60 rounded-r-xl">
         <div className="flex items-start gap-2">
-          <div className="shrink-0 pt-0.5"><SourceLogo src={src} /></div>
+          <div className="shrink-0 w-6 flex items-center justify-center pt-0.5"><SourceLogo src={src} /></div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="font-bold text-[13px] text-amazon-blue">{orderNumber(o)}</span>
