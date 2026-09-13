@@ -66,6 +66,8 @@ export async function GET(req: NextRequest) {
       ...(orderSource === 'amazon' || orderSource === 'backmarket'
         ? { orderSource }
         : {}),
+      // Prime-only filter (mobile Prime toggle)
+      ...(searchParams.get('prime') === '1' ? { isPrime: true } : {}),
     }
 
     if (search) {

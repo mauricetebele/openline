@@ -70,6 +70,11 @@ export const TAB_WORKFLOW: Record<Tab, string> = {
   pending: 'PENDING', unshipped: 'PROCESSING', awaiting: 'AWAITING_VERIFICATION', shipped: 'SHIPPED', cancelled: 'CANCELLED',
 }
 
+// Human labels for workflowStatus (PROCESSING = "Unshipped" in this app's vocabulary).
+export const WORKFLOW_DISPLAY: Record<string, string> = {
+  PENDING: 'Pending', PROCESSING: 'Unshipped', AWAITING_VERIFICATION: 'Awaiting', SHIPPED: 'Shipped', CANCELLED: 'Cancelled',
+}
+
 export const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 
 export function fmtMoney(v: string | number | null | undefined): string {

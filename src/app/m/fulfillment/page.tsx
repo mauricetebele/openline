@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
 import {
@@ -9,7 +9,7 @@ import {
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
 import {
   apiPost, fmtMoney, fmtDate, openLabelData, orderNumber, shipByDays,
-  TAB_LABEL, type Tab, type Order, type Pagination,
+  TAB_LABEL, WORKFLOW_DISPLAY, type Tab, type Order, type Pagination,
 } from './types'
 import {
   Sheet, ProcessSheet, VerifySheet, ManualShipSheet,
@@ -31,6 +31,32 @@ const STATUS_BADGE: Record<string, string> = {
   AWAITING_VERIFICATION: 'bg-amber-100 text-amber-700', SHIPPED: 'bg-emerald-100 text-emerald-700', CANCELLED: 'bg-gray-100 text-gray-500',
 }
 
+// ─── Channel logos (reused from the desktop grid's inline icons) ─────────────
+function AmazonLogo() {
+  return (
+    <span title="Amazon" className="inline-flex flex-col items-center leading-none select-none">
+      <span style={{ fontFamily: 'Arial, sans-serif', fontWeight: 900, fontSize: 8, letterSpacing: '-0.3px', color: '#232F3E', lineHeight: 1 }}>amazon</span>
+      <svg width="22" height="6" viewBox="0 0 22 6" fill="none" style={{ marginTop: -1 }}>
+        <path d="M1 4C6 7.5 16 7.5 21 4" stroke="#FF9900" strokeWidth="2.2" strokeLinecap="round" />
+        <path d="M17.5 2.5L21 4L17.5 5.5" stroke="#FF9900" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  )
+}
+function BackMarketLogo() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={18} height={18} viewBox="0 0.72 182 166.32" aria-label="Back Market" className="text-[#2E4CE5]">
+      <path d="M167.45.72H14.55C6.51.72 0 7.21 0 15.23v136.58c0 8.02 6.51 14.51 14.55 14.51h152.9c8.03 0 14.55-6.5 14.55-14.51V15.23C182 7.22 175.49.72 167.45.72ZM99.14 133.69H69.13c-.96 0-1.87-.38-2.55-1.06L18.54 84.59c-.59-.59-.59-1.55 0-2.15L66.58 34.4c.68-.68 1.59-1.06 2.55-1.06h30.01c.82 0 1.23.99.65 1.56L52.25 82.44c-.59.59-.59 1.55 0 2.15l47.54 47.54c.58.58.17 1.56-.65 1.56Zm16.04-49.1 47.54 47.54c.58.58.17 1.56-.65 1.56h-30.01c-.96 0-1.87-.38-2.55-1.06L81.47 84.58c-.59-.59-.59-1.55 0-2.15l48.04-48.04c.68-.68 1.59-1.06 2.55-1.06h30.01c.82 0 1.23.99.65 1.56l-47.54 47.54c-.59.59-.59 1.55 0 2.15Z" fill="currentColor" />
+    </svg>
+  )
+}
+function SourceLogo({ src }: { src: string }) {
+  if (src === 'backmarket') return <BackMarketLogo />
+  // eslint-disable-next-line @next/next/no-img-element
+  if (src === 'wholesale') return <img src="/logos/olm-icon.svg" alt="Wholesale" title="Wholesale" className="w-[18px] h-[18px]" />
+  return <AmazonLogo />
+}
+
 function fullySerialized(o: Order): boolean {
   const need = o.items.filter(i => i.isSerializable !== false).reduce((s, i) => s + i.quantityOrdered, 0)
   return need > 0 && (o.serialAssignments?.length ?? 0) >= need
@@ -43,6 +69,7 @@ export default function MobileFulfillment() {
   const [channel, setChannel] = useState<Channel>('all')
   const [prime, setPrime] = useState(false)
   const [dueToday, setDueToday] = useState(false)
+  const [rateSort, setRateSort] = useState<'none' | 'asc' | 'desc'>('none')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [orders, setOrders] = useState<Order[]>([])
@@ -57,7 +84,65 @@ export default function MobileFulfillment() {
   const [menuOrder, setMenuOrder] = useState<Order | null>(null)
   const [sheet, setSheet] = useState<{ type: string; order: Order } | null>(null)
 
+  // Multi-select + bulk rate-shop / apply-preset
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [pkgPresets, setPkgPresets] = useState<{ id: string; name: string }[]>([])
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null)
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null)
+
   const refresh = useCallback(() => setFetchKey(k => k + 1), [])
+
+  useEffect(() => { fetch('/api/package-presets').then(r => r.json()).then((d: unknown) => setPkgPresets(Array.isArray(d) ? d : ((d as { data?: { id: string; name: string }[] })?.data ?? []))).catch(() => {}) }, [])
+  const toggleSelect = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const clearSelect = () => setSelected(new Set())
+  // Drop selections no longer visible when the list changes.
+  useEffect(() => { setSelected(s => { const ids = new Set(orders.map(o => o.id)); const n = new Set(Array.from(s).filter(id => ids.has(id))); return n.size === s.size ? s : n }) }, [orders])
+
+  /** Patch an order's live rate in place from an SSE 'rate' event. */
+  const patchRate = useCallback((e: { orderId: string; rateAmount?: number | null; rateCarrier?: string | null; rateService?: string | null; rateId?: string | null; error?: string | null }, presetName?: { id: string; name: string }) => {
+    setOrders(prev => prev.map(o => o.id !== e.orderId ? o : {
+      ...o,
+      presetRateAmount: e.rateAmount != null ? String(e.rateAmount) : null,
+      presetRateCarrier: e.rateCarrier ?? null, presetRateService: e.rateService ?? null,
+      presetRateId: e.rateId ?? null, presetRateError: e.error ?? null,
+      ...(presetName ? { appliedPackagePreset: presetName } : {}),
+    }))
+  }, [])
+
+  /** Run a bulk SSE endpoint (rate-shop-applied-presets / apply-package-preset). */
+  async function runBulkSSE(url: string, body: Record<string, unknown>, orderIds: string[], presetName?: { id: string; name: string }) {
+    setBulkProgress({ done: 0, total: orderIds.length })
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    if (!res.ok || !res.body) { const t = await res.text().catch(() => ''); throw new Error(t || 'Failed to start') }
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = ''; let done = 0
+    for (;;) {
+      const chunk = await reader.read(); if (chunk.done) break
+      buf += dec.decode(chunk.value, { stream: true })
+      const parts = buf.split('\n\n'); buf = parts.pop() ?? ''
+      for (const part of parts) {
+        const line = part.split('\n').find(l => l.startsWith('data: ')); if (!line) continue
+        const evt = JSON.parse(line.slice(6))
+        if (evt.type === 'rate') { done++; patchRate(evt, presetName); setBulkProgress({ done, total: orderIds.length }) }
+        else if (evt.type === 'error') throw new Error(evt.error ?? 'Rate shop failed')
+      }
+    }
+  }
+
+  const todayStr = () => new Date().toLocaleDateString('en-CA') // YYYY-MM-DD (local)
+
+  async function bulkRateShop() {
+    if (!accountId) { toast.error('Pick an account'); return }
+    const ids = Array.from(selected); setBulkBusy('rate')
+    try { await runBulkSSE('/api/orders/rate-shop-applied-presets', { orderIds: ids, accountId, shipDate: todayStr() }, ids); toast.success('Rate shop complete'); setBulkOpen(false) }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Rate shop failed') } finally { setBulkBusy(null); setBulkProgress(null) }
+  }
+  async function bulkApplyPreset(preset: { id: string; name: string }) {
+    if (!accountId) { toast.error('Pick an account'); return }
+    const ids = Array.from(selected); setBulkBusy('apply')
+    try { await runBulkSSE('/api/orders/apply-package-preset', { presetId: preset.id, orderIds: ids, accountId, shipDate: todayStr() }, ids, preset); toast.success(`Applied ${preset.name} + rated`); setBulkOpen(false) }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Apply failed') } finally { setBulkBusy(null); setBulkProgress(null) }
+  }
 
   useEffect(() => { fetch('/api/accounts').then(r => r.json()).then(d => { const list = Array.isArray(d) ? d : (d.data ?? []); setAccounts(list); if (list[0]) setAccountId(list[0].id) }).catch(() => {}) }, [])
   useEffect(() => { const t = setTimeout(() => { setSearch(searchInput); setPage(1) }, 300); return () => clearTimeout(t) }, [searchInput])
@@ -73,15 +158,17 @@ export default function MobileFulfillment() {
         if (accountId) p.set('accountId', accountId)
         if (search) p.set('search', search)
         if (channel === 'amazon' || channel === 'backmarket') p.set('orderSource', channel)
+        if (prime) p.set('prime', '1')
+        if (dueToday && tab !== 'shipped' && tab !== 'cancelled') p.set('dueToday', '1')
         const res = await fetch(`/api/orders?${p}`)
         const d = await res.json()
         if (res.ok) { results.push(...(d.data ?? [])); setPagination(d.pagination ?? { page, pageSize: 25, total: 0, totalPages: 1 }) }
       } else {
         setPagination({ page: 1, pageSize: 25, total: 0, totalPages: 1 })
       }
-      // Wholesale (all for the status) merged in for 'all' or 'wholesale'.
+      // Wholesale (all for the status) merged in — but not when Prime-only (WS isn't Prime).
       const wsStatus = WS_STATUS[tab]
-      if ((channel === 'all' || channel === 'wholesale') && wsStatus) {
+      if ((channel === 'all' || channel === 'wholesale') && wsStatus && !prime) {
         const wp = new URLSearchParams({ fulfillmentStatus: wsStatus })
         if (search) wp.set('search', search)
         const wr = await fetch(`/api/wholesale/orders/for-grid?${wp}`)
@@ -90,7 +177,7 @@ export default function MobileFulfillment() {
       }
       setOrders(results)
     } catch { setOrders([]) } finally { setLoading(false) }
-  }, [tab, channel, page, accountId, search, fetchKey])
+  }, [tab, channel, page, accountId, search, prime, dueToday, fetchKey])
   useEffect(() => { load() }, [load])
 
   const loadCounts = useCallback(async () => {
@@ -103,12 +190,12 @@ export default function MobileFulfillment() {
   }, [accountId, channel, fetchKey])
   useEffect(() => { loadCounts() }, [loadCounts])
 
-  // Client-side channel/prime/dueToday filters.
-  const visible = orders.filter(o => {
-    if (channel !== 'all' && (o.orderSource ?? 'amazon') !== channel) return false
-    if (prime && !o.isPrime) return false
-    if (dueToday) { const d = shipByDays(o); if (d == null || d > 0) return false }
-    return true
+  // Channel is client-narrowed (prime + dueToday are applied server-side above).
+  const filtered = orders.filter(o => channel === 'all' || (o.orderSource ?? 'amazon') === channel)
+  const visible = rateSort === 'none' ? filtered : [...filtered].sort((a, b) => {
+    const av = a.presetRateAmount != null ? parseFloat(a.presetRateAmount) : Infinity
+    const bv = b.presetRateAmount != null ? parseFloat(b.presetRateAmount) : Infinity
+    return rateSort === 'asc' ? av - bv : bv - av
   })
 
   // ── Sync (poll job) ──
@@ -193,17 +280,21 @@ export default function MobileFulfillment() {
         {tab !== 'shipped' && tab !== 'cancelled' && (
           <button onClick={() => setDueToday(v => !v)} className={clsx('shrink-0 px-2.5 h-7 rounded-full text-[11px] font-semibold', dueToday ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600')}>Due Today</button>
         )}
+        <button onClick={() => setRateSort(s => s === 'none' ? 'asc' : s === 'asc' ? 'desc' : 'none')}
+          className={clsx('shrink-0 px-2.5 h-7 rounded-full text-[11px] font-semibold', rateSort !== 'none' ? 'bg-amazon-blue text-white' : 'bg-gray-100 text-gray-600')}>
+          Rate {rateSort === 'asc' ? '↑' : rateSort === 'desc' ? '↓' : '↕'}
+        </button>
       </div>
 
       {/* List */}
-      <main className="flex-1 bg-gray-50 p-2.5">
+      <main className={clsx('flex-1 bg-gray-50 p-2.5', selected.size > 0 && 'pb-24')}>
         {loading ? (
           <div className="py-16 text-center text-gray-400 text-sm flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading…</div>
         ) : visible.length === 0 ? (
           <div className="py-16 text-center text-gray-400 text-sm">No orders</div>
         ) : (
           <ul className="space-y-2">
-            {visible.map(o => <li key={o.id}><OrderCard order={o} onOpen={() => setMenuOrder(o)} busy={busyId === o.id} /></li>)}
+            {visible.map(o => <li key={o.id}><OrderCard order={o} onOpen={() => setMenuOrder(o)} busy={busyId === o.id} selected={selected.has(o.id)} onToggle={() => toggleSelect(o.id)} /></li>)}
           </ul>
         )}
 
@@ -216,6 +307,32 @@ export default function MobileFulfillment() {
           </div>
         )}
       </main>
+
+      {/* Bulk selection bar */}
+      {selected.size > 0 && !bulkOpen && !menuOrder && (
+        <div className="fixed bottom-0 inset-x-0 z-30 bg-white border-t border-gray-200 p-3 pb-[calc(env(safe-area-inset-bottom)+12px)] flex items-center gap-2 shadow-[0_-2px_10px_rgba(0,0,0,0.08)]">
+          <span className="text-sm font-semibold text-gray-800">{selected.size} selected</span>
+          <button onClick={clearSelect} className="text-xs text-gray-500 underline">Clear</button>
+          <button onClick={() => setBulkOpen(true)} className="ml-auto h-11 px-5 rounded-xl bg-amazon-blue text-white font-semibold text-sm inline-flex items-center gap-2"><Truck size={16} /> Rate / Preset</button>
+        </div>
+      )}
+
+      {/* Bulk actions sheet */}
+      {bulkOpen && (
+        <Sheet title={`Bulk actions · ${selected.size} order${selected.size !== 1 ? 's' : ''}`} onClose={() => { if (!bulkBusy) setBulkOpen(false) }}>
+          {bulkProgress ? (
+            <div className="py-8 text-center text-sm text-gray-600 flex items-center justify-center gap-2"><Loader2 size={18} className="animate-spin" /> Rating {bulkProgress.done}/{bulkProgress.total}…</div>
+          ) : (
+            <div className="space-y-2">
+              <button onClick={bulkRateShop} disabled={!!bulkBusy} className="w-full h-12 rounded-xl bg-amazon-blue text-white font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-50"><Truck size={17} /> Rate shop (use applied presets)</button>
+              <div className="pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Apply a package preset + rate</div>
+              {pkgPresets.length === 0 ? <div className="text-xs text-gray-400">No package presets defined.</div> : pkgPresets.map(p => (
+                <button key={p.id} onClick={() => bulkApplyPreset(p)} disabled={!!bulkBusy} className="w-full h-11 rounded-xl bg-gray-100 text-gray-800 font-semibold text-sm px-4 text-left flex items-center gap-2 disabled:opacity-50"><Boxes size={16} className="text-gray-500" /> {p.name}</button>
+              ))}
+            </div>
+          )}
+        </Sheet>
+      )}
 
       {/* Action menu */}
       {menuOrder && (
@@ -252,37 +369,45 @@ export default function MobileFulfillment() {
 }
 
 // ─── Order card ──────────────────────────────────────────────────────────────
-function OrderCard({ order: o, onOpen, busy }: { order: Order; onOpen: () => void; busy: boolean }) {
+function OrderCard({ order: o, onOpen, busy, selected, onToggle }: { order: Order; onOpen: () => void; busy: boolean; selected: boolean; onToggle: () => void }) {
   const src = o.orderSource ?? 'amazon'
-  const badge = SOURCE_BADGE[src]
   const days = shipByDays(o)
   const item0 = o.items[0]
   const rate = o.presetRateAmount ? `${o.presetRateCarrier ?? ''} ${fmtMoney(o.presetRateAmount)}` : o.presetRateError ? 'rate err' : null
   return (
-    <button onClick={onOpen} disabled={busy} className="w-full text-left bg-white rounded-xl shadow-sm p-3 active:bg-gray-50 disabled:opacity-60">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="font-bold text-[13px] text-amazon-blue">{orderNumber(o)}</span>
-            <span className={clsx('text-[9px] font-bold px-1.5 py-0.5 rounded', badge?.cls)}>{badge?.label}</span>
-            {o.isPrime && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-700">PRIME</span>}
-            {o.isReplacement && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">REPL</span>}
-            {o.isBuyerRequestedCancel && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">CANCEL REQ</span>}
+    <div className={clsx('flex items-stretch gap-1 bg-white rounded-xl shadow-sm', selected && 'ring-2 ring-amazon-blue')}>
+      {/* select checkbox */}
+      <button onClick={onToggle} className="pl-3 pr-1 flex items-center shrink-0" aria-label="Select order">
+        <span className={clsx('w-5 h-5 rounded-md border-2 flex items-center justify-center', selected ? 'bg-amazon-blue border-amazon-blue text-white' : 'border-gray-300')}>
+          {selected && <CheckCircle2 size={13} />}
+        </span>
+      </button>
+      {/* main content */}
+      <button onClick={onOpen} disabled={busy} className="flex-1 min-w-0 text-left py-3 pr-3 active:bg-gray-50 disabled:opacity-60 rounded-r-xl">
+        <div className="flex items-start gap-2">
+          <div className="shrink-0 pt-0.5"><SourceLogo src={src} /></div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold text-[13px] text-amazon-blue">{orderNumber(o)}</span>
+              {o.isPrime && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-700">PRIME</span>}
+              {o.isReplacement && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">REPL</span>}
+              {o.isBuyerRequestedCancel && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">CANCEL REQ</span>}
+            </div>
+            <div className="text-[12px] text-gray-700 mt-0.5">{src === 'wholesale' ? (o.wholesaleCustomerName ?? '—') : (o.shipToName ?? '—')}{o.shipToCity ? ` · ${o.shipToCity}, ${o.shipToState}` : ''}</div>
+            {item0 && <div className="text-[11px] text-gray-500 mt-0.5 truncate">{item0.internalSku ?? item0.sellerSku ?? ''} · {item0.title}{o.items.length > 1 ? ` (+${o.items.length - 1})` : ''}</div>}
           </div>
-          <div className="text-[12px] text-gray-700 mt-0.5">{src === 'wholesale' ? (o.wholesaleCustomerName ?? '—') : (o.shipToName ?? '—')}{o.shipToCity ? ` · ${o.shipToCity}, ${o.shipToState}` : ''}</div>
-          {item0 && <div className="text-[11px] text-gray-500 mt-0.5 truncate">{item0.internalSku ?? item0.sellerSku ?? ''} · {item0.title}{o.items.length > 1 ? ` (+${o.items.length - 1})` : ''}</div>}
+          <div className="text-right shrink-0">
+            <div className="text-[13px] font-semibold text-gray-900">{fmtMoney(o.orderTotal)}</div>
+            <div className={clsx('text-[9px] font-bold px-1.5 py-0.5 rounded mt-0.5 inline-block', STATUS_BADGE[o.workflowStatus] ?? 'bg-gray-100 text-gray-500')}>{WORKFLOW_DISPLAY[o.workflowStatus] ?? o.workflowStatus}</div>
+          </div>
         </div>
-        <div className="text-right shrink-0">
-          <div className="text-[13px] font-semibold text-gray-900">{src === 'wholesale' ? fmtMoney(o.orderTotal) : fmtMoney(o.orderTotal)}</div>
-          <div className={clsx('text-[9px] font-bold px-1.5 py-0.5 rounded mt-0.5 inline-block', STATUS_BADGE[o.workflowStatus] ?? 'bg-gray-100 text-gray-500')}>{o.workflowStatus.replace('AWAITING_VERIFICATION', 'AWAITING').replace('_', ' ')}</div>
+        <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-500">
+          {o.shipTracking || o.label?.trackingNumber ? <span className="font-mono truncate">{o.shipTracking ?? o.label?.trackingNumber}</span> : days != null ? <span className={clsx(days < 0 ? 'text-red-600 font-semibold' : days === 0 ? 'text-amber-600 font-semibold' : '')}>Ship by {fmtDate(o.latestShipDate)}{days < 0 ? ' (late)' : days === 0 ? ' (today)' : ''}</span> : <span>Ordered {fmtDate(o.purchaseDate)}</span>}
+          {o.appliedPackagePreset && <span className="truncate">· {o.appliedPackagePreset.name}</span>}
+          {rate && <span className="ml-auto text-gray-700 font-medium">{rate}</span>}
         </div>
-      </div>
-      <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-500">
-        {o.shipTracking || o.label?.trackingNumber ? <span className="font-mono truncate">{o.shipTracking ?? o.label?.trackingNumber}</span> : days != null ? <span className={clsx(days < 0 ? 'text-red-600 font-semibold' : days === 0 ? 'text-amber-600 font-semibold' : '')}>Ship by {fmtDate(o.latestShipDate)}{days < 0 ? ' (late)' : days === 0 ? ' (today)' : ''}</span> : <span>Ordered {fmtDate(o.purchaseDate)}</span>}
-        {o.appliedPackagePreset && <span className="truncate">· {o.appliedPackagePreset.name}</span>}
-        {rate && <span className="ml-auto text-gray-600">{rate}</span>}
-      </div>
-    </button>
+      </button>
+    </div>
   )
 }
 
