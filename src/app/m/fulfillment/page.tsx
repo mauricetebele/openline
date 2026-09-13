@@ -124,7 +124,12 @@ export default function MobileFulfillment() {
         const line = part.split('\n').find(l => l.startsWith('data: ')); if (!line) continue
         const evt = JSON.parse(line.slice(6))
         if (evt.type === 'rate') { done++; patchRate(evt, presetName); setBulkProgress({ done, total: orderIds.length }) }
-        else if (evt.type === 'error') throw new Error(evt.error ?? 'Rate shop failed')
+        else if (evt.type === 'applied') {
+          done++
+          if (evt.presetId) setOrders(prev => prev.map(o => o.id === evt.orderId ? { ...o, appliedPackagePreset: { id: evt.presetId, name: evt.presetName ?? '' } } : o))
+          setBulkProgress({ done, total: orderIds.length })
+        }
+        else if (evt.type === 'error') throw new Error(evt.error ?? 'Bulk action failed')
       }
     }
   }
@@ -136,6 +141,12 @@ export default function MobileFulfillment() {
     const ids = Array.from(selected); setBulkBusy('rate')
     try { await runBulkSSE('/api/orders/rate-shop-applied-presets', { orderIds: ids, accountId, shipDate: todayStr() }, ids); toast.success('Rate shop complete'); setBulkOpen(false) }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Rate shop failed') } finally { setBulkBusy(null); setBulkProgress(null) }
+  }
+  async function bulkApplyDefaults() {
+    if (!accountId) { toast.error('Pick an account'); return }
+    const ids = Array.from(selected); setBulkBusy('defaults')
+    try { await runBulkSSE('/api/orders/apply-default-package-presets', { orderIds: ids, accountId }, ids); toast.success('Default presets applied'); setBulkOpen(false) }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Apply defaults failed') } finally { setBulkBusy(null); setBulkProgress(null) }
   }
   async function bulkApplyPreset(preset: { id: string; name: string }) {
     if (!accountId) { toast.error('Pick an account'); return }
@@ -324,6 +335,7 @@ export default function MobileFulfillment() {
             <div className="py-8 text-center text-sm text-gray-600 flex items-center justify-center gap-2"><Loader2 size={18} className="animate-spin" /> Rating {bulkProgress.done}/{bulkProgress.total}…</div>
           ) : (
             <div className="space-y-2">
+              <button onClick={bulkApplyDefaults} disabled={!!bulkBusy} className="w-full h-12 rounded-xl bg-gray-800 text-white font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-50"><Boxes size={17} /> Apply default presets</button>
               <button onClick={bulkRateShop} disabled={!!bulkBusy} className="w-full h-12 rounded-xl bg-amazon-blue text-white font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-50"><Truck size={17} /> Rate shop (use applied presets)</button>
               <div className="pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Apply a package preset + rate</div>
               {pkgPresets.length === 0 ? <div className="text-xs text-gray-400">No package presets defined.</div> : pkgPresets.map(p => (
