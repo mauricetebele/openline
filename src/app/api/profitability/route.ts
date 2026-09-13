@@ -468,6 +468,9 @@ export async function GET(req: NextRequest) {
       }
 
       const totalSale = order.items.reduce((sum, item) => sum + Number(item.itemPrice ?? 0), 0)
+      // Replacements are excluded from profit in the order view — mirror that here so
+      // the two views reconcile (a free replacement's real COGS/shipping isn't a loss).
+      const isRepl = order.isReplacement === true
 
       for (const item of order.items) {
         const itemSale = Number(item.itemPrice ?? 0)
@@ -480,11 +483,20 @@ export async function GET(req: NextRequest) {
           itemCogs = serialCosts.cogs
           itemCostCodes = serialCosts.cc
         } else {
-          const mapping = item.sellerSku ? skuMap.get(item.sellerSku) : null
-          if (mapping) {
-            const key = `${mapping.productId}:${mapping.gradeId ?? ''}`
-            itemCogs = (cogsMap.get(key) ?? cogsProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
-            itemCostCodes = (costCodeMap.get(key) ?? costCodeProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
+          // Back Market: cost comes from the item's bmSerials (matches order view).
+          const bmSerials = item.bmSerials as string[] | null
+          if (bmSerials?.length) {
+            for (const sn of bmSerials) {
+              const sc = bmSerialCostMap.get(sn)
+              if (sc) { itemCogs += sc.unitCost; itemCostCodes += sc.costCodeAmount }
+            }
+          } else {
+            const mapping = item.sellerSku ? skuMap.get(item.sellerSku) : null
+            if (mapping) {
+              const key = `${mapping.productId}:${mapping.gradeId ?? ''}`
+              itemCogs = (cogsMap.get(key) ?? cogsProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
+              itemCostCodes = (costCodeMap.get(key) ?? costCodeProductOnly.get(mapping.productId) ?? 0) * item.quantityOrdered
+            }
           }
         }
 
@@ -492,6 +504,7 @@ export async function GET(req: NextRequest) {
         const itemCommission = totalCommissionVal * proportion
         const itemShipping = totalShippingVal * proportion
         const itemNetProfit = itemSale + itemCustomerShipping - itemCogs - itemCommission - itemShipping - itemCostCodes
+        const z = (v: number) => (isRepl ? 0 : Math.round(v * 100) / 100)
 
         lineItemRows.push({
           id: `${order.id}:${item.id}`,
@@ -500,19 +513,19 @@ export async function GET(req: NextRequest) {
           marketplaceOrderId: order.amazonOrderId,
           source: order.orderSource,
           orderDate: (order.shippedAt ?? order.purchaseDate).toISOString(),
-          isReplacement: order.isReplacement === true,
+          isReplacement: isRepl,
           asin: item.asin,
           sellerSku: item.sellerSku,
           internalSku: item.sellerSku ? (productSkuById.get(skuMap.get(item.sellerSku)?.productId ?? '') ?? null) : null,
           title: item.title,
           quantity: item.quantityOrdered,
-          saleValue: Math.round(itemSale * 100) / 100,
-          totalCogs: Math.round(itemCogs * 100) / 100,
-          commission: Math.round(itemCommission * 100) / 100,
-          customerShipping: Math.round(itemCustomerShipping * 100) / 100,
-          shippingCost: Math.round(itemShipping * 100) / 100,
-          costCodeDeductions: Math.round(itemCostCodes * 100) / 100,
-          netProfit: Math.round(itemNetProfit * 100) / 100,
+          saleValue: z(itemSale),
+          totalCogs: z(itemCogs),
+          commission: z(itemCommission),
+          customerShipping: z(itemCustomerShipping),
+          shippingCost: z(itemShipping),
+          costCodeDeductions: z(itemCostCodes),
+          netProfit: z(itemNetProfit),
           commissionSynced: commissionSyncedVal,
         })
       }
