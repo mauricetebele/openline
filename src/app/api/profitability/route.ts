@@ -597,7 +597,7 @@ export async function GET(req: NextRequest) {
     finalRows = finalRows.filter((r) => {
       const fields = [r.marketplaceOrderId, r.olmNumber != null ? `OLM-${r.olmNumber}` : '', r.source]
       if ('sellerSku' in r) {
-        fields.push(r.sellerSku ?? '', r.title ?? '', r.asin ?? '')
+        fields.push(r.sellerSku ?? '', (r as { internalSku?: string | null }).internalSku ?? '', r.title ?? '', r.asin ?? '')
       }
       return fields.some((f) => String(f).toLowerCase().includes(search))
     })
