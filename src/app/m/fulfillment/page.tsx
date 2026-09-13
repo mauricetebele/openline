@@ -321,7 +321,6 @@ export default function MobileFulfillment() {
           </ul>
           </>
         )}
-        )}
 
         {/* Pagination (amazon list) */}
         {channel !== 'wholesale' && pagination.totalPages > 1 && (
