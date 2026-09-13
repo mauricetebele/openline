@@ -85,7 +85,8 @@ export async function GET(req: NextRequest) {
 
   // ── SKU → product+grade mapping (for non-serialized items) ────────────
   const skuMap = new Map<string, { productId: string; gradeId: string | null }>()
-  for (const p of allProducts) skuMap.set(p.sku, { productId: p.id, gradeId: null })
+  const productSkuById = new Map<string, string>() // internal Product.sku by productId
+  for (const p of allProducts) { skuMap.set(p.sku, { productId: p.id, gradeId: null }); productSkuById.set(p.id, p.sku) }
   for (const m of mskuRows) skuMap.set(m.sellerSku, { productId: m.productId, gradeId: m.gradeId })
 
   // ── Helper: resolve COGS + cost-code for a single serial assignment ───
@@ -439,6 +440,7 @@ export async function GET(req: NextRequest) {
     orderId: string
     asin: string | null
     sellerSku: string | null
+    internalSku: string | null
     title: string | null
     quantity: number
   }
@@ -501,6 +503,7 @@ export async function GET(req: NextRequest) {
           isReplacement: order.isReplacement === true,
           asin: item.asin,
           sellerSku: item.sellerSku,
+          internalSku: item.sellerSku ? (productSkuById.get(skuMap.get(item.sellerSku)?.productId ?? '') ?? null) : null,
           title: item.title,
           quantity: item.quantityOrdered,
           saleValue: Math.round(itemSale * 100) / 100,
@@ -571,6 +574,7 @@ export async function GET(req: NextRequest) {
           isReplacement: false,
           asin: null,
           sellerSku: item.sku,
+          internalSku: item.productId ? (productSkuById.get(item.productId) ?? null) : null,
           title: item.title,
           quantity: Number(item.quantity),
           saleValue: Math.round(itemSale * 100) / 100,

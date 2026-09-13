@@ -31,6 +31,7 @@ interface LineItemRow extends ProfitRow {
   orderId: string
   asin: string | null
   sellerSku: string | null
+  internalSku: string | null
   title: string | null
   quantity: number
 }
@@ -61,7 +62,7 @@ interface LineItem {
 }
 
 type ViewMode = 'order' | 'lineItem'
-type SortKey = 'olmNumber' | 'marketplaceOrderId' | 'source' | 'orderDate' | 'saleValue' | 'totalCogs' | 'commission' | 'customerShipping' | 'shippingCost' | 'costCodeDeductions' | 'netProfit' | 'sellerSku' | 'title' | 'quantity'
+type SortKey = 'olmNumber' | 'marketplaceOrderId' | 'source' | 'orderDate' | 'saleValue' | 'totalCogs' | 'commission' | 'customerShipping' | 'shippingCost' | 'costCodeDeductions' | 'netProfit' | 'sellerSku' | 'internalSku' | 'title' | 'quantity'
 type SortDir = 'asc' | 'desc'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -291,6 +292,7 @@ function LineItemTableRow({ row, index }: { row: LineItemRow; index: number }) {
       <td className="px-3 py-1.5">{sourceBadge(row.source)}</td>
       <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400">{formatDate(row.orderDate)}</td>
       <td className="px-3 py-1.5 font-mono">{row.sellerSku ?? row.asin ?? '—'}</td>
+      <td className="px-3 py-1.5 font-mono">{row.internalSku ?? '—'}</td>
       <td className="px-3 py-1.5 max-w-[180px] truncate" title={row.title ?? ''}>{row.title ?? '—'}</td>
       <td className="px-3 py-1.5 text-center">{row.quantity}</td>
       <td className="px-3 py-1.5 text-right font-medium">{fmt.format(row.saleValue)}</td>
@@ -461,7 +463,8 @@ export default function ProfitabilityReport() {
     { key: 'marketplaceOrderId', label: 'Marketplace #', align: 'left' },
     { key: 'source', label: 'Source', align: 'left' },
     { key: 'orderDate', label: 'Ship Date', align: 'left' },
-    { key: 'sellerSku', label: 'SKU', align: 'left' },
+    { key: 'sellerSku', label: 'Seller SKU', align: 'left' },
+    { key: 'internalSku', label: 'Internal SKU', align: 'left' },
     { key: 'title', label: 'Title', align: 'left' },
     { key: 'quantity', label: 'Qty', align: 'center' },
     { key: 'saleValue', label: 'Sale', align: 'right' },
@@ -474,7 +477,7 @@ export default function ProfitabilityReport() {
   ]
 
   const columns = viewMode === 'lineItem' ? lineItemColumns : orderColumns
-  const colSpan = viewMode === 'lineItem' ? 14 : 13
+  const colSpan = viewMode === 'lineItem' ? 15 : 13
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
