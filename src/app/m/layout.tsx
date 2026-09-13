@@ -2,6 +2,9 @@ import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
   title: 'Removal Photos',
+  // Scoped manifest so "Add to Home Screen" launches straight to /m/removals
+  // (overrides the app-wide manifest whose start_url is "/").
+  manifest: '/manifest-removals.webmanifest',
   appleWebApp: { capable: true, title: 'Removal Photos', statusBarStyle: 'black-translucent' },
 }
 

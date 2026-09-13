@@ -1,0 +1,22 @@
+{
+  "name": "Removal Photos",
+  "short_name": "Removals",
+  "description": "Upload removal-case photos from the warehouse floor",
+  "start_url": "/m/removals",
+  "scope": "/m",
+  "display": "standalone",
+  "background_color": "#131921",
+  "theme_color": "#131921",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -22,6 +22,7 @@ export function middleware(req: NextRequest) {
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon') ||
     pathname === '/manifest.json' ||
+    pathname === '/manifest-removals.webmanifest' ||
     pathname === '/sw.js' ||
     pathname.startsWith('/workbox-') ||
     pathname.startsWith('/icons/') ||
