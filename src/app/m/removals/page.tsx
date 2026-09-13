@@ -11,6 +11,7 @@ interface RemovalCase {
   trackingNumber: string | null
   sellerSku: string | null
   fnsku: string | null
+  lpnNumber: string | null
   productTitle: string | null
   status: string
   images: CaseImage[] | unknown
@@ -88,9 +89,10 @@ export default function MobileRemovalsList() {
                         <span className="font-bold text-sm text-amazon-blue">REMOVALCASE-{c.caseNumber}</span>
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${STATUS_COLOR[c.status] ?? 'bg-gray-100 text-gray-600'}`}>{STATUS_LABEL[c.status] ?? c.status}</span>
                       </div>
+                      <div className="text-[11px] text-gray-500 truncate">LPN: <span className="font-mono text-gray-700">{c.lpnNumber || '—'}</span></div>
                       <div className="text-[13px] text-gray-800 font-medium truncate mt-0.5">{c.sellerSku ?? '—'}</div>
                       {c.productTitle && <div className="text-[11px] text-gray-500 truncate">{c.productTitle}</div>}
-                      <div className="text-[11px] text-gray-400 truncate mt-0.5">{c.trackingNumber ?? 'No tracking'}</div>
+                      <div className="text-[11px] text-gray-400 truncate">{c.trackingNumber ?? 'No tracking'}</div>
                     </div>
                     <div className="flex flex-col items-center gap-1 shrink-0">
                       <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${n > 0 ? 'text-emerald-600' : 'text-gray-300'}`}>

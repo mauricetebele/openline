@@ -6,7 +6,7 @@ import { ChevronLeft, Camera, ImageIcon, Loader2, X, CheckCircle2, AlertCircle }
 interface CaseImage { url: string; filename: string; contentType: string; size: number }
 interface RemovalCase {
   id: string; caseNumber: number; trackingNumber: string | null
-  sellerSku: string | null; fnsku: string | null; productTitle: string | null
+  sellerSku: string | null; fnsku: string | null; lpnNumber: string | null; productTitle: string | null
   status: string; images: CaseImage[] | unknown
 }
 
@@ -122,6 +122,7 @@ export default function MobileRemovalDetail() {
             {loading ? <span className="text-sm">Loading…</span> : rc ? (
               <>
                 <div className="text-sm font-bold truncate">REMOVALCASE-{rc.caseNumber}</div>
+                <div className="text-[11px] text-white/80 truncate">LPN: <span className="font-mono">{rc.lpnNumber || '—'}</span></div>
                 <div className="text-[11px] text-white/70 truncate">{rc.sellerSku ?? '—'} · {STATUS_LABEL[rc.status] ?? rc.status}</div>
               </>
             ) : <span className="text-sm">Case not found</span>}
