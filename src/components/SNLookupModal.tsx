@@ -27,6 +27,7 @@ interface LookupSerial {
   serialNumber: string
   status:       string
   binLocation:  string | null
+  unitCost:     number | null
   product:      { description: string; sku: string }
   grade:        { id: string; grade: string } | null
   location:     { name: string; warehouse: { name: string } }
@@ -323,6 +324,9 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                 </div>
                 <p className="text-xs text-gray-500 pl-0.5">
                   Bin: <span className="font-mono font-medium text-gray-700">{result.binLocation ?? '—'}</span>
+                </p>
+                <p className="text-xs text-gray-500 pl-0.5">
+                  Unit Cost: <span className="font-mono font-semibold text-gray-800">{result.unitCost != null ? `$${result.unitCost.toFixed(2)}` : '—'}</span>
                 </p>
               </div>
 
