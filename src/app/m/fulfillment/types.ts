@@ -25,7 +25,7 @@ export interface Order {
   serialAssignments?: { id: string; orderItemId: string; inventorySerial: { serialNumber: string } }[]
   isBuyerRequestedCancel: boolean; buyerCancelReason: string | null
   latestShipDate: string | null; latestDeliveryDate: string | null
-  presetRateAmount: string | null; presetRateCarrier: string | null; presetRateService: string | null; presetRateError: string | null
+  presetRateAmount: string | null; presetRateCarrier: string | null; presetRateService: string | null; presetRateId: string | null; presetRateError: string | null
   appliedPackagePreset: { id: string; name: string } | null
   ssOrderId: number | null
   orderSource?: 'amazon' | 'backmarket' | 'wholesale'

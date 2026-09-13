@@ -62,6 +62,17 @@ function fullySerialized(o: Order): boolean {
   return need > 0 && (o.serialAssignments?.length ?? 0) >= need
 }
 
+// Eligible for a label batch: has a rate, no rate error, and not already serialized
+// (serialized orders go through Manual Ship). Mirrors the desktop batchEligible memo.
+function isBatchEligible(o: Order): boolean {
+  if (o.presetRateError) return false
+  if (!(o.presetRateId || o.presetRateCarrier || o.presetRateAmount)) return false
+  const totalSer = o.items.filter(i => i.isSerializable).reduce((s, i) => s + i.quantityOrdered, 0)
+  const assigned = o.serialAssignments?.length ?? 0
+  if (totalSer > 0 && assigned >= totalSer) return false
+  return true
+}
+
 export default function MobileFulfillment() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [accountId, setAccountId] = useState<string>('')
@@ -155,6 +166,31 @@ export default function MobileFulfillment() {
     catch (e) { toast.error(e instanceof Error ? e.message : 'Apply failed') } finally { setBulkBusy(null); setBulkProgress(null) }
   }
 
+  // Create + run a label batch — only for selected orders that have a rate.
+  async function bulkLabelBatch() {
+    const eligible = orders.filter(o => selected.has(o.id) && isBatchEligible(o)).map(o => o.id)
+    if (eligible.length === 0) { toast.error('None of the selected orders have a rate yet'); return }
+    setBulkBusy('batch'); setBulkProgress({ done: 0, total: eligible.length })
+    try {
+      const start = await apiPost<{ batchId?: string }>('/api/orders/label-batch', { orderIds: eligible, isTest: false })
+      const batchId = start.batchId
+      if (!batchId) throw new Error('Batch was not created')
+      apiPost('/api/orders/label-batch/continue', { batchId }).catch(() => {})
+      const deadline = Date.now() + 10 * 60 * 1000
+      let lastDone = -1, idle = 0
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 4000))
+        const d = await (await fetch(`/api/orders/label-batch/${batchId}`)).json() as { status?: string; completed?: number; failed?: number; totalOrders?: number }
+        const done = (d.completed ?? 0) + (d.failed ?? 0)
+        setBulkProgress({ done, total: d.totalOrders ?? eligible.length })
+        if (d.status === 'COMPLETED' || d.status === 'FAILED') break
+        if (done === lastDone) { idle++; if (idle >= 8) { apiPost('/api/orders/label-batch/continue', { batchId }).catch(() => {}); idle = 0 } }
+        else { idle = 0; lastDone = done }
+      }
+      toast.success('Label batch complete'); setBulkOpen(false); refresh()
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Label batch failed') } finally { setBulkBusy(null); setBulkProgress(null) }
+  }
+
   useEffect(() => { fetch('/api/accounts').then(r => r.json()).then(d => { const list = Array.isArray(d) ? d : (d.data ?? []); setAccounts(list); if (list[0]) setAccountId(list[0].id) }).catch(() => {}) }, [])
   useEffect(() => { const t = setTimeout(() => { setSearch(searchInput); setPage(1) }, 300); return () => clearTimeout(t) }, [searchInput])
   useEffect(() => { setPage(1) }, [tab, channel])
@@ -208,6 +244,7 @@ export default function MobileFulfillment() {
     const bv = b.presetRateAmount != null ? parseFloat(b.presetRateAmount) : Infinity
     return rateSort === 'asc' ? av - bv : bv - av
   })
+  const batchCount = orders.filter(o => selected.has(o.id) && isBatchEligible(o)).length
   const allVisibleSelected = visible.length > 0 && visible.every(o => selected.has(o.id))
   const toggleSelectAll = () => setSelected(prev => {
     const n = new Set(prev)
@@ -350,6 +387,9 @@ export default function MobileFulfillment() {
             <div className="space-y-2">
               <button onClick={bulkApplyDefaults} disabled={!!bulkBusy} className="w-full h-12 rounded-xl bg-gray-800 text-white font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-50"><Boxes size={17} /> Apply default presets</button>
               <button onClick={bulkRateShop} disabled={!!bulkBusy} className="w-full h-12 rounded-xl bg-amazon-blue text-white font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-50"><Truck size={17} /> Rate shop (use applied presets)</button>
+              <button onClick={bulkLabelBatch} disabled={!!bulkBusy || batchCount === 0}
+                title={batchCount === 0 ? 'Only orders with a rate can be batched' : undefined}
+                className="w-full h-12 rounded-xl bg-emerald-600 text-white font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-50"><Printer size={17} /> Create label batch{batchCount > 0 ? ` (${batchCount} with rates)` : ''}</button>
               <div className="pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Apply a package preset + rate</div>
               {pkgPresets.length === 0 ? <div className="text-xs text-gray-400">No package presets defined.</div> : pkgPresets.map(p => (
                 <button key={p.id} onClick={() => bulkApplyPreset(p)} disabled={!!bulkBusy} className="w-full h-11 rounded-xl bg-gray-100 text-gray-800 font-semibold text-sm px-4 text-left flex items-center gap-2 disabled:opacity-50"><Boxes size={16} className="text-gray-500" /> {p.name}</button>
