@@ -165,7 +165,7 @@ export default function MobileFulfillment() {
       const results: Order[] = []
       // Amazon/BM orders (paginated) — unless viewing wholesale-only.
       if (channel !== 'wholesale') {
-        const p = new URLSearchParams({ tab, page: String(page), pageSize: '25', sortBy: 'purchaseDate', sortDir: 'desc' })
+        const p = new URLSearchParams({ tab, page: String(page), pageSize: '500', sortBy: 'purchaseDate', sortDir: 'desc' })
         if (accountId) p.set('accountId', accountId)
         if (search) p.set('search', search)
         if (channel === 'amazon' || channel === 'backmarket') p.set('orderSource', channel)
@@ -173,7 +173,7 @@ export default function MobileFulfillment() {
         if (dueToday && tab !== 'shipped' && tab !== 'cancelled') p.set('dueToday', '1')
         const res = await fetch(`/api/orders?${p}`)
         const d = await res.json()
-        if (res.ok) { results.push(...(d.data ?? [])); setPagination(d.pagination ?? { page, pageSize: 25, total: 0, totalPages: 1 }) }
+        if (res.ok) { results.push(...(d.data ?? [])); setPagination(d.pagination ?? { page, pageSize: 500, total: 0, totalPages: 1 }) }
       } else {
         setPagination({ page: 1, pageSize: 25, total: 0, totalPages: 1 })
       }
