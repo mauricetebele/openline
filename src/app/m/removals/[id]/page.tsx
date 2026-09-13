@@ -15,32 +15,51 @@ const STATUS_LABEL: Record<string, string> = {
   REIMBURSEMENT_DENIED: 'Denied', RESOLVED_REIMBURSED: 'Reimbursed',
 }
 
-/** Downscale + JPEG-compress a photo so it lands under Vercel Blob's 4 MB limit
- *  (iPhone captures are routinely larger) and normalizes HEIC/PNG to JPEG. */
-async function compressToJpeg(file: File, maxDim = 2000, maxBytes = 3.5 * 1024 * 1024): Promise<File> {
+/** Downscale + JPEG-compress a photo down to <=1.5 MB (iPhone captures are routinely
+ *  much larger) and normalize HEIC/PNG to JPEG. Reduces quality first, then shrinks
+ *  dimensions, until it fits the cap. */
+const MAX_UPLOAD_BYTES = 1.5 * 1024 * 1024
+
+async function compressToJpeg(file: File, maxBytes = MAX_UPLOAD_BYTES): Promise<File> {
   if (!file.type.startsWith('image/')) return file
   let bitmap: ImageBitmap
   try {
     try { bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' }) }
     catch { bitmap = await createImageBitmap(file) }
   } catch { return file } // browser can't decode (rare) → send original
-  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height))
-  const w = Math.max(1, Math.round(bitmap.width * scale))
-  const h = Math.max(1, Math.round(bitmap.height * scale))
-  const canvas = document.createElement('canvas')
-  canvas.width = w; canvas.height = h
-  const ctx = canvas.getContext('2d')
-  if (!ctx) { bitmap.close?.(); return file }
-  ctx.drawImage(bitmap, 0, 0, w, h)
-  bitmap.close?.()
-  let quality = 0.85
-  let blob: Blob | null = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality))
-  while (blob && blob.size > maxBytes && quality > 0.4) {
-    quality -= 0.15
-    blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality))
+
+  const render = (dim: number, quality: number): Promise<Blob | null> => {
+    const scale = Math.min(1, dim / Math.max(bitmap.width, bitmap.height))
+    const w = Math.max(1, Math.round(bitmap.width * scale))
+    const h = Math.max(1, Math.round(bitmap.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w; canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return Promise.resolve(null)
+    ctx.drawImage(bitmap, 0, 0, w, h)
+    return new Promise(r => canvas.toBlob(r, 'image/jpeg', quality))
   }
-  if (!blob) return file
-  const name = (file.name.replace(/\.[^.]+$/, '') || `photo-${Date.now()}`) + '.jpg'
+
+  let best: Blob | null = null
+  // Try progressively smaller max dimensions; within each, drop quality until it fits.
+  for (const dim of [2400, 2000, 1600, 1280, 1024, 800]) {
+    let quality = 0.85
+    for (let i = 0; i < 5; i++) {
+      const blob = await render(dim, quality)
+      if (!blob) break
+      best = blob
+      if (blob.size <= maxBytes) { bitmap.close?.(); return toFile(file, blob) }
+      quality -= 0.15
+      if (quality < 0.35) break
+    }
+  }
+  bitmap.close?.()
+  // Couldn't get under the cap even at the smallest size — send the smallest we made.
+  return best ? toFile(file, best) : file
+}
+
+function toFile(orig: File, blob: Blob): File {
+  const name = (orig.name.replace(/\.[^.]+$/, '') || `photo-${Date.now()}`) + '.jpg'
   return new File([blob], name, { type: 'image/jpeg' })
 }
 
