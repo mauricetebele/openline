@@ -121,8 +121,11 @@ export default function MobileRemovalDetail() {
           <div className="min-w-0 flex-1">
             {loading ? <span className="text-sm">Loading…</span> : rc ? (
               <>
-                <div className="text-sm font-bold truncate">REMOVALCASE-{rc.caseNumber}</div>
-                <div className="text-[11px] text-white/80 truncate">LPN: <span className="font-mono">{rc.lpnNumber || '—'}</span></div>
+                <div className="text-[11px] font-semibold text-white/70 truncate">REMOVALCASE-{rc.caseNumber}</div>
+                <div className="truncate leading-tight">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-white/60 mr-1 align-middle">LPN</span>
+                  <span className="font-mono font-extrabold text-lg text-white align-middle">{rc.lpnNumber || '—'}</span>
+                </div>
                 <div className="text-[11px] text-white/70 truncate">{rc.sellerSku ?? '—'} · {STATUS_LABEL[rc.status] ?? rc.status}</div>
               </>
             ) : <span className="text-sm">Case not found</span>}
