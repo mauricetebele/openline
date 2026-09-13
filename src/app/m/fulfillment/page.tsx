@@ -208,6 +208,13 @@ export default function MobileFulfillment() {
     const bv = b.presetRateAmount != null ? parseFloat(b.presetRateAmount) : Infinity
     return rateSort === 'asc' ? av - bv : bv - av
   })
+  const allVisibleSelected = visible.length > 0 && visible.every(o => selected.has(o.id))
+  const toggleSelectAll = () => setSelected(prev => {
+    const n = new Set(prev)
+    if (allVisibleSelected) visible.forEach(o => n.delete(o.id))
+    else visible.forEach(o => n.add(o.id))
+    return n
+  })
 
   // ── Sync (poll job) ──
   async function runSync() {
@@ -304,9 +311,16 @@ export default function MobileFulfillment() {
         ) : visible.length === 0 ? (
           <div className="py-16 text-center text-gray-400 text-sm">No orders</div>
         ) : (
+          <>
+          <div className="flex items-center justify-between px-1 pb-2">
+            <span className="text-[11px] text-gray-500">{visible.length} order{visible.length !== 1 ? 's' : ''}{pagination.totalPages > 1 ? ' (this page)' : ''}</span>
+            <button onClick={toggleSelectAll} className="text-xs font-semibold text-amazon-blue">{allVisibleSelected ? 'Deselect all' : 'Select all'}</button>
+          </div>
           <ul className="space-y-2">
             {visible.map(o => <li key={o.id}><OrderCard order={o} onOpen={() => setMenuOrder(o)} busy={busyId === o.id} selected={selected.has(o.id)} onToggle={() => toggleSelect(o.id)} /></li>)}
           </ul>
+          </>
+        )}
         )}
 
         {/* Pagination (amazon list) */}
