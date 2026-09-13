@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ChevronLeft, Camera, ImageIcon, Loader2, X, CheckCircle2, AlertCircle } from 'lucide-react'
+import LpnLabel from '../LpnLabel'
 
 interface CaseImage { url: string; filename: string; contentType: string; size: number }
 interface RemovalCase {
@@ -141,10 +142,7 @@ export default function MobileRemovalDetail() {
             {loading ? <span className="text-sm">Loading…</span> : rc ? (
               <>
                 <div className="text-[11px] font-semibold text-white/70 truncate">REMOVALCASE-{rc.caseNumber}</div>
-                <div className="truncate leading-tight">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-white/60 mr-1 align-middle">LPN</span>
-                  <span className="font-mono font-extrabold text-lg text-white align-middle">{rc.lpnNumber || '—'}</span>
-                </div>
+                <div className="my-1"><LpnLabel value={rc.lpnNumber} size="lg" /></div>
                 <div className="text-[11px] text-white/70 truncate">{rc.sellerSku ?? '—'} · {STATUS_LABEL[rc.status] ?? rc.status}</div>
               </>
             ) : <span className="text-sm">Case not found</span>}

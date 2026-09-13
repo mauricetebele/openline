@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { Search, Loader2, ChevronRight, Camera, ImageIcon } from 'lucide-react'
+import LpnLabel from './LpnLabel'
 
 interface CaseImage { url: string; filename: string; contentType: string; size: number }
 interface RemovalCase {
@@ -89,10 +90,7 @@ export default function MobileRemovalsList() {
                         <span className="font-bold text-sm text-amazon-blue">REMOVALCASE-{c.caseNumber}</span>
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${STATUS_COLOR[c.status] ?? 'bg-gray-100 text-gray-600'}`}>{STATUS_LABEL[c.status] ?? c.status}</span>
                       </div>
-                      <div className="mt-0.5 truncate">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 align-middle mr-1">LPN</span>
-                        <span className="font-mono font-bold text-[15px] text-gray-900 align-middle">{c.lpnNumber || '—'}</span>
-                      </div>
+                      <div className="mt-1"><LpnLabel value={c.lpnNumber} /></div>
                       <div className="text-[13px] text-gray-800 font-medium truncate mt-0.5">{c.sellerSku ?? '—'}</div>
                       {c.productTitle && <div className="text-[11px] text-gray-500 truncate">{c.productTitle}</div>}
                       <div className="text-[11px] text-gray-400 truncate">{c.trackingNumber ?? 'No tracking'}</div>
