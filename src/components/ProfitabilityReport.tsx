@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { clsx } from 'clsx'
+import { toast } from 'sonner'
 import {
   ChevronDown, ChevronRight, ChevronUp, DollarSign, TrendingUp, TrendingDown, Package, Wrench,
-  Search, X,
+  Search, X, RefreshCw,
 } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -353,6 +354,33 @@ export default function ProfitabilityReport() {
   const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [syncingComm, setSyncingComm] = useState(false)
+  const [commProgress, setCommProgress] = useState<{ synced: number; total: number } | null>(null)
+
+  // Manually pull marketplace commission figures for the selected orders (SSE).
+  async function syncCommissions() {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setSyncingComm(true); setCommProgress({ synced: 0, total: ids.length })
+    try {
+      const res = await fetch('/api/sync-commissions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderIds: ids }) })
+      if (!res.ok || !res.body) { const j = await res.json().catch(() => ({})); throw new Error(j.error ?? 'Failed to sync commissions') }
+      const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = ''
+      for (;;) {
+        const chunk = await reader.read(); if (chunk.done) break
+        buf += dec.decode(chunk.value, { stream: true })
+        const parts = buf.split('\n\n'); buf = parts.pop() ?? ''
+        for (const part of parts) {
+          const line = part.split('\n').find(l => l.startsWith('data: ')); if (!line) continue
+          const evt = JSON.parse(line.slice(6))
+          if (typeof evt.synced === 'number' && typeof evt.total === 'number') setCommProgress({ synced: evt.synced, total: evt.total })
+        }
+      }
+      toast.success('Commissions synced')
+      fetchData()
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to sync commissions') }
+    finally { setSyncingComm(false); setCommProgress(null) }
+  }
 
   function toggleSelected(id: string) {
     setSelectedIds(prev => {
@@ -564,6 +592,18 @@ export default function ProfitabilityReport() {
             Line Item View
           </button>
         </div>
+
+        {viewMode === 'order' && selectedIds.size > 0 && (
+          <button
+            onClick={syncCommissions}
+            disabled={syncingComm}
+            title="Pull marketplace commission figures for the selected orders"
+            className="ml-2 px-3 py-1.5 text-xs rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+          >
+            <RefreshCw size={13} className={syncingComm ? 'animate-spin' : ''} />
+            {syncingComm && commProgress ? `Syncing ${commProgress.synced}/${commProgress.total}…` : `Sync Commissions (${selectedIds.size})`}
+          </button>
+        )}
 
         {/* Search input */}
         <div className="relative ml-2">
