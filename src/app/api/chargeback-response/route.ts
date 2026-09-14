@@ -24,12 +24,21 @@ const CARRIER_NAME: Record<string, string> = {
 }
 
 function carrierName(raw: string | null | undefined, tracking: string | null): string | null {
-  if (raw) return CARRIER_NAME[raw.toLowerCase()] ?? raw
+  // The tracking number is the most reliable signal for the *physical* carrier —
+  // labels bought via Amazon Buy Shipping store "Amazon Buy Shipping" as the carrier,
+  // not UPS/FedEx/USPS, so detect from the tracking number first.
   if (tracking) {
     const d = detectCarrier(tracking)
     if (d === 'FEDEX') return 'FedEx'
+    if (d === 'UPS' || d === 'USPS') return d
     if (d === 'AMZL') return 'Amazon Logistics'
-    if (d !== 'UNKNOWN') return d
+  }
+  // Fall back to a recognized carrier code; ignore platform/broker values that
+  // aren't an actual carrier (Amazon Buy Shipping / ShipStation).
+  if (raw) {
+    const mapped = CARRIER_NAME[raw.toLowerCase()]
+    if (mapped) return mapped
+    if (!/buy\s*shipping|shipstation|amazon/i.test(raw)) return raw
   }
   return null
 }
