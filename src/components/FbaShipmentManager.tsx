@@ -1105,6 +1105,55 @@ function WizardView({
         <div className="text-[11px] text-red-500 mb-4">{fnskuError}</div>
       )}
 
+      {/* Read-only shipped contents & boxes (terminal shipments) */}
+      {isTerminal && (shipment.boxes?.length ?? 0) > 0 && (() => {
+        const itemById = new Map(shipment.items.map(i => [i.id, i]))
+        const dim = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : '—' }
+        return (
+          <div className="border border-gray-200 rounded-lg p-4 space-y-3 mb-4">
+            <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+              <Package size={14} className="text-gray-400" /> Shipment Contents &amp; Boxes
+            </h3>
+            <p className="text-xs text-gray-500">
+              {shipment.boxes!.length} box{shipment.boxes!.length !== 1 ? 'es' : ''} shipped.
+            </p>
+            {shipment.boxes!.map((box, i) => {
+              const totalUnits = box.items.reduce((s, bi) => s + bi.quantity, 0)
+              return (
+                <div key={box.id ?? i} className="border border-gray-100 rounded-md p-3 space-y-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                      <Package size={13} className="text-gray-400" /> Box {box.boxNumber ?? i + 1}
+                    </span>
+                    <span className="text-xs text-gray-500">{dim(box.weightLb)} lb</span>
+                    <span className="text-xs text-gray-400">{dim(box.lengthIn)} × {dim(box.widthIn)} × {dim(box.heightIn)} in</span>
+                    <span className="ml-auto text-xs text-gray-400">{totalUnits} unit{totalUnits !== 1 ? 's' : ''}</span>
+                  </div>
+                  {box.trackingNumber && (
+                    <div className="text-xs text-gray-500">Tracking: <span className="font-mono">{box.trackingNumber}</span></div>
+                  )}
+                  <div className="divide-y divide-gray-50">
+                    {box.items.map((bi, j) => {
+                      const it = itemById.get(bi.shipmentItemId)
+                      return (
+                        <div key={j} className="flex items-center gap-2 text-xs py-1">
+                          <span className="font-mono text-gray-800">{it?.msku?.product?.sku ?? '—'}</span>
+                          {it?.msku?.grade?.grade && <span className="text-gray-400">{it.msku.grade.grade}</span>}
+                          {it && <span className="text-gray-400">({it.sellerSku})</span>}
+                          {it?.fnsku && <span className="font-mono text-gray-400">{it.fnsku}</span>}
+                          {it?.msku?.product?.description && <span className="text-gray-400 truncate">— {it.msku.product.description}</span>}
+                          <span className="ml-auto font-semibold text-gray-700">×{bi.quantity}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
+
       {/* Step-specific actions */}
       {shipment.status === 'DRAFT' && shipment.warehouseId && (shipment.reservations?.length ?? 0) > 0 && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-4">
