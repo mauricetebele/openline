@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { getUpsMultiPieceRate, RETURN_ADDRESS, type MultiPieceAddress, type MultiPiecePackage } from '@/lib/ups-tracking'
+import { getUpsMultiPieceRate, WHOLESALE_SHIP_FROM, type MultiPieceAddress, type MultiPiecePackage } from '@/lib/ups-tracking'
 import { loadFedExCredentials, getMultiPieceRate } from '@/lib/fedex/client'
 
 export const dynamic = 'force-dynamic'
@@ -38,9 +38,9 @@ export async function POST(req: NextRequest, { params: _params }: { params: { id
   }
 
   const shipFrom: MultiPieceAddress = {
-    name: RETURN_ADDRESS.name, company: RETURN_ADDRESS.name,
-    address1: RETURN_ADDRESS.line1, address2: RETURN_ADDRESS.line2,
-    city: RETURN_ADDRESS.city, state: RETURN_ADDRESS.state, postal: RETURN_ADDRESS.postal, country: RETURN_ADDRESS.country,
+    name: WHOLESALE_SHIP_FROM.name, company: WHOLESALE_SHIP_FROM.name,
+    address1: WHOLESALE_SHIP_FROM.line1, address2: WHOLESALE_SHIP_FROM.line2,
+    city: WHOLESALE_SHIP_FROM.city, state: WHOLESALE_SHIP_FROM.state, postal: WHOLESALE_SHIP_FROM.postal, country: WHOLESALE_SHIP_FROM.country,
   }
   const shipTo: MultiPieceAddress = {
     name: toName, company: body.shipFromCompany?.trim() || undefined,
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, { params: _params }: { params: { id
       const creds = await loadFedExCredentials()
       if (!creds) return NextResponse.json({ error: 'FedEx credentials not configured' }, { status: 400 })
       const rate = await getMultiPieceRate(creds, {
-        shipFrom: { streetLines: [RETURN_ADDRESS.line1, RETURN_ADDRESS.line2].filter(Boolean) as string[], city: RETURN_ADDRESS.city, stateOrProvinceCode: RETURN_ADDRESS.state, postalCode: RETURN_ADDRESS.postal, countryCode: RETURN_ADDRESS.country, personName: RETURN_ADDRESS.name, phone: '0000000000' },
+        shipFrom: { streetLines: [WHOLESALE_SHIP_FROM.line1, WHOLESALE_SHIP_FROM.line2].filter(Boolean) as string[], city: WHOLESALE_SHIP_FROM.city, stateOrProvinceCode: WHOLESALE_SHIP_FROM.state, postalCode: WHOLESALE_SHIP_FROM.postal, countryCode: WHOLESALE_SHIP_FROM.country, personName: WHOLESALE_SHIP_FROM.name, phone: WHOLESALE_SHIP_FROM.phone.replace(/[^0-9]/g, '') },
         shipTo: { streetLines: [shipTo.address1, shipTo.address2].filter(Boolean) as string[], city: shipTo.city, stateOrProvinceCode: shipTo.state.slice(0, 2), postalCode: shipTo.postal, countryCode: shipTo.country, personName: shipTo.name, phone: '0000000000' },
         packages: packages.map(p => ({ weight: { value: p.weightUnit === 'OZS' ? Number(p.weightValue) / 16 : Number(p.weightValue), units: 'LB' }, ...(p.length && p.width && p.height ? { dimensions: { length: Number(p.length), width: Number(p.width), height: Number(p.height), units: p.dimUnit === 'CM' ? 'CM' : 'IN' } } : {}) })),
         serviceType: serviceCode,

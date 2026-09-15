@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { RETURN_ADDRESS } from '@/lib/ups-tracking'
+import { WHOLESALE_SHIP_FROM } from '@/lib/ups-tracking'
 import { loadFedExCredentials, getMultiPieceRate } from '@/lib/fedex/client'
 
 export const dynamic = 'force-dynamic'
@@ -53,9 +53,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   try {
     const rate = await getMultiPieceRate(creds, {
       shipFrom: {
-        streetLines: [RETURN_ADDRESS.line1, RETURN_ADDRESS.line2].filter(Boolean) as string[],
-        city: RETURN_ADDRESS.city, stateOrProvinceCode: RETURN_ADDRESS.state, postalCode: RETURN_ADDRESS.postal, countryCode: RETURN_ADDRESS.country,
-        personName: RETURN_ADDRESS.name, phone: fromPhone,
+        streetLines: [WHOLESALE_SHIP_FROM.line1, WHOLESALE_SHIP_FROM.line2].filter(Boolean) as string[],
+        city: WHOLESALE_SHIP_FROM.city, stateOrProvinceCode: WHOLESALE_SHIP_FROM.state, postalCode: WHOLESALE_SHIP_FROM.postal, countryCode: WHOLESALE_SHIP_FROM.country,
+        personName: WHOLESALE_SHIP_FROM.name, phone: fromPhone,
       },
       shipTo: {
         streetLines: [primary.shipFromAddress1].filter(Boolean) as string[],

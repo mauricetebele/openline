@@ -30,8 +30,8 @@ const FEDEX_SERVICES = [
 const SERVICES: Record<Carrier, { code: string; label: string }[]> = { UPS: UPS_SERVICES, FEDEX: FEDEX_SERVICES }
 const DEFAULT_SERVICE: Record<Carrier, string> = { UPS: '03', FEDEX: 'FEDEX_GROUND' }
 
-// Our warehouse origin (matches RETURN_ADDRESS in ups-tracking.ts).
-const SHIP_FROM = 'PRIME MOBILITY FBM RETURNS · 20 MERIDIAN RD, UNIT 2, EATONTOWN, NJ 07724'
+// Our warehouse origin (matches WHOLESALE_SHIP_FROM in ups-tracking.ts).
+const SHIP_FROM = 'OPEN LINE MOBILITY LTD · 20 MERIDIAN RD, UNIT 2, EATONTOWN, NJ 07724'
 
 interface CustomerAddress {
   id: string; type: string; label: string

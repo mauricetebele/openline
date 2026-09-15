@@ -377,6 +377,19 @@ export const RETURN_ADDRESS = {
   country: 'US',
 } as const
 
+// Outbound origin for WHOLESALE labels only (VRMA ships from its selected
+// warehouse record; customer returns / MFN use RETURN_ADDRESS above).
+export const WHOLESALE_SHIP_FROM = {
+  name:    'OPEN LINE MOBILITY LTD',
+  line1:   '20 MERIDIAN RD',
+  line2:   'UNIT 2',
+  city:    'EATONTOWN',
+  state:   'NJ',
+  postal:  '07724',
+  country: 'US',
+  phone:   '917-841-9444',
+} as const
+
 export const UPS_SERVICES = [
   { code: '03', label: 'UPS Ground' },
   { code: '02', label: 'UPS 2nd Day Air' },

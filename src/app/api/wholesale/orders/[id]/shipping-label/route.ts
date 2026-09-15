@@ -2,7 +2,7 @@
  * GET  /api/wholesale/orders/[id]/shipping-label  — labels already made for this order
  * POST /api/wholesale/orders/[id]/shipping-label  — generate a UPS or FedEx label
  *
- * Ships FROM our warehouse (RETURN_ADDRESS) TO the customer address in the
+ * Ships FROM our warehouse (WHOLESALE_SHIP_FROM) TO the customer address in the
  * request. The request's shipFrom* fields carry the DESTINATION (customer)
  * address — the same naming the shared UPS lib / /api/outbound-label use.
  * Rating is done client-side via /api/outbound-label/rate (UPS) or
@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { generateUpsMultiPieceLabels, UPS_SERVICES, RETURN_ADDRESS, type MultiPieceAddress, type MultiPiecePackage } from '@/lib/ups-tracking'
+import { generateUpsMultiPieceLabels, UPS_SERVICES, WHOLESALE_SHIP_FROM, type MultiPieceAddress, type MultiPiecePackage } from '@/lib/ups-tracking'
 import { loadFedExCredentials, createMultiPieceShipment, getMultiPieceRate, type FedExMultiPieceParams } from '@/lib/fedex/client'
 
 export const dynamic = 'force-dynamic'
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const packages = Array.isArray(body.packages) ? body.packages : []
 
   // NOTE: shipFrom* fields carry the DESTINATION (customer) address for an
-  // outbound label — the shipper is our warehouse (RETURN_ADDRESS).
+  // outbound label — the shipper is our warehouse (WHOLESALE_SHIP_FROM).
   const toName = body.shipFromName?.trim() || body.shipFromCompany?.trim() || ''
   if (!toName || !body.shipFromAddress1?.trim() ||
       !body.shipFromCity?.trim() || !body.shipFromState?.trim() || !body.shipFromPostal?.trim()) {
@@ -93,13 +93,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const reference = body.referenceNumber || order.orderNumber
 
   // Ship-from = our warehouse; ship-to = the customer address in the request.
-  const settings = await prisma.storeSettings.findUnique({ where: { id: 'singleton' }, select: { phone: true } }).catch(() => null)
-  const fromPhone = settings?.phone?.trim() || '7325555555'
+  const fromPhone = WHOLESALE_SHIP_FROM.phone
 
   const shipFrom: MultiPieceAddress = {
-    name: RETURN_ADDRESS.name, company: RETURN_ADDRESS.name,
-    address1: RETURN_ADDRESS.line1, address2: RETURN_ADDRESS.line2,
-    city: RETURN_ADDRESS.city, state: RETURN_ADDRESS.state, postal: RETURN_ADDRESS.postal, country: RETURN_ADDRESS.country,
+    name: WHOLESALE_SHIP_FROM.name, company: WHOLESALE_SHIP_FROM.name,
+    address1: WHOLESALE_SHIP_FROM.line1, address2: WHOLESALE_SHIP_FROM.line2,
+    city: WHOLESALE_SHIP_FROM.city, state: WHOLESALE_SHIP_FROM.state, postal: WHOLESALE_SHIP_FROM.postal, country: WHOLESALE_SHIP_FROM.country,
     phone: fromPhone,
   }
   const shipTo: MultiPieceAddress = {
@@ -127,9 +126,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
       const fedexParams: FedExMultiPieceParams = {
         shipFrom: {
-          streetLines: [RETURN_ADDRESS.line1, RETURN_ADDRESS.line2].filter(Boolean) as string[],
-          city: RETURN_ADDRESS.city, stateOrProvinceCode: RETURN_ADDRESS.state, postalCode: RETURN_ADDRESS.postal, countryCode: RETURN_ADDRESS.country,
-          personName: RETURN_ADDRESS.name, phone: fromPhone.replace(/[^0-9]/g, '') || '0000000000',
+          streetLines: [WHOLESALE_SHIP_FROM.line1, WHOLESALE_SHIP_FROM.line2].filter(Boolean) as string[],
+          city: WHOLESALE_SHIP_FROM.city, stateOrProvinceCode: WHOLESALE_SHIP_FROM.state, postalCode: WHOLESALE_SHIP_FROM.postal, countryCode: WHOLESALE_SHIP_FROM.country,
+          personName: WHOLESALE_SHIP_FROM.name, phone: fromPhone.replace(/[^0-9]/g, '') || '0000000000',
         },
         shipTo: {
           streetLines: [shipTo.address1, shipTo.address2].filter(Boolean) as string[],
