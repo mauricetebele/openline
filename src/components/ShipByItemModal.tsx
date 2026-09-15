@@ -3,6 +3,7 @@ import { useState } from 'react'
 import {
   X, RefreshCcw, CheckCircle2, AlertCircle, Printer, Package, Truck,
 } from 'lucide-react'
+import { confirmReprint } from '@/lib/confirm-reprint'
 
 interface OrderItem {
   id: string; orderItemId: string; asin: string | null; sellerSku: string | null
@@ -87,6 +88,7 @@ export default function ShipByItemModal({ order, serialNumber, serialSku, onClos
   }
 
   async function handlePrintLabel() {
+    if (!(await confirmReprint(order.id))) return
     setPrinting(true); setPrintErr(null)
     try {
       const res = await fetch(`/api/orders/${order.id}/label`)

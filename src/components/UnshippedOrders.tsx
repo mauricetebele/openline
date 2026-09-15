@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import GradeBadge from '@/components/GradeBadge'
 import { AmazonAccountDTO } from '@/types'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
+import { confirmReprint } from '@/lib/confirm-reprint'
 import PickListModal from '@/components/PickListModal'
 import ShipByItemModal from '@/components/ShipByItemModal'
 import WholesaleShippingLabelModal from '@/components/WholesaleShippingLabelModal'
@@ -955,6 +956,7 @@ function VerifyOrderModal({ order, onClose, onVerified }: {
   const canConfirm = !needsSerials || allSerialsValid
 
   async function printLabel() {
+    if (!(await confirmReprint(order.id))) return
     setPrintingLabel(true)
     try {
       const res = await fetch(`/api/orders/${order.id}/label`)
@@ -1833,6 +1835,7 @@ function WholesaleShipModal({ order, onClose, onShipped }: {
   }
 
   async function printLabelSet(shipmentId: string) {
+    if (!(await confirmReprint(order.id))) return
     try {
       const res = await fetch(`/api/wholesale/orders/${order.id}/shipping-label/print?shipmentId=${encodeURIComponent(shipmentId)}`)
       const d = await res.json()
@@ -5754,6 +5757,7 @@ export default function UnshippedOrders() {
 
   // Open the most recent generated shipping label PDF for a wholesale order.
   async function printWholesaleLabel(orderId: string) {
+    if (!(await confirmReprint(orderId))) return
     setPrintingLabelId(orderId)
     const toastId = toast.loading('Fetching shipping label…')
     try {
@@ -6446,6 +6450,7 @@ export default function UnshippedOrders() {
   )
 
   async function handlePrintLabel(orderId: string) {
+    if (!(await confirmReprint(orderId))) return
     try {
       const res  = await fetch(`/api/orders/${orderId}/label`)
       if (!res.ok) { alert('No label found for this order'); return }

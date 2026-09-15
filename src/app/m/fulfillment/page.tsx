@@ -7,6 +7,7 @@ import {
   RotateCcw, CheckCircle2, Boxes, ScanLine, FileText, Download, Crown, DownloadCloud,
 } from 'lucide-react'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
+import { confirmReprint } from '@/lib/confirm-reprint'
 import {
   apiPost, fmtMoney, fmtDate, openLabelData, orderNumber, shipByDays, carrierLogo,
   TAB_LABEL, WORKFLOW_DISPLAY, type Tab, type Order, type Pagination,
@@ -278,16 +279,22 @@ export default function MobileFulfillment() {
     try { await fn(); toast.success(label); setMenuOrder(null); refresh() }
     catch (e) { toast.error(e instanceof Error ? e.message : `${label} failed`) } finally { setBusyId(null) }
   }
-  const printLabel = (o: Order) => runDirect(o, 'Label opened', async () => {
-    const d = await (await fetch(`/api/orders/${o.id}/label`)).json()
-    if (!d?.labelData) throw new Error(d?.error ?? 'No label')
-    openLabelData(d.labelData, d.labelFormat ?? 'pdf', orderNumber(o))
-  })
-  const printWholesaleLabel = (o: Order) => runDirect(o, 'Label opened', async () => {
-    const d = await (await fetch(`/api/wholesale/orders/${o.id}/shipping-label/print`)).json()
-    if (!d?.labelData) throw new Error(d?.error ?? 'No label')
-    openLabelData(d.labelData, 'pdf', orderNumber(o))
-  })
+  async function printLabel(o: Order) {
+    if (!(await confirmReprint(o.id))) return
+    runDirect(o, 'Label opened', async () => {
+      const d = await (await fetch(`/api/orders/${o.id}/label`)).json()
+      if (!d?.labelData) throw new Error(d?.error ?? 'No label')
+      openLabelData(d.labelData, d.labelFormat ?? 'pdf', orderNumber(o))
+    })
+  }
+  async function printWholesaleLabel(o: Order) {
+    if (!(await confirmReprint(o.id))) return
+    runDirect(o, 'Label opened', async () => {
+      const d = await (await fetch(`/api/wholesale/orders/${o.id}/shipping-label/print`)).json()
+      if (!d?.labelData) throw new Error(d?.error ?? 'No label')
+      openLabelData(d.labelData, 'pdf', orderNumber(o))
+    })
+  }
 
   return (
     <div className="flex flex-col min-h-[100dvh]">
