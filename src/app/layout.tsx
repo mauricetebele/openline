@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Open_Sans } from 'next/font/google'
 import { Toaster } from 'sonner'
+import { ReprintConfirmHost } from '@/lib/confirm-reprint'
 import './globals.css'
 
 const openSans = Open_Sans({ subsets: ['latin'] })
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={openSans.className}>
         {children}
         <Toaster position="top-right" richColors />
+        <ReprintConfirmHost />
       </body>
     </html>
   )
