@@ -49,6 +49,10 @@ export interface MarketplaceRMA {
     shipToState?: string | null
   }
   items: RMAItem[]
+  // BackMarket commission CHARGED on the sale, from BM financials (sales_fees),
+  // shown as a positive magnitude regardless of whether it was later refunded.
+  // null for non-BackMarket returns or when there is no sales_fees entry.
+  commissionCharged?: number | null
   // BackMarket commission-refund amount from BM financials (avoir_sales_fees).
   // null when there is no commission-refund entry, or for non-BackMarket returns.
   commissionRefund?: number | null

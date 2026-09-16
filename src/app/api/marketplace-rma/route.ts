@@ -84,13 +84,24 @@ export async function GET(req: NextRequest) {
       .map(r => r.order!.amazonOrderId),
   ))
   const commissionRefundMap = new Map<string, number>()
+  // Commission CHARGED on the sale (sales_fees) — shown regardless of whether it
+  // was later refunded via avoir_sales_fees. Stored negative; surfaced as a magnitude.
+  const commissionChargedMap = new Map<string, number>()
   if (bmOrderIds.length > 0) {
-    const refundRows = await prisma.$queryRaw<{ order_id: string; amount: number }[]>`
-      SELECT order_id, SUM(amount)::float8 AS amount
-      FROM bm_billing_entries
-      WHERE invoice_key = 'avoir_sales_fees' AND order_id = ANY(${bmOrderIds}::text[])
-      GROUP BY order_id`
+    const [refundRows, chargedRows] = await Promise.all([
+      prisma.$queryRaw<{ order_id: string; amount: number }[]>`
+        SELECT order_id, SUM(amount)::float8 AS amount
+        FROM bm_billing_entries
+        WHERE invoice_key = 'avoir_sales_fees' AND order_id = ANY(${bmOrderIds}::text[])
+        GROUP BY order_id`,
+      prisma.$queryRaw<{ order_id: string; amount: number }[]>`
+        SELECT order_id, SUM(amount)::float8 AS amount
+        FROM bm_billing_entries
+        WHERE invoice_key = 'sales_fees' AND order_id = ANY(${bmOrderIds}::text[])
+        GROUP BY order_id`,
+    ])
     for (const row of refundRows) commissionRefundMap.set(row.order_id, Number(row.amount))
+    for (const row of chargedRows) commissionChargedMap.set(row.order_id, Math.abs(Number(row.amount)))
   }
 
   const data = rmas.map(r => {
@@ -105,6 +116,9 @@ export async function GET(req: NextRequest) {
     return {
       ...r,
       saleValue: Math.round(saleValue * 100) / 100,
+      commissionCharged: r.order?.orderSource === 'backmarket'
+        ? (commissionChargedMap.get(r.order.amazonOrderId) ?? null)
+        : null,
       commissionRefund: r.order?.orderSource === 'backmarket'
         ? (commissionRefundMap.get(r.order.amazonOrderId) ?? null)
         : null,

@@ -281,6 +281,7 @@ export default function MarketplaceReturnsManager() {
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Customer</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">SKU</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Source</th>
+                <th className="px-3 py-2 text-right font-semibold text-gray-100 whitespace-nowrap">Commission Charged</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Commission Refund</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">CM Refund Expected</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Status</th>
@@ -324,6 +325,15 @@ export default function MarketplaceReturnsManager() {
                         <span className={clsx('inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium capitalize', SOURCE_COLOR[rma.order.orderSource] ?? 'bg-gray-100 text-gray-600')}>
                           {rma.order.orderSource}
                         </span>
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
+                        {rma.order.orderSource !== 'backmarket' ? (
+                          <span className="text-gray-300 dark:text-gray-600">—</span>
+                        ) : rma.commissionCharged != null ? (
+                          `$${rma.commissionCharged.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        ) : (
+                          <span className="text-gray-400 dark:text-gray-500">—</span>
+                        )}
                       </td>
                       <td className="px-3 py-1.5 whitespace-nowrap">
                         {rma.order.orderSource !== 'backmarket' ? (
@@ -383,7 +393,7 @@ export default function MarketplaceReturnsManager() {
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={13} className="bg-gray-50 dark:bg-gray-800/60 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                        <td colSpan={14} className="bg-gray-50 dark:bg-gray-800/60 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
                           {rma.notes && (
                             <p className="text-[11px] text-gray-500 mb-2"><span className="font-semibold text-gray-600 dark:text-gray-400">Notes:</span> {rma.notes}</p>
                           )}
