@@ -5,7 +5,7 @@ import {
   Download, Link2, CheckCircle2, Truck, Settings, FlaskConical, ClipboardCheck,
   MapPin, Printer, RotateCcw, Hash, XCircle, ExternalLink, Phone, FileText, Eye,
   AlertTriangle, Pencil, Tag, History, ChevronDown, ChevronUp, Ban, ShieldCheck, ScanLine, Clock,
-  Loader2,
+  Loader2, Scale,
 } from 'lucide-react'
 import { detectCarrier, trackingUrl } from '@/lib/tracking-utils'
 import { clsx } from 'clsx'
@@ -113,6 +113,10 @@ interface Order {
   shippedAt?: string | null
   actualShippingCost?: number | null
   hasShippingLabel?: boolean
+  weightDimsRequested?: boolean
+  weightDimsText?: string | null
+  weightDimsRequestedAt?: string | null
+  weightDimsEnteredAt?: string | null
 }
 
 // BackMarket "mystery"/quality-control orders ship to their audit facility at
@@ -5743,6 +5747,8 @@ export default function UnshippedOrders() {
   const [cancellingId, setCancellingId]           = useState<string | null>(null)
   const [bulkCancelling, setBulkCancelling]       = useState(false)
   const [bulkCancelResult, setBulkCancelResult]   = useState<{ cancelled: number; total: number; errors: string[] } | null>(null)
+  const [requestingWeightDims, setRequestingWeightDims] = useState(false)
+  const [savingWeightDimsId, setSavingWeightDimsId]     = useState<string | null>(null)
   const [reinstatingId, setReinstatingId]         = useState<string | null>(null)
   const [voidingId, setVoidingId]                 = useState<string | null>(null)
   const [voidSuccessMsg, setVoidSuccessMsg]       = useState<string | null>(null)
@@ -6419,6 +6425,51 @@ export default function UnshippedOrders() {
       alert(e instanceof Error ? e.message : 'Bulk cancel failed')
     } finally {
       setBulkCancelling(false)
+    }
+  }
+
+  // Flag the selected UNSHIPPED orders for the warehouse to enter weight & dims.
+  async function requestWeightDims() {
+    const ids = Array.from(selectedOrderIds).filter(id => {
+      const o = orders.find(x => x.id === id)
+      return o && o.workflowStatus !== 'SHIPPED' && o.workflowStatus !== 'CANCELLED'
+    })
+    if (ids.length === 0) return
+    setRequestingWeightDims(true)
+    try {
+      await apiPost('/api/orders/weight-dims-request', { orderIds: ids, requested: true })
+      const now = new Date().toISOString()
+      setOrders(prev => prev.map(o => ids.includes(o.id) ? { ...o, weightDimsRequested: true, weightDimsRequestedAt: now } : o))
+      setSelectedOrderIds(new Set())
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to request weight & dims')
+    } finally {
+      setRequestingWeightDims(false)
+    }
+  }
+
+  // Clear the weight-&-dims request on a single order.
+  async function clearWeightDimsRequest(order: Order) {
+    setOrders(prev => prev.map(o => o.id === order.id ? { ...o, weightDimsRequested: false } : o))
+    try {
+      await apiPost('/api/orders/weight-dims-request', { orderIds: [order.id], requested: false })
+    } catch { setFetchKey(k => k + 1) }
+  }
+
+  // Warehouse person saves the free-form weight & dims text for one order.
+  async function saveWeightDimsText(order: Order, text: string) {
+    const trimmed = text.trim()
+    if ((order.weightDimsText ?? '') === trimmed) return
+    setSavingWeightDimsId(order.id)
+    try {
+      const res = await apiPost<{ weightDimsText: string | null; weightDimsEnteredAt: string | null }>(
+        `/api/orders/${order.id}/weight-dims`, { text: trimmed })
+      setOrders(prev => prev.map(o => o.id === order.id
+        ? { ...o, weightDimsText: res.weightDimsText, weightDimsEnteredAt: res.weightDimsEnteredAt } : o))
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to save weight & dims')
+    } finally {
+      setSavingWeightDimsId(null)
     }
   }
 
@@ -7578,6 +7629,23 @@ export default function UnshippedOrders() {
             </button>
           )}
 
+          {/* Request weight & dims (unshipped tab) */}
+          {activeTab === 'unshipped' && selectedOrderIds.size > 0 && (
+            <button
+              onClick={requestWeightDims}
+              disabled={requestingWeightDims}
+              title="Flag the selected orders so the warehouse can enter weight & dimensions"
+              className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
+                requestingWeightDims
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-yellow-400 text-yellow-950 hover:bg-yellow-500')}
+            >
+              {requestingWeightDims
+                ? <><RefreshCcw size={11} className="animate-spin" /> Requesting…</>
+                : <><Scale size={11} /> Request Weight &amp; Dims ({selectedOrderIds.size})</>}
+            </button>
+          )}
+
           {/* Batch history */}
           <button
             onClick={() => setShowBatchHistory(true)}
@@ -7829,6 +7897,9 @@ export default function UnshippedOrders() {
               const paidShipping = order.orderSource === 'backmarket'
                 ? order.items.reduce((s, i) => s + (i.shippingPrice ? parseFloat(i.shippingPrice) : 0), 0)
                 : 0
+              // Weight & dims request: yellow + badge while awaiting entry; green once entered.
+              const wantsWeightDims = !!order.weightDimsRequested && !order.weightDimsEnteredAt
+              const hasWeightDims = !!order.weightDimsRequested && !!order.weightDimsEnteredAt
               return (
                 <tr key={order.id} className={clsx(
                   'border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors align-middle',
@@ -7836,6 +7907,10 @@ export default function UnshippedOrders() {
                     ? 'bg-fuchsia-50 hover:bg-fuchsia-100/70 dark:bg-fuchsia-900/30 dark:hover:bg-fuchsia-900/50 ring-2 ring-inset ring-fuchsia-500'
                     : hasCancelRequest
                     ? 'bg-amber-50 hover:bg-amber-100/60 dark:bg-amber-900/30 dark:hover:bg-amber-900/50'
+                    : wantsWeightDims
+                      ? 'bg-yellow-100 hover:bg-yellow-200/70 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50 ring-1 ring-inset ring-yellow-400'
+                    : hasWeightDims
+                      ? 'bg-green-50 hover:bg-green-100/60 dark:bg-green-900/20 dark:hover:bg-green-900/40'
                     : (order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null && !order.shipToCity
                       ? 'bg-yellow-50/70 hover:bg-yellow-100/50 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30'
                       : rowIdx % 2 === 0
@@ -7934,6 +8009,17 @@ export default function UnshippedOrders() {
                               <AlertTriangle size={8} /> CANCEL
                             </span>
                           )}
+                          {order.weightDimsRequested && (
+                            order.weightDimsEnteredAt ? (
+                              <span title={`Weight & dims entered: ${order.weightDimsText ?? ''}`} className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-green-600 text-white px-1 py-px rounded whitespace-nowrap">
+                                <Scale size={8} /> W&amp;D ✓
+                              </span>
+                            ) : (
+                              <span title="Warehouse: enter weight & dimensions for this order" className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-yellow-400 text-yellow-950 px-1 py-px rounded animate-pulse whitespace-nowrap">
+                                <Scale size={8} /> ENTER WEIGHT &amp; DIMS
+                              </span>
+                            )
+                          )}
                         </div>
                         <a
                           href={order.orderSource === 'backmarket'
@@ -7944,6 +8030,23 @@ export default function UnshippedOrders() {
                         >
                           {order.amazonOrderId}
                         </a>
+                        {order.weightDimsRequested && (
+                          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              key={order.weightDimsText ?? ''}
+                              defaultValue={order.weightDimsText ?? ''}
+                              placeholder="Enter weight & dims (e.g. 5 lb, 12×9×3 in)"
+                              disabled={savingWeightDimsId === order.id}
+                              onBlur={e => saveWeightDimsText(order, e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur() } }}
+                              className="flex-1 min-w-0 h-6 px-1.5 text-[11px] rounded border border-yellow-400 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-yellow-500"
+                            />
+                            {savingWeightDimsId === order.id
+                              ? <RefreshCcw size={10} className="animate-spin text-gray-400 shrink-0" />
+                              : <button onClick={() => clearWeightDimsRequest(order)} title="Clear weight & dims request" className="text-gray-300 hover:text-red-500 shrink-0"><X size={11} /></button>}
+                          </div>
+                        )}
                       </div>
                     )}
                   </td>
