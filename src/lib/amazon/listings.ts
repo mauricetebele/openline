@@ -822,7 +822,7 @@ function priceFromPurchasableOffer(
 export async function fetchLiveListingPrice(
   accountId: string,
   sku: string,
-): Promise<{ price: number | null; listingStatus: string | null; shippingTemplateGroupId: string | null }> {
+): Promise<{ asin: string | null; price: number | null; listingStatus: string | null; shippingTemplateGroupId: string | null }> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
   const encodedSku = encodeURIComponent(sku)
@@ -854,18 +854,31 @@ export async function fetchLiveListingPrice(
   // directly if provided, otherwise the group id is resolved to a name downstream.
   const shipGroup = shippingGroupFromAttributes(listingItem.attributes, account.marketplaceId)
 
+  // ASIN from the listing summary — mirrored so it shows on the grid even for
+  // SKUs that were never captured by a full listings sync.
+  const asin = summary?.asin ?? null
+
   const data: {
-    price?: number; listingStatus?: string; quantity?: number
+    asin?: string; price?: number; listingStatus?: string; quantity?: number
     shippingTemplateGroupId?: string; shippingTemplate?: string; updatedAt: Date
   } = { updatedAt: new Date() }
+  if (asin != null) data.asin = asin
   if (price != null && Number.isFinite(price)) data.price = price
   if (listingStatus != null) data.listingStatus = listingStatus
   if (fulfillQty != null) data.quantity = fulfillQty
   if (shipGroup.id != null) data.shippingTemplateGroupId = shipGroup.id
   if (shipGroup.name != null) data.shippingTemplate = shipGroup.name
-  await prisma.sellerListing.updateMany({ where: { accountId, sku }, data })
+  // Upsert (not updateMany): a SKU refreshed from the grid may have no
+  // SellerListing row yet (created in-app, never synced) — create it so the ASIN
+  // and price land somewhere the grid can read.
+  await prisma.sellerListing.upsert({
+    where: { accountId_sku: { accountId, sku } },
+    update: data,
+    create: { accountId, sku, ...data },
+  })
 
   return {
+    asin,
     price: price != null && Number.isFinite(price) ? price : null,
     listingStatus,
     shippingTemplateGroupId: shipGroup.id,

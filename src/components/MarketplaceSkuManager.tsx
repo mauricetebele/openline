@@ -926,7 +926,9 @@ export default function MarketplaceSkuManager() {
         ? await apiPost('/api/marketplace-skus/backmarket-refresh-price', { sellerSku: s.sellerSku })
         : await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku })
       const price = res.price != null ? String(res.price) : null
-      setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price, listingStatus: res.listingStatus ?? x.listingStatus } : x)))
+      setSkus(prev => prev.map(x => (x.id === s.id
+        ? { ...x, price, listingStatus: res.listingStatus ?? x.listingStatus, asin: s.marketplace === 'amazon' ? (res.asin ?? x.asin) : x.asin }
+        : x)))
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Price refresh failed')
     } finally {
@@ -956,7 +958,7 @@ export default function MarketplaceSkuManager() {
         try {
           const res = await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku })
           const price = res.price != null ? String(res.price) : null
-          setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price, listingStatus: res.listingStatus ?? x.listingStatus } : x)))
+          setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price, listingStatus: res.listingStatus ?? x.listingStatus, asin: res.asin ?? x.asin } : x)))
         } catch {
           failed++
         }

@@ -3,7 +3,8 @@
  * Body: { sku: string, accountId?: string }
  *
  * Live per-SKU price pull from Amazon (Listings Items API). Returns the current
- * price and mirrors it into SellerListing.price. Read-only w.r.t. Amazon (a GET),
+ * price + ASIN and mirrors them into SellerListing (upserting the row if the SKU
+ * was never captured by a full sync). Read-only w.r.t. Amazon (a GET),
  * so any authenticated user may trigger it. If accountId is omitted, the active
  * Amazon account is used.
  */
@@ -43,8 +44,8 @@ export async function POST(req: NextRequest) {
       accountId = active.id
     }
 
-    const { price, listingStatus } = await fetchLiveListingPrice(accountId, sku)
-    return NextResponse.json({ sku, price, listingStatus })
+    const { asin, price, listingStatus } = await fetchLiveListingPrice(accountId, sku)
+    return NextResponse.json({ sku, asin, price, listingStatus })
   } catch (err) {
     console.error('[refresh-price]', err)
     return NextResponse.json(
