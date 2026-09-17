@@ -1,7 +1,7 @@
 'use client'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
-import { Search, AlertCircle, X, Upload, Trash2, Save, Loader2, Download, FilePlus2, CheckCircle2, Archive, ArchiveRestore } from 'lucide-react'
+import { Search, AlertCircle, X, Upload, Trash2, Save, Loader2, Download, FilePlus2, CheckCircle2, Archive, ArchiveRestore, Pencil } from 'lucide-react'
 
 interface ImageAttachment {
   url: string
@@ -284,7 +284,7 @@ function RemovalCaseDetailModal({
   const [note, setNote] = useState('')
   const [noteDirty, setNoteDirty] = useState(false)
   const [caseIdDraft, setCaseIdDraft] = useState('')
-  const [caseIdDirty, setCaseIdDirty] = useState(false)
+  const [editingCaseId, setEditingCaseId] = useState(false)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -303,7 +303,7 @@ function RemovalCaseDetailModal({
       setNote(data.note ?? '')
       setNoteDirty(false)
       setCaseIdDraft(data.amazonCaseId ?? '')
-      setCaseIdDirty(false)
+      setEditingCaseId(false)
     } catch { /* ignore */ }
     setLoading(false)
   }, [caseId])
@@ -347,7 +347,7 @@ function RemovalCaseDetailModal({
         const updated = await res.json()
         setRc({ ...updated, images: Array.isArray(updated.images) ? updated.images : [] })
         setCaseIdDraft(updated.amazonCaseId ?? '')
-        setCaseIdDirty(false)
+        setEditingCaseId(false)
         onUpdated()
       }
     } catch { /* ignore */ }
@@ -474,24 +474,48 @@ function RemovalCaseDetailModal({
                   ) : (
                     <div>
                       <dt className="text-xs text-gray-500 dark:text-gray-400">Amazon Case ID</dt>
-                      <dd className="mt-0.5 flex items-center gap-1.5">
-                        <input
-                          value={caseIdDraft}
-                          onChange={(e) => { setCaseIdDraft(e.target.value); setCaseIdDirty(true) }}
-                          placeholder="Amazon Case ID"
-                          className="min-w-0 flex-1 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-sm font-mono px-2 py-1 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                        />
-                        {caseIdDirty && (
+                      {editingCaseId ? (
+                        <dd className="mt-0.5 flex items-center gap-1.5">
+                          <input
+                            value={caseIdDraft}
+                            autoFocus
+                            onChange={(e) => setCaseIdDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { e.preventDefault(); saveCaseId() }
+                              if (e.key === 'Escape') { setCaseIdDraft(rc.amazonCaseId ?? ''); setEditingCaseId(false) }
+                            }}
+                            placeholder="Amazon Case ID"
+                            className="min-w-0 flex-1 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-sm font-mono px-2 py-1 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                          />
                           <button
                             onClick={saveCaseId}
                             disabled={saving}
                             title="Save Amazon Case ID"
-                            className="shrink-0 inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-amazon-blue text-white hover:bg-amazon-blue/90 disabled:opacity-50"
+                            className="shrink-0 inline-flex items-center px-2 py-1 text-xs font-medium rounded-md bg-amazon-blue text-white hover:bg-amazon-blue/90 disabled:opacity-50"
                           >
                             {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
                           </button>
-                        )}
-                      </dd>
+                          <button
+                            onClick={() => { setCaseIdDraft(rc.amazonCaseId ?? ''); setEditingCaseId(false) }}
+                            disabled={saving}
+                            title="Cancel"
+                            className="shrink-0 inline-flex items-center px-1.5 py-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                          >
+                            <X size={12} />
+                          </button>
+                        </dd>
+                      ) : (
+                        <dd className="mt-0.5 flex items-center gap-1.5 text-sm text-gray-900 dark:text-gray-100 font-mono group">
+                          <span>{rc.amazonCaseId || '—'}</span>
+                          <button
+                            onClick={() => { setCaseIdDraft(rc.amazonCaseId ?? ''); setEditingCaseId(true) }}
+                            title="Edit Amazon Case ID"
+                            className="text-gray-300 hover:text-amazon-blue dark:text-gray-600 dark:hover:text-amazon-blue"
+                          >
+                            <Pencil size={11} />
+                          </button>
+                        </dd>
+                      )}
                     </div>
                   )}
                   <InfoField label="Reimbursement ID" value={rc.reimbursementId || '—'} mono />
