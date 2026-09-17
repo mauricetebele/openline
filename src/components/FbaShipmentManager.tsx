@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight, Copy, Printer, ClipboardPaste, Trash2, ScanBarcode } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
@@ -25,6 +25,7 @@ interface FbaShipment {
   lastError: string | null
   lastErrorAt: string | null
   createdAt: string
+  updatedAt?: string
   account: { id: string; sellerId: string; marketplaceName: string; marketplaceId?: string }
   warehouse: { id: string; name: string; addressLine1?: string | null; city?: string | null; state?: string | null; postalCode?: string | null; countryCode?: string } | null
   items: FbaShipmentItem[]
@@ -160,6 +161,101 @@ const TABS: Array<{ label: string; value: string | null }> = [
 
 type ReceivedCounts = Record<string, { received: number; shipped: number }>
 
+function BulkTrackingModal({ shipments, onClose }: { shipments: FbaShipment[]; onClose: () => void }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [from, setFrom] = useState(() => new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10))
+  const [to, setTo] = useState(today)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<{ shipments: number; updatedBoxes: number; shipmentsWithTracking: number; truncated?: number } | null>(null)
+
+  // Eligible = SHIPPED shipments whose date falls within [from, to].
+  const eligible = useMemo(() => {
+    const start = new Date(from + 'T00:00:00.000Z').getTime()
+    const end = new Date(to + 'T23:59:59.999Z').getTime()
+    return shipments
+      .filter(s => s.status === 'SHIPPED')
+      .filter(s => { const d = new Date(s.updatedAt ?? s.createdAt).getTime(); return d >= start && d <= end })
+      .sort((a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime())
+  }, [shipments, from, to])
+
+  useEffect(() => { setSelected(new Set(eligible.map(s => s.id))); setResult(null) }, [eligible])
+
+  const toggle = (id: string) => setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const allChecked = eligible.length > 0 && selected.size === eligible.length
+
+  async function run() {
+    if (selected.size === 0) return
+    setRunning(true); setResult(null)
+    try {
+      const res = await fetch('/api/fba-shipments/sync-tracking-bulk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shipmentIds: Array.from(selected) }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Bulk sync failed')
+      setResult(data)
+      if (data.updatedBoxes > 0) toast.success(`Synced tracking for ${data.shipmentsWithTracking}/${data.shipments} shipment${data.shipments !== 1 ? 's' : ''} — ${data.updatedBoxes} box${data.updatedBoxes !== 1 ? 'es' : ''} updated`)
+      else toast('No new tracking numbers were returned by Amazon')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Bulk sync failed')
+    } finally { setRunning(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Truck size={15} className="text-amazon-blue" /> Bulk Sync FBA Tracking</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <p className="text-xs text-gray-500">Pull per-box tracking from Amazon for shipped shipments. Pick a date range, then check the shipments to sync.</p>
+          <div className="flex items-center gap-2">
+            <div><label className="block text-[11px] text-gray-500 mb-0.5">From</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} className="h-8 px-2 rounded border border-gray-300 text-sm" /></div>
+            <div><label className="block text-[11px] text-gray-500 mb-0.5">To</label><input type="date" value={to} onChange={e => setTo(e.target.value)} className="h-8 px-2 rounded border border-gray-300 text-sm" /></div>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-500">{eligible.length} shipped shipment{eligible.length !== 1 ? 's' : ''} in range · {selected.size} selected</span>
+            {eligible.length > 0 && (
+              <button onClick={() => setSelected(allChecked ? new Set() : new Set(eligible.map(s => s.id)))} className="text-amazon-blue hover:underline">
+                {allChecked ? 'Deselect all' : 'Select all'}
+              </button>
+            )}
+          </div>
+          <div className="max-h-56 overflow-auto border border-gray-100 rounded-md divide-y divide-gray-50">
+            {eligible.length === 0 ? (
+              <div className="px-3 py-4 text-center text-xs text-gray-400">No shipped shipments in this range</div>
+            ) : eligible.map(s => {
+              const boxes = s._count?.boxes ?? s.boxes?.length ?? 0
+              return (
+                <label key={s.id} className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-gray-50">
+                  <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} />
+                  <span className="font-medium text-gray-800">{s.shipmentNumber ?? s.name ?? s.id.slice(-8)}</span>
+                  {s.name && s.shipmentNumber && <span className="text-gray-400 truncate">{s.name}</span>}
+                  <span className="ml-auto text-gray-400 shrink-0">{boxes} box{boxes !== 1 ? 'es' : ''}</span>
+                  <span className="text-gray-400 shrink-0">{new Date(s.updatedAt ?? s.createdAt).toLocaleDateString()}</span>
+                </label>
+              )
+            })}
+          </div>
+          {result && (
+            <div className="rounded-md bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-600">
+              Synced {result.shipmentsWithTracking}/{result.shipments} shipments · {result.updatedBoxes} boxes updated{result.truncated ? ` · ${result.truncated} skipped (200 max per run)` : ''}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 pb-4">
+          <button onClick={onClose} className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-600 hover:bg-gray-50">Close</button>
+          <button onClick={run} disabled={running || selected.size === 0} className="h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-1.5">
+            {running ? <><Loader2 size={13} className="animate-spin" /> Syncing…</> : <><Truck size={13} /> Sync Tracking ({selected.size})</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ListView({
   shipments,
   loading,
@@ -184,6 +280,7 @@ function ListView({
   // Received counts per FBA shipment: { [fbaId]: { [confirmationId]: { received, shipped } } }
   const [receivedMap, setReceivedMap] = useState<Record<string, ReceivedCounts>>({})
   const fetchedIds = useRef(new Set<string>())
+  const [showBulkSync, setShowBulkSync] = useState(false)
 
   useEffect(() => {
     // Fetch received counts for shipments that have labelData (have Amazon IDs)
@@ -237,11 +334,18 @@ function ListView({
             </button>
           )}
         </div>
+        <button type="button" onClick={() => setShowBulkSync(true)}
+          title="Bulk-pull per-box tracking numbers from Amazon for shipped shipments"
+          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50">
+          <Truck size={14} /> Sync Tracking
+        </button>
         <button type="button" onClick={onCreate}
           className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-amazon-blue/90">
           <Plus size={14} /> New Shipment
         </button>
       </div>
+
+      {showBulkSync && <BulkTrackingModal shipments={shipments} onClose={() => setShowBulkSync(false)} />}
 
       {loading ? (
         <div className="py-20 text-center text-sm text-gray-400">Loading...</div>
