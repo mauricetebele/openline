@@ -283,6 +283,8 @@ function RemovalCaseDetailModal({
   const [loading, setLoading] = useState(true)
   const [note, setNote] = useState('')
   const [noteDirty, setNoteDirty] = useState(false)
+  const [caseIdDraft, setCaseIdDraft] = useState('')
+  const [caseIdDirty, setCaseIdDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -300,6 +302,8 @@ function RemovalCaseDetailModal({
       setRc({ ...data, images })
       setNote(data.note ?? '')
       setNoteDirty(false)
+      setCaseIdDraft(data.amazonCaseId ?? '')
+      setCaseIdDirty(false)
     } catch { /* ignore */ }
     setLoading(false)
   }, [caseId])
@@ -324,6 +328,26 @@ function RemovalCaseDetailModal({
         const updated = await res.json()
         setRc({ ...updated, images: Array.isArray(updated.images) ? updated.images : [] })
         setNoteDirty(false)
+        onUpdated()
+      }
+    } catch { /* ignore */ }
+    setSaving(false)
+  }
+
+  const saveCaseId = async () => {
+    if (!rc) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/removal-cases/${rc.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amazonCaseId: caseIdDraft.trim() }),
+      })
+      if (res.ok) {
+        const updated = await res.json()
+        setRc({ ...updated, images: Array.isArray(updated.images) ? updated.images : [] })
+        setCaseIdDraft(updated.amazonCaseId ?? '')
+        setCaseIdDirty(false)
         onUpdated()
       }
     } catch { /* ignore */ }
@@ -445,7 +469,31 @@ function RemovalCaseDetailModal({
                   <StatusBadge status={rc.status} />
                 </div>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm mb-3">
-                  <InfoField label="Amazon Case ID" value={rc.amazonCaseId || '—'} mono />
+                  {rc.status === 'CASE_NOT_CREATED' ? (
+                    <InfoField label="Amazon Case ID" value={rc.amazonCaseId || '—'} mono />
+                  ) : (
+                    <div>
+                      <dt className="text-xs text-gray-500 dark:text-gray-400">Amazon Case ID</dt>
+                      <dd className="mt-0.5 flex items-center gap-1.5">
+                        <input
+                          value={caseIdDraft}
+                          onChange={(e) => { setCaseIdDraft(e.target.value); setCaseIdDirty(true) }}
+                          placeholder="Amazon Case ID"
+                          className="min-w-0 flex-1 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-sm font-mono px-2 py-1 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                        />
+                        {caseIdDirty && (
+                          <button
+                            onClick={saveCaseId}
+                            disabled={saving}
+                            title="Save Amazon Case ID"
+                            className="shrink-0 inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-amazon-blue text-white hover:bg-amazon-blue/90 disabled:opacity-50"
+                          >
+                            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                          </button>
+                        )}
+                      </dd>
+                    </div>
+                  )}
                   <InfoField label="Reimbursement ID" value={rc.reimbursementId || '—'} mono />
                   <InfoField label="Reimbursement Amount" value={fmtMoney(rc.reimbursementAmount)} />
                 </div>

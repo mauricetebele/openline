@@ -37,6 +37,13 @@ export async function PATCH(
   // Workflow transitions (see RemovalCaseStatus lifecycle). Each action is validated
   // against the current status so the case can't skip or reverse steps.
   const action = typeof body.action === 'string' ? body.action : null
+
+  // Direct edit of the Amazon Case ID (correcting a typo after creation). Only a
+  // plain edit — the CREATE_CASE action handles amazonCaseId itself below.
+  if (!action && 'amazonCaseId' in body) {
+    const v = typeof body.amazonCaseId === 'string' ? body.amazonCaseId.trim() : ''
+    data.amazonCaseId = v || null
+  }
   if (action) {
     const current = await prisma.fbaRemovalCase.findUnique({
       where: { id },
