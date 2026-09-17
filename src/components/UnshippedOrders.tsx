@@ -7629,8 +7629,8 @@ export default function UnshippedOrders() {
             </button>
           )}
 
-          {/* Request weight & dims (unshipped tab) */}
-          {activeTab === 'unshipped' && selectedOrderIds.size > 0 && (
+          {/* Request weight & dims (pending + unshipped tabs) */}
+          {(activeTab === 'pending' || activeTab === 'unshipped') && selectedOrderIds.size > 0 && (
             <button
               onClick={requestWeightDims}
               disabled={requestingWeightDims}
@@ -7897,9 +7897,12 @@ export default function UnshippedOrders() {
               const paidShipping = order.orderSource === 'backmarket'
                 ? order.items.reduce((s, i) => s + (i.shippingPrice ? parseFloat(i.shippingPrice) : 0), 0)
                 : 0
-              // Weight & dims request: yellow + badge while awaiting entry; green once entered.
-              const wantsWeightDims = !!order.weightDimsRequested && !order.weightDimsEnteredAt
-              const hasWeightDims = !!order.weightDimsRequested && !!order.weightDimsEnteredAt
+              // Weight & dims request: highlight only while the order is still
+              // unprocessed (PENDING). Once processed, drop the highlight/badge but
+              // keep the note. Yellow while awaiting entry; green once entered.
+              const wdProcessed = order.workflowStatus !== 'PENDING'
+              const wantsWeightDims = !!order.weightDimsRequested && !order.weightDimsEnteredAt && !wdProcessed
+              const hasWeightDims = !!order.weightDimsRequested && !!order.weightDimsEnteredAt && !wdProcessed
               return (
                 <tr key={order.id} className={clsx(
                   'border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors align-middle',
@@ -8009,7 +8012,7 @@ export default function UnshippedOrders() {
                               <AlertTriangle size={8} /> CANCEL
                             </span>
                           )}
-                          {order.weightDimsRequested && (
+                          {order.weightDimsRequested && !wdProcessed && (
                             order.weightDimsEnteredAt ? (
                               <span title={`Weight & dims entered: ${order.weightDimsText ?? ''}`} className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-green-600 text-white px-1 py-px rounded whitespace-nowrap">
                                 <Scale size={8} /> W&amp;D ✓
@@ -8032,6 +8035,7 @@ export default function UnshippedOrders() {
                         </a>
                         {order.weightDimsRequested && (
                           <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                            {wdProcessed && <Scale size={10} className="text-gray-400 shrink-0" aria-label="Weight & dims" />}
                             <input
                               type="text"
                               key={order.weightDimsText ?? ''}
@@ -8040,7 +8044,10 @@ export default function UnshippedOrders() {
                               disabled={savingWeightDimsId === order.id}
                               onBlur={e => saveWeightDimsText(order, e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur() } }}
-                              className="flex-1 min-w-0 h-6 px-1.5 text-[11px] rounded border border-yellow-400 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-yellow-500"
+                              className={clsx('flex-1 min-w-0 h-6 px-1.5 text-[11px] rounded border bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1',
+                                wdProcessed
+                                  ? 'border-gray-300 dark:border-gray-600 focus:ring-gray-400'
+                                  : 'border-yellow-400 focus:ring-yellow-500')}
                             />
                             {savingWeightDimsId === order.id
                               ? <RefreshCcw size={10} className="animate-spin text-gray-400 shrink-0" />
