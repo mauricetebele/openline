@@ -886,12 +886,13 @@ function WizardView({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Tracking sync failed')
       await loadShipment()
+      if (data.debug) console.log('[fba-tracking]', data.debug)
       if (data.updated > 0) {
         toast.success(`Tracking synced — ${data.tracked}/${data.total} box${data.total !== 1 ? 'es' : ''} now have tracking`)
       } else if (data.tracked > 0) {
         toast(`No change — ${data.tracked}/${data.total} boxes already have tracking`)
       } else {
-        toast('Amazon has not assigned tracking numbers for this shipment yet')
+        toast('Amazon has not returned tracking for this shipment yet', { description: data.debug ?? undefined })
       }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Tracking sync failed')

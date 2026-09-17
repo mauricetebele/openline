@@ -15,6 +15,7 @@ import {
   getShipmentLabels,
   listPlacementOptions,
 } from '@/lib/amazon/fba-inbound'
+import { syncFbaTracking } from '@/lib/amazon/fba-tracking'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -149,6 +150,10 @@ export async function GET(
         lastErrorAt: errors.length > 0 ? new Date() : null,
       },
     })
+
+    // Capture per-box tracking now that labels exist (fire-and-forget). Best-effort
+    // — a tracking hiccup must not fail the label download.
+    void syncFbaTracking(params.id).catch(() => {})
 
     return NextResponse.json({
       downloadUrls,

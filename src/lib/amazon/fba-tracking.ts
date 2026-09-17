@@ -1,21 +1,35 @@
 /**
  * Sync per-box tracking numbers for an FBA inbound shipment from Amazon.
  *
- * Re-pulls the boxes for each Amazon shipment in the placement option
- * (listShipmentBoxes → box.trackingId) and stores each tracking number on the
- * matching FbaShipmentBox (mapped by order → boxNumber). This is what feeds the
- * Live Shipping Manifest, which renders one row per box tracking number.
+ * Reads tracking from the 2024-03-20 getShipment response (shipment.trackingDetails
+ * → spd/ltl tracking items), falling back to the v0 transport resource. Each
+ * tracking number is stored on the matching FbaShipmentBox (mapped by order →
+ * boxNumber), which feeds the Live Shipping Manifest (one row per tracking number).
  *
- * Partnered small-parcel tracking is assigned by the carrier and often only
- * becomes available a little after labels are generated, so this can be run
- * on-demand (button) and is fired automatically when a shipment is marked shipped.
+ * Partnered small-parcel tracking is assigned by the carrier and only becomes
+ * available around the time labels are generated, so this runs on-demand (button)
+ * and is fired automatically when a shipment is marked shipped.
  */
 import { prisma } from '@/lib/prisma'
 import { getShipment, getTransportTrackingV0, listPlacementOptions } from '@/lib/amazon/fba-inbound'
 
 export type SyncTrackingResult =
-  | { updated: number; total: number; tracked: number }
+  | { updated: number; total: number; tracked: number; debug?: string }
   | { error: string; status?: number }
+
+/** Pull tracking IDs out of a 2024-03-20 Shipment's trackingDetails (spd + ltl). */
+function trackingFromShipment(details: unknown): string[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const td = (details as any)?.trackingDetails ?? {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const spd = td.spdTrackingDetail?.spdTrackingItems ?? td.spdTrackingDetail?.spdTrackingItemList ?? []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ltl = td.ltlTrackingDetail?.ltlTrackingItems ?? []
+  return [...spd, ...ltl]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((it: any) => String(it?.trackingId ?? it?.trackingID ?? it?.trackingNumber ?? '').trim())
+    .filter(Boolean)
+}
 
 export async function syncFbaTracking(fbaShipmentId: string): Promise<SyncTrackingResult> {
   const shipment = await prisma.fbaShipment.findUnique({
@@ -42,21 +56,30 @@ export async function syncFbaTracking(fbaShipmentId: string): Promise<SyncTracki
     }
   } catch { /* fall back to the single shipmentId */ }
 
-  // Pull tracking IDs in box order across all Amazon shipments. Tracking lives on
-  // the v0 "transport" resource, keyed by shipmentConfirmationId (FBAxxx) — which
-  // we resolve per Amazon shipment (a placement option can hold several).
+  // Pull tracking in box order across all Amazon shipments. Primary source is the
+  // 2024 getShipment trackingDetails; if empty, fall back to the v0 transport
+  // resource (needs the FBAxxx confirmationId).
   const trackingIds: string[] = []
+  const dbg: string[] = []
   for (const sid of allShipmentIds) {
     try {
-      let confirmationId = allShipmentIds.length === 1 ? (shipment.shipmentConfirmationId ?? null) : null
-      if (!confirmationId) {
-        const details = await getShipment(shipment.accountId, shipment.inboundPlanId, sid)
-        confirmationId = details.shipmentConfirmationId ?? details.amazonReferenceId ?? details.shipmentId ?? null
+      const details = await getShipment(shipment.accountId, shipment.inboundPlanId, sid)
+      let ids = trackingFromShipment(details)
+      let via = 'trackingDetails'
+      if (ids.length === 0) {
+        const confirmationId =
+          details.shipmentConfirmationId ?? details.amazonReferenceId ?? shipment.shipmentConfirmationId ?? null
+        if (confirmationId) {
+          const t = await getTransportTrackingV0(shipment.accountId, confirmationId).catch(() => [] as string[])
+          ids = t
+          via = `v0transport(${confirmationId})`
+        }
       }
-      if (!confirmationId) continue
-      const ids = await getTransportTrackingV0(shipment.accountId, confirmationId)
       trackingIds.push(...ids)
-    } catch { /* skip this shipment */ }
+      dbg.push(`${sid.slice(0, 10)}:${via}=${ids.length}`)
+    } catch (e) {
+      dbg.push(`${sid.slice(0, 10)}:err=${e instanceof Error ? e.message.slice(0, 60) : 'x'}`)
+    }
   }
 
   // Map to our boxes by order (boxNumber asc). Only write where Amazon gave a value.
@@ -72,5 +95,5 @@ export async function syncFbaTracking(fbaShipmentId: string): Promise<SyncTracki
   const tracked = await prisma.fbaShipmentBox.count({
     where: { shipmentId: fbaShipmentId, trackingNumber: { not: null } },
   })
-  return { updated, total: shipment.boxes.length, tracked }
+  return { updated, total: shipment.boxes.length, tracked, debug: dbg.join(' | ') }
 }
