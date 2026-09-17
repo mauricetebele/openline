@@ -376,7 +376,10 @@ export async function GET(req: NextRequest) {
 
   // ── Wholesale rows ────────────────────────────────────────────────────
   for (const order of wholesaleOrders) {
-    const saleValue = Number(order.total ?? 0)
+    // order.total already includes the customer-billed shipping (order.shippingCost),
+    // so strip it out here — otherwise adding customerShipping below double-counts
+    // the shipping revenue and inflates net profit.
+    const saleValue = Number(order.total ?? 0) - Number(order.shippingCost ?? 0)
     const customerShipping = Number(order.shippingCost ?? 0) // Amount billed to customer for shipping (revenue)
     const shippingCost = Number(order.actualShippingCost ?? 0)
     const commission = 0
@@ -533,7 +536,9 @@ export async function GET(req: NextRequest) {
 
     // Flatten wholesale orders
     for (const order of wholesaleOrders) {
-      const orderTotal = Number(order.total ?? 0)
+      // Proration base = item revenue only (order.total includes billed shipping),
+      // matching the item.total figures summed below.
+      const orderTotal = Number(order.total ?? 0) - Number(order.shippingCost ?? 0)
       const totalCustomerShippingVal = Number(order.shippingCost ?? 0) // Revenue from customer shipping
       const totalShippingVal = Number(order.actualShippingCost ?? 0)
 
