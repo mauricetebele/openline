@@ -466,7 +466,7 @@ export async function listShipmentBoxes(
   accountId: string,
   inboundPlanId: string,
   shipmentId: string,
-): Promise<Array<{ boxId: string; packageId?: string }>> {
+): Promise<Array<{ boxId: string; packageId?: string; trackingId?: string; trackingNumber?: string }>> {
   const client = new SpApiClient(accountId)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const resp = await client.get<any>(

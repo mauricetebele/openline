@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
+import { syncFbaTracking } from '@/lib/amazon/fba-tracking'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -113,6 +114,11 @@ export async function POST(
       data: { status: 'SHIPPED' },
     })
   })
+
+  // Pull per-box tracking numbers from Amazon so they land on the shipping
+  // manifest. Fire-and-forget — a tracking hiccup must not fail the ship action.
+  void syncFbaTracking(id).catch(err =>
+    console.error('[mark-shipped] tracking sync failed:', err instanceof Error ? err.message : err))
 
   return NextResponse.json({ success: true })
 }

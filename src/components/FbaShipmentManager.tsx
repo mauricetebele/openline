@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Plus, ArrowLeft, Package, Truck, X, AlertCircle, Loader2, Download, Check, Ban, Search, ChevronRight, Copy, Printer, ClipboardPaste, Trash2, ScanBarcode } from 'lucide-react'
 import { clsx } from 'clsx'
+import { toast } from 'sonner'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -876,6 +877,29 @@ function WizardView({
 
   useEffect(() => { loadShipment() }, [loadShipment])
 
+  const [syncingTracking, setSyncingTracking] = useState(false)
+  async function handleSyncTracking() {
+    setSyncingTracking(true)
+    setErr('')
+    try {
+      const res = await fetch(`/api/fba-shipments/${shipmentId}/sync-tracking`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Tracking sync failed')
+      await loadShipment()
+      if (data.updated > 0) {
+        toast.success(`Tracking synced — ${data.tracked}/${data.total} box${data.total !== 1 ? 'es' : ''} now have tracking`)
+      } else if (data.tracked > 0) {
+        toast(`No change — ${data.tracked}/${data.total} boxes already have tracking`)
+      } else {
+        toast('Amazon has not assigned tracking numbers for this shipment yet')
+      }
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Tracking sync failed')
+    } finally {
+      setSyncingTracking(false)
+    }
+  }
+
   async function doAction(path: string, body?: unknown) {
     setActionLoading(true)
     setErr('')
@@ -1111,9 +1135,18 @@ function WizardView({
         const dim = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : '—' }
         return (
           <div className="border border-gray-200 rounded-lg p-4 space-y-3 mb-4">
-            <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-              <Package size={14} className="text-gray-400" /> Shipment Contents &amp; Boxes
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Package size={14} className="text-gray-400" /> Shipment Contents &amp; Boxes
+              </h3>
+              {shipment.status === 'SHIPPED' && (
+                <button type="button" onClick={handleSyncTracking} disabled={syncingTracking}
+                  title="Pull the latest per-box tracking numbers from Amazon"
+                  className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-md border border-gray-300 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                  {syncingTracking ? <><Loader2 size={12} className="animate-spin" /> Syncing…</> : <><Truck size={12} /> Sync Tracking</>}
+                </button>
+              )}
+            </div>
             <p className="text-xs text-gray-500">
               {shipment.boxes!.length} box{shipment.boxes!.length !== 1 ? 'es' : ''} shipped.
             </p>
