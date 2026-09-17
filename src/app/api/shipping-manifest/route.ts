@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
   const start = new Date(startDate + 'T00:00:00.000Z')
   const end = new Date(endDate + 'T23:59:59.999Z')
 
-  const [orders, wholesaleOrders, vendorLabels] = await Promise.all([
+  const [orders, wholesaleOrders, vendorLabels, fbaShipments] = await Promise.all([
     prisma.order.findMany({
       where: {
         workflowStatus: 'SHIPPED',
@@ -112,6 +112,26 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { createdAt: 'desc' },
     }),
+    // FBA inbound shipments (SHIPPED) — one manifest row per box so every box's
+    // tracking number gets its own row.
+    prisma.fbaShipment.findMany({
+      where: {
+        status: 'SHIPPED',
+        updatedAt: { gte: start, lte: end },
+      },
+      select: {
+        id: true,
+        shipmentNumber: true,
+        name: true,
+        shipmentConfirmationId: true,
+        updatedAt: true,
+        boxes: {
+          select: { id: true, boxNumber: true, trackingNumber: true },
+          orderBy: { boxNumber: 'asc' },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    }),
   ])
 
   const rows = [
@@ -167,6 +187,32 @@ export async function GET(req: NextRequest) {
         shipDate: l.createdAt,
         trackingNumber: l.trackingNumber,
       }
+    }),
+    ...fbaShipments.flatMap((s) => {
+      const ref = s.shipmentNumber ?? s.name ?? s.shipmentConfirmationId ?? `FBA-${s.id.slice(-8)}`
+      // One row per box that has a tracking number (so every tracking number gets
+      // its own row). If none are captured yet, emit a single row so the shipment
+      // still appears rather than one blank row per box.
+      const tracked = s.boxes.filter((b) => b.trackingNumber)
+      const boxRows = tracked.length > 0 ? tracked : [null]
+      return boxRows.map((box) => {
+        const tracking = box?.trackingNumber ?? null
+        const carrier = resolveCarrier(null, tracking)
+        return {
+          id: box ? box.id : s.id,
+          source: 'fba' as const,
+          olmNumber: null,
+          amazonOrderId: null as string | null,
+          orderSource: 'fba' as string,
+          orderRef: box && tracked.length > 1 ? `${ref} · Box ${box.boxNumber}` : ref,
+          customerName: 'Amazon FBA',
+          carrier,
+          carrierNorm: normalizeCarrier(carrier),
+          serviceCode: 'FBA Inbound',
+          shipDate: s.updatedAt,
+          trackingNumber: tracking,
+        }
+      })
     }),
   ].sort((a, b) => {
     const da = a.shipDate ? new Date(a.shipDate).getTime() : 0
