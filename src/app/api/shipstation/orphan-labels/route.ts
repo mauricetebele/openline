@@ -40,8 +40,12 @@ async function buildResponse(candidates: Candidate[], meta: { scannedAt: Date | 
   //  - tracking recorded directly on an order (manual ship / synced-back / older
   //    flows create no OrderLabel but do set orders.shipTracking)
   //  - voided labels (order-level void audit + orphan-void audit)
-  const [savedLabels, orderTrackings, orderVoids, orphanVoids, refundEvents] = await Promise.all([
+  const [savedLabels, returnLabels, orderTrackings, orderVoids, orphanVoids, refundEvents] = await Promise.all([
     prisma.orderLabel.findMany({ select: { trackingNumber: true } }),
+    // ReturnLabel covers RETURN/OUTBOUND/WHOLESALE and the manual "Create Shipping
+    // Labels" tool (MANUAL_*). A label logged here is a real, accounted-for label —
+    // not an orphan — even when billed through ShipStation.
+    prisma.returnLabel.findMany({ where: { voided: false }, select: { trackingNumber: true } }),
     prisma.order.findMany({ where: { shipTracking: { not: null } }, select: { shipTracking: true } }),
     prisma.auditEvent.findMany({ where: { entityType: 'orderLabel', action: 'label_voided' }, select: { before: true } }),
     prisma.auditEvent.findMany({ where: { entityType: 'orphanLabel', action: 'voided' }, select: { before: true } }),
@@ -49,6 +53,7 @@ async function buildResponse(candidates: Candidate[], meta: { scannedAt: Date | 
   ])
   const known = new Set<string>()
   for (const l of savedLabels) if (l.trackingNumber) known.add(norm(l.trackingNumber))
+  for (const l of returnLabels) if (l.trackingNumber) known.add(norm(l.trackingNumber))
   for (const o of orderTrackings) {
     // shipTracking may hold multiple comma/space-separated numbers (multi-box).
     for (const tn of (o.shipTracking ?? '').split(/[,\s]+/)) if (tn) known.add(norm(tn))
