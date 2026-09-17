@@ -565,6 +565,37 @@ export async function getShipmentItemsV0(
   return resp.payload?.ItemData ?? resp.ItemData ?? []
 }
 
+// ─── 12e. Get Transport Tracking (v0 API) ────────────────────────────────────
+
+/**
+ * Fetch per-package tracking numbers for a shipment via the v0 Inbound
+ * "transport" resource. This is where Amazon's partnered small-parcel (UPS)
+ * TrackingIds live — the v2024-03-20 boxes endpoint does not return them.
+ * Uses the shipmentConfirmationId (e.g. FBA1998Y0RH7). Returns tracking IDs in
+ * package order (empty array if Amazon hasn't assigned any yet).
+ */
+export async function getTransportTrackingV0(
+  accountId: string,
+  amazonShipmentId: string,
+): Promise<string[]> {
+  const client = new SpApiClient(accountId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp = await client.get<any>(
+    `/fba/inbound/v0/shipments/${amazonShipmentId}/transport`,
+  )
+  const details =
+    resp.payload?.TransportContent?.TransportDetails ??
+    resp.TransportContent?.TransportDetails ??
+    {}
+  const packages = [
+    ...(details.PartneredSmallParcelData?.PackageList ?? []),
+    ...(details.NonPartneredSmallParcelData?.PackageList ?? []),
+  ]
+  return packages
+    .map((p: { TrackingId?: string }) => String(p.TrackingId ?? '').trim())
+    .filter(Boolean)
+}
+
 // ─── 13. Get Shipment Labels (v0 API) ───────────────────────────────────────
 
 export interface ShipmentLabelsResponse {

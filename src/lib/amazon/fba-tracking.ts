@@ -11,7 +11,7 @@
  * on-demand (button) and is fired automatically when a shipment is marked shipped.
  */
 import { prisma } from '@/lib/prisma'
-import { listShipmentBoxes, listPlacementOptions } from '@/lib/amazon/fba-inbound'
+import { getShipment, getTransportTrackingV0, listPlacementOptions } from '@/lib/amazon/fba-inbound'
 
 export type SyncTrackingResult =
   | { updated: number; total: number; tracked: number }
@@ -42,16 +42,21 @@ export async function syncFbaTracking(fbaShipmentId: string): Promise<SyncTracki
     }
   } catch { /* fall back to the single shipmentId */ }
 
-  // Pull tracking IDs in box order across all Amazon shipments.
+  // Pull tracking IDs in box order across all Amazon shipments. Tracking lives on
+  // the v0 "transport" resource, keyed by shipmentConfirmationId (FBAxxx) — which
+  // we resolve per Amazon shipment (a placement option can hold several).
   const trackingIds: string[] = []
   for (const sid of allShipmentIds) {
     try {
-      const boxes = await listShipmentBoxes(shipment.accountId, shipment.inboundPlanId, sid)
-      for (const b of boxes) {
-        const raw = b.trackingId ?? b.trackingNumber ?? ''
-        trackingIds.push(String(raw).trim())
+      let confirmationId = allShipmentIds.length === 1 ? (shipment.shipmentConfirmationId ?? null) : null
+      if (!confirmationId) {
+        const details = await getShipment(shipment.accountId, shipment.inboundPlanId, sid)
+        confirmationId = details.shipmentConfirmationId ?? details.amazonReferenceId ?? details.shipmentId ?? null
       }
-    } catch { /* skip this shipment's boxes */ }
+      if (!confirmationId) continue
+      const ids = await getTransportTrackingV0(shipment.accountId, confirmationId)
+      trackingIds.push(...ids)
+    } catch { /* skip this shipment */ }
   }
 
   // Map to our boxes by order (boxNumber asc). Only write where Amazon gave a value.
