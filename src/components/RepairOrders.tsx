@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
+import { printAllLabels } from '@/lib/print-labels'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -176,7 +177,10 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
     try {
       const r = await api(`/api/repair-orders/${id}/label?direction=${dir}`)
       if (!r.labels?.length) { toast.error('No stored labels found'); return }
-      r.labels.forEach((l: any, i: number) => setTimeout(() => printLabel(l.labelData, l.labelFormat), i * 600))
+      // Merge every piece into one PDF so all print from a single tab (one dialog
+      // per label fails — the modal print dialog drops the later ones).
+      if (r.labels.length === 1) printLabel(r.labels[0].labelData, r.labels[0].labelFormat)
+      else await printAllLabels(r.labels.map((l: any) => ({ labelData: l.labelData, labelFormat: l.labelFormat })))
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load labels') }
   }
 
@@ -319,7 +323,9 @@ function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; 
     try {
       const r = await api(`/api/repair-orders/${orderId}/label`, 'POST', { direction, path, serviceCode, packages: buildPackages() })
       toast.success(`Label created — ${r.pieces?.length ?? 0} piece(s)`)
-      r.pieces?.forEach((p: any, i: number) => setTimeout(() => printLabel(p.labelBase64, p.labelFormat), i * 600))
+      const pieces = (r.pieces ?? []) as any[]
+      if (pieces.length === 1) printLabel(pieces[0].labelBase64, pieces[0].labelFormat)
+      else if (pieces.length > 1) await printAllLabels(pieces.map(p => ({ labelData: p.labelBase64, labelFormat: p.labelFormat })))
       onDone()
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Label failed') } finally { setBusy(false) }
   }
