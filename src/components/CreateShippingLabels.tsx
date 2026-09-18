@@ -84,10 +84,12 @@ export default function CreateShippingLabels() {
   const [result, setResult] = useState<{ masterTracking: string; pieces: Piece[]; shipmentCost: number | null; currency: string } | null>(null)
 
   // Load UPS credentials for the UPS Direct account picker.
+  // The endpoint returns { configured, accounts: [...] }.
   useEffect(() => {
-    fetch('/api/ups/credentials').then(r => r.ok ? r.json() : []).then((d: UpsCred[]) => {
-      setUpsCreds(d)
-      const def = d.find(c => c.isDefault) ?? d[0]
+    fetch('/api/ups/credentials').then(r => r.ok ? r.json() : null).then((d) => {
+      const list: UpsCred[] = Array.isArray(d?.accounts) ? d.accounts : []
+      setUpsCreds(list)
+      const def = list.find(c => c.isDefault) ?? list[0]
       if (def) setUpsCredentialId(def.id)
     }).catch(() => {})
   }, [])
