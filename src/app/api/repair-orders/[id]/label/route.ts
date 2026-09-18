@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { WHOLESALE_SHIP_FROM } from '@/lib/ups-tracking'
-import { createManualShipment, type LabelAddress, type ManualLabelInput } from '@/lib/shipping-labels'
+import { createManualShipment, rateManualShipment, type LabelAddress, type ManualLabelInput } from '@/lib/shipping-labels'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -52,6 +52,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (input.packages.length === 0) return NextResponse.json({ error: 'Add at least one box' }, { status: 400 })
   if (!input.serviceCode) return NextResponse.json({ error: 'Select a service' }, { status: 400 })
+
+  // Rate-only: quote without buying or storing anything.
+  if (b?.rateOnly) {
+    try {
+      const rate = await rateManualShipment(input)
+      return NextResponse.json(rate)
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Rate failed' }, { status: 400 })
+    }
+  }
 
   let result
   try {

@@ -7,7 +7,7 @@ import { detectCarrier, trackingUrl } from '@/lib/tracking-utils'
 
 interface ManifestRow {
   id: string
-  source: 'marketplace' | 'wholesale' | 'vendorRMA' | 'fba'
+  source: 'marketplace' | 'wholesale' | 'vendorRMA' | 'fba' | 'repair'
   olmNumber: number | null
   amazonOrderId: string | null
   orderRef: string | null
@@ -130,7 +130,7 @@ export default function ShippingManifest() {
   const [trackingLoading, setTrackingLoading] = useState<Set<string>>(new Set())
 
   // Filters
-  const [channelFilter, setChannelFilter] = useState<'all' | 'marketplace' | 'wholesale' | 'vendorRMA' | 'fba'>('all')
+  const [channelFilter, setChannelFilter] = useState<'all' | 'marketplace' | 'wholesale' | 'vendorRMA' | 'fba' | 'repair'>('all')
   const [carrierFilter, setCarrierFilter] = useState('')
   const [marketplaceFilter, setMarketplaceFilter] = useState('')
   const [notScannedOnly, setNotScannedOnly] = useState(false)
@@ -302,7 +302,7 @@ export default function ShippingManifest() {
         {/* Channel filter */}
         <select
           value={channelFilter}
-          onChange={(e) => { setChannelFilter(e.target.value as 'all' | 'marketplace' | 'wholesale' | 'vendorRMA' | 'fba'); setPage(0) }}
+          onChange={(e) => { setChannelFilter(e.target.value as 'all' | 'marketplace' | 'wholesale' | 'vendorRMA' | 'fba' | 'repair'); setPage(0) }}
           className="px-2.5 py-1.5 text-xs rounded-lg border border-gray-200 bg-white font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-amazon-blue dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600"
         >
           <option value="all">All Channels</option>
@@ -310,6 +310,7 @@ export default function ShippingManifest() {
           <option value="wholesale">Wholesale</option>
           <option value="vendorRMA">Vendor RMA</option>
           <option value="fba">FBA</option>
+          <option value="repair">Repair</option>
         </select>
 
         {/* Carrier filter */}
@@ -403,6 +404,8 @@ export default function ShippingManifest() {
                         <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200">VRMA</span>
                       ) : row.source === 'fba' ? (
                         <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-100 text-teal-700 border border-teal-200">FBA</span>
+                      ) : row.source === 'repair' ? (
+                        <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-100 text-rose-700 border border-rose-200">REPAIR</span>
                       ) : (
                         <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200">MKT</span>
                       )}
@@ -421,6 +424,11 @@ export default function ShippingManifest() {
                       ) : row.source === 'fba' ? (
                         <span>
                           <span className="text-teal-600 font-medium">{row.orderRef}</span>
+                          {row.customerName && <span className="text-gray-400 ml-1.5 font-sans">{row.customerName}</span>}
+                        </span>
+                      ) : row.source === 'repair' ? (
+                        <span>
+                          <span className="text-rose-600 font-medium">{row.orderRef}</span>
                           {row.customerName && <span className="text-gray-400 ml-1.5 font-sans">{row.customerName}</span>}
                         </span>
                       ) : (

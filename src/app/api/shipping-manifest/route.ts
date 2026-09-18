@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
   const start = new Date(startDate + 'T00:00:00.000Z')
   const end = new Date(endDate + 'T23:59:59.999Z')
 
-  const [orders, wholesaleOrders, vendorLabels, fbaShipments] = await Promise.all([
+  const [orders, wholesaleOrders, vendorLabels, fbaShipments, repairOrders] = await Promise.all([
     prisma.order.findMany({
       where: {
         workflowStatus: 'SHIPPED',
@@ -129,6 +129,19 @@ export async function GET(req: NextRequest) {
           select: { id: true, boxNumber: true, trackingNumber: true },
           orderBy: { boxNumber: 'asc' },
         },
+      },
+      orderBy: { updatedAt: 'desc' },
+    }),
+    // Repair orders — outbound (to vendor) + inbound (back to us) shipments.
+    prisma.repairOrder.findMany({
+      where: {
+        updatedAt: { gte: start, lte: end },
+        OR: [{ outboundTracking: { not: null } }, { inboundTracking: { not: null } }],
+      },
+      select: {
+        orderNumber: true, updatedAt: true,
+        outboundCarrier: true, outboundTracking: true, inboundCarrier: true, inboundTracking: true,
+        vendor: { select: { companyName: true } },
       },
       orderBy: { updatedAt: 'desc' },
     }),
@@ -212,6 +225,33 @@ export async function GET(req: NextRequest) {
           shipDate: s.updatedAt,
           trackingNumber: tracking,
         }
+      })
+    }),
+    ...repairOrders.flatMap((r) => {
+      const ref = `RO-${String(r.orderNumber).padStart(4, '0')}`
+      const legs: { dir: string; carrier: string | null; tracking: string | null }[] = [
+        { dir: 'Out → Vendor', carrier: r.outboundCarrier, tracking: r.outboundTracking },
+        { dir: 'In → Us', carrier: r.inboundCarrier, tracking: r.inboundTracking },
+      ]
+      return legs.flatMap((leg) => {
+        const nums = (leg.tracking ?? '').split(',').map(t => t.trim()).filter(Boolean)
+        return nums.map((tn) => {
+          const carrier = resolveCarrier(leg.carrier, tn)
+          return {
+            id: `${ref}:${tn}`,
+            source: 'repair' as const,
+            olmNumber: null,
+            amazonOrderId: null as string | null,
+            orderSource: 'repair' as string,
+            orderRef: `${ref} · ${leg.dir}`,
+            customerName: r.vendor.companyName,
+            carrier,
+            carrierNorm: normalizeCarrier(carrier),
+            serviceCode: 'Repair',
+            shipDate: r.updatedAt,
+            trackingNumber: tn,
+          }
+        })
       })
     }),
   ].sort((a, b) => {

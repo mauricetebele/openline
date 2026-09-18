@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban } from 'lucide-react'
+import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
 
@@ -280,20 +280,34 @@ function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; 
   const emptyBox = () => ({ weight: '', l: '', w: '', h: '' })
   const [boxes, setBoxes] = useState<{ weight: string; l: string; w: string; h: string }[]>([emptyBox()])
   const [busy, setBusy] = useState(false)
+  const [rating, setRating] = useState(false)
+  const [rate, setRate] = useState<{ total: number; currency: string } | null>(null)
   useEffect(() => { setServiceCode(SERVICES[path][0].code) }, [path])
+  useEffect(() => { setRate(null) }, [path, serviceCode, boxes])
 
   const setBox = (i: number, k: 'weight' | 'l' | 'w' | 'h', v: string) => setBoxes(p => p.map((b, j) => j === i ? { ...b, [k]: v } : b))
+
+  function buildPackages() {
+    return boxes.map(b => {
+      const pkg: any = { weightValue: Number(b.weight), weightUnit: 'LBS' }
+      if (b.l && b.w && b.h) Object.assign(pkg, { length: Number(b.l), width: Number(b.w), height: Number(b.h), dimUnit: 'IN' })
+      return pkg
+    })
+  }
+  async function getRate() {
+    if (!boxes.every(b => Number(b.weight) > 0)) { toast.error('Enter a weight for every box'); return }
+    setRating(true); setRate(null)
+    try {
+      const r = await api(`/api/repair-orders/${orderId}/label`, 'POST', { direction, path, serviceCode, packages: buildPackages(), rateOnly: true })
+      setRate({ total: Number(r.total), currency: r.currency ?? 'USD' })
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Rate failed') } finally { setRating(false) }
+  }
 
   async function create() {
     if (!boxes.every(b => Number(b.weight) > 0)) { toast.error('Enter a weight for every box'); return }
     setBusy(true)
     try {
-      const packages = boxes.map(b => {
-        const pkg: any = { weightValue: Number(b.weight), weightUnit: 'LBS' }
-        if (b.l && b.w && b.h) Object.assign(pkg, { length: Number(b.l), width: Number(b.w), height: Number(b.h), dimUnit: 'IN' })
-        return pkg
-      })
-      const r = await api(`/api/repair-orders/${orderId}/label`, 'POST', { direction, path, serviceCode, packages })
+      const r = await api(`/api/repair-orders/${orderId}/label`, 'POST', { direction, path, serviceCode, packages: buildPackages() })
       toast.success(`Label created — ${r.pieces?.length ?? 0} piece(s)`)
       r.pieces?.forEach((p: any, i: number) => setTimeout(() => printLabel(p.labelBase64, p.labelFormat), i * 600))
       onDone()
@@ -329,8 +343,10 @@ function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; 
             <button onClick={() => setBoxes(p => [...p, emptyBox()])} className="text-xs text-amazon-blue hover:underline flex items-center gap-1"><Plus size={12} /> Add box</button>
           </div>
         </div>
-        <div className="flex justify-end gap-2 px-5 pb-4">
-          <button onClick={onClose} className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-600">Cancel</button>
+        <div className="flex items-center gap-2 px-5 pb-4">
+          <button onClick={getRate} disabled={rating || busy} className="h-9 px-3 rounded-md border border-gray-300 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 inline-flex items-center gap-1.5">{rating ? <Loader2 size={14} className="animate-spin" /> : <DollarSign size={14} />} Get Rate</button>
+          {rate && <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{rate.currency} {rate.total.toFixed(2)}</span>}
+          <button onClick={onClose} className="ml-auto h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-600">Cancel</button>
           <button onClick={create} disabled={busy} className="h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-1.5">{busy ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />} Create & print</button>
         </div>
       </div>
