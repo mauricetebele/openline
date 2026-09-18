@@ -2147,6 +2147,9 @@ model StoreSettings {
   primaryColor   String   @default("#14284B")
   accentColor    String   @default("#007ACC")
   defaultPrinter String?
+  // Ask AI assistant: Anthropic API key (encrypted) + model override.
+  anthropicApiKeyEnc String?
+  aiModel            String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
