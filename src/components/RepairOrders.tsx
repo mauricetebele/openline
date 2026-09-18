@@ -19,9 +19,9 @@ const fmtD = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'sh
 function statusTone(st: string | null | undefined): string {
   const s = (st ?? '').toLowerCase()
   if (s.includes('deliver') && !s.includes('out for')) return 'bg-green-100 text-green-700'
-  if (s.includes('out for') || s.includes('transit') || s.includes('picked') || s.includes('on the way')) return 'bg-blue-100 text-blue-700'
   if (s.includes('exception') || s.includes('fail') || s.includes('return to sender')) return 'bg-red-100 text-red-700'
-  return 'bg-gray-100 text-gray-600'
+  // Any other tracked status (in transit, picked up, label created, …) is blue.
+  return 'bg-blue-100 text-blue-700'
 }
 const inputCls = 'w-full h-8 px-2 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue'
 const STATUS_COLOR: Record<string, string> = { DRAFT: 'bg-gray-100 text-gray-600', SHIPPED_OUT: 'bg-blue-100 text-blue-700', AT_VENDOR: 'bg-amber-100 text-amber-700', RETURNED: 'bg-indigo-100 text-indigo-700', COMPLETED: 'bg-green-100 text-green-700', CANCELLED: 'bg-red-100 text-red-600' }
