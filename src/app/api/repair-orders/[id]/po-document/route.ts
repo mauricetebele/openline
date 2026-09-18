@@ -33,6 +33,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const dateStr = order.createdAt.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
   const total = order.items.reduce((s, it) => s + (it.repairCost != null ? Number(it.repairCost) : 0), 0)
 
+  // Each tracking number on its own row, carrier beside it.
+  const trackRows = (label: string, carrier: string | null, csv: string | null): (string | number)[][] => {
+    const tns = (csv ?? '').split(',').map(t => t.trim()).filter(Boolean)
+    if (tns.length === 0) return []
+    return [[`${label} Tracking #`, 'Carrier'], ...tns.map(tn => [tn, carrier ?? ''])]
+  }
+
   const aoa: (string | number)[][] = [
     ['Repair Purchase Order'],
     ['Vendor', order.vendor.companyName],
@@ -41,8 +48,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     ['Repair Order #', ro],
     ['Date', dateStr],
     ['Units', order.items.length],
-    ...(order.outboundTracking ? [['Outbound Carrier', order.outboundCarrier ?? ''], ['Outbound Tracking', order.outboundTracking]] : []),
-    ...(order.inboundTracking ? [['Inbound Carrier', order.inboundCarrier ?? ''], ['Inbound Tracking', order.inboundTracking]] : []),
+    ...(order.outboundTracking ? [[] as (string | number)[], ...trackRows('Outbound', order.outboundCarrier, order.outboundTracking)] : []),
+    ...(order.inboundTracking ? [[] as (string | number)[], ...trackRows('Inbound', order.inboundCarrier, order.inboundTracking)] : []),
     [],
     ['Serial / IMEI', 'SKU', 'Model', 'Repair Type', 'Repair Cost'],
     ...order.items.map(it => [

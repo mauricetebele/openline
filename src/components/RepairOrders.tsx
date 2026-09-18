@@ -15,6 +15,14 @@ interface Item { id: string; serialNumber: string; sku: string | null; model: st
 interface OrderDetail { id: string; orderNumber: number; status: string; notes: string | null; vendor: Vendor; outboundCarrier: string | null; outboundTracking: string | null; inboundCarrier: string | null; inboundTracking: string | null; items: Item[]; totalCost: number }
 
 const money = (n: number | null | undefined) => n == null ? '—' : `$${Number(n).toFixed(2)}`
+const fmtD = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+function statusTone(st: string | null | undefined): string {
+  const s = (st ?? '').toLowerCase()
+  if (s.includes('deliver') && !s.includes('out for')) return 'bg-green-100 text-green-700'
+  if (s.includes('out for') || s.includes('transit') || s.includes('picked') || s.includes('on the way')) return 'bg-blue-100 text-blue-700'
+  if (s.includes('exception') || s.includes('fail') || s.includes('return to sender')) return 'bg-red-100 text-red-700'
+  return 'bg-gray-100 text-gray-600'
+}
 const inputCls = 'w-full h-8 px-2 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue'
 const STATUS_COLOR: Record<string, string> = { DRAFT: 'bg-gray-100 text-gray-600', SHIPPED_OUT: 'bg-blue-100 text-blue-700', AT_VENDOR: 'bg-amber-100 text-amber-700', RETURNED: 'bg-indigo-100 text-indigo-700', COMPLETED: 'bg-green-100 text-green-700', CANCELLED: 'bg-red-100 text-red-600' }
 
@@ -228,14 +236,15 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
                     const s = stByTn.get(tn)
                     return (
                       <div key={i} className="flex items-center justify-between gap-2 text-xs">
-                        <span className="font-mono text-gray-600 dark:text-gray-300"><span className="text-gray-400 mr-1">Box {i + 1}</span>{tn}</span>
-                        <span className={clsx('shrink-0', s?.error ? 'text-red-400' : s?.status ? 'text-gray-600 dark:text-gray-300' : 'text-gray-300')}>
-                          {s ? (s.error ? 'lookup failed' : s.status ?? 'no status') : ''}
-                        </span>
+                        <span className="font-mono text-gray-600 dark:text-gray-300"><span className="text-gray-400 mr-1">Box {i + 1}</span>{tn}<span className="text-gray-400 ml-1.5">{carrier}</span></span>
+                        {s && (s.error
+                          ? <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium bg-red-100 text-red-600">lookup failed</span>
+                          : s.status
+                            ? <span className={clsx('shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium', statusTone(s.status))}>{s.status}{s.deliveredAt ? ` · ${fmtD(s.deliveredAt)}` : s.estimatedDelivery ? ` · ETA ${fmtD(s.estimatedDelivery)}` : ''}</span>
+                            : <span className="shrink-0 text-[10px] text-gray-400">no status</span>)}
                       </div>
                     )
                   })}
-                  <div className="text-[10px] text-gray-400">{carrier}</div>
                 </div>
               ) : <div className="text-xs text-gray-400">No label yet.</div>}
             </div>
