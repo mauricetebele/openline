@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign } from 'lucide-react'
+import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
 import { printAllLabels } from '@/lib/print-labels'
@@ -194,9 +194,15 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
         <h2 className="text-lg font-bold">RO-{String(order.orderNumber).padStart(4, '0')}</h2>
         <span className={clsx('inline-flex px-2 py-0.5 rounded text-xs font-medium', STATUS_COLOR[order.status])}>{order.status.replace('_', ' ')}</span>
         <span className="text-sm text-gray-500">{order.vendor.companyName}</span>
-        <select className="ml-auto h-8 px-2 rounded border border-gray-300 text-xs" value={order.status} onChange={e => setStatus(e.target.value)}>
-          {['DRAFT', 'SHIPPED_OUT', 'AT_VENDOR', 'RETURNED', 'COMPLETED', 'CANCELLED'].map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-        </select>
+        <div className="ml-auto flex items-center gap-2">
+          <a href={`/api/repair-orders/${id}/po-document`}
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50">
+            <FileSpreadsheet size={13} /> Repair PO (Excel)
+          </a>
+          <select className="h-8 px-2 rounded border border-gray-300 text-xs" value={order.status} onChange={e => setStatus(e.target.value)}>
+            {['DRAFT', 'SHIPPED_OUT', 'AT_VENDOR', 'RETURNED', 'COMPLETED', 'CANCELLED'].map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Shipping */}
