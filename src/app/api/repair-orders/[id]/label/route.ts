@@ -22,6 +22,37 @@ const OPEN_LINE: LabelAddress = {
   country: WHOLESALE_SHIP_FROM.country, phone: WHOLESALE_SHIP_FROM.phone,
 }
 
+/**
+ * GET /api/repair-orders/[id]/label?direction=outbound|inbound
+ * Returns the stored label images for a repair order's shipment (for reprint).
+ */
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const order = await prisma.repairOrder.findUnique({
+    where: { id: params.id },
+    select: { outboundTracking: true, inboundTracking: true },
+  })
+  if (!order) return NextResponse.json({ error: 'Repair order not found' }, { status: 404 })
+
+  const direction = req.nextUrl.searchParams.get('direction') === 'inbound' ? 'inbound' : 'outbound'
+  const csv = direction === 'inbound' ? order.inboundTracking : order.outboundTracking
+  const nums = (csv ?? '').split(',').map(t => t.trim()).filter(Boolean)
+  if (nums.length === 0) return NextResponse.json({ labels: [] })
+
+  const rows = await prisma.returnLabel.findMany({
+    where: { trackingNumber: { in: nums } },
+    select: { trackingNumber: true, labelData: true },
+  })
+  // Preserve the tracking order from the stored CSV.
+  const byTn = new Map(rows.map(r => [r.trackingNumber, r.labelData]))
+  const labels = nums
+    .map(tn => ({ trackingNumber: tn, labelData: byTn.get(tn) ?? null, labelFormat: 'pdf' }))
+    .filter(l => l.labelData)
+  return NextResponse.json({ labels })
+}
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

@@ -172,6 +172,13 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
   async function loadTracking() {
     try { setTracking(await api(`/api/repair-orders/${id}/tracking`)) } catch { /* ignore */ }
   }
+  async function printLabels(dir: 'outbound' | 'inbound') {
+    try {
+      const r = await api(`/api/repair-orders/${id}/label?direction=${dir}`)
+      if (!r.labels?.length) { toast.error('No stored labels found'); return }
+      r.labels.forEach((l: any, i: number) => setTimeout(() => printLabel(l.labelData, l.labelFormat), i * 600))
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load labels') }
+  }
 
   if (!order) return <div className="py-8 text-center text-gray-400"><Loader2 className="animate-spin inline" /></div>
 
@@ -198,11 +205,14 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
             <div key={dir} className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-semibold uppercase text-gray-500">{dir === 'outbound' ? 'Outbound → Vendor' : 'Inbound → Us'}</span>
-                <button onClick={() => setLabelDir(dir)} className="text-xs text-amazon-blue hover:underline flex items-center gap-1"><Truck size={12} /> Create label</button>
+                <div className="flex items-center gap-2">
+                  {trk && <button onClick={() => printLabels(dir)} className="text-xs text-gray-500 hover:text-amazon-blue flex items-center gap-1"><Printer size={12} /> Print</button>}
+                  <button onClick={() => setLabelDir(dir)} className="text-xs text-amazon-blue hover:underline flex items-center gap-1"><Truck size={12} /> {trk ? 'New label' : 'Create label'}</button>
+                </div>
               </div>
               {trk ? (
                 <div className="text-xs text-gray-600 dark:text-gray-300">
-                  <div className="font-mono">{trk}</div>
+                  <div className="font-mono break-all">{trk}</div>
                   <div className="text-gray-400">{carrier}{st ? ` · ${st.error ? 'lookup failed' : st.status ?? 'no status'}` : ''}</div>
                 </div>
               ) : <div className="text-xs text-gray-400">No label yet.</div>}
