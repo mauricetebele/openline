@@ -1455,6 +1455,7 @@ model InventorySerial {
   customerRMASerials    CustomerRMASerial[]
   fbaReturnReceipts     FbaReturnReceipt[]
   legacyRMASerials      LegacyRMASerial[]
+  repairOrderItems      RepairOrderItem[]
 
   @@unique([productId, serialNumber])
   @@index([productId, locationId])
@@ -2894,4 +2895,103 @@ model AiConfig {
   updatedAt       DateTime @updatedAt
 
   @@map("ai_config")
+}
+
+// ─── Repair Orders ────────────────────────────────────────────────────────────
+// Send in-stock serials to a repair vendor (Polishing, Battery Swap, …), track
+// per-order repair costs, ship out/back, and record per-IMEI repair outcomes.
+
+model RepairVendor {
+  id          String        @id @default(cuid())
+  companyName String
+  email       String?
+  phone       String?
+  // Optional shipping address — needed to create outbound/inbound labels.
+  address1    String?
+  address2    String?
+  city        String?
+  state       String?
+  postal      String?
+  country     String        @default("US")
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  repairOrders RepairOrder[]
+
+  @@map("repair_vendors")
+}
+
+// The bank of repair types (managed from the back office).
+model RepairType {
+  id        String            @id @default(cuid())
+  name      String            @unique
+  isActive  Boolean           @default(true)
+  createdAt DateTime          @default(now())
+
+  items RepairOrderItem[]
+
+  @@map("repair_types")
+}
+
+enum RepairOrderStatus {
+  DRAFT
+  SHIPPED_OUT
+  AT_VENDOR
+  RETURNED
+  COMPLETED
+  CANCELLED
+}
+
+enum RepairItemStatus {
+  PENDING
+  REPAIRED
+  REFUSED
+}
+
+model RepairOrder {
+  id          String            @id @default(cuid())
+  orderNumber Int               @unique @default(autoincrement()) // RO-#### display
+  vendorId    String
+  vendor      RepairVendor      @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  status      RepairOrderStatus @default(DRAFT)
+  notes       String?           @db.Text
+  // Outbound (to vendor) + inbound (back to us) shipment tracking.
+  outboundCarrier  String?
+  outboundTracking String?
+  outboundShipmentId String?
+  inboundCarrier   String?
+  inboundTracking  String?
+  inboundShipmentId String?
+  createdById String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  items RepairOrderItem[]
+
+  @@index([vendorId])
+  @@index([status])
+  @@map("repair_orders")
+}
+
+model RepairOrderItem {
+  id                String           @id @default(cuid())
+  repairOrderId     String
+  repairOrder       RepairOrder      @relation(fields: [repairOrderId], references: [id], onDelete: Cascade)
+  inventorySerialId String
+  inventorySerial   InventorySerial  @relation(fields: [inventorySerialId], references: [id], onDelete: Restrict)
+  repairTypeId      String?
+  repairType        RepairType?      @relation(fields: [repairTypeId], references: [id], onDelete: SetNull)
+  // Repair cost for THIS order (per-order, per repair type).
+  repairCost        Decimal?         @db.Decimal(12, 2)
+  status            RepairItemStatus @default(PENDING)
+  // Vendor's per-IMEI repair summary (why refused, what was done, etc.).
+  repairSummary     String?          @db.Text
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@unique([repairOrderId, inventorySerialId])
+  @@index([inventorySerialId])
+  @@index([repairTypeId])
+  @@map("repair_order_items")
 }

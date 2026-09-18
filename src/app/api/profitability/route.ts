@@ -141,6 +141,7 @@ export async function GET(req: NextRequest) {
     include: {
       inventorySerial: {
         select: {
+          id: true,
           productId: true,
           gradeId: true,
           unitCost: true,
@@ -207,6 +208,7 @@ export async function GET(req: NextRequest) {
           include: {
             inventorySerial: {
               select: {
+                id: true,
                 productId: true,
                 gradeId: true,
                 unitCost: true,
@@ -244,6 +246,7 @@ export async function GET(req: NextRequest) {
     customerShipping: number
     shippingCost: number
     costCodeDeductions: number
+    repairCost: number
     netProfit: number
     commissionSynced: boolean
   }
@@ -303,6 +306,24 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── Repair costs (REPAIRED units only) keyed by serial ─────────────────
+  // A completed repair on a sold serial is a real cost — deducted from that
+  // unit's profit as a separate figure (the unit's COGS is left unchanged).
+  const repairBySerialId = new Map<string, number>()
+  const repairBySerialNumber = new Map<string, number>()
+  {
+    const repairItems = await prisma.repairOrderItem.findMany({
+      where: { status: 'REPAIRED', repairCost: { not: null } },
+      select: { inventorySerialId: true, repairCost: true, inventorySerial: { select: { serialNumber: true } } },
+    })
+    for (const ri of repairItems) {
+      const c = Number(ri.repairCost)
+      repairBySerialId.set(ri.inventorySerialId, (repairBySerialId.get(ri.inventorySerialId) ?? 0) + c)
+      const sn = ri.inventorySerial.serialNumber.toUpperCase()
+      repairBySerialNumber.set(sn, (repairBySerialNumber.get(sn) ?? 0) + c)
+    }
+  }
+
   // ── Marketplace rows ──────────────────────────────────────────────────
   for (const order of marketplaceOrders) {
     const saleValue = order.items.reduce((sum, item) => sum + Number(item.itemPrice ?? 0), 0)
@@ -353,8 +374,19 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Repair costs on the sold serials (completed repairs only).
+    let repairCost = 0
+    for (const sa of order.serialAssignments) {
+      const sid = sa.inventorySerial?.id
+      if (sid) repairCost += repairBySerialId.get(sid) ?? 0
+    }
+    for (const item of order.items) {
+      const bmSerials = item.bmSerials as string[] | null
+      if (bmSerials?.length) for (const sn of bmSerials) repairCost += repairBySerialNumber.get(sn.toUpperCase()) ?? 0
+    }
+
     const isRepl = order.isReplacement === true
-    const netProfit = isRepl ? 0 : saleValue + customerShipping - totalCogs - commission - shippingCost - costCodeDeductions
+    const netProfit = isRepl ? 0 : saleValue + customerShipping - totalCogs - commission - shippingCost - costCodeDeductions - repairCost
 
     rows.push({
       id: order.id,
@@ -369,6 +401,7 @@ export async function GET(req: NextRequest) {
       customerShipping: isRepl ? 0 : Math.round(customerShipping * 100) / 100,
       shippingCost: isRepl ? 0 : Math.round(shippingCost * 100) / 100,
       costCodeDeductions: isRepl ? 0 : Math.round(costCodeDeductions * 100) / 100,
+      repairCost: isRepl ? 0 : Math.round(repairCost * 100) / 100,
       netProfit: isRepl ? 0 : Math.round(netProfit * 100) / 100,
       commissionSynced,
     })
@@ -418,7 +451,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const netProfit = saleValue + customerShipping - totalCogs - commission - shippingCost - costCodeDeductions
+    let repairCost = 0
+    for (const sa of order.serialAssignments) {
+      const sid = sa.inventorySerial?.id
+      if (sid) repairCost += repairBySerialId.get(sid) ?? 0
+    }
+
+    const netProfit = saleValue + customerShipping - totalCogs - commission - shippingCost - costCodeDeductions - repairCost
 
     rows.push({
       id: order.id,
@@ -433,6 +472,7 @@ export async function GET(req: NextRequest) {
       customerShipping: Math.round(customerShipping * 100) / 100,
       shippingCost: Math.round(shippingCost * 100) / 100,
       costCodeDeductions: Math.round(costCodeDeductions * 100) / 100,
+      repairCost: Math.round(repairCost * 100) / 100,
       netProfit: Math.round(netProfit * 100) / 100,
       commissionSynced: true,
     })
@@ -461,6 +501,7 @@ export async function GET(req: NextRequest) {
 
       // Build serial cost map keyed by orderItemId
       const serialCostsByItem = new Map<string, { cogs: number; cc: number; count: number }>()
+      const repairByItem = new Map<string, number>()
       for (const sa of order.serialAssignments) {
         const sc = resolveSerialCost(sa)
         const existing = serialCostsByItem.get(sc.orderItemId) ?? { cogs: 0, cc: 0, count: 0 }
@@ -468,6 +509,8 @@ export async function GET(req: NextRequest) {
         existing.cc += sc.costCodeAmount
         existing.count += 1
         serialCostsByItem.set(sc.orderItemId, existing)
+        const sid = sa.inventorySerial?.id
+        if (sid) { const rc = repairBySerialId.get(sid) ?? 0; if (rc) repairByItem.set(sc.orderItemId, (repairByItem.get(sc.orderItemId) ?? 0) + rc) }
       }
 
       const totalSale = order.items.reduce((sum, item) => sum + Number(item.itemPrice ?? 0), 0)
@@ -503,10 +546,15 @@ export async function GET(req: NextRequest) {
           }
         }
 
+        let itemRepairCost = repairByItem.get(item.id) ?? 0
+        {
+          const bmSerials = item.bmSerials as string[] | null
+          if (bmSerials?.length) for (const sn of bmSerials) itemRepairCost += repairBySerialNumber.get(sn.toUpperCase()) ?? 0
+        }
         const itemCustomerShipping = Number(item.shippingPrice ?? 0)
         const itemCommission = totalCommissionVal * proportion
         const itemShipping = totalShippingVal * proportion
-        const itemNetProfit = itemSale + itemCustomerShipping - itemCogs - itemCommission - itemShipping - itemCostCodes
+        const itemNetProfit = itemSale + itemCustomerShipping - itemCogs - itemCommission - itemShipping - itemCostCodes - itemRepairCost
         const z = (v: number) => (isRepl ? 0 : Math.round(v * 100) / 100)
 
         lineItemRows.push({
@@ -528,6 +576,7 @@ export async function GET(req: NextRequest) {
           customerShipping: z(itemCustomerShipping),
           shippingCost: z(itemShipping),
           costCodeDeductions: z(itemCostCodes),
+          repairCost: z(itemRepairCost),
           netProfit: z(itemNetProfit),
           commissionSynced: commissionSyncedVal,
         })
@@ -543,6 +592,7 @@ export async function GET(req: NextRequest) {
       const totalShippingVal = Number(order.actualShippingCost ?? 0)
 
       const serialCostsByItem = new Map<string, { cogs: number; cc: number; count: number }>()
+      const repairByItem = new Map<string, number>()
       for (const sa of order.serialAssignments) {
         const serial = sa.inventorySerial
         const polCost = serial.receiptLine?.purchaseOrderLine
@@ -560,6 +610,8 @@ export async function GET(req: NextRequest) {
         }
         existing.count += 1
         serialCostsByItem.set(itemId, existing)
+        const sid = serial?.id
+        if (sid) { const rc = repairBySerialId.get(sid) ?? 0; if (rc) repairByItem.set(itemId, (repairByItem.get(itemId) ?? 0) + rc) }
       }
 
       for (const item of order.items) {
@@ -578,9 +630,10 @@ export async function GET(req: NextRequest) {
           itemCostCodes = (costCodeMap.get(key) ?? costCodeProductOnly.get(item.productId) ?? 0) * Number(item.quantity)
         }
 
+        const itemRepairCost = repairByItem.get(item.id) ?? 0
         const itemCustomerShipping = totalCustomerShippingVal * proportion
         const itemShipping = totalShippingVal * proportion
-        const itemNetProfit = itemSale + itemCustomerShipping - itemCogs - itemShipping - itemCostCodes
+        const itemNetProfit = itemSale + itemCustomerShipping - itemCogs - itemShipping - itemCostCodes - itemRepairCost
 
         lineItemRows.push({
           id: `${order.id}:${item.id}`,
@@ -601,6 +654,7 @@ export async function GET(req: NextRequest) {
           customerShipping: Math.round(itemCustomerShipping * 100) / 100,
           shippingCost: Math.round(itemShipping * 100) / 100,
           costCodeDeductions: Math.round(itemCostCodes * 100) / 100,
+          repairCost: Math.round(itemRepairCost * 100) / 100,
           netProfit: Math.round(itemNetProfit * 100) / 100,
           commissionSynced: true,
         })
@@ -632,6 +686,7 @@ export async function GET(req: NextRequest) {
   const totalCustomerShipping = summaryRows.reduce((s, r) => s + r.customerShipping, 0)
   const totalShipping = summaryRows.reduce((s, r) => s + r.shippingCost, 0)
   const totalCostCodes = summaryRows.reduce((s, r) => s + r.costCodeDeductions, 0)
+  const totalRepairCost = summaryRows.reduce((s, r) => s + r.repairCost, 0)
   const totalNetProfit = summaryRows.reduce((s, r) => s + r.netProfit, 0)
 
   // Paginate
@@ -675,6 +730,7 @@ export async function GET(req: NextRequest) {
       totalCustomerShipping: Math.round(totalCustomerShipping * 100) / 100,
       totalShipping: Math.round(totalShipping * 100) / 100,
       totalCostCodes: Math.round(totalCostCodes * 100) / 100,
+      totalRepairCost: Math.round(totalRepairCost * 100) / 100,
       totalNetProfit: Math.round(totalNetProfit * 100) / 100,
     },
   })

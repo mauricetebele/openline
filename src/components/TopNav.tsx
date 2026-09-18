@@ -10,7 +10,7 @@ import {
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
   Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain, AlertCircle, Mail,
-  Sparkles, Receipt, Ban,
+  Sparkles, Receipt, Ban, Wrench,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -48,6 +48,7 @@ const NAV: NavItem[] = [
       { href: '/inventory/sn-lookup', label: 'SN Lookup',      icon: Search },
       { href: '/inventory/move',      label: 'Move Inventory', icon: ArrowRightLeft },
       { href: '/inventory/convert',   label: 'Convert SKU',    icon: Tag },
+      { href: '/repair-orders',       label: 'Repair Orders',  icon: Wrench },
       { href: '/inventory/events',    label: 'Transaction History', icon: History },
       { href: '/inventory/migrate',   label: 'Migration Tool',      icon: Upload },
       { href: '/legacy-po',           label: 'Legacy PO Data',      icon: Archive },

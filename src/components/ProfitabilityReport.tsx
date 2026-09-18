@@ -23,6 +23,7 @@ interface ProfitRow {
   customerShipping: number
   shippingCost: number
   costCodeDeductions: number
+  repairCost: number
   netProfit: number
   commissionSynced: boolean
   feeBreakdown?: { key: string; amount: number }[]
@@ -44,6 +45,7 @@ interface Summary {
   totalCustomerShipping: number
   totalShipping: number
   totalCostCodes: number
+  totalRepairCost: number
   totalNetProfit: number
 }
 
@@ -63,7 +65,7 @@ interface LineItem {
 }
 
 type ViewMode = 'order' | 'lineItem'
-type SortKey = 'olmNumber' | 'marketplaceOrderId' | 'source' | 'orderDate' | 'saleValue' | 'totalCogs' | 'commission' | 'customerShipping' | 'shippingCost' | 'costCodeDeductions' | 'netProfit' | 'sellerSku' | 'internalSku' | 'title' | 'quantity'
+type SortKey = 'olmNumber' | 'marketplaceOrderId' | 'source' | 'orderDate' | 'saleValue' | 'totalCogs' | 'commission' | 'customerShipping' | 'shippingCost' | 'costCodeDeductions' | 'repairCost' | 'netProfit' | 'sellerSku' | 'internalSku' | 'title' | 'quantity'
 type SortDir = 'asc' | 'desc'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -206,6 +208,7 @@ function ExpandableRow({ row, index, selected, onToggle }: { row: ProfitRow; ind
         <td className="px-3 py-1.5 text-right">{fmt.format(row.customerShipping)}</td>
         <td className="px-3 py-1.5 text-right">{fmt.format(row.shippingCost)}</td>
         <td className="px-3 py-1.5 text-right">{fmt.format(row.costCodeDeductions)}</td>
+      <td className="px-3 py-1.5 text-right">{fmt.format(row.repairCost)}</td>
         <td className={clsx('px-3 py-1.5 text-right font-semibold', profitColor(row.netProfit))}>
           {fmt.format(row.netProfit)}
         </td>
@@ -306,6 +309,7 @@ function LineItemTableRow({ row, index }: { row: LineItemRow; index: number }) {
       <td className="px-3 py-1.5 text-right">{fmt.format(row.customerShipping)}</td>
       <td className="px-3 py-1.5 text-right">{fmt.format(row.shippingCost)}</td>
       <td className="px-3 py-1.5 text-right">{fmt.format(row.costCodeDeductions)}</td>
+      <td className="px-3 py-1.5 text-right">{fmt.format(row.repairCost)}</td>
       <td className={clsx('px-3 py-1.5 text-right font-semibold', profitColor(row.netProfit))}>
         {fmt.format(row.netProfit)}
       </td>
@@ -343,7 +347,7 @@ export default function ProfitabilityReport() {
   const [startDate, setStartDate] = useState(today)
   const [endDate, setEndDate] = useState(today)
   const [rows, setRows] = useState<(ProfitRow | LineItemRow)[]>([])
-  const [summary, setSummary] = useState<Summary>({ totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalCustomerShipping: 0, totalShipping: 0, totalCostCodes: 0, totalNetProfit: 0 })
+  const [summary, setSummary] = useState<Summary>({ totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalCustomerShipping: 0, totalShipping: 0, totalCostCodes: 0, totalRepairCost: 0, totalNetProfit: 0 })
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -433,7 +437,7 @@ export default function ProfitabilityReport() {
       if (!res.ok) throw new Error('Failed')
       const data = await res.json()
       setRows(data.rows ?? [])
-      setSummary(data.summary ?? { totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalCustomerShipping: 0, totalShipping: 0, totalCostCodes: 0, totalNetProfit: 0 })
+      setSummary(data.summary ?? { totalRevenue: 0, totalCogs: 0, totalCommission: 0, totalCustomerShipping: 0, totalShipping: 0, totalCostCodes: 0, totalRepairCost: 0, totalNetProfit: 0 })
       setTotalCount(data.totalCount ?? 0)
     } catch {
       setRows([])
@@ -483,6 +487,7 @@ export default function ProfitabilityReport() {
     { key: 'customerShipping', label: 'Cust. Shipping', align: 'right' },
     { key: 'shippingCost', label: 'Ship Cost', align: 'right' },
     { key: 'costCodeDeductions', label: 'Cost Codes', align: 'right' },
+    { key: 'repairCost', label: 'Repair Cost', align: 'right' },
     { key: 'netProfit', label: 'Net Profit', align: 'right' },
   ]
 
@@ -501,11 +506,12 @@ export default function ProfitabilityReport() {
     { key: 'customerShipping', label: 'Cust. Shipping', align: 'right' },
     { key: 'shippingCost', label: 'Ship Cost', align: 'right' },
     { key: 'costCodeDeductions', label: 'Cost Codes', align: 'right' },
+    { key: 'repairCost', label: 'Repair Cost', align: 'right' },
     { key: 'netProfit', label: 'Net Profit', align: 'right' },
   ]
 
   const columns = viewMode === 'lineItem' ? lineItemColumns : orderColumns
-  const colSpan = viewMode === 'lineItem' ? 15 : 13
+  const colSpan = viewMode === 'lineItem' ? 16 : 14
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -652,6 +658,7 @@ export default function ProfitabilityReport() {
         <SummaryCard label="Cust. Shipping" value={summary.totalCustomerShipping} icon={TrendingUp} color="bg-teal-500" />
         <SummaryCard label="Ship Cost" value={summary.totalShipping} icon={Package} color="bg-indigo-500" />
         <SummaryCard label="Cost Codes" value={summary.totalCostCodes} icon={Wrench} color="bg-amber-500" />
+        <SummaryCard label="Repair Cost" value={summary.totalRepairCost} icon={Wrench} color="bg-rose-500" />
         <SummaryCard
           label="Net Profit"
           value={summary.totalNetProfit}
