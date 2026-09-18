@@ -210,7 +210,9 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
         {(['outbound', 'inbound'] as const).map(dir => {
           const carrier = dir === 'outbound' ? order.outboundCarrier : order.inboundCarrier
           const trk = dir === 'outbound' ? order.outboundTracking : order.inboundTracking
-          const st = tracking?.[dir]
+          const sts: any[] | undefined = tracking?.[dir]
+          const stByTn = new Map((sts ?? []).map((s: any) => [s.trackingNumber, s]))
+          const parcels = (trk ?? '').split(',').map(t => t.trim()).filter(Boolean)
           return (
             <div key={dir} className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
               <div className="flex items-center justify-between mb-1">
@@ -220,10 +222,20 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
                   <button onClick={() => setLabelDir(dir)} className="text-xs text-amazon-blue hover:underline flex items-center gap-1"><Truck size={12} /> {trk ? 'New label' : 'Create label'}</button>
                 </div>
               </div>
-              {trk ? (
-                <div className="text-xs text-gray-600 dark:text-gray-300">
-                  <div className="font-mono break-all">{trk}</div>
-                  <div className="text-gray-400">{carrier}{st ? ` · ${st.error ? 'lookup failed' : st.status ?? 'no status'}` : ''}</div>
+              {parcels.length > 0 ? (
+                <div className="space-y-1">
+                  {parcels.map((tn, i) => {
+                    const s = stByTn.get(tn)
+                    return (
+                      <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="font-mono text-gray-600 dark:text-gray-300"><span className="text-gray-400 mr-1">Box {i + 1}</span>{tn}</span>
+                        <span className={clsx('shrink-0', s?.error ? 'text-red-400' : s?.status ? 'text-gray-600 dark:text-gray-300' : 'text-gray-300')}>
+                          {s ? (s.error ? 'lookup failed' : s.status ?? 'no status') : ''}
+                        </span>
+                      </div>
+                    )
+                  })}
+                  <div className="text-[10px] text-gray-400">{carrier}</div>
                 </div>
               ) : <div className="text-xs text-gray-400">No label yet.</div>}
             </div>
