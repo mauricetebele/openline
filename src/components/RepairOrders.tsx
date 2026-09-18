@@ -277,19 +277,24 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
 function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; direction: 'outbound' | 'inbound'; onClose: () => void; onDone: () => void }) {
   const [path, setPath] = useState<'ups' | 'fedex' | 'ss'>('ups')
   const [serviceCode, setServiceCode] = useState(SERVICES.ups[0].code)
-  const [weight, setWeight] = useState('')
-  const [dims, setDims] = useState({ l: '', w: '', h: '' })
+  const emptyBox = () => ({ weight: '', l: '', w: '', h: '' })
+  const [boxes, setBoxes] = useState<{ weight: string; l: string; w: string; h: string }[]>([emptyBox()])
   const [busy, setBusy] = useState(false)
   useEffect(() => { setServiceCode(SERVICES[path][0].code) }, [path])
 
+  const setBox = (i: number, k: 'weight' | 'l' | 'w' | 'h', v: string) => setBoxes(p => p.map((b, j) => j === i ? { ...b, [k]: v } : b))
+
   async function create() {
-    if (!(Number(weight) > 0)) { toast.error('Enter a weight'); return }
+    if (!boxes.every(b => Number(b.weight) > 0)) { toast.error('Enter a weight for every box'); return }
     setBusy(true)
     try {
-      const pkg: any = { weightValue: Number(weight), weightUnit: 'LBS' }
-      if (dims.l && dims.w && dims.h) Object.assign(pkg, { length: Number(dims.l), width: Number(dims.w), height: Number(dims.h), dimUnit: 'IN' })
-      const r = await api(`/api/repair-orders/${orderId}/label`, 'POST', { direction, path, serviceCode, packages: [pkg] })
-      toast.success(`Label created — ${r.pieces?.[0]?.trackingNumber ?? ''}`)
+      const packages = boxes.map(b => {
+        const pkg: any = { weightValue: Number(b.weight), weightUnit: 'LBS' }
+        if (b.l && b.w && b.h) Object.assign(pkg, { length: Number(b.l), width: Number(b.w), height: Number(b.h), dimUnit: 'IN' })
+        return pkg
+      })
+      const r = await api(`/api/repair-orders/${orderId}/label`, 'POST', { direction, path, serviceCode, packages })
+      toast.success(`Label created — ${r.pieces?.length ?? 0} piece(s)`)
       r.pieces?.forEach((p: any, i: number) => setTimeout(() => printLabel(p.labelBase64, p.labelFormat), i * 600))
       onDone()
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Label failed') } finally { setBusy(false) }
@@ -305,11 +310,23 @@ function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; 
         <div className="p-5 space-y-3">
           <div className="flex gap-2">{(['ups', 'fedex', 'ss'] as const).map(p => <button key={p} onClick={() => setPath(p)} className={clsx('flex-1 h-9 rounded-lg border text-xs font-semibold', path === p ? 'border-amazon-blue bg-blue-50 text-amazon-blue' : 'border-gray-200 text-gray-600')}>{p === 'ups' ? 'UPS' : p === 'fedex' ? 'FedEx' : 'ShipStation'}</button>)}</div>
           <div><label className="block text-[11px] text-gray-500 mb-0.5">Service</label><select className={inputCls} value={serviceCode} onChange={e => setServiceCode(e.target.value)}>{SERVICES[path].map(s => <option key={s.code} value={s.code}>{s.label}</option>)}</select></div>
-          <div className="grid grid-cols-4 gap-2">
-            <div><label className="block text-[11px] text-gray-500 mb-0.5">Weight (lb)</label><input type="number" className={inputCls} value={weight} onChange={e => setWeight(e.target.value)} /></div>
-            <div><label className="block text-[11px] text-gray-500 mb-0.5">L</label><input type="number" className={inputCls} value={dims.l} onChange={e => setDims(d => ({ ...d, l: e.target.value }))} /></div>
-            <div><label className="block text-[11px] text-gray-500 mb-0.5">W</label><input type="number" className={inputCls} value={dims.w} onChange={e => setDims(d => ({ ...d, w: e.target.value }))} /></div>
-            <div><label className="block text-[11px] text-gray-500 mb-0.5">H</label><input type="number" className={inputCls} value={dims.h} onChange={e => setDims(d => ({ ...d, h: e.target.value }))} /></div>
+          <div className="space-y-1.5">
+            <div className="grid grid-cols-[1.2rem_1fr_1fr_1fr_1fr_1.2rem] gap-2 text-[10px] text-gray-400 px-0.5">
+              <span /><span>Weight (lb)</span><span>L (in)</span><span>W</span><span>H</span><span />
+            </div>
+            {boxes.map((b, i) => (
+              <div key={i} className="grid grid-cols-[1.2rem_1fr_1fr_1fr_1fr_1.2rem] gap-2 items-center">
+                <span className="text-[11px] text-gray-400">{i + 1}</span>
+                <input type="number" step="0.1" className={inputCls} value={b.weight} onChange={e => setBox(i, 'weight', e.target.value)} />
+                <input type="number" className={inputCls} value={b.l} onChange={e => setBox(i, 'l', e.target.value)} />
+                <input type="number" className={inputCls} value={b.w} onChange={e => setBox(i, 'w', e.target.value)} />
+                <input type="number" className={inputCls} value={b.h} onChange={e => setBox(i, 'h', e.target.value)} />
+                {boxes.length > 1
+                  ? <button onClick={() => setBoxes(p => p.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-500"><X size={14} /></button>
+                  : <span />}
+              </div>
+            ))}
+            <button onClick={() => setBoxes(p => [...p, emptyBox()])} className="text-xs text-amazon-blue hover:underline flex items-center gap-1"><Plus size={12} /> Add box</button>
           </div>
         </div>
         <div className="flex justify-end gap-2 px-5 pb-4">
