@@ -117,16 +117,37 @@ export default function CreateShippingLabels() {
     return () => clearTimeout(t)
   }, [orderQuery])
 
-  function copyFromOrder(o: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-    setShipTo({
-      name: o.shipToName ?? '', company: '',
-      address1: o.shipToAddress1 ?? '', address2: o.shipToAddress2 ?? '',
-      city: o.shipToCity ?? '', state: o.shipToState ?? '', postal: o.shipToPostal ?? '',
-      country: o.shipToCountry ?? 'US', phone: o.shipToPhone ?? '',
-    })
+  async function copyFromOrder(o: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
     setOrderQuery(''); setOrderResults([]); setShowOrderResults(false)
-    if (!o.shipToAddress1) toast.error("That order has no saved address — Amazon purges buyer info after delivery, so it can't be copied. (BackMarket orders always work.)")
-    else toast.success('Ship-to address copied')
+    if (o.shipToAddress1) {
+      setShipTo({
+        name: o.shipToName ?? '', company: '', address1: o.shipToAddress1, address2: o.shipToAddress2 ?? '',
+        city: o.shipToCity ?? '', state: o.shipToState ?? '', postal: o.shipToPostal ?? '',
+        country: o.shipToCountry ?? 'US', phone: o.shipToPhone ?? '',
+      })
+      toast.success('Ship-to address copied')
+      return
+    }
+    // No stored address (Amazon purges buyer PII) — try pulling it from ShipStation.
+    const tid = toast.loading('No saved address — checking ShipStation…')
+    try {
+      const res = await fetch(`/api/orders/${o.id}/pull-address`, { method: 'POST' })
+      const data = await res.json()
+      if (res.ok && data.address) {
+        const a = data.address
+        setShipTo({
+          name: a.shipToName ?? '', company: '', address1: a.shipToAddress1 ?? '', address2: a.shipToAddress2 ?? '',
+          city: a.shipToCity ?? '', state: a.shipToState ?? '', postal: a.shipToPostal ?? '',
+          country: a.shipToCountry ?? 'US', phone: a.shipToPhone ?? '',
+        })
+        toast.success('Address pulled from ShipStation', { id: tid })
+      } else {
+        setShipTo(p => ({ ...p, name: o.shipToName ?? '', city: o.shipToCity ?? '', state: o.shipToState ?? '', country: o.shipToCountry ?? 'US' }))
+        toast.error(data.error ?? 'No address found in ShipStation either', { id: tid })
+      }
+    } catch {
+      toast.error('ShipStation lookup failed', { id: tid })
+    }
   }
 
   const setToField = (k: keyof Addr, v: string) => setShipTo(p => ({ ...p, [k]: v }))
@@ -255,12 +276,12 @@ export default function CreateShippingLabels() {
                     <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg">
                       {orderResults.map((o) => (
                         <button key={o.id} type="button" onMouseDown={() => copyFromOrder(o)}
-                          className={clsx('w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2', !o.shipToAddress1 && 'opacity-60')}>
+                          className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2">
                           <span className="font-medium text-amazon-blue">{o.olmNumber ? `OLM-${o.olmNumber}` : o.amazonOrderId}</span>
                           <span className="text-gray-600 dark:text-gray-300">{o.shipToName ?? o.shipToCity ?? '—'}</span>
                           {o.shipToAddress1
                             ? <span className="text-gray-400 ml-auto">{[o.shipToCity, o.shipToState].filter(Boolean).join(', ')}</span>
-                            : <span className="text-amber-500 ml-auto">no saved address</span>}
+                            : <span className="text-amber-500 ml-auto">via ShipStation</span>}
                         </button>
                       ))}
                     </div>
