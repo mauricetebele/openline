@@ -314,6 +314,21 @@ export class ShipStationClient {
   }
 
   /**
+   * Find the ship-to address from a purchased SHIPMENT for an order number.
+   * A shipment (the bought label) retains the address it printed even when the
+   * order record's buyer PII has been scrubbed. Prefers a non-voided shipment.
+   */
+  async findShipmentAddressByOrderNumber(orderNumber: string): Promise<SSAddress | null> {
+    const resp = await this.request<{ shipments: Array<{ shipTo?: SSAddress; voided?: boolean }> }>(
+      'GET',
+      `/shipments?orderNumber=${encodeURIComponent(orderNumber)}&pageSize=50`,
+    )
+    const list = resp.shipments ?? []
+    const pick = list.find(s => !s.voided && s.shipTo?.street1) ?? list.find(s => s.shipTo?.street1)
+    return pick?.shipTo ?? null
+  }
+
+  /**
    * List orders from ShipStation with pagination.
    * Returns all orders matching the given date filter.
    * ShipStation V1 allows 40 req/min — pageSize 500 minimizes calls.

@@ -37,12 +37,26 @@ export async function POST(_req: NextRequest, { params }: { params: { orderId: s
     account.v2ApiKeyEnc ? decrypt(account.v2ApiKeyEnc) : null,
   )
 
-  let ss
-  try { ss = await client.findOrderByNumber(order.amazonOrderId) }
-  catch (e) { return NextResponse.json({ error: `ShipStation lookup failed: ${e instanceof Error ? e.message : 'error'}` }, { status: 502 }) }
+  // 1) the ShipStation order record; 2) fall back to the purchased shipment's
+  //    ship-to (retained even when the order's buyer PII is scrubbed).
+  let a: { name?: string | null; street1?: string | null; street2?: string | null; city?: string | null; state?: string | null; postalCode?: string | null; country?: string | null; phone?: string | null } | null = null
+  let foundOrder = false
+  try {
+    const ssOrder = await client.findOrderByNumber(order.amazonOrderId)
+    foundOrder = !!ssOrder
+    if (ssOrder?.shipTo?.street1) a = ssOrder.shipTo
+    if (!a) a = await client.findShipmentAddressByOrderNumber(order.amazonOrderId)
+  } catch (e) {
+    return NextResponse.json({ error: `ShipStation lookup failed: ${e instanceof Error ? e.message : 'error'}` }, { status: 502 })
+  }
 
-  const a = ss?.shipTo
-  if (!a || !a.street1) return NextResponse.json({ error: 'ShipStation has no saved address for this order either.' }, { status: 404 })
+  if (!a || !a.street1) {
+    return NextResponse.json({
+      error: foundOrder
+        ? 'ShipStation has this order but no saved address (buyer info was scrubbed).'
+        : 'This order was not found in ShipStation (no order or shipment matches its Amazon Order ID).',
+    }, { status: 404 })
+  }
 
   const data = {
     shipToName: a.name ?? null,
