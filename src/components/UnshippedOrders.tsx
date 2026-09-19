@@ -7379,7 +7379,7 @@ export default function UnshippedOrders() {
         {syncing && <span className="text-[10px] text-gray-400 flex items-center gap-1"><RefreshCcw size={10} className="animate-spin" />Syncing…</span>}
 
         {/* Sync & data controls */}
-        <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1 shadow-sm">
+        <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
           <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider select-none">Sync</span>
           <button onClick={checkCancellations} disabled={checkingCancels || !selectedAccountId}
             title={!selectedAccountId ? 'Select an Amazon account first' : 'Check unshipped Amazon orders for buyer cancellation requests'}
@@ -7454,7 +7454,7 @@ export default function UnshippedOrders() {
       {(activeTab === 'pending' || activeTab === 'unshipped') && (
         <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b bg-gray-50">
           {/* ── Package Presets: Apply Defaults → Filter → Rate Shop ── */}
-          <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1 shadow-sm">
+          <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
             <span className="text-[10px] font-semibold text-teal-600 uppercase tracking-wider mr-0.5">Pkg Preset</span>
             <button onClick={applyDefaultPackagePresets}
               disabled={applyingDefaultPresets || selectedOrderIds.size === 0 || !selectedAccountId}
@@ -7505,7 +7505,7 @@ export default function UnshippedOrders() {
           </div>
 
           {/* ── Manual Rate Shop (pick preset + carrier) ── */}
-          <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1 shadow-sm">
+          <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
             <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mr-0.5">Manual</span>
             {packagePresets.length > 0 && (
               <select value={selectedPackagePresetId} onChange={e => setSelectedPackagePresetId(e.target.value)}
@@ -7528,7 +7528,7 @@ export default function UnshippedOrders() {
           </div>
 
           {/* ── Shipping Preset ── */}
-          <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1 shadow-sm">
+          <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
             <span className="text-[10px] font-semibold text-indigo-600 uppercase tracking-wider mr-0.5">Shipping</span>
             {presets.length > 0 && (
               <select value={selectedPresetId} onChange={e => setSelectedPresetId(e.target.value)}
@@ -7807,7 +7807,7 @@ export default function UnshippedOrders() {
       {/* Table */}
       <div className="flex-1 overflow-auto dark:bg-gray-900">
         <table className="w-full text-xs dark:text-gray-200">
-          <thead className="sticky top-0 bg-gray-800 border-b-2 border-gray-700 z-10">
+          <thead className="sticky top-0 bg-slate-50/95 backdrop-blur border-b border-slate-200 z-10">
             <tr>
               <th className="px-2 py-2.5 text-center w-8">
                 <input type="checkbox"
@@ -7820,12 +7820,12 @@ export default function UnshippedOrders() {
                 />
               </th>
               <th onClick={() => handleSort('olmNumber')}
-                className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
+                className="px-3 py-2.5 text-left font-semibold text-slate-500 text-[10px] uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:bg-slate-100 transition-colors">
                 <span className="inline-flex items-center gap-1">Order
                   <span className={clsx('text-[10px]', sortBy === 'olmNumber' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'olmNumber' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
-              <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap select-none">
+              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 text-[10px] uppercase tracking-wider whitespace-nowrap select-none">
                 <span className="inline-flex items-center gap-1.5">
                   <button onClick={() => handleSort('shipToName')} className="inline-flex items-center gap-1 hover:text-white transition-colors">Customer
                     <span className={clsx('text-[10px]', sortBy === 'shipToName' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'shipToName' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
@@ -7837,24 +7837,24 @@ export default function UnshippedOrders() {
                 </span>
               </th>
               <th onClick={() => handleSort('latestShipDate')}
-                className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
+                className="px-3 py-2.5 text-left font-semibold text-slate-500 text-[10px] uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:bg-slate-100 transition-colors">
                 <span className="inline-flex items-center gap-1">Dates
                   <span className={clsx('text-[10px]', sortBy === 'latestShipDate' || sortBy === 'purchaseDate' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'latestShipDate' ? (sortDir === 'asc' ? '↑' : '↓') : sortBy === 'purchaseDate' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
               <th onClick={() => handleSort('sku')}
-                className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
+                className="px-3 py-2.5 text-left font-semibold text-slate-500 text-[10px] uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:bg-slate-100 transition-colors">
                 <span className="inline-flex items-center gap-1">Item <span className="font-normal text-gray-400">/ Qty</span>
                   <span className={clsx('text-[10px]', sortBy === 'sku' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'sku' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
               <th onClick={() => handleSort('orderTotal')}
-                className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
+                className="px-3 py-2.5 text-right font-semibold text-slate-500 text-[10px] uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:bg-slate-100 transition-colors">
                 <span className="inline-flex items-center justify-end gap-1">Total
                   <span className={clsx('text-[10px]', sortBy === 'orderTotal' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'orderTotal' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
-              <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap select-none">
+              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 text-[10px] uppercase tracking-wider whitespace-nowrap select-none">
                 <span className="inline-flex items-center gap-1.5">
                   <button onClick={() => handleSort('workflowStatus')} className="inline-flex items-center gap-1 hover:text-white transition-colors">Shipping
                     <span className={clsx('text-[10px]', sortBy === 'workflowStatus' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'workflowStatus' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
@@ -7865,7 +7865,7 @@ export default function UnshippedOrders() {
                 </span>
               </th>
               {showActionCol && (
-                <th className="px-3 py-2.5 text-center font-semibold text-gray-100 whitespace-nowrap">
+                <th className="px-3 py-2.5 text-center font-semibold text-slate-500 text-[10px] uppercase tracking-wider whitespace-nowrap">
                   {showProcessCol ? 'Actions' : showShipCol ? 'Ship' : showReinstateCol ? 'Reinstate' : showShippedPrintCol ? 'Actions' : 'Verify'}
                 </th>
               )}
@@ -7901,7 +7901,7 @@ export default function UnshippedOrders() {
               const hasWeightDims = !!order.weightDimsRequested && !!order.weightDimsEnteredAt && !wdProcessed
               return (
                 <tr key={order.id} className={clsx(
-                  'border-b border-gray-200 dark:border-gray-700 last:border-0 transition-colors align-middle',
+                  'border-b border-slate-100 dark:border-gray-800 last:border-0 transition-colors align-middle',
                   isMystery
                     ? 'bg-fuchsia-50 hover:bg-fuchsia-100/70 dark:bg-fuchsia-900/30 dark:hover:bg-fuchsia-900/50 ring-2 ring-inset ring-fuchsia-500'
                     : hasCancelRequest
@@ -7913,8 +7913,8 @@ export default function UnshippedOrders() {
                     : (order.orderSource === 'amazon' || order.orderSource === 'backmarket') && order.ssOrderId == null && !order.shipToCity
                       ? 'bg-yellow-50/70 hover:bg-yellow-100/50 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30'
                       : rowIdx % 2 === 0
-                        ? 'bg-white hover:bg-blue-50/50 dark:bg-gray-900 dark:hover:bg-gray-800/70'
-                        : 'bg-gray-50 hover:bg-blue-50/50 dark:bg-gray-800/50 dark:hover:bg-gray-800/70',
+                        ? 'bg-white hover:bg-blue-50/60 dark:bg-gray-900 dark:hover:bg-gray-800/70'
+                        : 'bg-slate-50/70 hover:bg-blue-50/60 dark:bg-gray-800/50 dark:hover:bg-gray-800/70',
                 )}>
                   {/* Checkbox */}
                   <td className="px-2 py-2.5 text-center w-8">
@@ -8275,7 +8275,7 @@ export default function UnshippedOrders() {
                                   <button
                                     onClick={() => setUnserializeOrder(order)}
                                     title={`Serialized (${wsAssigned}/${wsTotalSerializable}) — click to manage`}
-                                    className="inline-flex items-center gap-[3px] h-6 px-[5px] rounded bg-gray-900 text-white hover:bg-gray-700 transition-colors cursor-pointer"
+                                    className="inline-flex items-center gap-[3px] h-6 px-[5px] rounded bg-gray-900 text-white hover:bg-slate-100 transition-colors cursor-pointer"
                                   >
                                     <svg width="14" height="12" viewBox="0 0 14 12" fill="none" xmlns="http://www.w3.org/2000/svg">
                                       <rect x="0" y="0" width="1.5" height="12" fill="white"/>
@@ -8359,7 +8359,7 @@ export default function UnshippedOrders() {
                                   <button
                                     onClick={() => setUnserializeOrder(order)}
                                     title={`Serialized (${assigned}/${totalSerializable}) — click to manage`}
-                                    className="inline-flex items-center gap-[3px] h-6 px-[5px] rounded bg-gray-900 text-white hover:bg-gray-700 transition-colors cursor-pointer"
+                                    className="inline-flex items-center gap-[3px] h-6 px-[5px] rounded bg-gray-900 text-white hover:bg-slate-100 transition-colors cursor-pointer"
                                   >
                                     <svg width="14" height="12" viewBox="0 0 14 12" fill="none" xmlns="http://www.w3.org/2000/svg">
                                       <rect x="0" y="0" width="1.5" height="12" fill="white"/>
@@ -8420,7 +8420,7 @@ export default function UnshippedOrders() {
                                 <button
                                   onClick={() => setUnserializeOrder(order)}
                                   title={`Serialized (${assigned}/${totalSerializable}) — click to manage`}
-                                  className="inline-flex items-center gap-[3px] h-6 px-[5px] rounded bg-gray-900 text-white hover:bg-gray-700 transition-colors cursor-pointer"
+                                  className="inline-flex items-center gap-[3px] h-6 px-[5px] rounded bg-gray-900 text-white hover:bg-slate-100 transition-colors cursor-pointer"
                                 >
                                   <svg width="14" height="12" viewBox="0 0 14 12" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <rect x="0" y="0" width="1.5" height="12" fill="white"/>
