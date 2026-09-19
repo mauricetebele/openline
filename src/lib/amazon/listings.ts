@@ -501,6 +501,12 @@ const CONDITION_TYPE_MAP: Record<string, string> = {
   'Used - Acceptable': 'used_acceptable',
   'Refurbished': 'refurbished_refurbished',
 }
+// Reverse of CONDITION_TYPE_MAP: the Listings Items API summary reports a
+// `conditionType` (e.g. "new_new") which we map back to the display condition
+// so the grid can show it for SKUs never captured by a full listings report.
+const CONDITION_TYPE_TO_DISPLAY: Record<string, string> = Object.fromEntries(
+  Object.entries(CONDITION_TYPE_MAP).map(([display, type]) => [type, display]),
+)
 
 export async function createListing(
   accountId: string,
@@ -854,15 +860,20 @@ export async function fetchLiveListingPrice(
   // directly if provided, otherwise the group id is resolved to a name downstream.
   const shipGroup = shippingGroupFromAttributes(listingItem.attributes, account.marketplaceId)
 
-  // ASIN from the listing summary — mirrored so it shows on the grid even for
-  // SKUs that were never captured by a full listings sync.
+  // ASIN + condition from the listing summary — mirrored so they show on the
+  // grid even for SKUs that were never captured by a full listings sync (which
+  // is the only other place SellerListing.condition gets written).
   const asin = summary?.asin ?? null
+  const condition = summary?.conditionType
+    ? (CONDITION_TYPE_TO_DISPLAY[summary.conditionType] ?? null)
+    : null
 
   const data: {
-    asin?: string; price?: number; listingStatus?: string; quantity?: number
+    asin?: string; condition?: string; price?: number; listingStatus?: string; quantity?: number
     shippingTemplateGroupId?: string; shippingTemplate?: string; updatedAt: Date
   } = { updatedAt: new Date() }
   if (asin != null) data.asin = asin
+  if (condition != null) data.condition = condition
   if (price != null && Number.isFinite(price)) data.price = price
   if (listingStatus != null) data.listingStatus = listingStatus
   if (fulfillQty != null) data.quantity = fulfillQty
