@@ -1897,11 +1897,12 @@ export default function MarketplaceSkuManager() {
             </div>
           )}
           <div className="overflow-visible rounded-lg border border-gray-200 bg-white">
-            <table className="min-w-full text-xs border-collapse
-              [&_th]:!px-2 [&_th]:!py-1 [&_td]:!px-2 [&_td]:!py-1
-              [&_th]:border [&_th]:border-gray-200 [&_td]:border [&_td]:border-gray-200
-              dark:[&_th]:border-gray-700 dark:[&_td]:border-gray-700
-              [&_th]:!text-[10px] [&_td]:!text-xs">
+            <table className="min-w-full text-[11px] tabular-nums
+              [&_th]:!px-2 [&_th]:!py-1.5 [&_td]:!px-2 [&_td]:!py-1
+              [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10
+              [&_thead_th]:bg-white dark:[&_thead_th]:bg-gray-900
+              [&_thead_th]:!text-[10px] [&_thead_th]:!font-semibold [&_thead_th]:!text-gray-400 [&_thead_th]:!tracking-normal
+              [&_thead_th]:border-b [&_thead_th]:border-gray-200 dark:[&_thead_th]:border-gray-700">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-2 py-2 w-8 text-center">
