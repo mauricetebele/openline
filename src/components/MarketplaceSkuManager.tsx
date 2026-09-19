@@ -48,6 +48,10 @@ interface MarketplaceSku {
   maxPrice: string | null
   listingStatus: string | null
   shippingTemplate: string | null
+  buyBoxPrice: string | null
+  buyBoxSeller: string | null
+  backboxWon: boolean | null
+  backboxPrice: string | null
 }
 
 interface MarketplaceListing {
@@ -1922,6 +1926,7 @@ export default function MarketplaceSkuManager() {
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Current listing price (Amazon & Back Market). Click to edit — the change is pushed to that marketplace. Amazon rows also have a live-refresh icon.">Current Price</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Amazon listing status. Green = Active, Red = Inactive. Refreshed together with the price.">Status</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Amazon Buy Box (winner price + seller) or Back Market BackBox (winning price; ✓ if we hold it). Refreshed every 30 min.">Buy/Back Box</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Calculation Template (commission % + per-preset shipping). Required to enable Target Margin.">Calc Template</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Average landed cost (unit cost + cost code) of in-stock finished-goods units.">Avg Cost</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Target net margin. Enter a % and the system computes the price that realizes it from avg cost + template commission + shipping. Click the price to review & push.">Target Margin</th>
@@ -1976,7 +1981,11 @@ export default function MarketplaceSkuManager() {
                       />
                     </td>
                     <td className="px-3 py-2 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-gray-600">{s.asin ?? s.bmListingId ?? '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-600">
+                      {s.asin
+                        ? <a href={`https://www.amazon.com/dp/${s.asin}`} target="_blank" rel="noopener noreferrer" className="text-amazon-blue hover:underline">{s.asin}</a>
+                        : (s.bmListingId ?? '—')}
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600">
                       {s.fnsku ? s.fnsku : s.marketplace === 'amazon' && s.accountId && s.fulfillmentChannel === 'FBA' ? (
                         <button
@@ -2071,6 +2080,24 @@ export default function MarketplaceSkuManager() {
                           </span>
                         </span>
                       )}
+                    </td>
+                    {/* Buy Box / BackBox */}
+                    <td className="px-3 py-2 text-right align-top whitespace-nowrap">
+                      {s.marketplace === 'amazon' ? (
+                        s.buyBoxPrice != null ? (
+                          <span className="text-xs">
+                            <span className={clsx('font-medium', s.buyBoxSeller === 'You' ? 'text-green-700' : 'text-gray-800')}>${Number(s.buyBoxPrice).toFixed(2)}</span>
+                            {s.buyBoxSeller && <span className={clsx('ml-1', s.buyBoxSeller === 'You' ? 'text-green-600' : 'text-gray-400')}>{s.buyBoxSeller}</span>}
+                          </span>
+                        ) : <span className="text-gray-300 text-xs">—</span>
+                      ) : s.marketplace === 'backmarket' ? (
+                        s.backboxPrice != null ? (
+                          <span className="text-xs">
+                            <span className={clsx('font-medium', s.backboxWon ? 'text-green-700' : 'text-gray-800')}>${Number(s.backboxPrice).toFixed(2)}</span>
+                            {s.backboxWon && <span className="ml-1 text-green-600" title="You hold the BackBox">✓</span>}
+                          </span>
+                        ) : <span className="text-gray-300 text-xs">—</span>
+                      ) : <span className="text-gray-300 text-xs">—</span>}
                     </td>
                     {/* Calc template */}
                     <td className="px-3 py-2 text-center align-top">
