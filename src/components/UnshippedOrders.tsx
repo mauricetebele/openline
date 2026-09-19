@@ -6948,7 +6948,7 @@ export default function UnshippedOrders() {
   const showReinstateCol    = activeTab === 'cancelled'
   const showShippedPrintCol = activeTab === 'shipped'
   const showActionCol       = showProcessCol || showShipCol || showVerifyCol || showReinstateCol || showShippedPrintCol
-  const colSpan             = 11 + (showActionCol ? 1 : 0)
+  const colSpan             = 7 + (showActionCol ? 1 : 0)
 
   // Amazon ship-by dates use Pacific time (e.g. stored as 2026-02-28T07:59:59Z = Feb 27 11:59pm PST).
   // Always evaluate ship-by dates in Pacific time to match Amazon's intent.
@@ -7379,7 +7379,8 @@ export default function UnshippedOrders() {
         {syncing && <span className="text-[10px] text-gray-400 flex items-center gap-1"><RefreshCcw size={10} className="animate-spin" />Syncing…</span>}
 
         {/* Sync & data controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1 shadow-sm">
+          <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider select-none">Sync</span>
           <button onClick={checkCancellations} disabled={checkingCancels || !selectedAccountId}
             title={!selectedAccountId ? 'Select an Amazon account first' : 'Check unshipped Amazon orders for buyer cancellation requests'}
             className={clsx('flex items-center gap-1.5 h-8 px-2.5 rounded text-xs font-semibold transition-colors',
@@ -7451,10 +7452,10 @@ export default function UnshippedOrders() {
 
       {/* ── Toolbar Row 2: Presets & Rate Shopping ──────────────────────────── */}
       {(activeTab === 'pending' || activeTab === 'unshipped') && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2 border-b bg-white">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b bg-gray-50">
           {/* ── Package Presets: Apply Defaults → Filter → Rate Shop ── */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-0.5">Pkg Preset</span>
+          <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1 shadow-sm">
+            <span className="text-[10px] font-semibold text-teal-600 uppercase tracking-wider mr-0.5">Pkg Preset</span>
             <button onClick={applyDefaultPackagePresets}
               disabled={applyingDefaultPresets || selectedOrderIds.size === 0 || !selectedAccountId}
               title="Auto-apply default package presets from product SKU mappings"
@@ -7503,12 +7504,9 @@ export default function UnshippedOrders() {
             </button>
           </div>
 
-          {/* Divider */}
-          <div className="w-px h-5 bg-gray-200" />
-
           {/* ── Manual Rate Shop (pick preset + carrier) ── */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-0.5">Manual</span>
+          <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1 shadow-sm">
+            <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mr-0.5">Manual</span>
             {packagePresets.length > 0 && (
               <select value={selectedPackagePresetId} onChange={e => setSelectedPackagePresetId(e.target.value)}
                 className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 max-w-[140px]">
@@ -7529,12 +7527,9 @@ export default function UnshippedOrders() {
             </button>
           </div>
 
-          {/* Divider */}
-          <div className="w-px h-5 bg-gray-200" />
-
           {/* ── Shipping Preset ── */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-0.5">Shipping</span>
+          <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1 shadow-sm">
+            <span className="text-[10px] font-semibold text-indigo-600 uppercase tracking-wider mr-0.5">Shipping</span>
             {presets.length > 0 && (
               <select value={selectedPresetId} onChange={e => setSelectedPresetId(e.target.value)}
                 className="h-7 rounded border border-gray-300 px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 max-w-[140px]">
@@ -7567,7 +7562,12 @@ export default function UnshippedOrders() {
 
       {/* ── Toolbar Row 3: Bulk Actions ──────────────────────────────────────── */}
       {(selectedOrderIds.size > 0 || activeTab === 'unshipped' || activeTab === 'pending') && (
-        <div className="flex items-center gap-1.5 px-4 py-1.5 border-b bg-gray-50">
+        <div className={clsx('flex items-center gap-1.5 px-4 py-1.5 border-b transition-colors', selectedOrderIds.size > 0 ? 'bg-indigo-50/60' : 'bg-gray-50')}>
+          {selectedOrderIds.size > 0 && (
+            <span className="flex items-center gap-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider mr-1 select-none">
+              <CheckCircle2 size={12} /> {selectedOrderIds.size} selected
+            </span>
+          )}
           {/* Bulk process (pending tab) */}
           {activeTab === 'pending' && selectedOrderIds.size > 0 && (
             <button
@@ -7661,6 +7661,7 @@ export default function UnshippedOrders() {
 
       {/* Channel filter pills */}
       <div className="flex items-center gap-1.5 px-4 py-1.5 bg-gray-50 border-b shrink-0">
+        <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider mr-0.5 select-none">Filter</span>
         {([
           { key: 'all',         label: 'All' },
           { key: 'amazon',      label: 'Amazon' },
@@ -7824,10 +7825,15 @@ export default function UnshippedOrders() {
                   <span className={clsx('text-[10px]', sortBy === 'olmNumber' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'olmNumber' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
-              <th onClick={() => handleSort('shipToName')}
-                className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
-                <span className="inline-flex items-center gap-1">Customer
-                  <span className={clsx('text-[10px]', sortBy === 'shipToName' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'shipToName' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+              <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap select-none">
+                <span className="inline-flex items-center gap-1.5">
+                  <button onClick={() => handleSort('shipToName')} className="inline-flex items-center gap-1 hover:text-white transition-colors">Customer
+                    <span className={clsx('text-[10px]', sortBy === 'shipToName' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'shipToName' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+                  </button>
+                  <span className="text-gray-600">/</span>
+                  <button onClick={() => handleSort('shipToState')} className="inline-flex items-center gap-1 font-normal text-gray-400 hover:text-white transition-colors">{activeTab === 'shipped' || activeTab === 'awaiting' ? 'Tracking' : 'Ship To'}
+                    <span className={clsx('text-[10px]', sortBy === 'shipToState' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'shipToState' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+                  </button>
                 </span>
               </th>
               <th onClick={() => handleSort('latestShipDate')}
@@ -7838,34 +7844,24 @@ export default function UnshippedOrders() {
               </th>
               <th onClick={() => handleSort('sku')}
                 className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
-                <span className="inline-flex items-center gap-1">Item
+                <span className="inline-flex items-center gap-1">Item <span className="font-normal text-gray-400">/ Qty</span>
                   <span className={clsx('text-[10px]', sortBy === 'sku' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'sku' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
-              <th className="px-2 py-2.5 text-center font-semibold text-gray-100 whitespace-nowrap w-10">Qty</th>
               <th onClick={() => handleSort('orderTotal')}
                 className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
                 <span className="inline-flex items-center justify-end gap-1">Total
                   <span className={clsx('text-[10px]', sortBy === 'orderTotal' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'orderTotal' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
-              <th onClick={() => handleSort('shipToState')}
-                className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
-                <span className="inline-flex items-center gap-1">{activeTab === 'shipped' || activeTab === 'awaiting' ? 'Tracking' : 'Ship To'}
-                  <span className={clsx('text-[10px]', sortBy === 'shipToState' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'shipToState' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
-                </span>
-              </th>
-              <th onClick={() => handleSort('workflowStatus')}
-                className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
-                <span className="inline-flex items-center gap-1">Status
-                  <span className={clsx('text-[10px]', sortBy === 'workflowStatus' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'workflowStatus' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
-                </span>
-              </th>
-              <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Preset</th>
-              <th onClick={() => handleSort('presetRateAmount')}
-                className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap cursor-pointer select-none hover:bg-gray-700 transition-colors">
-                <span className="inline-flex items-center justify-end gap-1">Rate
-                  <span className={clsx('text-[10px]', sortBy === 'presetRateAmount' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'presetRateAmount' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+              <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap select-none">
+                <span className="inline-flex items-center gap-1.5">
+                  <button onClick={() => handleSort('workflowStatus')} className="inline-flex items-center gap-1 hover:text-white transition-colors">Shipping
+                    <span className={clsx('text-[10px]', sortBy === 'workflowStatus' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'workflowStatus' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+                  </button>
+                  <button onClick={() => handleSort('presetRateAmount')} className="inline-flex items-center gap-1 font-normal text-gray-400 hover:text-white transition-colors">· rate
+                    <span className={clsx('text-[10px]', sortBy === 'presetRateAmount' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'presetRateAmount' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+                  </button>
                 </span>
               </th>
               {showActionCol && (
@@ -8057,11 +8053,37 @@ export default function UnshippedOrders() {
                       </div>
                     )}
                   </td>
-                  {/* Customer */}
-                  <td className="px-3 py-2.5 whitespace-nowrap">
-                    <span className="text-xs text-gray-700 dark:text-gray-300 truncate block max-w-[140px]" title={order.shipToName ?? order.wholesaleCustomerName ?? ''}>
-                      {order.shipToName ?? order.wholesaleCustomerName ?? '—'}
-                    </span>
+                  {/* Customer + Ship To / Tracking */}
+                  <td className="px-3 py-2.5 whitespace-nowrap align-top">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate block max-w-[160px]" title={order.shipToName ?? order.wholesaleCustomerName ?? ''}>
+                        {order.shipToName ?? order.wholesaleCustomerName ?? '—'}
+                      </span>
+                      <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                        {(() => {
+                          const tn = order.label?.trackingNumber ?? ((activeTab === 'shipped') ? order.shipTracking : null)
+                          if ((activeTab === 'awaiting' || activeTab === 'shipped') && tn) {
+                            return (
+                              <span className="flex flex-col gap-0.5">
+                                <a
+                                  href={trackingUrl(tn)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={clsx(
+                                    'font-mono text-[10px] font-medium hover:underline',
+                                    order.label ? 'text-purple-700' : 'text-emerald-700',
+                                  )}
+                                >
+                                  {tn}
+                                </a>
+                                {activeTab === 'shipped' && trackingStatusBadge(trackingMap[tn], trackingLoading.has(tn))}
+                              </span>
+                            )
+                          }
+                          return [order.shipToCity, order.shipToState].filter(Boolean).join(', ') || '—'
+                        })()}
+                      </span>
+                    </div>
                   </td>
                   {/* Dates — Purchase / Ship By / Deliver By stacked */}
                   <td className="px-3 py-2.5 whitespace-nowrap">
@@ -8096,121 +8118,87 @@ export default function UnshippedOrders() {
                       })() : null}
                     </div>
                   </td>
-                  {/* Item — SKU + Product name */}
+                  {/* Item + Qty — SKU + Product name, qty as N× prefix */}
                   <td className="px-3 py-2.5">
                     <div className={clsx('flex flex-col', multi && 'divide-y divide-gray-200')}>
                       {order.items.map(i => (
-                        <div key={i.id} className={clsx('leading-snug', multi && 'py-1 first:pt-0 last:pb-0')}>
-                          <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 pl-2.5 pr-2 py-0.5 whitespace-nowrap">
-                            <span className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 leading-tight">{i.internalSku ?? i.sellerSku ?? '—'}</span>
-                            {i.mappedGradeName && <GradeBadge grade={i.mappedGradeName} size="xs" />}
-                          </span>
-                          {i.title && <span className="block text-[10px] text-gray-400 truncate max-w-[200px] mt-0.5" title={i.title}>{i.title}</span>}
+                        <div key={i.id} className={clsx('flex items-start gap-1.5 leading-snug', multi && 'py-1 first:pt-0 last:pb-0')}>
+                          <span className={clsx('mt-1 shrink-0 text-[11px] tabular-nums', i.quantityOrdered > 1 ? 'font-bold text-red-600' : 'font-medium text-gray-400')}>{i.quantityOrdered}×</span>
+                          <div className="min-w-0">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 pl-2.5 pr-2 py-0.5 whitespace-nowrap">
+                              <span className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 leading-tight">{i.internalSku ?? i.sellerSku ?? '—'}</span>
+                              {i.mappedGradeName && <GradeBadge grade={i.mappedGradeName} size="xs" />}
+                            </span>
+                            {i.title && <span className="block text-[10px] text-gray-400 truncate max-w-[200px] mt-0.5" title={i.title}>{i.title}</span>}
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  </td>
-                  {/* Qty */}
-                  <td className="px-2 py-2.5 text-center whitespace-nowrap w-10">
-                    <div className={clsx('flex flex-col', multi && 'divide-y divide-gray-200')}>
-                      {order.items.map(i => (
-                        <span key={i.id} className={clsx('text-xs leading-snug tabular-nums', multi && 'py-1 first:pt-0 last:pb-0', i.quantityOrdered > 1 ? 'font-bold text-red-600' : 'text-gray-700')}>
-                          {i.quantityOrdered}
-                        </span>
                       ))}
                     </div>
                   </td>
                   {/* Total */}
                   <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs font-semibold text-gray-800 dark:text-gray-200 tabular-nums">{orderTotal(order)}</td>
-                  {/* Ship To */}
-                  <td className="px-3 py-2.5 whitespace-nowrap text-[11px] text-gray-700 dark:text-gray-300">
-                    {(() => {
-                      const tn = order.label?.trackingNumber ?? ((activeTab === 'shipped') ? order.shipTracking : null)
-                      if ((activeTab === 'awaiting' || activeTab === 'shipped') && tn) {
-                        return (
-                          <div className="flex flex-col gap-0.5">
-                            <a
-                              href={trackingUrl(tn)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={clsx(
-                                'font-mono text-[10px] font-medium hover:underline',
-                                order.label ? 'text-purple-700' : 'text-emerald-700',
-                              )}
-                            >
-                              {tn}
-                            </a>
-                            {activeTab === 'shipped' && trackingStatusBadge(trackingMap[tn], trackingLoading.has(tn))}
-                          </div>
-                        )
-                      }
-                      return [order.shipToCity, order.shipToState].filter(Boolean).join(', ') || '—'
-                    })()}
-                  </td>
-                  {/* Status + Ship Method stacked */}
-                  <td className="px-3 py-2.5 whitespace-nowrap">
-                    <div className="flex flex-col gap-0.5">
-                      <span className={clsx('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium w-fit',
-                        WORKFLOW_BADGE[order.workflowStatus] ?? 'bg-gray-100 text-gray-600 border border-gray-200')}>
-                        {WORKFLOW_LABEL[order.workflowStatus] ?? order.workflowStatus}
-                      </span>
-                      {order.orderSource === 'wholesale' ? (
-                        order.shipCarrier
-                          ? <span className="text-[10px] text-emerald-600 font-medium">{order.shipCarrier}</span>
-                          : null
-                      ) : order.shipmentServiceLevel ? (
-                        <span className={clsx('text-[10px] font-medium',
-                          /next.?day|overnight|priority/i.test(order.shipmentServiceLevel) ? 'text-red-600' :
-                          /second.?day|2.?day|expedited/i.test(order.shipmentServiceLevel) ? 'text-orange-600' :
-                          /same.?day/i.test(order.shipmentServiceLevel) ? 'text-purple-600' : 'text-gray-500',
-                        )}>
-                          {order.shipmentServiceLevel}
+                  {/* Shipping — status + method, package preset, rate */}
+                  <td className="px-3 py-2.5 whitespace-nowrap align-top">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-0.5">
+                        <span className={clsx('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium w-fit',
+                          WORKFLOW_BADGE[order.workflowStatus] ?? 'bg-gray-100 text-gray-600 border border-gray-200')}>
+                          {WORKFLOW_LABEL[order.workflowStatus] ?? order.workflowStatus}
                         </span>
-                      ) : null}
-                    </div>
-                  </td>
-                  {/* Preset */}
-                  <td className="px-3 py-2.5 whitespace-nowrap">
-                    {defaultPresetApplyingIds.has(order.id) ? (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] text-teal-600">
-                        <RefreshCcw size={10} className="animate-spin" /> …
-                      </span>
-                    ) : order.appliedPackagePreset ? (
-                      <span className="inline-flex items-center rounded-full bg-teal-100 text-teal-700 px-2 py-0.5 text-[10px] font-medium">
-                        {order.appliedPackagePreset.name}
-                      </span>
-                    ) : (
-                      <span className="text-gray-300 text-[10px]">—</span>
-                    )}
-                  </td>
-                  {/* Rate */}
-                  <td className={clsx('px-3 py-2.5 text-right', order.presetRateError && !ratingOrderIds.has(order.id) && !pkgRatingOrderIds.has(order.id) && !rateShopAppliedIds.has(order.id) ? 'whitespace-normal' : 'whitespace-nowrap')}>
-                    {(ratingOrderIds.has(order.id) || pkgRatingOrderIds.has(order.id) || rateShopAppliedIds.has(order.id)) ? (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600">
-                        <RefreshCcw size={10} className="animate-spin" /> Rating…
-                      </span>
-                    ) : order.presetRateError ? (
-                      <div title={order.presetRateError} className="flex flex-col items-end cursor-help max-w-[100px]">
-                        <span className="inline-flex items-center gap-0.5 text-[10px] text-red-600">
-                          <AlertCircle size={10} className="shrink-0" /> Err
-                        </span>
-                        <span className="text-[9px] text-red-400 leading-tight text-right line-clamp-1 break-words whitespace-normal">
-                          {order.presetRateError}
-                        </span>
+                        {order.orderSource === 'wholesale' ? (
+                          order.shipCarrier
+                            ? <span className="text-[10px] text-emerald-600 font-medium">{order.shipCarrier}</span>
+                            : null
+                        ) : order.shipmentServiceLevel ? (
+                          <span className={clsx('text-[10px] font-medium',
+                            /next.?day|overnight|priority/i.test(order.shipmentServiceLevel) ? 'text-red-600' :
+                            /second.?day|2.?day|expedited/i.test(order.shipmentServiceLevel) ? 'text-orange-600' :
+                            /same.?day/i.test(order.shipmentServiceLevel) ? 'text-purple-600' : 'text-gray-500',
+                          )}>
+                            {order.shipmentServiceLevel}
+                          </span>
+                        ) : null}
                       </div>
-                    ) : order.presetRateAmount ? (
-                      <div className="flex flex-col items-end gap-0.5">
-                        <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                          {fmt(order.presetRateAmount)}
-                        </span>
-                        <CarrierLogo carrierCode={order.presetRateCarrier} serviceName={order.presetRateService} size={22} />
-                        {order.presetRateService && (
-                          <span className="text-[9px] text-gray-400 text-right whitespace-nowrap">{order.presetRateService}</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {defaultPresetApplyingIds.has(order.id) ? (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] text-teal-600">
+                            <RefreshCcw size={10} className="animate-spin" /> …
+                          </span>
+                        ) : order.appliedPackagePreset ? (
+                          <span className="inline-flex items-center rounded-full bg-teal-100 text-teal-700 px-2 py-0.5 text-[10px] font-medium">
+                            {order.appliedPackagePreset.name}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300 text-[10px]">—</span>
+                        )}
+                        {(ratingOrderIds.has(order.id) || pkgRatingOrderIds.has(order.id) || rateShopAppliedIds.has(order.id)) ? (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600">
+                            <RefreshCcw size={10} className="animate-spin" /> Rating…
+                          </span>
+                        ) : order.presetRateError ? (
+                          <span title={order.presetRateError} className="flex flex-col cursor-help max-w-[120px]">
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-red-600">
+                              <AlertCircle size={10} className="shrink-0" /> Err
+                            </span>
+                            <span className="text-[9px] text-red-400 leading-tight line-clamp-1 break-words whitespace-normal">
+                              {order.presetRateError}
+                            </span>
+                          </span>
+                        ) : order.presetRateAmount ? (
+                          <span className="inline-flex items-center gap-1">
+                            <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                              {fmt(order.presetRateAmount)}
+                            </span>
+                            <CarrierLogo carrierCode={order.presetRateCarrier} serviceName={order.presetRateService} size={22} />
+                            {order.presetRateService && (
+                              <span className="text-[9px] text-gray-400 whitespace-nowrap">{order.presetRateService}</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300 text-[10px]">—</span>
                         )}
                       </div>
-                    ) : (
-                      <span className="text-gray-300 text-[10px]">—</span>
-                    )}
+                    </div>
                   </td>
                   {/* Action column */}
                   {showProcessCol && (
