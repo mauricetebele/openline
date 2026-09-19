@@ -81,7 +81,14 @@ export default function CreateShippingLabels() {
   const [rating, setRating] = useState(false)
   const [creating, setCreating] = useState(false)
   const [err, setErr] = useState('')
-  const [result, setResult] = useState<{ masterTracking: string; pieces: Piece[]; shipmentCost: number | null; currency: string } | null>(null)
+  const [result, setResult] = useState<{ masterTracking: string; pieces: Piece[]; shipmentCost: number | null; currency: string; accOlm: number | null } | null>(null)
+  // Accessorial order option
+  const [accessorial, setAccessorial] = useState(false)
+  const [accessoryName, setAccessoryName] = useState('')
+  // Copy ship-to from an existing order
+  const [orderQuery, setOrderQuery] = useState('')
+  const [orderResults, setOrderResults] = useState<any[]>([]) // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [showOrderResults, setShowOrderResults] = useState(false)
 
   // Load UPS credentials for the UPS Direct account picker.
   // The endpoint returns { configured, accounts: [...] }.
@@ -98,6 +105,27 @@ export default function CreateShippingLabels() {
   useEffect(() => { setServiceCode(SERVICES[path][0].code); setRate(null) }, [path])
   // Any input change invalidates a stale rate.
   useEffect(() => { setRate(null) }, [shipTo, shipFrom, packages, serviceCode, confirmation, upsCredentialId])
+
+  // Debounced order search for copying a ship-to address.
+  useEffect(() => {
+    const q = orderQuery.trim()
+    if (q.length < 2) { setOrderResults([]); return }
+    const t = setTimeout(() => {
+      fetch(`/api/orders/search?q=${encodeURIComponent(q)}`).then(r => r.ok ? r.json() : { data: [] })
+        .then(d => { setOrderResults(d.data ?? []); setShowOrderResults(true) }).catch(() => {})
+    }, 250)
+    return () => clearTimeout(t)
+  }, [orderQuery])
+
+  function copyFromOrder(o: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    setShipTo({
+      name: o.shipToName ?? '', company: '',
+      address1: o.shipToAddress1 ?? '', address2: o.shipToAddress2 ?? '',
+      city: o.shipToCity ?? '', state: o.shipToState ?? '', postal: o.shipToPostal ?? '',
+      country: o.shipToCountry ?? 'US', phone: o.shipToPhone ?? '',
+    })
+    setOrderQuery(''); setOrderResults([]); setShowOrderResults(false)
+  }
 
   const setToField = (k: keyof Addr, v: string) => setShipTo(p => ({ ...p, [k]: v }))
   const setFromField = (k: keyof Addr, v: string) => setShipFrom(p => ({ ...p, [k]: v }))
@@ -116,6 +144,7 @@ export default function CreateShippingLabels() {
         weightValue: Number(p.weightValue), weightUnit: p.weightUnit,
         ...(p.length && p.width && p.height ? { length: Number(p.length), width: Number(p.width), height: Number(p.height), dimUnit: 'IN' } : {}),
       })),
+      ...(accessorial ? { accessorial: true, accessoryName: accessoryName.trim() } : {}),
     }
   }
 
@@ -133,20 +162,23 @@ export default function CreateShippingLabels() {
 
   async function createLabel() {
     if (!canSubmit) return
+    if (accessorial && !accessoryName.trim()) { setErr('Enter which accessory is being shipped'); return }
     setCreating(true); setErr(''); setResult(null)
     try {
       const res = await fetch('/api/shipping-labels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildBody()) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Label creation failed')
-      setResult({ masterTracking: data.masterTracking, pieces: data.pieces, shipmentCost: data.shipmentCost, currency: data.currency })
+      setResult({ masterTracking: data.masterTracking, pieces: data.pieces, shipmentCost: data.shipmentCost, currency: data.currency, accOlm: data.accessorialOrder?.olmNumber ?? null })
       toast.success(`Label created — ${data.pieces.length} piece${data.pieces.length !== 1 ? 's' : ''}`)
+      if (data.accessorialError) toast.error(`Label made, but accessorial order failed: ${data.accessorialError}`)
+      else if (data.accessorialOrder) toast.success(`Accessorial order OLM-${data.accessorialOrder.olmNumber} sent to Awaiting Verification`)
       data.pieces.forEach((pc: Piece, i: number) => setTimeout(() => printLabel(pc.labelBase64, pc.labelFormat), i * 700))
     } catch (e) { setErr(e instanceof Error ? e.message : 'Label creation failed') }
     finally { setCreating(false) }
   }
 
   function resetForm() {
-    setShipTo({ ...EMPTY_TO }); setPackages([emptyPkg()]); setReference(''); setConfirmation('none'); setRate(null); setResult(null); setErr('')
+    setShipTo({ ...EMPTY_TO }); setPackages([emptyPkg()]); setReference(''); setConfirmation('none'); setRate(null); setResult(null); setErr(''); setAccessorial(false); setAccessoryName(''); setOrderQuery('')
   }
 
   return (
@@ -177,6 +209,7 @@ export default function CreateShippingLabels() {
             <div className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-800 p-4 space-y-3">
               <div className="flex items-center gap-2 text-green-800 dark:text-green-300 font-semibold text-sm"><CheckCircle2 size={16} /> Label created</div>
               {result.shipmentCost != null && <div className="text-xs text-gray-600 dark:text-gray-300">Cost: <span className="font-semibold">{result.currency} {result.shipmentCost.toFixed(2)}</span></div>}
+              {result.accOlm != null && <div className="text-xs text-gray-700 dark:text-gray-200">Accessorial order <span className="font-semibold">OLM-{result.accOlm}</span> created → Awaiting Verification.</div>}
               <div className="divide-y divide-green-100 dark:divide-green-900/40">
                 {result.pieces.map((pc, i) => (
                   <div key={i} className="flex items-center gap-2 py-1.5 text-sm">
@@ -212,6 +245,23 @@ export default function CreateShippingLabels() {
               {/* Ship To */}
               <fieldset className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
                 <legend className="px-1 text-xs font-semibold text-gray-500 dark:text-gray-400">Ship To</legend>
+                <div className="relative mb-2">
+                  <input value={orderQuery} onChange={e => setOrderQuery(e.target.value)} onFocus={() => orderResults.length > 0 && setShowOrderResults(true)}
+                    onBlur={() => setTimeout(() => setShowOrderResults(false), 150)}
+                    placeholder="Copy address from an existing order — search OLM #, order ID, or name…" className={inputCls} />
+                  {showOrderResults && orderResults.length > 0 && (
+                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg">
+                      {orderResults.map((o) => (
+                        <button key={o.id} type="button" onMouseDown={() => copyFromOrder(o)}
+                          className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2">
+                          <span className="font-medium text-amazon-blue">{o.olmNumber ? `OLM-${o.olmNumber}` : o.amazonOrderId}</span>
+                          <span className="text-gray-600 dark:text-gray-300">{o.shipToName ?? '—'}</span>
+                          <span className="text-gray-400 ml-auto">{[o.shipToCity, o.shipToState].filter(Boolean).join(', ')}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div><label className={labelCls}>Name <span className="text-red-500">*</span></label><input className={inputCls} value={shipTo.name} onChange={e => setToField('name', e.target.value)} /></div>
                   <div><label className={labelCls}>Company</label><input className={inputCls} value={shipTo.company} onChange={e => setToField('company', e.target.value)} /></div>
@@ -248,6 +298,21 @@ export default function CreateShippingLabels() {
                   </div>
                 )}
                 <div><label className={labelCls}>Reference # (optional)</label><input className={inputCls} value={reference} onChange={e => setReference(e.target.value)} /></div>
+              </div>
+
+              {/* Accessorial order */}
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200 cursor-pointer">
+                  <input type="checkbox" checked={accessorial} onChange={e => setAccessorial(e.target.checked)} />
+                  Tie to an accessorial order (e.g. ship a replacement accessory to a customer)
+                </label>
+                {accessorial && (
+                  <div className="mt-2">
+                    <label className={labelCls}>Which accessory is being shipped? <span className="text-red-500">*</span></label>
+                    <input className={inputCls} value={accessoryName} onChange={e => setAccessoryName(e.target.value)} placeholder="e.g. MacBook Pro Charger" />
+                    <p className="text-[11px] text-gray-400 mt-1">Creates an order in <strong>Awaiting Verification</strong> tied to this label. No inventory is affected.</p>
+                  </div>
+                )}
               </div>
 
               {/* Packages */}

@@ -52,6 +52,13 @@ export async function GET(req: NextRequest) {
       orderSource: true,
       workflowStatus: true,
       shipToName: true,
+      shipToAddress1: true,
+      shipToAddress2: true,
+      shipToCity: true,
+      shipToState: true,
+      shipToPostal: true,
+      shipToCountry: true,
+      shipToPhone: true,
       purchaseDate: true,
     },
   })
