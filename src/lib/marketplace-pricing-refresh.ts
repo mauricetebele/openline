@@ -13,6 +13,12 @@ import { resolveSellerNames } from '@/lib/amazon/seller-name'
 
 const AMAZON_CONCURRENCY = 6
 const BM_CONCURRENCY = 3
+// Per-invocation batch caps. The SP-API pricing (Buy Box) endpoint is hard
+// rate-limited (~0.5 req/s per account), so the whole catalogue can't refresh
+// inside Vercel's 300s function ceiling. Each cron run refreshes the stalest
+// slice (never-synced first); the full set cycles over a few runs.
+const AMAZON_BATCH = 45
+const BM_BATCH = 60
 
 interface ListingItemResponse {
   summaries?: { marketplaceId: string; status?: string[] }[]
@@ -48,9 +54,13 @@ export async function refreshAllPricing(): Promise<RefreshPricingResult> {
 
   const amazonListings = amazonSkus.length ? await prisma.sellerListing.findMany({
     where: { sku: { in: amazonSkus } }, select: { id: true, sku: true, asin: true, accountId: true },
+    orderBy: [{ buyBoxSyncedAt: { sort: 'asc', nulls: 'first' } }],
+    take: AMAZON_BATCH,
   }) : []
   const bmListings = bmSkus.length ? await prisma.marketplaceListing.findMany({
     where: { marketplace: 'backmarket', sellerSku: { in: bmSkus } }, select: { id: true, sellerSku: true, bmListingRef: true },
+    orderBy: [{ backboxSyncedAt: { sort: 'asc', nulls: 'first' } }],
+    take: BM_BATCH,
   }) : []
 
   const stats: RefreshPricingResult = {
