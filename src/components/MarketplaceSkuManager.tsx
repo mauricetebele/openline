@@ -1915,62 +1915,47 @@ export default function MarketplaceSkuManager() {
                       className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue disabled:opacity-40"
                     />
                   </th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Seller SKU</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN / BMID</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">FNSKU</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Parent product SKU. Click to sort.">
-                    <button onClick={() => { setParentSkuSort(s => s === 'none' ? 'asc' : s === 'asc' ? 'desc' : 'none'); setCreatedSort('none'); setSyncQtySort('none'); setReadyForSaleSort('none') }}
-                      className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors uppercase tracking-wide">
-                      Parent SKU
-                      {parentSkuSort === 'asc' && <span className="text-amazon-blue" title="A → Z">▲</span>}
-                      {parentSkuSort === 'desc' && <span className="text-amazon-blue" title="Z → A">▼</span>}
-                      {parentSkuSort === 'none' && <span className="text-gray-300">⇅</span>}
-                    </button>
+                  <th className="text-left" title="Seller SKU · ASIN (links to Amazon) / Back Market ID · FNSKU">SKU</th>
+                  <th className="text-left" title="Parent product SKU · description · grade · condition · marketplace · created date">
+                    <span className="inline-flex items-center gap-2">
+                      <button onClick={() => { setParentSkuSort(s => s === 'none' ? 'asc' : s === 'asc' ? 'desc' : 'none'); setCreatedSort('none'); setSyncQtySort('none'); setReadyForSaleSort('none') }}
+                        className="inline-flex items-center gap-0.5 hover:text-gray-700 transition-colors">
+                        Product
+                        {parentSkuSort === 'asc' && <span className="text-amazon-blue" title="A → Z">▲</span>}
+                        {parentSkuSort === 'desc' && <span className="text-amazon-blue" title="Z → A">▼</span>}
+                        {parentSkuSort === 'none' && <span className="text-gray-300">⇅</span>}
+                      </button>
+                      <button onClick={() => { setCreatedSort(s => s === 'none' ? 'newest' : s === 'newest' ? 'oldest' : 'none'); setSyncQtySort('none'); setReadyForSaleSort('none'); setParentSkuSort('none') }}
+                        className="inline-flex items-center gap-0.5 font-normal text-gray-300 hover:text-gray-600 transition-colors" title="Sort by created date">
+                        · date
+                        {createdSort === 'newest' && <span className="text-amazon-blue" title="Newest first">▼</span>}
+                        {createdSort === 'oldest' && <span className="text-amazon-blue" title="Oldest first">▲</span>}
+                        {createdSort === 'none' && <span>⇅</span>}
+                      </button>
+                    </span>
                   </th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Current listing price (Amazon & Back Market). Click to edit — the change is pushed to that marketplace. Amazon rows also have a live-refresh icon.">Current Price</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Amazon listing status. Green = Active, Red = Inactive. Refreshed together with the price.">Status</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Amazon Buy Box (winner price + seller) or Back Market BackBox (winning price; ✓ if we hold it). Refreshed every 30 min.">Buy/Back Box</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Calculation Template (commission % + per-preset shipping). Required to enable Target Margin.">Calc Template</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Average landed cost (unit cost + cost code) of in-stock finished-goods units.">Avg Cost</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Target net margin. Enter a % and the system computes the price that realizes it from avg cost + template commission + shipping. Click the price to review & push.">Target Margin</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Net margin at the CURRENT selling price, using the assigned template.">Margin @ Price</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Merchant shipping template (FBM/MFN only). Change per row, or select multiple rows and bulk-change from the bar above the table.">Shipping Template</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marketplace</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    <button onClick={() => { setCreatedSort(s => s === 'none' ? 'newest' : s === 'newest' ? 'oldest' : 'none'); setSyncQtySort('none'); setReadyForSaleSort('none'); setParentSkuSort('none') }}
-                      className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors uppercase tracking-wide">
-                      Created
-                      {createdSort === 'newest' && <span className="text-amazon-blue" title="Newest first">▼</span>}
-                      {createdSort === 'oldest' && <span className="text-amazon-blue" title="Oldest first">▲</span>}
-                      {createdSort === 'none' && <span className="text-gray-300">⇅</span>}
-                    </button>
+                  <th className="text-right" title="Current listing price (click to edit & push to that marketplace; Amazon rows have a live-refresh icon) with listing status light.">Price</th>
+                  <th className="text-right" title="Amazon Buy Box (winner price + seller) or Back Market BackBox (winning price; ✓ if we hold it). Refreshed every 30 min.">Buy/Back Box</th>
+                  <th className="text-left" title="Calculation template · avg landed cost · target net margin · net margin at current price.">Margin</th>
+                  <th className="text-left" title="Merchant shipping template (FBM/MFN) · SEE-SAW · Last Unit Lean · SIMUL-LIST last-unit strategy.">Strategy</th>
+                  <th className="text-center" title="Sync-qty toggle · max qty · ready-for-sale on-hand · qty currently pushing.">
+                    <span className="inline-flex items-center gap-2">
+                      <button onClick={() => { setSyncQtySort(s => s === 'none' ? 'enabled' : s === 'enabled' ? 'disabled' : 'none'); setCreatedSort('none'); setReadyForSaleSort('none'); setParentSkuSort('none') }}
+                        className="inline-flex items-center gap-0.5 hover:text-gray-700 transition-colors">
+                        Qty
+                        {syncQtySort === 'enabled' && <span className="text-green-600">▼</span>}
+                        {syncQtySort === 'disabled' && <span className="text-red-500">▲</span>}
+                        {syncQtySort === 'none' && <span className="text-gray-300">⇅</span>}
+                      </button>
+                      <button onClick={() => { setReadyForSaleSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none'); setCreatedSort('none'); setSyncQtySort('none'); setParentSkuSort('none') }}
+                        className="inline-flex items-center gap-0.5 font-normal text-gray-300 hover:text-gray-600 transition-colors" title="Sort by ready-for-sale on-hand">
+                        · rfs
+                        {readyForSaleSort === 'desc' && <span className="text-amazon-blue" title="Most first">▼</span>}
+                        {readyForSaleSort === 'asc' && <span className="text-amazon-blue" title="Least first">▲</span>}
+                        {readyForSaleSort === 'none' && <span>⇅</span>}
+                      </button>
+                    </span>
                   </th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    <button onClick={() => { setSyncQtySort(s => s === 'none' ? 'enabled' : s === 'enabled' ? 'disabled' : 'none'); setCreatedSort('none'); setReadyForSaleSort('none'); setParentSkuSort('none') }}
-                      className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors">
-                      Sync Qty
-                      {syncQtySort === 'enabled' && <span className="text-green-600">▼</span>}
-                      {syncQtySort === 'disabled' && <span className="text-red-500">▲</span>}
-                      {syncQtySort === 'none' && <span className="text-gray-300">⇅</span>}
-                    </button>
-                  </th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Max Qty</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Physical quantity on hand in the finished-goods (Ready for Sale) location for this product + grade. Click to sort.">
-                    <button onClick={() => { setReadyForSaleSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none'); setCreatedSort('none'); setSyncQtySort('none'); setParentSkuSort('none') }}
-                      className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors uppercase tracking-wide">
-                      Ready for Sale
-                      {readyForSaleSort === 'desc' && <span className="text-amazon-blue" title="Most first">▼</span>}
-                      {readyForSaleSort === 'asc' && <span className="text-amazon-blue" title="Least first">▲</span>}
-                      {readyForSaleSort === 'none' && <span className="text-gray-300">⇅</span>}
-                    </button>
-                  </th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Pushing</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="SEE-SAW: when down to the last unit, alternate which marketplace gets it every 12 hours. Default on; mutually exclusive with Last Unit Lean. Shown only for product/grades pushing on more than one marketplace.">SEE-SAW</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Last Unit Lean: when only the last unit remains, always push it to this marketplace. One marketplace per product+grade; mutually exclusive with SEE-SAW.">Last Unit Lean</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide" title="SIMUL-LIST: the opposite of Last Unit Lean — when down to the last unit, list it on ALL marketplaces at once (risks oversell, maximizes velocity). Mutually exclusive with Last Unit Lean and SEE-SAW.">SIMUL-LIST</th>
                   <th className="px-3 py-2 w-12" />
                 </tr>
               </thead>
@@ -1985,32 +1970,65 @@ export default function MarketplaceSkuManager() {
                         className="rounded border-gray-300 text-amazon-blue focus:ring-amazon-blue"
                       />
                     </td>
-                    <td className="px-3 py-2 font-mono text-xs font-medium text-gray-900">{s.sellerSku}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-gray-600">
-                      {s.asin
-                        ? <a href={`https://www.amazon.com/dp/${s.asin}`} target="_blank" rel="noopener noreferrer" className="text-amazon-blue hover:underline">{s.asin}</a>
-                        : (s.bmListingId ?? '—')}
+                    {/* SKU: seller sku · asin/bmid · fnsku */}
+                    <td className="align-top">
+                      <div className="flex flex-col gap-0.5 leading-tight">
+                        <span className="font-mono text-xs font-medium text-gray-900">{s.sellerSku}</span>
+                        <span className="font-mono text-[11px] text-gray-500">
+                          {s.asin
+                            ? <a href={`https://www.amazon.com/dp/${s.asin}`} target="_blank" rel="noopener noreferrer" className="text-amazon-blue hover:underline">{s.asin}</a>
+                            : (s.bmListingId ?? '—')}
+                        </span>
+                        {(s.fnsku || (s.marketplace === 'amazon' && s.accountId && s.fulfillmentChannel === 'FBA')) && (
+                          <span className="font-mono text-[10px] text-gray-400">
+                            {s.fnsku ? s.fnsku : (
+                              <button
+                                type="button"
+                                disabled={fetchingFnskuIds.has(s.id)}
+                                onClick={() => handleFetchFnsku(s)}
+                                className="inline-flex items-center gap-1 rounded bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                              >
+                                {fetchingFnskuIds.has(s.id) ? (
+                                  <><RefreshCw size={10} className="animate-spin" /> Fetching…</>
+                                ) : (
+                                  'Get FNSKU'
+                                )}
+                              </button>
+                            )}
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className="px-3 py-2 font-mono text-xs text-gray-600">
-                      {s.fnsku ? s.fnsku : s.marketplace === 'amazon' && s.accountId && s.fulfillmentChannel === 'FBA' ? (
-                        <button
-                          type="button"
-                          disabled={fetchingFnskuIds.has(s.id)}
-                          onClick={() => handleFetchFnsku(s)}
-                          className="inline-flex items-center gap-1 rounded bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                        >
-                          {fetchingFnskuIds.has(s.id) ? (
-                            <><RefreshCw size={10} className="animate-spin" /> Fetching…</>
-                          ) : (
-                            'Get FNSKU'
+                    {/* Product: parent sku + badges · description · grade · condition · created */}
+                    <td className="align-top max-w-[260px]">
+                      <div className="flex flex-col gap-0.5 leading-snug">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono text-xs text-gray-700">{s.product.sku}</span>
+                          <span className={clsx(
+                            'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium capitalize',
+                            s.marketplace === 'amazon' && 'bg-orange-100 text-orange-700',
+                            s.marketplace === 'backmarket' && 'bg-green-100 text-green-700',
+                            s.marketplace === 'wholesale' && 'bg-blue-100 text-blue-700',
+                          )}>
+                            {s.marketplace === 'backmarket' ? 'Back Market' : s.marketplace}
+                          </span>
+                          {s.fulfillmentChannel === 'FBA' && (
+                            <span className="inline-flex items-center rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700">FBA</span>
                           )}
-                        </button>
-                      ) : '—'}
+                        </div>
+                        <span className="text-[11px] text-gray-500 whitespace-normal break-words">{s.product.description}</span>
+                        <div className="flex items-center gap-1.5 text-[10px] text-gray-400 whitespace-nowrap">
+                          <span>Grade {s.grade?.grade ?? '—'}</span>
+                          <span>·</span>
+                          <span>{s.itemCondition ?? '—'}</span>
+                          <span>·</span>
+                          <span title={new Date(s.createdAt).toLocaleString()}>{new Date(s.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
                     </td>
-                    <td className="px-3 py-2 font-mono text-xs text-gray-700">{s.product.sku}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600">{s.grade?.grade ?? '—'}</td>
-                    <td className="px-3 py-2 text-xs text-gray-500">{s.itemCondition ?? '—'}</td>
-                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {/* Price + listing status */}
+                    <td className="align-top text-right whitespace-nowrap">
+                      <div className="flex flex-col items-end gap-1">
                       {s.marketplace !== 'amazon' && s.marketplace !== 'backmarket' ? (
                         <span className="text-gray-300 text-xs">—</span>
                       ) : editingPriceId === s.id ? (
@@ -2057,12 +2075,7 @@ export default function MarketplaceSkuManager() {
                           )}
                         </div>
                       )}
-                    </td>
-                    {/* Amazon listing status — red/green light */}
-                    <td className="px-3 py-2 text-center">
-                      {s.marketplace !== 'amazon' && s.marketplace !== 'backmarket' ? (
-                        <span className="text-xs text-gray-300">—</span>
-                      ) : (
+                      {(s.marketplace === 'amazon' || s.marketplace === 'backmarket') && (
                         <span
                           className="inline-flex items-center gap-1.5"
                           title={s.listingStatus
@@ -2070,13 +2083,13 @@ export default function MarketplaceSkuManager() {
                             : (s.marketplace === 'backmarket' ? 'Status unknown — sync Back Market to fetch' : 'Status unknown — refresh price to fetch')}
                         >
                           <span className={clsx(
-                            'inline-block h-2.5 w-2.5 rounded-full',
+                            'inline-block h-2 w-2 rounded-full',
                             s.listingStatus === 'Active' ? 'bg-green-500'
                               : s.listingStatus == null ? 'bg-gray-300'
                               : 'bg-red-500',
                           )} />
                           <span className={clsx(
-                            'text-[11px] font-medium',
+                            'text-[10px] font-medium',
                             s.listingStatus === 'Active' ? 'text-green-700'
                               : s.listingStatus == null ? 'text-gray-400'
                               : 'text-red-600',
@@ -2085,6 +2098,7 @@ export default function MarketplaceSkuManager() {
                           </span>
                         </span>
                       )}
+                      </div>
                     </td>
                     {/* Buy Box / BackBox */}
                     <td className="px-3 py-2 text-right align-top whitespace-nowrap">
@@ -2104,274 +2118,257 @@ export default function MarketplaceSkuManager() {
                         ) : <span className="text-gray-300 text-xs">—</span>
                       ) : <span className="text-gray-300 text-xs">—</span>}
                     </td>
-                    {/* Calc template */}
-                    <td className="px-3 py-2 text-center align-top">
-                      {s.marketplace !== 'amazon' && s.marketplace !== 'backmarket' ? (
-                        <span className="text-xs text-gray-300">—</span>
-                      ) : (
-                        <select
-                          value={s.calculationTemplateId ?? ''}
-                          onChange={(e) => handleSetTemplate(s.id, e.target.value || null)}
-                          title="Assign a calculation template (enables Target Margin)"
-                          className="max-w-[130px] rounded border border-gray-300 bg-white px-1.5 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-amazon-blue"
-                        >
-                          <option value="">— none —</option>
-                          {calcTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                        </select>
-                      )}
-                    </td>
-                    {/* Avg cost of in-stock FG units */}
-                    <td className="px-3 py-2 text-right align-top">
-                      {(() => {
-                        const b = qtyMap[s.id]
-                        if (!b || b.avgUnitCost == null || (b.readyForSale ?? 0) <= 0) return <span className="text-xs text-gray-300">—</span>
-                        const cost = b.avgUnitCost + (b.avgCostCode ?? 0)
-                        return <span className="font-mono text-xs text-gray-700" title={`Unit $${b.avgUnitCost.toFixed(2)} + cost code $${(b.avgCostCode ?? 0).toFixed(2)}`}>${cost.toFixed(2)}</span>
-                      })()}
-                    </td>
-                    {/* Target margin */}
-                    <td className="px-3 py-2 text-center align-top">
-                      {s.marketplace !== 'amazon' && s.marketplace !== 'backmarket' ? (
-                        <span className="text-xs text-gray-300">—</span>
-                      ) : (
-                        <TargetMarginCell
-                          row={s}
-                          template={templateById(s.calculationTemplateId)}
-                          breakdown={qtyMap[s.id]}
-                          onSetMargin={handleSetTargetMargin}
-                          onApply={setMarginConfirm}
-                        />
-                      )}
-                    </td>
-                    {/* Margin @ current selling price */}
-                    <td className="px-3 py-2 text-right align-top">
-                      {(() => {
-                        const b = qtyMap[s.id]
-                        const fees = resolveFees(templateById(s.calculationTemplateId), s.product.defaultPackagePresetId)
-                        const price = s.price != null ? parseFloat(s.price) : null
-                        if (!fees || !b || b.avgUnitCost == null || price == null || (b.readyForSale ?? 0) <= 0) return <span className="text-xs text-gray-300">—</span>
-                        const m = marginAtPrice(price, b.avgUnitCost, b.avgCostCode ?? 0, fees)
-                        if (m == null) return <span className="text-xs text-gray-300">—</span>
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => setMarginDetail({ row: s, price, avgUnitCost: b.avgUnitCost!, avgCostCode: b.avgCostCode ?? 0, fees, readyForSale: b.readyForSale ?? 0, templateName: templateById(s.calculationTemplateId)?.name ?? null })}
-                            className={clsx('font-mono text-xs hover:underline', m < 0 ? 'text-red-600' : m < 10 ? 'text-amber-600' : 'text-emerald-700')}
-                            title={`Net margin at current price $${price.toFixed(2)} — click for full breakdown`}
+                    {/* Margin: calc template · avg cost · target margin · margin @ price */}
+                    <td className="align-top">
+                      <div className="flex flex-col gap-1 min-w-[172px]">
+                        {(s.marketplace === 'amazon' || s.marketplace === 'backmarket') && (
+                          <select
+                            value={s.calculationTemplateId ?? ''}
+                            onChange={(e) => handleSetTemplate(s.id, e.target.value || null)}
+                            title="Assign a calculation template (enables Target Margin)"
+                            className="w-full rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-amazon-blue"
                           >
-                            {m.toFixed(1)}%
-                          </button>
-                        )
-                      })()}
-                    </td>
-                    {/* Shipping template (FBM/MFN) */}
-                    <td className="px-3 py-2 align-top">
-                      {!isTemplateRow(s) ? (
-                        <span className="text-xs text-gray-300">—</span>
-                      ) : (
-                        <select
-                          value={s.shippingTemplate ?? ''}
-                          disabled={changingTemplate}
-                          onChange={(e) => { const v = e.target.value; if (v && v !== s.shippingTemplate) changeTemplates([s.sellerSku], v, accountIdFor(s)) }}
-                          title={s.shippingTemplate ?? 'No template set'}
-                          className="max-w-[170px] rounded border border-gray-300 bg-white px-1.5 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-amazon-blue disabled:opacity-50"
-                        >
-                          {!s.shippingTemplate && <option value="">— none —</option>}
-                          {s.shippingTemplate && !shippingTemplates.includes(s.shippingTemplate) && (
-                            <option value={s.shippingTemplate}>{s.shippingTemplate}</option>
-                          )}
-                          {shippingTemplates.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-xs text-gray-600 max-w-[240px] whitespace-normal break-words leading-snug align-top">{s.product.description}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-1.5">
-                        <span className={clsx(
-                          'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
-                          s.marketplace === 'amazon' && 'bg-orange-100 text-orange-700',
-                          s.marketplace === 'backmarket' && 'bg-green-100 text-green-700',
-                          s.marketplace === 'wholesale' && 'bg-blue-100 text-blue-700',
-                        )}>
-                          {s.marketplace === 'backmarket' ? 'Back Market' : s.marketplace}
-                        </span>
-                        {s.fulfillmentChannel === 'FBA' && (
-                          <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">FBA</span>
+                            <option value="">— template —</option>
+                            {calcTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                          </select>
                         )}
+                        <div className="flex items-center justify-between gap-2 text-[10px]">
+                          <span className="text-gray-400 uppercase tracking-wide">Avg</span>
+                          {(() => {
+                            const b = qtyMap[s.id]
+                            if (!b || b.avgUnitCost == null || (b.readyForSale ?? 0) <= 0) return <span className="text-xs text-gray-300">—</span>
+                            const cost = b.avgUnitCost + (b.avgCostCode ?? 0)
+                            return <span className="font-mono text-xs text-gray-700" title={`Unit $${b.avgUnitCost.toFixed(2)} + cost code $${(b.avgCostCode ?? 0).toFixed(2)}`}>${cost.toFixed(2)}</span>
+                          })()}
+                        </div>
+                        <div className="flex items-center justify-between gap-2 text-[10px]">
+                          <span className="text-gray-400 uppercase tracking-wide">Target</span>
+                          {s.marketplace !== 'amazon' && s.marketplace !== 'backmarket' ? (
+                            <span className="text-xs text-gray-300">—</span>
+                          ) : (
+                            <TargetMarginCell
+                              row={s}
+                              template={templateById(s.calculationTemplateId)}
+                              breakdown={qtyMap[s.id]}
+                              onSetMargin={handleSetTargetMargin}
+                              onApply={setMarginConfirm}
+                            />
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between gap-2 text-[10px]">
+                          <span className="text-gray-400 uppercase tracking-wide">@Price</span>
+                          {(() => {
+                            const b = qtyMap[s.id]
+                            const fees = resolveFees(templateById(s.calculationTemplateId), s.product.defaultPackagePresetId)
+                            const price = s.price != null ? parseFloat(s.price) : null
+                            if (!fees || !b || b.avgUnitCost == null || price == null || (b.readyForSale ?? 0) <= 0) return <span className="text-xs text-gray-300">—</span>
+                            const m = marginAtPrice(price, b.avgUnitCost, b.avgCostCode ?? 0, fees)
+                            if (m == null) return <span className="text-xs text-gray-300">—</span>
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => setMarginDetail({ row: s, price, avgUnitCost: b.avgUnitCost!, avgCostCode: b.avgCostCode ?? 0, fees, readyForSale: b.readyForSale ?? 0, templateName: templateById(s.calculationTemplateId)?.name ?? null })}
+                                className={clsx('font-mono text-xs hover:underline', m < 0 ? 'text-red-600' : m < 10 ? 'text-amber-600' : 'text-emerald-700')}
+                                title={`Net margin at current price $${price.toFixed(2)} — click for full breakdown`}
+                              >
+                                {m.toFixed(1)}%
+                              </button>
+                            )
+                          })()}
+                        </div>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap" title={new Date(s.createdAt).toLocaleString()}>
-                      {new Date(s.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      {s.fulfillmentChannel === 'FBA' ? (
-                        <span className="text-[10px] text-gray-400" title="FBA inventory is managed by Amazon">N/A</span>
-                      ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleToggleSyncQty(s.id, s.syncQty)}
-                        disabled={togglingIds.has(s.id)}
-                        className={clsx(
-                          'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amazon-blue focus:ring-offset-1 disabled:opacity-50',
-                          s.syncQty ? 'bg-green-500' : 'bg-gray-300',
+                    {/* Strategy: shipping template · see-saw · last-unit lean · simul-list */}
+                    <td className="align-top">
+                      <div className="flex flex-col gap-1 min-w-[160px]">
+                        {isTemplateRow(s) && (
+                          <select
+                            value={s.shippingTemplate ?? ''}
+                            disabled={changingTemplate}
+                            onChange={(e) => { const v = e.target.value; if (v && v !== s.shippingTemplate) changeTemplates([s.sellerSku], v, accountIdFor(s)) }}
+                            title={s.shippingTemplate ?? 'No template set'}
+                            className="w-full rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-amazon-blue disabled:opacity-50"
+                          >
+                            {!s.shippingTemplate && <option value="">— shipping template —</option>}
+                            {s.shippingTemplate && !shippingTemplates.includes(s.shippingTemplate) && (
+                              <option value={s.shippingTemplate}>{s.shippingTemplate}</option>
+                            )}
+                            {shippingTemplates.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
                         )}
-                      >
-                        <span
-                          className={clsx(
-                            'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
-                            s.syncQty ? 'translate-x-[18px]' : 'translate-x-[3px]',
-                          )}
-                        />
-                      </button>
-                      )}
+                        {showStrategyToggles(s) ? (
+                          <>
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                              <span className="text-gray-400 uppercase tracking-wide">See-Saw</span>
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={s.seeSaw}
+                                  onClick={() => handleSetSeeSaw(s.id, !s.seeSaw)}
+                                  title={s.seeSaw
+                                    ? 'On — the last unit alternates between marketplaces every 12h'
+                                    : 'Off — click to alternate the last unit between marketplaces'}
+                                  className={clsx(
+                                    'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-1',
+                                    s.seeSaw ? 'bg-purple-500' : 'bg-gray-200 hover:bg-gray-300',
+                                  )}
+                                >
+                                  <span className={clsx(
+                                    'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                                    s.seeSaw ? 'translate-x-4' : 'translate-x-0.5',
+                                  )} />
+                                </button>
+                                {s.seeSaw && s.seeSawActive && (
+                                  <span className="inline-flex items-center rounded-full bg-purple-100 px-1.5 py-0.5 text-[9px] font-semibold text-purple-700" title="Currently the active side — this marketplace holds the last unit right now">LIVE</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                              <span className="text-gray-400 uppercase tracking-wide">Last-Unit</span>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={s.isDefaultSku}
+                                onClick={() => handleSetDefaultSku(s.id, !s.isDefaultSku)}
+                                title={s.isDefaultSku
+                                  ? `On — last unit leans to this ${s.marketplace === 'backmarket' ? 'Back Market' : s.marketplace} SKU`
+                                  : 'Off — click to lean the last unit to this SKU'}
+                                className={clsx(
+                                  'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amazon-blue focus:ring-offset-1',
+                                  s.isDefaultSku ? 'bg-amazon-blue' : 'bg-gray-200 hover:bg-gray-300',
+                                )}
+                              >
+                                <span className={clsx(
+                                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                                  s.isDefaultSku ? 'translate-x-4' : 'translate-x-0.5',
+                                )} />
+                              </button>
+                            </div>
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                              <span className="text-gray-400 uppercase tracking-wide">Simul</span>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={s.simulList}
+                                onClick={() => handleSetSimulList(s.id, !s.simulList)}
+                                title={s.simulList
+                                  ? 'On — the last unit is listed on all marketplaces at once'
+                                  : 'Off — click to list the last unit on all marketplaces at once'}
+                                className={clsx(
+                                  'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1',
+                                  s.simulList ? 'bg-teal-500' : 'bg-gray-200 hover:bg-gray-300',
+                                )}
+                              >
+                                <span className={clsx(
+                                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                                  s.simulList ? 'translate-x-4' : 'translate-x-0.5',
+                                )} />
+                              </button>
+                            </div>
+                          </>
+                        ) : !isTemplateRow(s) ? (
+                          <span className="text-xs text-gray-300">—</span>
+                        ) : null}
+                      </div>
                     </td>
-                    <td className="px-3 py-2 text-center">
-                      {s.fulfillmentChannel === 'FBA' ? (
-                        <span className="text-[10px] text-gray-400">—</span>
-                      ) : (
-                      <input
-                        type="number"
-                        min={0}
-                        placeholder="—"
-                        disabled={!s.syncQty}
-                        defaultValue={s.maxQty ?? ''}
-                        key={`${s.id}-${s.maxQty}`}
-                        onBlur={(e) => {
-                          const raw = e.target.value.trim()
-                          const val = raw === '' ? null : Math.max(0, parseInt(raw, 10))
-                          if (val !== s.maxQty && !(val === null && s.maxQty === null) && !(Number.isNaN(val as number))) {
-                            apiPatch(`/api/marketplace-skus/${s.id}`, { maxQty: val })
-                              .then(() => {
-                                setSkus((prev) => prev.map((sk) => (sk.id === s.id ? { ...sk, maxQty: val } : sk)))
-                                scheduleQtyBreakdown()
-                              })
-                              .catch((err: Error) => setErr(err.message))
-                          }
-                        }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                        className={clsx(
-                          'w-16 text-center font-mono text-xs rounded border px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400',
-                          s.syncQty ? 'border-gray-300 bg-white text-gray-900' : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed',
-                        )}
-                      />
-                      )}
-                    </td>
-                    {/* Ready for Sale (finished-goods on-hand) */}
-                    <td className="px-3 py-2 text-center">
-                      {qtyMap[s.id] ? (
-                        <span className="font-mono text-xs text-gray-700">{qtyMap[s.id].readyForSale}</span>
-                      ) : (
-                        <span className="text-[10px] text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      {s.fulfillmentChannel === 'FBA' ? (
-                        <span className="text-[10px] text-gray-400">—</span>
-                      ) : s.syncQty && qtyMap[s.id] ? (
-                        <div className="inline-flex items-center gap-1.5">
-                          <QtyBadge breakdown={qtyMap[s.id]} />
-                          {qtyMap[s.id].groupSize > 1 && (
-                            <span className="text-[10px] text-purple-500 font-medium whitespace-nowrap">
-                              {`${groupPosMap.get(s.id) ?? 1}/${qtyMap[s.id].groupSize}`}
-                            </span>
-                          )}
-                          {qtyMap[s.id].groupSize > 1 && (
-                            <button
-                              type="button"
-                              title={s.isDefaultSku ? 'Default SKU (receives buffer qty)' : 'Set as default SKU'}
-                              onClick={() => handleSetDefaultSku(s.id, !s.isDefaultSku)}
-                              className={clsx(
-                                'text-[12px] transition-colors',
-                                s.isDefaultSku ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-400 opacity-0 group-hover:opacity-100',
-                              )}
-                            >
-                              ★
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-300">—</span>
-                      )}
-                    </td>
-                    {/* SEE-SAW */}
-                    <td className="px-3 py-2 text-center">
-                      {showStrategyToggles(s) ? (
-                        <div className="inline-flex items-center gap-1.5">
+                    {/* Qty: sync toggle · max · ready-for-sale · pushing */}
+                    <td className="align-top">
+                      <div className="flex flex-col gap-1 min-w-[128px]">
+                        <div className="flex items-center justify-between gap-2 text-[10px]">
+                          <span className="text-gray-400 uppercase tracking-wide">Sync</span>
+                          {s.fulfillmentChannel === 'FBA' ? (
+                            <span className="text-[10px] text-gray-400" title="FBA inventory is managed by Amazon">N/A</span>
+                          ) : (
                           <button
                             type="button"
-                            role="switch"
-                            aria-checked={s.seeSaw}
-                            onClick={() => handleSetSeeSaw(s.id, !s.seeSaw)}
-                            title={s.seeSaw
-                              ? 'On — the last unit alternates between marketplaces every 12h'
-                              : 'Off — click to alternate the last unit between marketplaces'}
+                            onClick={() => handleToggleSyncQty(s.id, s.syncQty)}
+                            disabled={togglingIds.has(s.id)}
                             className={clsx(
-                              'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-1',
-                              s.seeSaw ? 'bg-purple-500' : 'bg-gray-200 hover:bg-gray-300',
+                              'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amazon-blue focus:ring-offset-1 disabled:opacity-50',
+                              s.syncQty ? 'bg-green-500' : 'bg-gray-300',
                             )}
                           >
-                            <span className={clsx(
-                              'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
-                              s.seeSaw ? 'translate-x-4' : 'translate-x-0.5',
-                            )} />
+                            <span
+                              className={clsx(
+                                'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
+                                s.syncQty ? 'translate-x-[18px]' : 'translate-x-[3px]',
+                              )}
+                            />
                           </button>
-                          {s.seeSaw && s.seeSawActive && (
-                            <span className="inline-flex items-center rounded-full bg-purple-100 px-1.5 py-0.5 text-[9px] font-semibold text-purple-700" title="Currently the active side — this marketplace holds the last unit right now">LIVE</span>
                           )}
                         </div>
-                      ) : (
-                        <span className="text-xs text-gray-300">—</span>
-                      )}
-                    </td>
-                    {/* Last Unit Lean */}
-                    <td className="px-3 py-2 text-center">
-                      {showStrategyToggles(s) ? (
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={s.isDefaultSku}
-                          onClick={() => handleSetDefaultSku(s.id, !s.isDefaultSku)}
-                          title={s.isDefaultSku
-                            ? `On — last unit leans to this ${s.marketplace === 'backmarket' ? 'Back Market' : s.marketplace} SKU`
-                            : 'Off — click to lean the last unit to this SKU'}
-                          className={clsx(
-                            'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amazon-blue focus:ring-offset-1',
-                            s.isDefaultSku ? 'bg-amazon-blue' : 'bg-gray-200 hover:bg-gray-300',
+                        <div className="flex items-center justify-between gap-2 text-[10px]">
+                          <span className="text-gray-400 uppercase tracking-wide">Max</span>
+                          {s.fulfillmentChannel === 'FBA' ? (
+                            <span className="text-[10px] text-gray-400">—</span>
+                          ) : (
+                          <input
+                            type="number"
+                            min={0}
+                            placeholder="—"
+                            disabled={!s.syncQty}
+                            defaultValue={s.maxQty ?? ''}
+                            key={`${s.id}-${s.maxQty}`}
+                            onBlur={(e) => {
+                              const raw = e.target.value.trim()
+                              const val = raw === '' ? null : Math.max(0, parseInt(raw, 10))
+                              if (val !== s.maxQty && !(val === null && s.maxQty === null) && !(Number.isNaN(val as number))) {
+                                apiPatch(`/api/marketplace-skus/${s.id}`, { maxQty: val })
+                                  .then(() => {
+                                    setSkus((prev) => prev.map((sk) => (sk.id === s.id ? { ...sk, maxQty: val } : sk)))
+                                    scheduleQtyBreakdown()
+                                  })
+                                  .catch((err: Error) => setErr(err.message))
+                              }
+                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                            className={clsx(
+                              'w-16 text-center font-mono text-xs rounded border px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400',
+                              s.syncQty ? 'border-gray-300 bg-white text-gray-900' : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed',
+                            )}
+                          />
                           )}
-                        >
-                          <span className={clsx(
-                            'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
-                            s.isDefaultSku ? 'translate-x-4' : 'translate-x-0.5',
-                          )} />
-                        </button>
-                      ) : (
-                        <span className="text-xs text-gray-300">—</span>
-                      )}
-                    </td>
-                    {/* SIMUL-LIST */}
-                    <td className="px-3 py-2 text-center">
-                      {showStrategyToggles(s) ? (
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={s.simulList}
-                          onClick={() => handleSetSimulList(s.id, !s.simulList)}
-                          title={s.simulList
-                            ? 'On — the last unit is listed on all marketplaces at once'
-                            : 'Off — click to list the last unit on all marketplaces at once'}
-                          className={clsx(
-                            'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1',
-                            s.simulList ? 'bg-teal-500' : 'bg-gray-200 hover:bg-gray-300',
+                        </div>
+                        <div className="flex items-center justify-between gap-2 text-[10px]">
+                          <span className="text-gray-400 uppercase tracking-wide" title="Ready-for-sale finished-goods on-hand">RFS</span>
+                          {qtyMap[s.id] ? (
+                            <span className="font-mono text-xs text-gray-700">{qtyMap[s.id].readyForSale}</span>
+                          ) : (
+                            <span className="text-[10px] text-gray-400">—</span>
                           )}
-                        >
-                          <span className={clsx(
-                            'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
-                            s.simulList ? 'translate-x-4' : 'translate-x-0.5',
-                          )} />
-                        </button>
-                      ) : (
-                        <span className="text-xs text-gray-300">—</span>
-                      )}
+                        </div>
+                        <div className="flex items-center justify-between gap-2 text-[10px]">
+                          <span className="text-gray-400 uppercase tracking-wide">Push</span>
+                          {s.fulfillmentChannel === 'FBA' ? (
+                            <span className="text-[10px] text-gray-400">—</span>
+                          ) : s.syncQty && qtyMap[s.id] ? (
+                            <div className="inline-flex items-center gap-1.5">
+                              <QtyBadge breakdown={qtyMap[s.id]} />
+                              {qtyMap[s.id].groupSize > 1 && (
+                                <span className="text-[10px] text-purple-500 font-medium whitespace-nowrap">
+                                  {`${groupPosMap.get(s.id) ?? 1}/${qtyMap[s.id].groupSize}`}
+                                </span>
+                              )}
+                              {qtyMap[s.id].groupSize > 1 && (
+                                <button
+                                  type="button"
+                                  title={s.isDefaultSku ? 'Default SKU (receives buffer qty)' : 'Set as default SKU'}
+                                  onClick={() => handleSetDefaultSku(s.id, !s.isDefaultSku)}
+                                  className={clsx(
+                                    'text-[12px] transition-colors',
+                                    s.isDefaultSku ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-400 opacity-0 group-hover:opacity-100',
+                                  )}
+                                >
+                                  ★
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-300">—</span>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-3 py-2">
                       <button
