@@ -2574,6 +2574,13 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
     }
   }
 
+  // Sort-direction chevron for a column key (used by the consolidated grid header).
+  const sortArrow = (key: SortKey) => (
+    sortKey === key
+      ? sortDir === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />
+      : <ChevronsUpDown size={10} className="text-slate-300" />
+  )
+
   // Apply the marketplace facet filter (union). Empty selection = show everything.
   const visibleItems = useMemo(() => {
     if (mpFilter.size === 0) return items
@@ -2830,60 +2837,74 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
           <table className="min-w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                {([
-                  ['sku', 'SKU', 'text-left'],
-                  ['description', 'Description', 'text-left'],
-                  ['grade', 'Grade', 'text-left'],
-                  ['warehouse', 'Warehouse', 'text-left'],
-                  ['location', 'Location', 'text-left'],
-                  ['type', 'Type', 'text-center'],
-                  ['onHand', 'On Hand', 'text-right'],
-                  ['reserved', 'Reserved', 'text-right'],
-                  ['available', 'Available', 'text-right'],
-                  ['mpSales', 'MP Sales Recent', 'text-right'],
-                  ['marketplace', 'Marketplace', 'text-center'],
-                  ['avgCost', 'Avg Cost', 'text-right'],
-                  ['value', 'Value', 'text-right'],
-                ] as [SortKey, string, string][]).map(([key, label, align]) => (
-                  <th
-                    key={key}
-                    onClick={() => toggleSort(key)}
-                    className={`px-2 py-1.5 ${align} text-[10px] font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors`}
-                  >
-                    <span className="inline-flex items-center gap-0.5">
-                      {label}
-                      {sortKey === key
-                        ? sortDir === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />
-                        : <ChevronsUpDown size={10} className="text-gray-300" />}
-                    </span>
-                  </th>
-                ))}
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-slate-50/95 backdrop-blur border-b border-slate-200 [&_th]:px-2.5 [&_th]:py-2 [&_th]:text-[10px] [&_th]:font-semibold [&_th]:text-slate-500 [&_th]:uppercase [&_th]:tracking-wide [&_th]:select-none">
+                {/* Item — SKU · grade · description */}
+                <th className="text-left">
+                  <span className="inline-flex items-center gap-1.5">
+                    <button onClick={() => toggleSort('sku')} className="inline-flex items-center gap-0.5 hover:text-slate-700 transition-colors">SKU {sortArrow('sku')}</button>
+                    <button onClick={() => toggleSort('grade')} className="inline-flex items-center gap-0.5 font-normal text-slate-400 hover:text-slate-700 transition-colors">· grade {sortArrow('grade')}</button>
+                  </span>
+                </th>
+                {/* Location — location · warehouse · type */}
+                <th className="text-left">
+                  <span className="inline-flex items-center gap-1.5">
+                    <button onClick={() => toggleSort('location')} className="inline-flex items-center gap-0.5 hover:text-slate-700 transition-colors">Location {sortArrow('location')}</button>
+                    <button onClick={() => toggleSort('warehouse')} className="inline-flex items-center gap-0.5 font-normal text-slate-400 hover:text-slate-700 transition-colors">· whse {sortArrow('warehouse')}</button>
+                  </span>
+                </th>
+                {/* On Hand */}
+                <th className="text-right">
+                  <button onClick={() => toggleSort('onHand')} className="inline-flex items-center gap-0.5 hover:text-slate-700 transition-colors">On Hand {sortArrow('onHand')}</button>
+                </th>
+                {/* Avail · Reserved */}
+                <th className="text-right">
+                  <span className="inline-flex items-center gap-1.5 justify-end">
+                    <button onClick={() => toggleSort('available')} className="inline-flex items-center gap-0.5 hover:text-slate-700 transition-colors">Avail {sortArrow('available')}</button>
+                    <button onClick={() => toggleSort('reserved')} className="inline-flex items-center gap-0.5 font-normal text-slate-400 hover:text-slate-700 transition-colors">· rsv {sortArrow('reserved')}</button>
+                  </span>
+                </th>
+                {/* MP Sales */}
+                <th className="text-right">
+                  <button onClick={() => toggleSort('mpSales')} className="inline-flex items-center gap-0.5 justify-end hover:text-slate-700 transition-colors">MP Sales {sortArrow('mpSales')}</button>
+                </th>
+                {/* Marketplace */}
+                <th className="text-center">
+                  <button onClick={() => toggleSort('marketplace')} className="inline-flex items-center gap-0.5 justify-center hover:text-slate-700 transition-colors">Market {sortArrow('marketplace')}</button>
+                </th>
+                {/* Value · Avg Cost */}
+                <th className="text-right">
+                  <span className="inline-flex items-center gap-1.5 justify-end">
+                    <button onClick={() => toggleSort('value')} className="inline-flex items-center gap-0.5 hover:text-slate-700 transition-colors">Value {sortArrow('value')}</button>
+                    <button onClick={() => toggleSort('avgCost')} className="inline-flex items-center gap-0.5 font-normal text-slate-400 hover:text-slate-700 transition-colors">· cost {sortArrow('avgCost')}</button>
+                  </span>
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-slate-100">
               {sortedItems.map(item => {
                 const value = item.unitCost != null ? item.onHand * item.unitCost : null
                 return (
-                <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-2 py-1 font-mono text-xs font-semibold text-gray-900 whitespace-nowrap">{item.product.sku}</td>
-                  <td className="px-2 py-1 text-gray-600 truncate max-w-[200px]">{item.product.description}</td>
-                  <td className="px-2 py-1">
-                    {item.grade ? (
-                      <GradeBadge grade={item.grade.grade} size="xs" />
-                    ) : (
-                      <span className="text-gray-300">—</span>
-                    )}
+                <tr key={item.id} className="odd:bg-white even:bg-slate-50/60 hover:bg-blue-50/60 transition-colors">
+                  {/* Item — SKU · grade · description */}
+                  <td className="px-2.5 py-1 align-top">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-xs font-semibold text-gray-900 whitespace-nowrap">{item.product.sku}</span>
+                      {item.grade ? <GradeBadge grade={item.grade.grade} size="xs" /> : null}
+                    </div>
+                    <span className="block text-[11px] text-gray-500 truncate max-w-[260px]" title={item.product.description}>{item.product.description}</span>
                   </td>
-                  <td className="px-2 py-1 text-gray-500 whitespace-nowrap">{item.location.warehouse.name}</td>
-                  <td className="px-2 py-1 text-gray-500 whitespace-nowrap">{item.location.name}</td>
-                  <td className="px-2 py-1 text-center">
-                    {item.product.isSerializable
-                      ? <span title="Serialized"><Barcode size={14} className="inline text-purple-600" /></span>
-                      : <span className="inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500">Non-serial</span>}
+                  {/* Location — location · warehouse · type */}
+                  <td className="px-2.5 py-1 align-top whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-medium text-gray-700">{item.location.name}</span>
+                      {item.product.isSerializable
+                        ? <span title="Serialized"><Barcode size={13} className="inline text-purple-500" /></span>
+                        : <span className="inline-flex rounded-full px-1.5 py-px text-[9px] font-medium bg-gray-100 text-gray-500">Non-serial</span>}
+                    </div>
+                    <span className="block text-[10px] text-gray-400">{item.location.warehouse.name}</span>
                   </td>
                   <td className="px-2 py-1 text-right">
                     {item.product.isSerializable ? (
@@ -2898,15 +2919,14 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                       <span className="font-semibold text-gray-900 tabular-nums">{item.onHand}</span>
                     )}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums">
-                    {item.reserved > 0 ? (
-                      <span className="font-medium text-amber-600">{item.reserved}</span>
-                    ) : (
-                      <span className="text-gray-300">—</span>
-                    )}
-                  </td>
-                  <td className="px-2 py-1 text-right font-semibold text-gray-900 tabular-nums">
-                    {item.onHand - item.reserved}
+                  {/* Avail · Reserved */}
+                  <td className="px-2.5 py-1 text-right whitespace-nowrap">
+                    <div className="flex flex-col items-end leading-tight">
+                      <span className="font-semibold text-gray-900 tabular-nums">{item.onHand - item.reserved}</span>
+                      {item.reserved > 0
+                        ? <span className="text-[10px] font-medium text-amber-600 tabular-nums">{item.reserved} rsv</span>
+                        : <span className="text-[10px] text-gray-300">0 rsv</span>}
+                    </div>
                   </td>
                   <td className="px-2 py-1 text-right tabular-nums">
                     {item.location.isFinishedGoods ? (
@@ -2961,18 +2981,19 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                       )
                     })()}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums text-gray-700 whitespace-nowrap">
-                    {item.unitCost != null ? `$${item.unitCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-gray-300">—</span>}
-                  </td>
-                  <td className="px-2 py-1 text-right tabular-nums text-gray-700 whitespace-nowrap">
-                    {value != null ? `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-gray-300">—</span>}
+                  {/* Value · Avg Cost */}
+                  <td className="px-2.5 py-1 text-right whitespace-nowrap">
+                    <div className="flex flex-col items-end leading-tight">
+                      <span className="font-semibold text-gray-900 tabular-nums">{value != null ? `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-gray-300 font-normal">—</span>}</span>
+                      {item.unitCost != null && <span className="text-[10px] text-gray-400 tabular-nums">@ ${item.unitCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+                    </div>
                   </td>
                 </tr>
                 )
               })}
               {sortedItems.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="px-2 py-8 text-center text-sm text-gray-400">
+                  <td colSpan={7} className="px-2 py-8 text-center text-sm text-gray-400">
                     No SKUs match the selected marketplace filter.
                   </td>
                 </tr>
