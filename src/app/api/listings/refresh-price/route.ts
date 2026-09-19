@@ -17,6 +17,9 @@ import { getAuthUser } from '@/lib/get-auth-user'
 const bodySchema = z.object({
   sku: z.string().min(1),
   accountId: z.string().min(1).optional(),
+  // Single-row refresh pulls Buy Box too; the bulk "refresh all prices" pass
+  // sends buyBox:false to stay within the rate-limited pricing endpoint.
+  buyBox: z.boolean().optional(),
 })
 
 export async function POST(req: NextRequest) {
@@ -44,8 +47,10 @@ export async function POST(req: NextRequest) {
       accountId = active.id
     }
 
-    const { asin, price, listingStatus } = await fetchLiveListingPrice(accountId, sku)
-    return NextResponse.json({ sku, asin, price, listingStatus })
+    const includeBuyBox = parsed.data.buyBox !== false
+    const { asin, price, listingStatus, condition, buyBoxPrice, buyBoxSeller } =
+      await fetchLiveListingPrice(accountId, sku, { includeBuyBox })
+    return NextResponse.json({ sku, asin, price, listingStatus, condition, buyBoxPrice, buyBoxSeller })
   } catch (err) {
     console.error('[refresh-price]', err)
     return NextResponse.json(

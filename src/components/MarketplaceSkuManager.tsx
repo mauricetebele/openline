@@ -928,10 +928,25 @@ export default function MarketplaceSkuManager() {
     try {
       const res = s.marketplace === 'backmarket'
         ? await apiPost('/api/marketplace-skus/backmarket-refresh-price', { sellerSku: s.sellerSku })
-        : await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku })
+        : await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku, buyBox: true })
       const price = res.price != null ? String(res.price) : null
       setSkus(prev => prev.map(x => (x.id === s.id
-        ? { ...x, price, listingStatus: res.listingStatus ?? x.listingStatus, asin: s.marketplace === 'amazon' ? (res.asin ?? x.asin) : x.asin }
+        ? {
+            ...x,
+            price,
+            listingStatus: res.listingStatus ?? x.listingStatus,
+            ...(s.marketplace === 'amazon'
+              ? {
+                  asin: res.asin ?? x.asin,
+                  itemCondition: res.condition ?? x.itemCondition,
+                  buyBoxPrice: res.buyBoxPrice != null ? String(res.buyBoxPrice) : x.buyBoxPrice,
+                  buyBoxSeller: res.buyBoxSeller ?? x.buyBoxSeller,
+                }
+              : {
+                  backboxWon: res.backboxWon ?? x.backboxWon,
+                  backboxPrice: res.backboxPrice != null ? String(res.backboxPrice) : x.backboxPrice,
+                }),
+          }
         : x)))
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Price refresh failed')
@@ -960,7 +975,7 @@ export default function MarketplaceSkuManager() {
         const accountId = accountIdFor(s)
         if (!accountId) { failed++; done++; setPriceProgress({ done, total: targets.length }); continue }
         try {
-          const res = await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku })
+          const res = await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku, buyBox: false })
           const price = res.price != null ? String(res.price) : null
           setSkus(prev => prev.map(x => (x.id === s.id ? { ...x, price, listingStatus: res.listingStatus ?? x.listingStatus, asin: res.asin ?? x.asin } : x)))
         } catch {

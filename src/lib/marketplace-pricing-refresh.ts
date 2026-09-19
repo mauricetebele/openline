@@ -17,8 +17,8 @@ const BM_CONCURRENCY = 3
 // rate-limited (~0.5 req/s per account), so the whole catalogue can't refresh
 // inside Vercel's 300s function ceiling. Each cron run refreshes the stalest
 // slice (never-synced first); the full set cycles over a few runs.
-const AMAZON_BATCH = 45
-const BM_BATCH = 60
+const AMAZON_BATCH = 90
+const BM_BATCH = 90
 
 interface ListingItemResponse {
   summaries?: { marketplaceId: string; status?: string[] }[]

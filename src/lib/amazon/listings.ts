@@ -11,6 +11,14 @@ import { prisma } from '@/lib/prisma'
 import { SpApiClient } from './sp-api'
 import { syncCompetitivePricing } from './competitive-pricing'
 import { syncFbaInventory } from './fba-inventory'
+import { resolveSellerNames } from './seller-name'
+
+interface ItemOffersResponse {
+  payload?: { Offers?: Array<{
+    SellerId?: string; IsBuyBoxWinner?: boolean
+    ListingPrice?: { Amount?: number }; Shipping?: { Amount?: number }; LandedPrice?: { Amount?: number }
+  }> }
+}
 
 const gunzipAsync = promisify(gunzip)
 
@@ -828,7 +836,8 @@ function priceFromPurchasableOffer(
 export async function fetchLiveListingPrice(
   accountId: string,
   sku: string,
-): Promise<{ asin: string | null; price: number | null; listingStatus: string | null; shippingTemplateGroupId: string | null }> {
+  opts?: { includeBuyBox?: boolean },
+): Promise<{ asin: string | null; price: number | null; listingStatus: string | null; shippingTemplateGroupId: string | null; condition: string | null; buyBoxPrice: number | null; buyBoxSeller: string | null }> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
   const encodedSku = encodeURIComponent(sku)
@@ -868,9 +877,37 @@ export async function fetchLiveListingPrice(
     ? (CONDITION_TYPE_TO_DISPLAY[summary.conditionType] ?? null)
     : null
 
+  // Buy Box (Amazon) — a separate, rate-limited pricing call. Only fetched when
+  // requested (single-row refresh), so the bulk "refresh all prices" pass stays
+  // lean; the 30-min cron covers Buy Box en masse otherwise.
+  let buyBoxPrice: number | null = null
+  let buyBoxSeller: string | null = null
+  let buyBoxFetched = false
+  if (opts?.includeBuyBox && asin) {
+    try {
+      const offers = await client.get<ItemOffersResponse>(
+        `/products/pricing/v0/items/${encodeURIComponent(asin)}/offers`,
+        { MarketplaceId: account.marketplaceId, ItemCondition: 'New', CustomerType: 'Consumer' },
+      )
+      buyBoxFetched = true
+      const win = offers.payload?.Offers?.find(o => o.IsBuyBoxWinner)
+      if (win) {
+        buyBoxPrice = win.LandedPrice?.Amount ?? ((win.ListingPrice?.Amount ?? 0) + (win.Shipping?.Amount ?? 0))
+        const sid = win.SellerId ?? null
+        if (sid && sid === account.sellerId) buyBoxSeller = 'You'
+        else if (sid) {
+          const prof = await prisma.sellerProfile.findUnique({ where: { sellerId: sid }, select: { name: true } })
+          buyBoxSeller = prof?.name ?? sid
+          if (!prof?.name) resolveSellerNames([sid], account.marketplaceId).catch(() => {})
+        }
+      }
+    } catch { buyBoxFetched = false }
+  }
+
   const data: {
     asin?: string; condition?: string; price?: number; listingStatus?: string; quantity?: number
-    shippingTemplateGroupId?: string; shippingTemplate?: string; updatedAt: Date
+    shippingTemplateGroupId?: string; shippingTemplate?: string
+    buyBoxPrice?: number | null; buyBoxSeller?: string | null; buyBoxSyncedAt?: Date; updatedAt: Date
   } = { updatedAt: new Date() }
   if (asin != null) data.asin = asin
   if (condition != null) data.condition = condition
@@ -879,6 +916,7 @@ export async function fetchLiveListingPrice(
   if (fulfillQty != null) data.quantity = fulfillQty
   if (shipGroup.id != null) data.shippingTemplateGroupId = shipGroup.id
   if (shipGroup.name != null) data.shippingTemplate = shipGroup.name
+  if (buyBoxFetched) { data.buyBoxPrice = buyBoxPrice; data.buyBoxSeller = buyBoxSeller; data.buyBoxSyncedAt = new Date() }
   // Upsert (not updateMany): a SKU refreshed from the grid may have no
   // SellerListing row yet (created in-app, never synced) — create it so the ASIN
   // and price land somewhere the grid can read.
@@ -893,6 +931,9 @@ export async function fetchLiveListingPrice(
     price: price != null && Number.isFinite(price) ? price : null,
     listingStatus,
     shippingTemplateGroupId: shipGroup.id,
+    condition,
+    buyBoxPrice: buyBoxFetched ? buyBoxPrice : null,
+    buyBoxSeller: buyBoxFetched ? buyBoxSeller : null,
   }
 }
 

@@ -34,12 +34,12 @@ export async function POST(req: NextRequest) {
 
     // Prefer a single-listing GET (fast); fall back to scanning all listings by SKU
     // if the listing id is missing or the by-id endpoint isn't available.
-    let live: { price?: number | string; quantity?: number | string; publication_state?: number | string } | null = null
+    let live: { id?: string | number; price?: number | string; quantity?: number | string; publication_state?: number | string } | null = null
     if (listing.bmListingRef != null) {
       try { live = await client.getListing(listing.bmListingRef) } catch { live = null }
     }
     if (!live || live.price == null) {
-      const all = await client.fetchAllPages<{ sku?: string; price?: number | string; quantity?: number | string; publication_state?: number | string }>('/listings')
+      const all = await client.fetchAllPages<{ id?: string | number; sku?: string; price?: number | string; quantity?: number | string; publication_state?: number | string }>('/listings')
       live = all.find(x => x.sku && String(x.sku).toUpperCase() === sellerSku.toUpperCase()) ?? null
     }
     if (!live) return NextResponse.json({ error: 'Listing not found on Back Market' }, { status: 404 })
@@ -48,16 +48,32 @@ export async function POST(req: NextRequest) {
     const price = Number.isFinite(priceNum) ? priceNum : null
     const listingStatus = deriveBmStatus(live.publication_state, live.quantity) ?? listing.listingStatus
 
+    // BackBox — the winning offer for this listing (rate-limited ~2/s; the client
+    // retries 429s). Mirrors the 30-min cron so pressing refresh fills it too.
+    let backboxWon: boolean | undefined
+    let backboxPrice: number | null | undefined
+    if (live.id != null) {
+      try {
+        const comps = await client.getBackboxCompetitors(String(live.id))
+        const mine = comps.find(c => String(c.listing_id) === String(live!.id))
+        backboxWon = mine?.is_winning === true
+        const winner = comps.find(c => c.is_winning) ?? comps[0]
+        const wp = Number(winner?.winner_price?.amount)
+        backboxPrice = Number.isFinite(wp) ? wp : null
+      } catch { /* BackBox unavailable */ }
+    }
+
     await prisma.marketplaceListing.update({
       where: { id: listing.id },
       data: {
         ...(price != null ? { price } : {}),
         ...(listingStatus != null ? { listingStatus } : {}),
+        ...(backboxWon !== undefined ? { backboxWon, backboxPrice: backboxPrice ?? null, backboxSyncedAt: new Date() } : {}),
         lastSyncedAt: new Date(),
       },
     })
 
-    return NextResponse.json({ sellerSku, price, listingStatus })
+    return NextResponse.json({ sellerSku, price, listingStatus, backboxWon: backboxWon ?? null, backboxPrice: backboxPrice ?? null })
   } catch (err) {
     console.error('[backmarket-refresh-price]', err)
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed to refresh price' }, { status: 500 })
