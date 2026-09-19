@@ -182,10 +182,26 @@ export async function createManualShipment(input: ManualLabelInput): Promise<Cre
     // ShipStation UPS — one label per box (each its own tracking number).
     const client = await ssClient()
     const shipDate = new Date().toISOString().slice(0, 10)
+
+    // Resolve the EXACT carrierCode + serviceCode from a live rate. ShipStation's
+    // createlabel rejects codes that don't precisely match the account with a
+    // generic "The request is invalid", and our hardcoded codes may not match.
+    const first = input.packages[0]
+    const rates = await client.getRates({
+      carrierCode: SS_CARRIER_CODE, serviceCode: input.serviceCode,
+      fromPostalCode: input.shipFrom.postal, fromCity: input.shipFrom.city, fromState: input.shipFrom.state,
+      toPostalCode: input.shipTo.postal, toCity: input.shipTo.city, toState: input.shipTo.state, toCountry: input.shipTo.country || 'US',
+      weight: ssWeight(first), dimensions: ssDims(first), confirmation: input.confirmation ?? 'none',
+    })
+    const rate = rates.find(r => r.serviceCode === input.serviceCode) ?? rates[0]
+    if (!rate) throw new Error(`ShipStation returned no UPS rate for this shipment. Available services: ${rates.map(r => r.serviceCode).join(', ') || 'none'}`)
+    const carrierCode = rate.carrierCode
+    const svcCode = rate.serviceCode
+
     let sum = 0
     for (const p of input.packages) {
       const label = await client.createLabel({
-        carrierCode: SS_CARRIER_CODE, serviceCode: input.serviceCode, confirmation: input.confirmation ?? 'none', shipDate,
+        carrierCode, serviceCode: svcCode, confirmation: input.confirmation ?? 'none', shipDate,
         weight: ssWeight(p), dimensions: ssDims(p) ?? { units: 'inches', length: 1, width: 1, height: 1 },
         shipFrom: toSSAddress(input.shipFrom), shipTo: toSSAddress(input.shipTo), orderNumber: reference,
       })
