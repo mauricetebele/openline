@@ -198,12 +198,19 @@ export async function createManualShipment(input: ManualLabelInput): Promise<Cre
     const carrierCode = rate.carrierCode
     const svcCode = rate.serviceCode
 
+    // UPS labels require a phone on both addresses; fall back to the ship-from's.
+    const fromSS = toSSAddress(input.shipFrom)
+    const toSS = toSSAddress(input.shipTo)
+    const fallbackPhone = fromSS.phone || toSS.phone || '0000000000'
+    if (!fromSS.phone) fromSS.phone = fallbackPhone
+    if (!toSS.phone) toSS.phone = fallbackPhone
+
     let sum = 0
     for (const p of input.packages) {
       const label = await client.createLabel({
-        carrierCode, serviceCode: svcCode, confirmation: input.confirmation ?? 'none', shipDate,
+        carrierCode, serviceCode: svcCode, packageCode: 'package', confirmation: input.confirmation ?? 'none', shipDate,
         weight: ssWeight(p), dimensions: ssDims(p) ?? { units: 'inches', length: 1, width: 1, height: 1 },
-        shipFrom: toSSAddress(input.shipFrom), shipTo: toSSAddress(input.shipTo), orderNumber: reference,
+        shipFrom: fromSS, shipTo: toSS, orderNumber: reference,
       })
       pieces.push({ trackingNumber: label.trackingNumber, labelBase64: label.labelData, labelFormat: label.labelFormat || 'pdf' })
       persist.push({ trackingNumber: label.trackingNumber, shipmentId: String(label.shipmentId), labelData: label.labelData, cost: label.shipmentCost ?? null })

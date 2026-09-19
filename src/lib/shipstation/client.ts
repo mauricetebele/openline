@@ -279,6 +279,14 @@ export class ShipStationClient {
         while (node?.InnerException) node = node.InnerException
         const deepest = node?.ExceptionMessage ?? node?.Message
         msg = deepest ?? json.ExceptionMessage ?? json.Message ?? msg
+        // Field-level validation detail (ShipStation returns ModelState / errors).
+        const ms = json.ModelState ?? json.modelState ?? json.errors
+        if (ms && typeof ms === 'object') {
+          const details = Object.entries(ms as Record<string, unknown>)
+            .flatMap(([k, v]) => Array.isArray(v) ? v.map(x => `${k}: ${x}`) : [`${k}: ${String(v)}`])
+            .slice(0, 6)
+          if (details.length) msg += ` — ${details.join('; ')}`
+        }
       } catch { /* ignore */ }
       throw new Error(msg)
     }
