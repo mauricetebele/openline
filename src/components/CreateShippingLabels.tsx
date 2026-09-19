@@ -125,6 +125,8 @@ export default function CreateShippingLabels() {
       country: o.shipToCountry ?? 'US', phone: o.shipToPhone ?? '',
     })
     setOrderQuery(''); setOrderResults([]); setShowOrderResults(false)
+    if (!o.shipToAddress1) toast.error("That order has no saved address — Amazon purges buyer info after delivery, so it can't be copied. (BackMarket orders always work.)")
+    else toast.success('Ship-to address copied')
   }
 
   const setToField = (k: keyof Addr, v: string) => setShipTo(p => ({ ...p, [k]: v }))
@@ -253,10 +255,12 @@ export default function CreateShippingLabels() {
                     <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg">
                       {orderResults.map((o) => (
                         <button key={o.id} type="button" onMouseDown={() => copyFromOrder(o)}
-                          className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2">
+                          className={clsx('w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2', !o.shipToAddress1 && 'opacity-60')}>
                           <span className="font-medium text-amazon-blue">{o.olmNumber ? `OLM-${o.olmNumber}` : o.amazonOrderId}</span>
-                          <span className="text-gray-600 dark:text-gray-300">{o.shipToName ?? '—'}</span>
-                          <span className="text-gray-400 ml-auto">{[o.shipToCity, o.shipToState].filter(Boolean).join(', ')}</span>
+                          <span className="text-gray-600 dark:text-gray-300">{o.shipToName ?? o.shipToCity ?? '—'}</span>
+                          {o.shipToAddress1
+                            ? <span className="text-gray-400 ml-auto">{[o.shipToCity, o.shipToState].filter(Boolean).join(', ')}</span>
+                            : <span className="text-amber-500 ml-auto">no saved address</span>}
                         </button>
                       ))}
                     </div>
