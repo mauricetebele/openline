@@ -6948,7 +6948,7 @@ export default function UnshippedOrders() {
   const showReinstateCol    = activeTab === 'cancelled'
   const showShippedPrintCol = activeTab === 'shipped'
   const showActionCol       = showProcessCol || showShipCol || showVerifyCol || showReinstateCol || showShippedPrintCol
-  const colSpan             = 7 + (showActionCol ? 1 : 0)
+  const colSpan             = 8 + (showActionCol ? 1 : 0)
 
   // Amazon ship-by dates use Pacific time (e.g. stored as 2026-02-28T07:59:59Z = Feb 27 11:59pm PST).
   // Always evaluate ship-by dates in Pacific time to match Amazon's intent.
@@ -7827,11 +7827,11 @@ export default function UnshippedOrders() {
               </th>
               <th className="px-3 py-2.5 text-left font-semibold text-slate-500 text-[10px] uppercase tracking-wider whitespace-nowrap select-none">
                 <span className="inline-flex items-center gap-1.5">
-                  <button onClick={() => handleSort('shipToName')} className="inline-flex items-center gap-1 hover:text-white transition-colors">Customer
+                  <button onClick={() => handleSort('shipToName')} className="inline-flex items-center gap-1 hover:text-slate-700 transition-colors">Customer
                     <span className={clsx('text-[10px]', sortBy === 'shipToName' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'shipToName' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                   </button>
                   <span className="text-gray-600">/</span>
-                  <button onClick={() => handleSort('shipToState')} className="inline-flex items-center gap-1 font-normal text-gray-400 hover:text-white transition-colors">{activeTab === 'shipped' || activeTab === 'awaiting' ? 'Tracking' : 'Ship To'}
+                  <button onClick={() => handleSort('shipToState')} className="inline-flex items-center gap-1 font-normal text-gray-400 hover:text-slate-700 transition-colors">{activeTab === 'shipped' || activeTab === 'awaiting' ? 'Tracking' : 'Ship To'}
                     <span className={clsx('text-[10px]', sortBy === 'shipToState' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'shipToState' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                   </button>
                 </span>
@@ -7854,14 +7854,16 @@ export default function UnshippedOrders() {
                   <span className={clsx('text-[10px]', sortBy === 'orderTotal' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'orderTotal' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 text-[10px] uppercase tracking-wider whitespace-nowrap select-none">
-                <span className="inline-flex items-center gap-1.5">
-                  <button onClick={() => handleSort('workflowStatus')} className="inline-flex items-center gap-1 hover:text-white transition-colors">Shipping
-                    <span className={clsx('text-[10px]', sortBy === 'workflowStatus' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'workflowStatus' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
-                  </button>
-                  <button onClick={() => handleSort('presetRateAmount')} className="inline-flex items-center gap-1 font-normal text-gray-400 hover:text-white transition-colors">· rate
-                    <span className={clsx('text-[10px]', sortBy === 'presetRateAmount' ? 'text-amazon-orange' : 'text-gray-500')}>{sortBy === 'presetRateAmount' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
-                  </button>
+              <th onClick={() => handleSort('workflowStatus')}
+                className="px-3 py-2.5 text-left font-semibold text-slate-500 text-[10px] uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:bg-slate-100 transition-colors">
+                <span className="inline-flex items-center gap-1">Shipping
+                  <span className={clsx('text-[10px]', sortBy === 'workflowStatus' ? 'text-amazon-orange' : 'text-gray-400')}>{sortBy === 'workflowStatus' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+                </span>
+              </th>
+              <th onClick={() => handleSort('presetRateAmount')}
+                className="px-3 py-2.5 text-right font-semibold text-slate-500 text-[10px] uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:bg-slate-100 transition-colors">
+                <span className="inline-flex items-center justify-end gap-1">Rate
+                  <span className={clsx('text-[10px]', sortBy === 'presetRateAmount' ? 'text-amazon-orange' : 'text-gray-400')}>{sortBy === 'presetRateAmount' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                 </span>
               </th>
               {showActionCol && (
@@ -8137,7 +8139,7 @@ export default function UnshippedOrders() {
                   </td>
                   {/* Total */}
                   <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs font-semibold text-gray-800 dark:text-gray-200 tabular-nums">{orderTotal(order)}</td>
-                  {/* Shipping — status + method, package preset, rate */}
+                  {/* Shipping — status + method, package preset */}
                   <td className="px-3 py-2.5 whitespace-nowrap align-top">
                     <div className="flex flex-col gap-1">
                       <div className="flex flex-col gap-0.5">
@@ -8159,7 +8161,7 @@ export default function UnshippedOrders() {
                           </span>
                         ) : null}
                       </div>
-                      <div className="flex items-center gap-2 flex-wrap">
+                      <div>
                         {defaultPresetApplyingIds.has(order.id) ? (
                           <span className="inline-flex items-center gap-0.5 text-[10px] text-teal-600">
                             <RefreshCcw size={10} className="animate-spin" /> …
@@ -8171,34 +8173,37 @@ export default function UnshippedOrders() {
                         ) : (
                           <span className="text-gray-300 text-[10px]">—</span>
                         )}
-                        {(ratingOrderIds.has(order.id) || pkgRatingOrderIds.has(order.id) || rateShopAppliedIds.has(order.id)) ? (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600">
-                            <RefreshCcw size={10} className="animate-spin" /> Rating…
-                          </span>
-                        ) : order.presetRateError ? (
-                          <span title={order.presetRateError} className="flex flex-col cursor-help max-w-[120px]">
-                            <span className="inline-flex items-center gap-0.5 text-[10px] text-red-600">
-                              <AlertCircle size={10} className="shrink-0" /> Err
-                            </span>
-                            <span className="text-[9px] text-red-400 leading-tight line-clamp-1 break-words whitespace-normal">
-                              {order.presetRateError}
-                            </span>
-                          </span>
-                        ) : order.presetRateAmount ? (
-                          <span className="inline-flex items-center gap-1">
-                            <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                              {fmt(order.presetRateAmount)}
-                            </span>
-                            <CarrierLogo carrierCode={order.presetRateCarrier} serviceName={order.presetRateService} size={22} />
-                            {order.presetRateService && (
-                              <span className="text-[9px] text-gray-400 whitespace-nowrap">{order.presetRateService}</span>
-                            )}
-                          </span>
-                        ) : (
-                          <span className="text-gray-300 text-[10px]">—</span>
-                        )}
                       </div>
                     </div>
+                  </td>
+                  {/* Rate — dedicated right-aligned column so amounts line up regardless of preset width */}
+                  <td className="px-3 py-2.5 text-right align-top whitespace-nowrap">
+                    {(ratingOrderIds.has(order.id) || pkgRatingOrderIds.has(order.id) || rateShopAppliedIds.has(order.id)) ? (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600">
+                        <RefreshCcw size={10} className="animate-spin" /> Rating…
+                      </span>
+                    ) : order.presetRateError ? (
+                      <div title={order.presetRateError} className="flex flex-col items-end cursor-help max-w-[110px] ml-auto">
+                        <span className="inline-flex items-center gap-0.5 text-[10px] text-red-600">
+                          <AlertCircle size={10} className="shrink-0" /> Err
+                        </span>
+                        <span className="text-[9px] text-red-400 leading-tight text-right line-clamp-1 break-words whitespace-normal">
+                          {order.presetRateError}
+                        </span>
+                      </div>
+                    ) : order.presetRateAmount ? (
+                      <div className="flex flex-col items-end gap-0.5">
+                        <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                          {fmt(order.presetRateAmount)}
+                        </span>
+                        <CarrierLogo carrierCode={order.presetRateCarrier} serviceName={order.presetRateService} size={22} />
+                        {order.presetRateService && (
+                          <span className="text-[9px] text-gray-400 text-right whitespace-nowrap">{order.presetRateService}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-gray-300 text-[10px]">—</span>
+                    )}
                   </td>
                   {/* Action column */}
                   {showProcessCol && (
