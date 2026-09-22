@@ -411,6 +411,15 @@ export default function TopNav() {
         {/* Dark mode toggle — desktop */}
         <DarkModeToggle />
 
+        {/* Ask AI — opens the assistant panel (admin only) */}
+        {user?.role === 'ADMIN' && (
+          <button type="button" title="Ask AI"
+            onClick={() => window.dispatchEvent(new Event('open-ask-ai'))}
+            className="hidden lg:flex items-center gap-1.5 h-8 px-2.5 rounded-md text-gray-300 hover:bg-white/10 hover:text-white transition-colors shrink-0 text-sm font-medium">
+            <Sparkles size={16} /> Ask AI
+          </button>
+        )}
+
         {/* Settings gear — desktop */}
         <Link href="/settings" title="Settings"
           className={clsx(
@@ -615,6 +624,12 @@ export default function TopNav() {
 
           {/* Settings link in mobile */}
           <div className="border-t border-white/10 pt-2 mt-1">
+            {user?.role === 'ADMIN' && (
+              <button type="button" onClick={() => { setMobileOpen(false); window.dispatchEvent(new Event('open-ask-ai')) }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-300 hover:bg-white/10 hover:text-white transition-colors">
+                <Sparkles size={14} /> Ask AI
+              </button>
+            )}
             <Link href="/settings" onClick={(e) => { if (!e.metaKey && !e.ctrlKey) setMobileOpen(false) }}
               className={clsx(
                 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',

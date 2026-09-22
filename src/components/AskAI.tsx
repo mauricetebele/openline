@@ -49,6 +49,12 @@ export default function AskAI() {
 
   useEffect(() => { fetch('/api/ask-ai/config').then(r => r.ok ? r.json() : null).then(setConfig).catch(() => {}) }, [])
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }) }, [messages, sending, pending])
+  // Opened from the top-nav "Ask AI" button (window event) — no floating bubble.
+  useEffect(() => {
+    const handler = () => setOpen(true)
+    window.addEventListener('open-ask-ai', handler)
+    return () => window.removeEventListener('open-ask-ai', handler)
+  }, [])
 
   if (!config || !config.isAdmin) return null
 
@@ -98,13 +104,6 @@ export default function AskAI() {
 
   return (
     <>
-      {!open && (
-        <button onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-5 z-[90] flex items-center gap-2 h-11 px-4 rounded-full bg-amazon-blue text-white shadow-lg hover:bg-blue-700 text-sm font-semibold">
-          <Sparkles size={16} /> Ask AI
-        </button>
-      )}
-
       {open && (
         <div className="fixed inset-0 z-[95] flex justify-end bg-black/30" onClick={() => setOpen(false)}>
           <div className="w-full max-w-md h-full bg-white dark:bg-gray-900 shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
