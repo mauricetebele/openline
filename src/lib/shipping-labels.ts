@@ -195,7 +195,11 @@ export async function createManualShipment(input: ManualLabelInput): Promise<Cre
     })
     const rate = rates.find(r => r.serviceCode === input.serviceCode) ?? rates[0]
     if (!rate) throw new Error(`ShipStation returned no UPS rate for this shipment. Available services: ${rates.map(r => r.serviceCode).join(', ') || 'none'}`)
-    const carrierCode = rate.carrierCode
+    // ShipStation's /shipments/getrates response does NOT echo carrierCode on each
+    // rate (only the rate-shop endpoint does), so rate.carrierCode is undefined
+    // here — sending it to createlabel yields "carrierCode field is required".
+    // Fall back to the carrier we queried the rates with (the account's carrier).
+    const carrierCode = rate.carrierCode || SS_CARRIER_CODE
     const svcCode = rate.serviceCode
 
     // UPS labels require a phone on both addresses; fall back to the ship-from's.
