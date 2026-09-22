@@ -5860,7 +5860,7 @@ export default function UnshippedOrders() {
   const [applyingDefaultPresets, setApplyingDefaultPresets]   = useState(false)
   const [defaultPresetApplyingIds, setDefaultPresetApplyingIds] = useState<Set<string>>(new Set())
   const [applyDefaultResult, setApplyDefaultResult]           = useState<{ applied: number; total: number; skipped: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
-  const [filterChannel, setFilterChannel]                       = useState<'all' | 'amazon' | 'backmarket' | 'wholesale'>('all')
+  const [filterChannel, setFilterChannel]                       = useState<'all' | 'amazon' | 'backmarket' | 'wholesale' | 'accessorial'>('all')
   const [filterPkgPreset, setFilterPkgPreset]                 = useState<'all' | 'assigned' | 'unassigned'>('all')
   const [filterPrime, setFilterPrime]                           = useState(false)
   const [filterDueToday, setFilterDueToday]                     = useState(false)
@@ -5982,6 +5982,7 @@ export default function UnshippedOrders() {
     const params = new URLSearchParams({ accountId: selectedAccountId, tab: activeTab, page: String(page), pageSize: String(pageSize), sortBy: serverSortBy, sortDir })
     if (search) params.set('search', search)
     if (filterChannel === 'amazon' || filterChannel === 'backmarket') params.set('orderSource', filterChannel)
+    if (filterChannel === 'accessorial') params.set('accessorial', '1')
     // "Ship By Today" only applies to tabs that carry a ship-by deadline
     if (filterDueToday && (activeTab === 'pending' || activeTab === 'unshipped' || activeTab === 'awaiting')) params.set('dueToday', '1')
     fetch(`/api/orders?${params}`)
@@ -6002,7 +6003,8 @@ export default function UnshippedOrders() {
   useEffect(() => {
     if (!selectedAccountId) return
     const params = new URLSearchParams({ accountId: selectedAccountId })
-    if (filterChannel !== 'all') params.set('orderSource', filterChannel)
+    if (filterChannel === 'amazon' || filterChannel === 'backmarket' || filterChannel === 'wholesale') params.set('orderSource', filterChannel)
+    if (filterChannel === 'accessorial') params.set('accessorial', '1')
     fetch(`/api/orders/counts?${params}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setTabCounts(d) })
@@ -6011,8 +6013,8 @@ export default function UnshippedOrders() {
 
   // Wholesale orders fetch — runs in parallel with the marketplace orders fetch
   useEffect(() => {
-    // When filtering to a marketplace-only channel, skip wholesale fetch entirely
-    if (filterChannel === 'amazon' || filterChannel === 'backmarket') {
+    // When filtering to a marketplace-only channel (or accessorial), skip wholesale fetch entirely
+    if (filterChannel === 'amazon' || filterChannel === 'backmarket' || filterChannel === 'accessorial') {
       setWholesaleOrders([]); return
     }
 
@@ -7667,6 +7669,7 @@ export default function UnshippedOrders() {
           { key: 'amazon',      label: 'Amazon' },
           { key: 'backmarket',  label: 'Back Market' },
           { key: 'wholesale',   label: 'Wholesale' },
+          { key: 'accessorial', label: 'Accessorial' },
         ] as const).map(ch => (
           <button key={ch.key} onClick={() => setFilterChannel(ch.key)}
             className={clsx('px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors',

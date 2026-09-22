@@ -53,10 +53,14 @@ export async function GET(req: NextRequest) {
     prisma.order.findMany({
       where: {
         workflowStatus: 'SHIPPED',
-        fulfillmentChannel: { not: 'AFN' },
-        OR: [
-          { label: { createdAt: { gte: start, lte: end } } },
-          { shippedAt: { gte: start, lte: end } },
+        // Exclude FBA (AFN) but keep channel-less orders (null) like accessorial
+        // shipments — a plain `{ not: 'AFN' }` drops NULL rows in SQL.
+        AND: [
+          { OR: [{ fulfillmentChannel: { not: 'AFN' } }, { fulfillmentChannel: null }] },
+          { OR: [
+            { label: { createdAt: { gte: start, lte: end } } },
+            { shippedAt: { gte: start, lte: end } },
+          ] },
         ],
       },
       select: {
@@ -154,7 +158,9 @@ export async function GET(req: NextRequest) {
       const carrier = resolveCarrier(rawCarrier, tracking)
       return {
         id: o.id,
-        source: 'marketplace' as const,
+        // Accessorial (accessory-shipment) orders use an ACC- order id — surface
+        // them as their own source so the manifest can badge them distinctly.
+        source: (o.amazonOrderId?.startsWith('ACC-') ? 'accessorial' : 'marketplace') as 'marketplace' | 'accessorial',
         olmNumber: o.olmNumber,
         amazonOrderId: o.amazonOrderId,
         orderSource: o.orderSource,

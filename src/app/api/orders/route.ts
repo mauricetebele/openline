@@ -66,6 +66,8 @@ export async function GET(req: NextRequest) {
         : {}),
       // Prime-only filter (mobile Prime toggle)
       ...(searchParams.get('prime') === '1' ? { isPrime: true } : {}),
+      // Accessorial-only filter: synthetic accessory orders use an ACC- order id.
+      ...(searchParams.get('accessorial') === '1' ? { amazonOrderId: { startsWith: 'ACC-' } } : {}),
     }
 
     // Exclude FBA orders (Amazon fulfills those) but KEEP channel-less orders such

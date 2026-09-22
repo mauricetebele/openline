@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
   const tomorrowMidnight = pacificMidnightUTC(y, m, d + 1)
 
   const orderSource = req.nextUrl.searchParams.get('orderSource')?.toLowerCase()
+  const accessorialOnly = req.nextUrl.searchParams.get('accessorial') === '1'
 
   // When filtering to wholesale only, return wholesale counts mapped into
   // the standard field names so the tab badges work without extra logic.
@@ -60,6 +61,8 @@ export async function GET(req: NextRequest) {
     ...(orderSource === 'amazon' || orderSource === 'backmarket'
       ? { orderSource }
       : {}),
+    // Accessorial-only filter: synthetic accessory orders use an ACC- order id.
+    ...(accessorialOnly ? { amazonOrderId: { startsWith: 'ACC-' } } : {}),
   }
 
   const [pending, unshipped, awaiting, dueOutToday, shippedToday,
