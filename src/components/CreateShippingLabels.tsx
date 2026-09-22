@@ -87,6 +87,7 @@ export default function CreateShippingLabels() {
   const [packages, setPackages] = useState<Pkg[]>([emptyPkg()])
   const [serviceCode, setServiceCode] = useState(SERVICES.ups[0].code)
   const [packagingType, setPackagingType] = useState('YOUR_PACKAGING') // FedEx Direct only
+  const [oneRate, setOneRate] = useState(false) // FedEx One Rate (flat-rate)
   const [confirmation, setConfirmation] = useState<'none' | 'delivery' | 'signature' | 'adult_signature'>('none')
   const [reference, setReference] = useState('')
   const [upsCreds, setUpsCreds] = useState<UpsCred[]>([])
@@ -117,9 +118,9 @@ export default function CreateShippingLabels() {
   }, [])
 
   // Reset the service + packaging + rate when the path changes.
-  useEffect(() => { setServiceCode(SERVICES[path][0].code); setPackagingType('YOUR_PACKAGING'); setRate(null) }, [path])
+  useEffect(() => { setServiceCode(SERVICES[path][0].code); setPackagingType('YOUR_PACKAGING'); setOneRate(false); setRate(null) }, [path])
   // Any input change invalidates a stale rate.
-  useEffect(() => { setRate(null) }, [shipTo, shipFrom, packages, serviceCode, packagingType, confirmation, upsCredentialId])
+  useEffect(() => { setRate(null) }, [shipTo, shipFrom, packages, serviceCode, packagingType, oneRate, confirmation, upsCredentialId])
 
   // Debounced order search for copying a ship-to address.
   useEffect(() => {
@@ -169,8 +170,10 @@ export default function CreateShippingLabels() {
   const setFromField = (k: keyof Addr, v: string) => setShipFrom(p => ({ ...p, [k]: v }))
   const setPkg = (i: number, k: keyof Pkg, v: string) => setPackages(p => p.map((x, j) => j === i ? { ...x, [k]: v } : x))
 
+  // FedEx One Rate: flat pricing by FedEx packaging — no weight/dims needed.
+  const fedexOneRate = path === 'fedex' && oneRate
   const addrComplete = (a: Addr) => (!!a.name.trim() || !!a.company.trim()) && !!a.address1.trim() && !!a.city.trim() && !!a.state.trim() && !!a.postal.trim()
-  const pkgsComplete = packages.length > 0 && packages.every(p => Number(p.weightValue) > 0)
+  const pkgsComplete = fedexOneRate || (packages.length > 0 && packages.every(p => Number(p.weightValue) > 0))
   const canSubmit = addrComplete(shipTo) && addrComplete(shipFrom) && pkgsComplete && !!serviceCode
 
   function buildBody() {
@@ -181,11 +184,16 @@ export default function CreateShippingLabels() {
       path, serviceCode, confirmation, referenceNumber: reference.trim() || undefined,
       ...(path === 'ups' && upsCredentialId ? { upsCredentialId } : {}),
       ...(brandedFedexPkg ? { packagingType } : {}),
+      ...(fedexOneRate ? { oneRate: true } : {}),
       shipFrom, shipTo,
-      packages: packages.map(p => ({
-        weightValue: Number(p.weightValue), weightUnit: p.weightUnit,
-        ...(!brandedFedexPkg && p.length && p.width && p.height ? { length: Number(p.length), width: Number(p.width), height: Number(p.height), dimUnit: 'IN' } : {}),
-      })),
+      // One Rate is flat by packaging; send a single nominal package (weight is
+      // required by the API but not used for pricing) and no dimensions.
+      packages: fedexOneRate
+        ? [{ weightValue: 1, weightUnit: 'LBS' }]
+        : packages.map(p => ({
+            weightValue: Number(p.weightValue), weightUnit: p.weightUnit,
+            ...(!brandedFedexPkg && p.length && p.width && p.height ? { length: Number(p.length), width: Number(p.width), height: Number(p.height), dimUnit: 'IN' } : {}),
+          })),
       ...(accessorial ? { accessorial: true, accessoryName: accessoryName.trim() } : {}),
     }
   }
@@ -324,7 +332,7 @@ export default function CreateShippingLabels() {
               <div className="grid grid-cols-2 gap-2">
                 <div><label className={labelCls}>Service</label>
                   <select className={inputCls} value={serviceCode} onChange={e => setServiceCode(e.target.value)}>
-                    {SERVICES[path].map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                    {SERVICES[path].filter(s => !(fedexOneRate && s.code === 'FEDEX_GROUND')).map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                   </select>
                 </div>
                 <div><label className={labelCls}>Signature</label>
@@ -344,8 +352,17 @@ export default function CreateShippingLabels() {
                 {path === 'fedex' && (
                   <div><label className={labelCls}>Packaging</label>
                     <select className={inputCls} value={packagingType} onChange={e => setPackagingType(e.target.value)}>
-                      {FEDEX_PACKAGING.map(pk => <option key={pk.code} value={pk.code}>{pk.label}</option>)}
+                      {FEDEX_PACKAGING.filter(pk => !oneRate || pk.code !== 'YOUR_PACKAGING').map(pk => <option key={pk.code} value={pk.code}>{pk.label}</option>)}
                     </select>
+                  </div>
+                )}
+                {path === 'fedex' && (
+                  <div><label className={labelCls}>Rate type</label>
+                    <label className="flex items-center gap-2 h-8 px-2 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 cursor-pointer select-none">
+                      <input type="checkbox" checked={oneRate}
+                        onChange={e => { const on = e.target.checked; setOneRate(on); if (on) { if (packagingType === 'YOUR_PACKAGING') setPackagingType('FEDEX_PAK'); if (serviceCode === 'FEDEX_GROUND') setServiceCode('FEDEX_2_DAY') } }} />
+                      FedEx One Rate (flat rate)
+                    </label>
                   </div>
                 )}
                 <div><label className={labelCls}>Reference # (optional)</label><input className={inputCls} value={reference} onChange={e => setReference(e.target.value)} /></div>
@@ -366,7 +383,13 @@ export default function CreateShippingLabels() {
                 )}
               </div>
 
-              {/* Packages */}
+              {/* Packages — hidden for FedEx One Rate (flat, no weight/dims needed) */}
+              {fedexOneRate ? (
+                <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-3 text-[12px] text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                  <DollarSign size={14} className="text-emerald-500 shrink-0" />
+                  <span>FedEx One Rate — flat price for <strong>{FEDEX_PACKAGING.find(pk => pk.code === packagingType)?.label ?? 'FedEx packaging'}</strong>. No weight or dimensions needed.</span>
+                </div>
+              ) : (
               <fieldset className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
                 <legend className="px-1 text-xs font-semibold text-gray-500 dark:text-gray-400">Boxes ({packages.length})</legend>
                 <div className="space-y-2">
@@ -386,6 +409,7 @@ export default function CreateShippingLabels() {
                 {path === 'ss' && packages.length > 1 && <p className="mt-1 text-[11px] text-gray-400">ShipStation creates one label per box (each its own tracking number).</p>}
                 {path === 'fedex' && packagingType !== 'YOUR_PACKAGING' && <p className="mt-1 text-[11px] text-gray-400">FedEx-branded packaging has fixed dimensions — enter weight only; box dimensions are ignored.</p>}
               </fieldset>
+              )}
 
               {err && <div className="flex items-center gap-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700"><AlertCircle size={14} /> {err}</div>}
 

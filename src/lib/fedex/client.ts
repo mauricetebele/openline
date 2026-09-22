@@ -392,6 +392,7 @@ export interface FedExMultiPieceParams {
   serviceType: string
   shipDate?: string
   packagingType?: string
+  oneRate?: boolean       // when true, requests FedEx One Rate (flat-rate) pricing
   signatureType?: FedExSignatureType
   reference?: string
 }
@@ -438,6 +439,7 @@ export async function createMultiPieceShipment(
       ...(params.shipDate ? { shipDatestamp: params.shipDate } : {}),
       serviceType,
       packagingType: params.packagingType ?? 'YOUR_PACKAGING',
+      ...(params.oneRate ? { shipmentSpecialServices: { specialServiceTypes: ['FEDEX_ONE_RATE'] } } : {}),
       pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
       shippingChargesPayment: {
         paymentType: 'SENDER',
@@ -452,7 +454,8 @@ export async function createMultiPieceShipment(
       requestedPackageLineItems: params.packages.map((p, i) => ({
         sequenceNumber: i + 1,
         weight: { value: p.weight.value, units: p.weight.units },
-        ...(p.dimensions ? { dimensions: {
+        // One Rate uses FedEx packaging's own dimensions — never send custom dims.
+        ...(!params.oneRate && p.dimensions ? { dimensions: {
           length: p.dimensions.length, width: p.dimensions.width, height: p.dimensions.height, units: p.dimensions.units,
         } } : {}),
         ...(params.signatureType && params.signatureType !== 'NO_SIGNATURE_REQUIRED'
@@ -499,8 +502,9 @@ export async function getMultiPieceRate(
       serviceType,
       pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
       packagingType: params.packagingType ?? 'YOUR_PACKAGING',
+      ...(params.oneRate ? { shipmentSpecialServices: { specialServiceTypes: ['FEDEX_ONE_RATE'] } } : {}),
       rateRequestType: ['ACCOUNT', 'LIST'],
-      requestedPackageLineItems: params.packages.map(p => ({ weight: p.weight, ...(p.dimensions ? { dimensions: p.dimensions } : {}) })),
+      requestedPackageLineItems: params.packages.map(p => ({ weight: p.weight, ...(!params.oneRate && p.dimensions ? { dimensions: p.dimensions } : {}) })),
     },
   }
   const data = await fedexFetch(creds, '/rate/v1/rates/quotes', payload, testMode) as {

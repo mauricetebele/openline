@@ -38,6 +38,7 @@ export interface ManualLabelInput {
   referenceNumber?: string
   upsCredentialId?: string
   packagingType?: string // FedEx packaging (FEDEX_PAK, FEDEX_ENVELOPE, …); YOUR_PACKAGING when omitted
+  oneRate?: boolean      // FedEx One Rate (flat-rate) — requires a branded packagingType
 }
 
 // FedEx packaging types offered on the manual-label form (FedEx Direct only).
@@ -125,7 +126,7 @@ export async function rateManualShipment(input: ManualLabelInput): Promise<{ tot
   if (input.path === 'fedex') {
     const creds = await loadFedExCredentials()
     if (!creds) throw new Error('FedEx credentials not configured — add them in Settings → FedEx.')
-    return getMultiPieceRate(creds, { shipFrom: fedexAddr(input.shipFrom), shipTo: fedexAddr(input.shipTo), packages: fedexPackages(input.packages), serviceType: input.serviceCode, ...(input.packagingType ? { packagingType: input.packagingType } : {}) })
+    return getMultiPieceRate(creds, { shipFrom: fedexAddr(input.shipFrom), shipTo: fedexAddr(input.shipTo), packages: fedexPackages(input.packages), serviceType: input.serviceCode, ...(input.packagingType ? { packagingType: input.packagingType } : {}), ...(input.oneRate ? { oneRate: true } : {}) })
   }
   // ShipStation UPS — rate each box, sum the selected service.
   const client = await ssClient()
@@ -176,7 +177,7 @@ export async function createManualShipment(input: ManualLabelInput): Promise<Cre
     if (!creds) throw new Error('FedEx credentials not configured — add them in Settings → FedEx.')
     const sig = input.confirmation && input.confirmation !== 'none' ? FEDEX_SIG[input.confirmation] : undefined
     const params = { shipFrom: fedexAddr(input.shipFrom), shipTo: fedexAddr(input.shipTo), packages: fedexPackages(input.packages),
-      serviceType: input.serviceCode, ...(input.packagingType ? { packagingType: input.packagingType } : {}), ...(sig ? { signatureType: sig } : {}), reference }
+      serviceType: input.serviceCode, ...(input.packagingType ? { packagingType: input.packagingType } : {}), ...(input.oneRate ? { oneRate: true } : {}), ...(sig ? { signatureType: sig } : {}), reference }
     const fx = await createMultiPieceShipment(creds, params)
     masterTracking = fx.masterTrackingNumber
     for (const p of fx.pieces) {
@@ -285,5 +286,6 @@ export function parseManualLabelInput(body: unknown): ManualLabelInput {
     packagingType: typeof b.packagingType === 'string' && (FEDEX_PACKAGING_TYPES as readonly string[]).includes(b.packagingType) && b.packagingType !== 'YOUR_PACKAGING'
       ? b.packagingType
       : undefined,
+    oneRate: b.oneRate === true,
   }
 }
