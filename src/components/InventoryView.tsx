@@ -2859,12 +2859,13 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                 <th className="text-right">
                   <button onClick={() => toggleSort('onHand')} className="inline-flex items-center gap-0.5 hover:text-slate-700 transition-colors">On Hand {sortArrow('onHand')}</button>
                 </th>
-                {/* Avail · Reserved */}
+                {/* Reserved */}
                 <th className="text-right">
-                  <span className="inline-flex items-center gap-1.5 justify-end">
-                    <button onClick={() => toggleSort('available')} className="inline-flex items-center gap-0.5 hover:text-slate-700 transition-colors">Avail {sortArrow('available')}</button>
-                    <button onClick={() => toggleSort('reserved')} className="inline-flex items-center gap-0.5 font-normal text-slate-400 hover:text-slate-700 transition-colors">· rsv {sortArrow('reserved')}</button>
-                  </span>
+                  <button onClick={() => toggleSort('reserved')} className="inline-flex items-center gap-0.5 justify-end hover:text-slate-700 transition-colors">Reserved {sortArrow('reserved')}</button>
+                </th>
+                {/* Available */}
+                <th className="text-right">
+                  <button onClick={() => toggleSort('available')} className="inline-flex items-center gap-0.5 justify-end hover:text-slate-700 transition-colors">Available {sortArrow('available')}</button>
                 </th>
                 {/* MP Sales */}
                 <th className="text-right">
@@ -2919,14 +2920,15 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                       <span className="font-semibold text-gray-900 tabular-nums">{item.onHand}</span>
                     )}
                   </td>
-                  {/* Avail · Reserved */}
-                  <td className="px-2.5 py-1 text-right whitespace-nowrap">
-                    <div className="flex flex-col items-end leading-tight">
-                      <span className="font-semibold text-gray-900 tabular-nums">{item.onHand - item.reserved}</span>
-                      {item.reserved > 0
-                        ? <span className="text-[10px] font-medium text-amber-600 tabular-nums">{item.reserved} rsv</span>
-                        : <span className="text-[10px] text-gray-300">0 rsv</span>}
-                    </div>
+                  {/* Reserved */}
+                  <td className="px-2.5 py-1 text-right tabular-nums whitespace-nowrap">
+                    {item.reserved > 0
+                      ? <span className="font-medium text-amber-600">{item.reserved}</span>
+                      : <span className="text-gray-300">—</span>}
+                  </td>
+                  {/* Available */}
+                  <td className="px-2.5 py-1 text-right tabular-nums whitespace-nowrap font-semibold text-gray-900">
+                    {item.onHand - item.reserved}
                   </td>
                   <td className="px-2 py-1 text-right tabular-nums">
                     {item.location.isFinishedGoods ? (
@@ -2993,7 +2995,7 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
               })}
               {sortedItems.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-2 py-8 text-center text-sm text-gray-400">
+                  <td colSpan={8} className="px-2 py-8 text-center text-sm text-gray-400">
                     No SKUs match the selected marketplace filter.
                   </td>
                 </tr>
