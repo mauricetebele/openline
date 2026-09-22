@@ -52,7 +52,10 @@ export async function GET(req: NextRequest) {
   const baseWhere = {
     accountId,
     orderStatus: { not: 'Pending' } as const,
-    fulfillmentChannel: { not: 'AFN' } as const,
+    // Exclude FBA (AFN) orders but KEEP channel-less orders (null) such as
+    // accessorial / manual-label orders — `{ not: 'AFN' }` alone drops NULL rows.
+    // Held in AND so the dueOutToday query's top-level OR composes cleanly.
+    AND: [{ OR: [{ fulfillmentChannel: { not: 'AFN' as const } }, { fulfillmentChannel: null }] }],
     // Channel filter: narrow to a single order source when requested
     ...(orderSource === 'amazon' || orderSource === 'backmarket'
       ? { orderSource }

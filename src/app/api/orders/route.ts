@@ -60,8 +60,6 @@ export async function GET(req: NextRequest) {
       // Exclude Amazon Pending-payment orders from the grid — they exist only
       // for background available-qty calculation, not for fulfillment.
       orderStatus: { not: 'Pending' },
-      // Exclude FBA orders — Amazon fulfills these, not us
-      fulfillmentChannel: { not: 'AFN' },
       // Channel filter: narrow to a single order source when requested
       ...(orderSource === 'amazon' || orderSource === 'backmarket'
         ? { orderSource }
@@ -69,6 +67,12 @@ export async function GET(req: NextRequest) {
       // Prime-only filter (mobile Prime toggle)
       ...(searchParams.get('prime') === '1' ? { isPrime: true } : {}),
     }
+
+    // Exclude FBA orders (Amazon fulfills those) but KEEP channel-less orders such
+    // as accessorial / manual-label orders, whose fulfillmentChannel is null — a
+    // plain `{ not: 'AFN' }` drops NULL rows in SQL. Held in AND so search's
+    // top-level OR and the dueToday filter compose cleanly.
+    where.AND = [{ OR: [{ fulfillmentChannel: { not: 'AFN' } }, { fulfillmentChannel: null }] }]
 
     if (search) {
       // Only treat the search term as an OLM number when it's purely numeric and
@@ -113,15 +117,13 @@ export async function GET(req: NextRequest) {
         new Date(new Date(guessMs).toLocaleString('en-US', { timeZone: 'UTC' })).getTime() -
         new Date(new Date(guessMs).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
       const tomorrowMidnight = new Date(guessMs + offsetMs)
-      where.AND = [
-        {
-          OR: [
-            { latestShipDate: { lt: tomorrowMidnight } },
-            // BM orders store the dispatch deadline in latestDeliveryDate
-            { orderSource: 'backmarket', latestDeliveryDate: { lt: tomorrowMidnight } },
-          ],
-        },
-      ]
+      ;(where.AND as Prisma.OrderWhereInput[]).push({
+        OR: [
+          { latestShipDate: { lt: tomorrowMidnight } },
+          // BM orders store the dispatch deadline in latestDeliveryDate
+          { orderSource: 'backmarket', latestDeliveryDate: { lt: tomorrowMidnight } },
+        ],
+      })
     }
 
     const [total, orders] = await Promise.all([
