@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet } from 'lucide-react'
+import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet, MapPin } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
 import { printAllLabels } from '@/lib/print-labels'
@@ -8,7 +8,8 @@ import { printAllLabels } from '@/lib/print-labels'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // ─── Types ──────────────────────────────────────────────────────────────────
-interface Vendor { id: string; companyName: string; email: string | null; phone: string | null; address1: string | null; address2: string | null; city: string | null; state: string | null; postal: string | null; country: string; isActive: boolean }
+interface Vendor { id: string; companyName: string; email: string | null; phone: string | null; address1: string | null; address2: string | null; city: string | null; state: string | null; postal: string | null; country: string; isActive: boolean; repairLocationId: string | null }
+interface LocOption { id: string; label: string }
 interface RepairType { id: string; name: string; isActive: boolean }
 interface OrderRow { id: string; orderNumber: number; status: string; vendorName: string; itemCount: number; totalCost: number; createdAt: string; outboundTracking: string | null; inboundTracking: string | null }
 interface Item { id: string; serialNumber: string; sku: string | null; model: string | null; grade: string | null; location: string | null; repairTypeId: string | null; repairTypeName: string | null; repairCost: number | null; status: string; repairSummary: string | null }
@@ -400,17 +401,32 @@ function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; 
 // ─── Vendors tab ────────────────────────────────────────────────────────────
 function VendorsTab() {
   const [vendors, setVendors] = useState<Vendor[]>([])
-  const [form, setForm] = useState<any>({ companyName: '', email: '', phone: '', address1: '', city: '', state: '', postal: '' })
+  const [locs, setLocs] = useState<LocOption[]>([])
+  const emptyForm = { companyName: '', email: '', phone: '', address1: '', address2: '', city: '', state: '', postal: '', repairLocationId: '' }
+  const [form, setForm] = useState<any>({ ...emptyForm })
   const [busy, setBusy] = useState(false)
   const load = () => api('/api/repair-vendors').then(setVendors).catch(() => {})
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    // Flatten warehouses → locations for the "In Repair" location picker.
+    api('/api/warehouses').then((d: { data: { name: string; locations: { id: string; name: string }[] }[] }) => {
+      const flat: LocOption[] = []
+      for (const w of d.data ?? []) for (const l of w.locations ?? []) flat.push({ id: l.id, label: `${w.name} — ${l.name}` })
+      setLocs(flat)
+    }).catch(() => {})
+  }, [])
   async function add() {
     if (!form.companyName.trim()) { toast.error('Company name required'); return }
     setBusy(true)
-    try { await api('/api/repair-vendors', 'POST', form); setForm({ companyName: '', email: '', phone: '', address1: '', city: '', state: '', postal: '' }); load() }
+    try { await api('/api/repair-vendors', 'POST', form); setForm({ ...emptyForm }); load() }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }
   }
   async function del(id: string) { if (!confirm('Delete vendor?')) return; try { await api(`/api/repair-vendors/${id}`, 'DELETE'); load() } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') } }
+  async function setLocation(id: string, repairLocationId: string) {
+    setVendors(vs => vs.map(v => v.id === id ? { ...v, repairLocationId: repairLocationId || null } : v))
+    try { await api(`/api/repair-vendors/${id}`, 'PATCH', { repairLocationId }); toast.success('Repair location updated') }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Failed'); load() }
+  }
 
   return (
     <div className="space-y-4 max-w-3xl">
@@ -418,20 +434,36 @@ function VendorsTab() {
         <input className={inputCls} placeholder="Company name *" value={form.companyName} onChange={e => setForm({ ...form, companyName: e.target.value })} />
         <input className={inputCls} placeholder="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
         <input className={inputCls} placeholder="Phone" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
-        <input className={clsx(inputCls, 'col-span-2')} placeholder="Address (for labels)" value={form.address1} onChange={e => setForm({ ...form, address1: e.target.value })} />
+        <input className={clsx(inputCls, 'col-span-3')} placeholder="Address line 1 (for labels)" value={form.address1} onChange={e => setForm({ ...form, address1: e.target.value })} />
+        <input className={clsx(inputCls, 'col-span-3')} placeholder="Address line 2 (suite, unit, etc.)" value={form.address2} onChange={e => setForm({ ...form, address2: e.target.value })} />
         <input className={inputCls} placeholder="City" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} />
         <input className={inputCls} placeholder="State" value={form.state} onChange={e => setForm({ ...form, state: e.target.value })} />
         <input className={inputCls} placeholder="ZIP" value={form.postal} onChange={e => setForm({ ...form, postal: e.target.value })} />
-        <button onClick={add} disabled={busy} className="h-8 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-1.5"><Plus size={14} /> Add vendor</button>
+        <div className="col-span-2">
+          <select className={clsx(inputCls, 'w-full')} value={form.repairLocationId} onChange={e => setForm({ ...form, repairLocationId: e.target.value })}>
+            <option value="">In-repair location (optional)…</option>
+            {locs.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+          </select>
+        </div>
+        <button onClick={add} disabled={busy} className="h-8 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-1.5 justify-center"><Plus size={14} /> Add vendor</button>
       </div>
+      <p className="text-[11px] text-gray-400 -mt-2">The <strong>in-repair location</strong> is where a unit is moved when it&apos;s shipped to this vendor, so inventory reflects it&apos;s out for repair.</p>
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
         {vendors.length === 0 ? <div className="px-3 py-4 text-center text-sm text-gray-400">No vendors yet.</div>
           : vendors.map(v => (
             <div key={v.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-              <span className="font-medium text-gray-800 dark:text-gray-200">{v.companyName}</span>
+              <span className="font-medium text-gray-800 dark:text-gray-200 min-w-[120px]">{v.companyName}</span>
               <span className="text-gray-400 text-xs">{v.email ?? ''} {v.phone ?? ''}</span>
               <span className="text-gray-400 text-xs">{[v.city, v.state].filter(Boolean).join(', ')}</span>
-              <button onClick={() => del(v.id)} className="ml-auto text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
+              <label className="ml-auto flex items-center gap-1.5 text-xs text-gray-500">
+                <MapPin size={12} className="text-gray-400" />
+                <select className="h-7 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-800 px-1.5 text-xs max-w-[180px]"
+                  value={v.repairLocationId ?? ''} onChange={e => setLocation(v.id, e.target.value)}>
+                  <option value="">— In-repair location —</option>
+                  {locs.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                </select>
+              </label>
+              <button onClick={() => del(v.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
             </div>
           ))}
       </div>

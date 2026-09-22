@@ -1366,6 +1366,7 @@ model Location {
   clientLocationAccess   ClientLocationAccess[]
   fbaReturnReceipts      FbaReturnReceipt[]
   legacyRMASerials       LegacyRMASerial[]
+  repairVendors          RepairVendor[]                   @relation("RepairVendorLocation")
 
   @@unique([warehouseId, name])
   @@index([warehouseId])
@@ -2914,11 +2915,15 @@ model RepairVendor {
   postal      String?
   country     String        @default("US")
   isActive    Boolean       @default(true)
+  // Location that in-repair units are moved into when shipped to this vendor.
+  repairLocationId String?
+  repairLocation   Location?  @relation("RepairVendorLocation", fields: [repairLocationId], references: [id], onDelete: SetNull)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
   repairOrders RepairOrder[]
 
+  @@index([repairLocationId])
   @@map("repair_vendors")
 }
 

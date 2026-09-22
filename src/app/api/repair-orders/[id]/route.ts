@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
+import { moveRepairOrderToVendorLocation } from '@/lib/repair-location'
 
 export const dynamic = 'force-dynamic'
 
@@ -72,7 +73,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (Object.keys(data).length === 0) return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
   const order = await prisma.repairOrder.update({ where: { id: params.id }, data }).catch(() => null)
   if (!order) return NextResponse.json({ error: 'Repair order not found' }, { status: 404 })
-  return NextResponse.json(order)
+
+  // Marking the order shipped-out moves its units into the vendor's mapped repair
+  // location (no-op if the vendor has none). Best-effort; idempotent.
+  let relocation: { moved: number; locationName: string | null } | null = null
+  if (data.status === 'SHIPPED_OUT') {
+    try { relocation = await moveRepairOrderToVendorLocation(params.id, user.dbId) }
+    catch (e) { console.error('[repair-order PATCH] relocate to vendor location failed', e) }
+  }
+  return NextResponse.json({ ...order, ...(relocation && relocation.moved > 0 ? { relocation } : {}) })
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {

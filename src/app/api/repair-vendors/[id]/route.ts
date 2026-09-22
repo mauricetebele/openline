@@ -16,6 +16,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   for (const k of ['companyName', 'email', 'phone', 'address1', 'address2', 'city', 'state', 'postal', 'country']) {
     if (k in b) data[k] = typeof b[k] === 'string' && b[k].trim() ? b[k].trim() : (k === 'companyName' || k === 'country' ? undefined : null)
   }
+  if ('repairLocationId' in b) data.repairLocationId = typeof b.repairLocationId === 'string' && b.repairLocationId ? b.repairLocationId : null
   if ('isActive' in b) data.isActive = !!b.isActive
   const vendor = await prisma.repairVendor.update({ where: { id: params.id }, data }).catch(() => null)
   if (!vendor) return NextResponse.json({ error: 'Vendor not found' }, { status: 404 })

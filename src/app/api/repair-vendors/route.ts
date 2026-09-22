@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
       companyName, email: s('email'), phone: s('phone'),
       address1: s('address1'), address2: s('address2'), city: s('city'),
       state: s('state'), postal: s('postal'), country: s('country') || 'US',
+      repairLocationId: typeof b?.repairLocationId === 'string' && b.repairLocationId ? b.repairLocationId : null,
     },
   })
   return NextResponse.json(vendor, { status: 201 })
