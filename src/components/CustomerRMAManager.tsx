@@ -62,6 +62,15 @@ interface Customer { id: string; companyName: string }
 interface Location { id: string; name: string }
 interface Warehouse { id: string; name: string; locations: Location[] }
 
+interface BulkStage {
+  receivable: string[]
+  alreadyReceived: string[]
+  notOnReturn: string[]
+  duplicates: string[]
+  missing: string[]
+  counts: { pasted: number; receivable: number; alreadyReceived: number; notOnReturn: number; missing: number; totalOnReturn: number; alreadyReceivedOnReturn: number }
+}
+
 interface ValidatedSerial {
   serialNumber: string
   valid: true
@@ -733,6 +742,12 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
   const [scanSerial, setScanSerial] = useState('')
   const [locationId, setLocationId] = useState('')
   const [receiving, setReceiving] = useState(false)
+  // Bulk receive (paste serials → stage/validate → commit)
+  const [bulkMode, setBulkMode] = useState(false)
+  const [bulkText, setBulkText] = useState('')
+  const [bulkStaging, setBulkStaging] = useState(false)
+  const [bulkReceiving, setBulkReceiving] = useState(false)
+  const [bulkStage, setBulkStage] = useState<BulkStage | null>(null)
 
   const [rejecting, setRejecting] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
@@ -793,6 +808,40 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
     } finally {
       setReceiving(false)
     }
+  }
+
+  function bulkSerials() { return bulkText.split('\n').map(s => s.trim()).filter(Boolean) }
+
+  async function validateBulk() {
+    const serialNumbers = bulkSerials()
+    if (serialNumbers.length === 0) { setErr('Paste at least one serial number'); return }
+    setErr(''); setBulkStaging(true); setBulkStage(null)
+    try {
+      const res = await fetch(`/api/wholesale/customer-rma/${rmaId}/receive-bulk`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serialNumbers, commit: false }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Validation failed')
+      setBulkStage(data)
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Validation failed') }
+    finally { setBulkStaging(false) }
+  }
+
+  async function commitBulk() {
+    if (!locationId) { setErr('Select a receiving location'); return }
+    const serialNumbers = bulkSerials()
+    setErr(''); setBulkReceiving(true)
+    try {
+      const res = await fetch(`/api/wholesale/customer-rma/${rmaId}/receive-bulk`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serialNumbers, locationId, commit: true }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Receive failed')
+      setBulkText(''); setBulkStage(null); loadRMA(); onUpdated()
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Receive failed') }
+    finally { setBulkReceiving(false) }
   }
 
   async function reject() {
@@ -1052,8 +1101,13 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
             <PackageCheck size={16} className="text-blue-600" />
             <h3 className="text-xs font-semibold text-blue-800">Receive Serials</h3>
             <span className="text-xs text-blue-500">{receivedCount} of {totalSerials} received</span>
+            <div className="ml-auto flex rounded-md border border-blue-200 overflow-hidden text-[11px] font-medium">
+              <button onClick={() => { setBulkMode(false); setBulkStage(null) }} className={clsx('px-2.5 py-1', !bulkMode ? 'bg-amazon-blue text-white' : 'bg-white text-gray-600 hover:bg-gray-50')}>Single</button>
+              <button onClick={() => setBulkMode(true)} className={clsx('px-2.5 py-1', bulkMode ? 'bg-amazon-blue text-white' : 'bg-white text-gray-600 hover:bg-gray-50')}>Bulk paste</button>
+            </div>
           </div>
 
+          {!bulkMode ? (
           <div className="flex items-end gap-3">
             <div className="flex-1">
               <label className="block text-[10px] font-medium text-gray-600 mb-0.5">Scan / Enter Serial</label>
@@ -1090,6 +1144,75 @@ function RMADetail({ rmaId, onBack, onUpdated }: { rmaId: string; onBack: () => 
               {receiving ? '...' : 'Receive'}
             </button>
           </div>
+          ) : (
+          <div className="space-y-3">
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="block text-[10px] font-medium text-gray-600 mb-0.5">Paste serials (one per line)</label>
+                <textarea
+                  value={bulkText}
+                  onChange={e => { setBulkText(e.target.value); setBulkStage(null) }}
+                  rows={5}
+                  placeholder={'Paste scanned serials…\none per line'}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+                />
+              </div>
+              <div className="w-48 flex flex-col gap-2">
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-600 mb-0.5">Location</label>
+                  <select value={locationId} onChange={e => setLocationId(e.target.value)}
+                    className="w-full h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-1 focus:ring-amazon-blue">
+                    <option value="">Select location...</option>
+                    {warehouses.map(wh => (
+                      <optgroup key={wh.id} label={wh.name}>
+                        {wh.locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+                <button onClick={validateBulk} disabled={bulkStaging || !bulkText.trim()}
+                  className="h-8 px-4 rounded-md bg-white border border-amazon-blue text-amazon-blue text-xs font-semibold hover:bg-blue-50 disabled:opacity-50">
+                  {bulkStaging ? 'Validating…' : 'Validate'}
+                </button>
+              </div>
+            </div>
+
+            {bulkStage && (
+              <div className="rounded-md border border-gray-200 bg-white p-3 space-y-2">
+                {/* Summary chips */}
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-700 px-2 py-0.5 font-semibold"><CheckCircle2 size={11} /> {bulkStage.counts.receivable} to receive</span>
+                  {bulkStage.counts.notOnReturn > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-2 py-0.5 font-semibold"><AlertCircle size={11} /> {bulkStage.counts.notOnReturn} not on return</span>}
+                  {bulkStage.counts.alreadyReceived > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-600 px-2 py-0.5">{bulkStage.counts.alreadyReceived} already received</span>}
+                  {bulkStage.duplicates.length > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-600 px-2 py-0.5">{bulkStage.duplicates.length} duplicate{bulkStage.duplicates.length !== 1 ? 's' : ''}</span>}
+                  {bulkStage.counts.missing > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 font-semibold"><AlertCircle size={11} /> {bulkStage.counts.missing} not scanned (under-receiving)</span>}
+                </div>
+
+                {bulkStage.notOnReturn.length > 0 && (
+                  <div className="text-[11px]">
+                    <span className="font-semibold text-red-700">Not on this return (won&apos;t receive):</span>
+                    <span className="ml-1 font-mono text-red-600 break-all">{bulkStage.notOnReturn.join(', ')}</span>
+                  </div>
+                )}
+                {bulkStage.missing.length > 0 && (
+                  <div className="text-[11px]">
+                    <span className="font-semibold text-amber-800">On the return but not scanned:</span>
+                    <span className="ml-1 font-mono text-amber-700 break-all">{bulkStage.missing.join(', ')}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button onClick={commitBulk} disabled={bulkReceiving || bulkStage.counts.receivable === 0 || !locationId}
+                    className="h-8 px-4 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-amazon-blue/90 disabled:opacity-50">
+                    {bulkReceiving ? 'Receiving…' : `Receive ${bulkStage.counts.receivable} unit${bulkStage.counts.receivable !== 1 ? 's' : ''}`}
+                  </button>
+                  {!locationId && bulkStage.counts.receivable > 0 && <span className="text-[11px] text-gray-400">Select a location to receive</span>}
+                  {bulkStage.counts.missing > 0 && <span className="text-[11px] text-amber-600">Under-receiving: {bulkStage.counts.missing} of {bulkStage.counts.totalOnReturn - bulkStage.counts.alreadyReceivedOnReturn} outstanding not scanned</span>}
+                </div>
+              </div>
+            )}
+          </div>
+          )}
         </div>
       )}
 
