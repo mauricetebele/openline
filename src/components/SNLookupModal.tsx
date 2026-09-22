@@ -64,6 +64,8 @@ const EVENT_LABEL: Record<string, string> = {
   NOTE_ADDED:     'Serial Note Populated',
   MANUAL_ADD:     'Manual Inventory Add',
   MANUAL_REMOVE:  'Manual Inventory Remove',
+  REPAIR_SHIPPED: 'Shipped to Repair Vendor',
+  REPAIR_RETURNED: 'Returned from Repair Vendor',
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────

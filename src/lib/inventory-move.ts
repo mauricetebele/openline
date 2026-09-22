@@ -25,6 +25,7 @@ export async function moveSerialsToLocation(
   destLocationId: string,
   userId: string | null,
   notes?: string,
+  eventType: Prisma.SerialHistoryCreateManyInput['eventType'] = 'LOCATION_MOVE',
 ): Promise<number> {
   const toMove = serials.filter(s => s.locationId !== destLocationId)
   if (toMove.length === 0) return 0
@@ -35,11 +36,11 @@ export async function moveSerialsToLocation(
     data: { locationId: destLocationId },
   })
 
-  // 2. Record a LOCATION_MOVE history row per serial (from → to).
+  // 2. Record a history row per serial (from → to) with the given event type.
   await tx.serialHistory.createMany({
     data: toMove.map(s => ({
       inventorySerialId: s.id,
-      eventType: 'LOCATION_MOVE' as const,
+      eventType,
       locationId: destLocationId,
       fromLocationId: s.locationId,
       ...(userId ? { userId } : {}),

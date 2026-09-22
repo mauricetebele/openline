@@ -100,6 +100,8 @@ function SerialRow({ serial, index }: { serial: Serial; index: number }) {
   const EVENT_LABEL: Record<string, string> = {
     PO_RECEIPT: 'PO Receipt',
     MANUAL_FBA: 'Manual FBA',
+    REPAIR_SHIPPED: 'Repair Ship-Out',
+    REPAIR_RETURNED: 'Repair Return',
   }
 
   return (

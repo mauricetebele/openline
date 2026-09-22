@@ -30,6 +30,8 @@ const EVENT_LABEL: Record<string, string> = {
   SALE:           'Sale',
   MANUAL_REMOVE:       'Manual Remove',
   VENDOR_RMA_SHIPPED:  'Vendor RMA',
+  REPAIR_SHIPPED:      'Repair Ship-Out',
+  REPAIR_RETURNED:     'Repair Return',
 }
 
 // add / remove / move
@@ -38,6 +40,7 @@ function eventDirection(eventType: string): 'add' | 'remove' | 'move' {
   if (['SALE', 'MANUAL_REMOVE', 'MANUAL_FBA', 'VENDOR_RMA_SHIPPED', 'FBA_SHIPMENT'].includes(eventType)) return 'remove'
   if (eventType === 'LOCATION_MOVE')  return 'move'
   if (eventType === 'SKU_CONVERSION') return 'move'
+  if (eventType === 'REPAIR_SHIPPED' || eventType === 'REPAIR_RETURNED') return 'move'
   return 'add'
 }
 

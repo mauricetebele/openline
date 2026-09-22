@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { moveRepairOrderToVendorLocation } from '@/lib/repair-location'
+import { recordRepairShipment } from '@/lib/repair-location'
 
 export const dynamic = 'force-dynamic'
 
@@ -74,14 +74,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const order = await prisma.repairOrder.update({ where: { id: params.id }, data }).catch(() => null)
   if (!order) return NextResponse.json({ error: 'Repair order not found' }, { status: 404 })
 
-  // Marking the order shipped-out moves its units into the vendor's mapped repair
-  // location (no-op if the vendor has none). Best-effort; idempotent.
-  let relocation: { moved: number; locationName: string | null } | null = null
-  if (data.status === 'SHIPPED_OUT') {
-    try { relocation = await moveRepairOrderToVendorLocation(params.id, user.dbId) }
-    catch (e) { console.error('[repair-order PATCH] relocate to vendor location failed', e) }
+  // Status → SHIPPED_OUT moves units into the vendor's mapped repair location and
+  // logs the shipment; → RETURNED logs the return. Best-effort; idempotent.
+  let relocation: { moved: number; logged: number; locationName: string | null } | null = null
+  if (data.status === 'SHIPPED_OUT' || data.status === 'RETURNED') {
+    try { relocation = await recordRepairShipment(params.id, data.status === 'SHIPPED_OUT' ? 'outbound' : 'inbound', user.dbId) }
+    catch (e) { console.error('[repair-order PATCH] record repair shipment failed', e) }
   }
-  return NextResponse.json({ ...order, ...(relocation && relocation.moved > 0 ? { relocation } : {}) })
+  return NextResponse.json({ ...order, ...(relocation && (relocation.moved > 0 || relocation.logged > 0) ? { relocation } : {}) })
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {

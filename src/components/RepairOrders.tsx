@@ -179,6 +179,15 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
   async function setStatus(status: string) {
     try { await api(`/api/repair-orders/${id}`, 'PATCH', { status }); await load() } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') }
   }
+  const [relocating, setRelocating] = useState(false)
+  async function relocate() {
+    setRelocating(true)
+    try {
+      const r = await api(`/api/repair-orders/${id}/relocate`, 'POST')
+      toast.success(r.moved > 0 ? `Moved ${r.moved} unit${r.moved !== 1 ? 's' : ''} into ${r.locationName}` : `Units already at ${r.locationName ?? 'the in-repair location'}`)
+      await load()
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') } finally { setRelocating(false) }
+  }
   async function loadTracking() {
     try { setTracking(await api(`/api/repair-orders/${id}/tracking`)) } catch { /* ignore */ }
   }
@@ -204,6 +213,13 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
         <span className={clsx('inline-flex px-2 py-0.5 rounded text-xs font-medium', STATUS_COLOR[order.status])}>{order.status.replace('_', ' ')}</span>
         <span className="text-sm text-gray-500">{order.vendor.companyName}</span>
         <div className="ml-auto flex items-center gap-2">
+          {order.vendor.repairLocationId && order.status !== 'DRAFT' && order.status !== 'CANCELLED' && (
+            <button onClick={relocate} disabled={relocating}
+              title="Move these units into the vendor's in-repair location (for orders shipped before the location was mapped)"
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-purple-300 text-purple-700 text-xs font-medium hover:bg-purple-50 disabled:opacity-50">
+              <MapPin size={13} /> {relocating ? 'Moving…' : 'Move to In-Repair Location'}
+            </button>
+          )}
           <a href={`/api/repair-orders/${id}/po-document`}
             className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50">
             <FileSpreadsheet size={13} /> Repair PO (Excel)

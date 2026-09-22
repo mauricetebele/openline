@@ -1532,6 +1532,8 @@ enum SerialEventType {
   GRADE_CHANGE
   FBA_RETURN
   LEGACY_RMA_RECEIPT
+  REPAIR_SHIPPED
+  REPAIR_RETURNED
 }
 
 // ─── RMA (Return Merchandise Authorization) ───────────────────────────────────

@@ -11,7 +11,7 @@ import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
 import { WHOLESALE_SHIP_FROM } from '@/lib/ups-tracking'
 import { createManualShipment, rateManualShipment, type LabelAddress, type ManualLabelInput } from '@/lib/shipping-labels'
-import { moveRepairOrderToVendorLocation } from '@/lib/repair-location'
+import { recordRepairShipment } from '@/lib/repair-location'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -110,13 +110,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       : { inboundCarrier: result.carrier, inboundTracking: trackings, inboundShipmentId: result.masterTracking, ...(order.status === 'AT_VENDOR' || order.status === 'SHIPPED_OUT' ? { status: 'RETURNED' as const } : {}) },
   })
 
-  // Shipping outbound = the units are now at the vendor: move each serial into
-  // the vendor's mapped repair location (no-op if the vendor has none). Best-effort.
-  let relocation: { moved: number; locationName: string | null } | null = null
-  if (direction === 'outbound') {
-    try { relocation = await moveRepairOrderToVendorLocation(params.id, user.dbId) }
-    catch (e) { console.error('[repair-label] relocate to vendor location failed', e) }
-  }
+  // Log repair activity + (outbound) move units into the vendor's mapped repair
+  // location. Best-effort so a history hiccup never blocks the label response.
+  let relocation: { moved: number; logged: number; locationName: string | null } | null = null
+  try { relocation = await recordRepairShipment(params.id, direction, user.dbId) }
+  catch (e) { console.error('[repair-label] record repair shipment failed', e) }
 
-  return NextResponse.json({ direction, ...result, ...(relocation && relocation.moved > 0 ? { relocation } : {}) })
+  return NextResponse.json({ direction, ...result, ...(relocation && (relocation.moved > 0 || relocation.logged > 0) ? { relocation } : {}) })
 }
