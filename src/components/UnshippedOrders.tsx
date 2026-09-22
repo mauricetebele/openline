@@ -8123,18 +8123,31 @@ export default function UnshippedOrders() {
                   {/* Item + Qty — SKU + Product name, qty as N× prefix */}
                   <td className="px-3 py-2.5">
                     <div className={clsx('flex flex-col', multi && 'divide-y divide-gray-200')}>
-                      {order.items.map(i => (
+                      {order.items.map(i => {
+                        const sku = i.internalSku ?? i.sellerSku ?? null
+                        return (
                         <div key={i.id} className={clsx('flex items-start gap-1.5 leading-snug', multi && 'py-1 first:pt-0 last:pb-0')}>
                           <span className={clsx('mt-1 shrink-0 text-[11px] tabular-nums', i.quantityOrdered > 1 ? 'font-bold text-red-600' : 'font-medium text-gray-400')}>{i.quantityOrdered}×</span>
                           <div className="min-w-0">
-                            <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 pl-2.5 pr-2 py-0.5 whitespace-nowrap">
-                              <span className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 leading-tight">{i.internalSku ?? i.sellerSku ?? '—'}</span>
-                              {i.mappedGradeName && <GradeBadge grade={i.mappedGradeName} size="xs" />}
-                            </span>
-                            {i.title && <span className="block text-[10px] text-gray-400 truncate max-w-[200px] mt-0.5" title={i.title}>{i.title}</span>}
+                            {sku ? (
+                              <>
+                                <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 pl-2.5 pr-2 py-0.5 whitespace-nowrap">
+                                  <span className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 leading-tight">{sku}</span>
+                                  {i.mappedGradeName && <GradeBadge grade={i.mappedGradeName} size="xs" />}
+                                </span>
+                                {i.title && <span className="block text-[10px] text-gray-400 truncate max-w-[200px] mt-0.5" title={i.title}>{i.title}</span>}
+                              </>
+                            ) : (
+                              // No SKU (accessorial / manual item): show the name prominently,
+                              // boxed and bold, wrapping instead of truncating.
+                              <span className="inline-flex items-start gap-1 rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-900/30 px-2 py-1 max-w-[260px]">
+                                <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 leading-snug whitespace-normal break-words">{i.title ?? 'Accessory'}</span>
+                                {i.mappedGradeName && <GradeBadge grade={i.mappedGradeName} size="xs" />}
+                              </span>
+                            )}
                           </div>
                         </div>
-                      ))}
+                      )})}
                     </div>
                   </td>
                   {/* Total */}
