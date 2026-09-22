@@ -36,6 +36,20 @@ const SERVICES: Record<Path, { code: string; label: string }[]> = {
 }
 const PATH_LABEL: Record<Path, string> = { ups: 'UPS Direct', fedex: 'FedEx Direct', ss: 'ShipStation (UPS)' }
 
+// FedEx packaging options (FedEx Direct only). YOUR_PACKAGING = your own box.
+const FEDEX_PACKAGING: { code: string; label: string }[] = [
+  { code: 'YOUR_PACKAGING', label: 'Your Packaging' },
+  { code: 'FEDEX_ENVELOPE', label: 'FedEx Envelope' },
+  { code: 'FEDEX_PAK', label: 'FedEx Pak' },
+  { code: 'FEDEX_SMALL_BOX', label: 'FedEx Small Box' },
+  { code: 'FEDEX_MEDIUM_BOX', label: 'FedEx Medium Box' },
+  { code: 'FEDEX_LARGE_BOX', label: 'FedEx Large Box' },
+  { code: 'FEDEX_EXTRA_LARGE_BOX', label: 'FedEx Extra Large Box' },
+  { code: 'FEDEX_TUBE', label: 'FedEx Tube' },
+  { code: 'FEDEX_10KG_BOX', label: 'FedEx 10kg Box' },
+  { code: 'FEDEX_25KG_BOX', label: 'FedEx 25kg Box' },
+]
+
 interface Addr { name: string; company: string; address1: string; address2: string; city: string; state: string; postal: string; country: string; phone: string }
 interface Pkg { weightValue: string; weightUnit: 'LBS' | 'OZS'; length: string; width: string; height: string }
 interface UpsCred { id: string; nickname: string; isDefault: boolean }
@@ -72,6 +86,7 @@ export default function CreateShippingLabels() {
   const [shipTo, setShipTo] = useState<Addr>({ ...EMPTY_TO })
   const [packages, setPackages] = useState<Pkg[]>([emptyPkg()])
   const [serviceCode, setServiceCode] = useState(SERVICES.ups[0].code)
+  const [packagingType, setPackagingType] = useState('YOUR_PACKAGING') // FedEx Direct only
   const [confirmation, setConfirmation] = useState<'none' | 'delivery' | 'signature' | 'adult_signature'>('none')
   const [reference, setReference] = useState('')
   const [upsCreds, setUpsCreds] = useState<UpsCred[]>([])
@@ -101,10 +116,10 @@ export default function CreateShippingLabels() {
     }).catch(() => {})
   }, [])
 
-  // Reset the service + rate when the path changes.
-  useEffect(() => { setServiceCode(SERVICES[path][0].code); setRate(null) }, [path])
+  // Reset the service + packaging + rate when the path changes.
+  useEffect(() => { setServiceCode(SERVICES[path][0].code); setPackagingType('YOUR_PACKAGING'); setRate(null) }, [path])
   // Any input change invalidates a stale rate.
-  useEffect(() => { setRate(null) }, [shipTo, shipFrom, packages, serviceCode, confirmation, upsCredentialId])
+  useEffect(() => { setRate(null) }, [shipTo, shipFrom, packages, serviceCode, packagingType, confirmation, upsCredentialId])
 
   // Debounced order search for copying a ship-to address.
   useEffect(() => {
@@ -159,13 +174,17 @@ export default function CreateShippingLabels() {
   const canSubmit = addrComplete(shipTo) && addrComplete(shipFrom) && pkgsComplete && !!serviceCode
 
   function buildBody() {
+    // FedEx branded packaging (Pak/Envelope/boxes) has fixed dimensions — sending
+    // custom dims makes FedEx reject the request, so omit them in that case.
+    const brandedFedexPkg = path === 'fedex' && packagingType !== 'YOUR_PACKAGING'
     return {
       path, serviceCode, confirmation, referenceNumber: reference.trim() || undefined,
       ...(path === 'ups' && upsCredentialId ? { upsCredentialId } : {}),
+      ...(brandedFedexPkg ? { packagingType } : {}),
       shipFrom, shipTo,
       packages: packages.map(p => ({
         weightValue: Number(p.weightValue), weightUnit: p.weightUnit,
-        ...(p.length && p.width && p.height ? { length: Number(p.length), width: Number(p.width), height: Number(p.height), dimUnit: 'IN' } : {}),
+        ...(!brandedFedexPkg && p.length && p.width && p.height ? { length: Number(p.length), width: Number(p.width), height: Number(p.height), dimUnit: 'IN' } : {}),
       })),
       ...(accessorial ? { accessorial: true, accessoryName: accessoryName.trim() } : {}),
     }
@@ -322,6 +341,13 @@ export default function CreateShippingLabels() {
                     </select>
                   </div>
                 )}
+                {path === 'fedex' && (
+                  <div><label className={labelCls}>Packaging</label>
+                    <select className={inputCls} value={packagingType} onChange={e => setPackagingType(e.target.value)}>
+                      {FEDEX_PACKAGING.map(pk => <option key={pk.code} value={pk.code}>{pk.label}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div><label className={labelCls}>Reference # (optional)</label><input className={inputCls} value={reference} onChange={e => setReference(e.target.value)} /></div>
               </div>
 
@@ -358,6 +384,7 @@ export default function CreateShippingLabels() {
                 </div>
                 <button onClick={() => setPackages(p => [...p, emptyPkg()])} className="mt-2 text-xs text-amazon-blue hover:underline flex items-center gap-1"><Plus size={12} /> Add box</button>
                 {path === 'ss' && packages.length > 1 && <p className="mt-1 text-[11px] text-gray-400">ShipStation creates one label per box (each its own tracking number).</p>}
+                {path === 'fedex' && packagingType !== 'YOUR_PACKAGING' && <p className="mt-1 text-[11px] text-gray-400">FedEx-branded packaging has fixed dimensions — enter weight only; box dimensions are ignored.</p>}
               </fieldset>
 
               {err && <div className="flex items-center gap-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700"><AlertCircle size={14} /> {err}</div>}
