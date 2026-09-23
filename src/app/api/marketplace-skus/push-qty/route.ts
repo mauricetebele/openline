@@ -497,6 +497,10 @@ export async function pushSingleQuantity(mskuId: string): Promise<PushResult> {
 
   // Filter out FBA siblings
   const group = siblings.filter(m => m.marketplaceListing?.fulfillmentChannel !== 'FBA')
+  // Always include the target SKU so it is pushed even if it now matches neither
+  // syncQty nor suspended — e.g. resuming a non-synced listing must push its real
+  // qty back (otherwise it stays at the 0 left by the suspension).
+  if (!group.some(g => g.id === msku.id)) group.push(msku as (typeof group)[number])
   if (group.length === 0) {
     return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: 0 }
   }

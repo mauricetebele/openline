@@ -10,10 +10,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { pushQtyForProducts } from '@/lib/push-qty-for-product'
+import { pushSingleQuantity } from '@/app/api/marketplace-skus/push-qty/route'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 120
 
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
   const mskus = await prisma.productGradeMarketplaceSku.findMany({
     where: { id: { in: ids }, marketplace: { in: ['amazon', 'backmarket'] } },
-    select: { id: true, productId: true },
+    select: { id: true, productId: true, gradeId: true },
   })
   if (mskus.length === 0) {
     return NextResponse.json({ error: 'No Amazon / Back Market SKUs in the selection' }, { status: 400 })
@@ -37,9 +37,16 @@ export async function POST(req: NextRequest) {
     data: { suspended },
   })
 
-  // Re-push qty for the affected products (suspended → 0, siblings re-split). Runs
-  // in the background so the request returns quickly.
-  pushQtyForProducts(Array.from(new Set(mskus.map(m => m.productId))))
+  // Push qty NOW (awaited) so the marketplace reflects the change immediately —
+  // suspended → 0, siblings re-split; resume → real qty restored. pushSingleQuantity
+  // pushes the whole (product, grade) group, so one driver per group covers it.
+  const driverByGroup = new Map<string, string>()
+  for (const m of mskus) {
+    const key = `${m.productId}::${m.gradeId ?? ''}`
+    if (!driverByGroup.has(key)) driverByGroup.set(key, m.id)
+  }
+  const pushes = await Promise.allSettled(Array.from(driverByGroup.values()).map(id => pushSingleQuantity(id)))
+  const pushErrors = pushes.filter(p => p.status === 'rejected').length
 
-  return NextResponse.json({ updated: mskus.length, suspended })
+  return NextResponse.json({ updated: mskus.length, suspended, groupsPushed: driverByGroup.size, pushErrors })
 }
