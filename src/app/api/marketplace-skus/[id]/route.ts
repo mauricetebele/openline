@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { pushQtyForProducts } from '@/lib/push-qty-for-product'
 
 export async function PATCH(
   req: NextRequest,
@@ -101,6 +102,11 @@ export async function PATCH(
       grade: { select: { id: true, grade: true } },
     },
   })
+
+  // Toggling suspend pushes qty to the marketplace immediately — in the background
+  // (waitUntil) so this request stays fast. Suspended → 0, siblings re-split;
+  // resume → real qty restored.
+  if (typeof suspended === 'boolean') pushQtyForProducts([updated.productId])
 
   return NextResponse.json(updated)
 }

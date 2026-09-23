@@ -10,10 +10,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
-import { pushSingleQuantity } from '@/app/api/marketplace-skus/push-qty/route'
+import { pushQtyForProducts } from '@/lib/push-qty-for-product'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+export const maxDuration = 300
 
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
@@ -26,27 +26,22 @@ export async function POST(req: NextRequest) {
 
   const mskus = await prisma.productGradeMarketplaceSku.findMany({
     where: { id: { in: ids }, marketplace: { in: ['amazon', 'backmarket'] } },
-    select: { id: true, productId: true, gradeId: true },
+    select: { id: true, productId: true },
   })
   if (mskus.length === 0) {
     return NextResponse.json({ error: 'No Amazon / Back Market SKUs in the selection' }, { status: 400 })
   }
 
+  // Flip the flag (fast), then push in the BACKGROUND (waitUntil) so the request
+  // returns immediately instead of blocking on many marketplace API calls (which
+  // was causing FUNCTION_INVOCATION_TIMEOUT). The background push starts right
+  // away — suspended → 0, siblings re-split; resume → real qty — and the 10-min
+  // cron reconciles anything the background run doesn't finish.
   await prisma.productGradeMarketplaceSku.updateMany({
     where: { id: { in: mskus.map(m => m.id) } },
     data: { suspended },
   })
+  pushQtyForProducts(Array.from(new Set(mskus.map(m => m.productId))))
 
-  // Push qty NOW (awaited) so the marketplace reflects the change immediately —
-  // suspended → 0, siblings re-split; resume → real qty restored. pushSingleQuantity
-  // pushes the whole (product, grade) group, so one driver per group covers it.
-  const driverByGroup = new Map<string, string>()
-  for (const m of mskus) {
-    const key = `${m.productId}::${m.gradeId ?? ''}`
-    if (!driverByGroup.has(key)) driverByGroup.set(key, m.id)
-  }
-  const pushes = await Promise.allSettled(Array.from(driverByGroup.values()).map(id => pushSingleQuantity(id)))
-  const pushErrors = pushes.filter(p => p.status === 'rejected').length
-
-  return NextResponse.json({ updated: mskus.length, suspended, groupsPushed: driverByGroup.size, pushErrors })
+  return NextResponse.json({ updated: mskus.length, suspended })
 }

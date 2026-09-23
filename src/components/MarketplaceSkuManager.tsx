@@ -1262,19 +1262,14 @@ export default function MarketplaceSkuManager() {
     }
   }
 
-  // Suspend Listing: force-push 0 to the marketplace regardless of on-hand.
+  // Suspend Listing: flag it (fast); the server pushes qty (0 on suspend, real qty
+  // on resume) to the marketplace in the background.
   async function handleToggleSuspend(id: string, currentValue: boolean) {
     setTogglingIds((prev) => new Set(prev).add(id))
     try {
       await apiPatch(`/api/marketplace-skus/${id}`, { suspended: !currentValue })
       setSkus((prev) => prev.map((s) => (s.id === id ? { ...s, suspended: !currentValue } : s)))
-      // Push immediately so the marketplace reflects the change (0 when suspending,
-      // the real split qty when resuming). Pushes the whole group's split.
-      const data = await apiPost('/api/marketplace-skus/push-qty', { mskuId: id })
-      const pushed = data.pushed?.[0]
-      setToast(!currentValue
-        ? `Suspended — pushed qty 0${pushed ? ` for ${pushed.sellerSku}` : ''}`
-        : `Resumed${pushed ? ` — pushed qty ${pushed.quantity} for ${pushed.sellerSku}` : ''}`)
+      setToast(!currentValue ? 'Listing suspended — pushing 0 to the marketplace…' : 'Listing resumed — pushing qty to the marketplace…')
       scheduleQtyBreakdown()
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Suspend failed')
