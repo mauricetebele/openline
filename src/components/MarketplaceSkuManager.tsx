@@ -706,6 +706,7 @@ export default function MarketplaceSkuManager() {
   const [filterText, setFilterText] = useState('')
   const [gradeFilter, setGradeFilter] = useState<string>('all') // 'all' | 'none' | grade id
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all') // Amazon listing status
+  const [suspendedFilter, setSuspendedFilter] = useState<'all' | 'suspended' | 'notsuspended'>('all')
   const [syncing, setSyncing] = useState<string | null>(null)
   const [pushing, setPushing] = useState(false)
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null)
@@ -1283,6 +1284,22 @@ export default function MarketplaceSkuManager() {
     }
   }
 
+  // Bulk suspend / resume the selected marketplace listings.
+  const [bulkSuspending, setBulkSuspending] = useState(false)
+  async function bulkSetSuspended(suspended: boolean) {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBulkSuspending(true)
+    try {
+      const data = await apiPost('/api/marketplace-skus/bulk-suspend', { ids, suspended })
+      setSkus(prev => prev.map(s => (selectedIds.has(s.id) && (s.marketplace === 'amazon' || s.marketplace === 'backmarket')) ? { ...s, suspended } : s))
+      setToast(`${suspended ? 'Suspended' : 'Resumed'} ${data.updated} listing${data.updated === 1 ? '' : 's'} — pushing qty…`)
+      scheduleQtyBreakdown()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Bulk suspend failed')
+    } finally { setBulkSuspending(false) }
+  }
+
   const sameGroupAs = (target: MarketplaceSku) => (s: MarketplaceSku) =>
     s.productId === target.productId && (s.gradeId ?? null) === (target.gradeId ?? null)
 
@@ -1421,6 +1438,8 @@ export default function MarketplaceSkuManager() {
       if (statusFilter === 'active' && !active) return false
       if (statusFilter === 'inactive' && active) return false
     }
+    if (suspendedFilter === 'suspended' && !s.suspended) return false
+    if (suspendedFilter === 'notsuspended' && s.suspended) return false
     if (filterText.trim()) {
       const q = filterText.toLowerCase()
       return (
@@ -1453,7 +1472,7 @@ export default function MarketplaceSkuManager() {
     if (syncQtySort === 'enabled') return (b.syncQty ? 1 : 0) - (a.syncQty ? 1 : 0)
     if (syncQtySort === 'disabled') return (a.syncQty ? 1 : 0) - (b.syncQty ? 1 : 0)
     return 0
-  }), [skus, tab, gradeFilter, statusFilter, filterText, parentSkuSort, readyForSaleSort, createdSort, syncQtySort, qtyMap])
+  }), [skus, tab, gradeFilter, statusFilter, suspendedFilter, filterText, parentSkuSort, readyForSaleSort, createdSort, syncQtySort, qtyMap])
 
   // O(1) per-row group position lookup, precomputed once — avoids an O(n) filter
   // inside every row's render (which made the list O(n²) to draw).
@@ -1569,6 +1588,16 @@ export default function MarketplaceSkuManager() {
           <option value="all">All statuses</option>
           <option value="active">Active only</option>
           <option value="inactive">Inactive only</option>
+        </select>
+        <select
+          value={suspendedFilter}
+          onChange={e => setSuspendedFilter(e.target.value as 'all' | 'suspended' | 'notsuspended')}
+          title="Filter by suspended state"
+          className="h-9 rounded-md border border-gray-300 px-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+        >
+          <option value="all">All listings</option>
+          <option value="suspended">Suspended only</option>
+          <option value="notsuspended">Not suspended</option>
         </select>
         <div className="flex-1" />
         <button
@@ -1914,6 +1943,27 @@ export default function MarketplaceSkuManager() {
                   </button>
                 </>
               )}
+
+              {/* Bulk suspend / resume (Amazon + Back Market rows) */}
+              <div className="flex items-center gap-1.5 border-l border-gray-300 pl-3">
+                <button
+                  type="button"
+                  onClick={() => bulkSetSuspended(true)}
+                  disabled={bulkSuspending || selectedIds.size === 0}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-white border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50"
+                >
+                  {bulkSuspending ? <RefreshCw size={14} className="animate-spin" /> : <Ban size={14} />}
+                  Suspend
+                </button>
+                <button
+                  type="button"
+                  onClick={() => bulkSetSuspended(false)}
+                  disabled={bulkSuspending || selectedIds.size === 0}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-white border border-emerald-300 text-emerald-700 text-sm font-medium hover:bg-emerald-50 disabled:opacity-50"
+                >
+                  <Check size={14} /> Resume
+                </button>
+              </div>
 
               <button
                 type="button"
