@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet, MapPin } from 'lucide-react'
+import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet, MapPin, Pencil } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
 import { printAllLabels } from '@/lib/print-labels'
@@ -444,6 +444,26 @@ function VendorsTab() {
     catch (e) { toast.error(e instanceof Error ? e.message : 'Failed'); load() }
   }
 
+  // Inline edit of a vendor's details / shipping address.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<any>({})
+  const [savingEdit, setSavingEdit] = useState(false)
+  function startEdit(v: Vendor) {
+    setEditingId(v.id)
+    setEditForm({
+      companyName: v.companyName ?? '', email: v.email ?? '', phone: v.phone ?? '',
+      address1: v.address1 ?? '', address2: v.address2 ?? '', city: v.city ?? '', state: v.state ?? '', postal: v.postal ?? '',
+    })
+  }
+  async function saveEdit() {
+    if (!editForm.companyName?.trim()) { toast.error('Company name required'); return }
+    setSavingEdit(true)
+    try {
+      await api(`/api/repair-vendors/${editingId}`, 'PATCH', editForm)
+      setEditingId(null); toast.success('Vendor updated'); load()
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') } finally { setSavingEdit(false) }
+  }
+
   return (
     <div className="space-y-4 max-w-3xl">
       <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 grid grid-cols-3 gap-2">
@@ -467,10 +487,29 @@ function VendorsTab() {
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
         {vendors.length === 0 ? <div className="px-3 py-4 text-center text-sm text-gray-400">No vendors yet.</div>
           : vendors.map(v => (
+            editingId === v.id ? (
+              <div key={v.id} className="px-3 py-3 bg-gray-50 dark:bg-gray-800/40">
+                <div className="grid grid-cols-3 gap-2">
+                  <input className={inputCls} placeholder="Company name *" value={editForm.companyName} onChange={e => setEditForm({ ...editForm, companyName: e.target.value })} />
+                  <input className={inputCls} placeholder="Email" value={editForm.email} onChange={e => setEditForm({ ...editForm, email: e.target.value })} />
+                  <input className={inputCls} placeholder="Phone" value={editForm.phone} onChange={e => setEditForm({ ...editForm, phone: e.target.value })} />
+                  <input className={clsx(inputCls, 'col-span-3')} placeholder="Address line 1 (for labels)" value={editForm.address1} onChange={e => setEditForm({ ...editForm, address1: e.target.value })} />
+                  <input className={clsx(inputCls, 'col-span-3')} placeholder="Address line 2 (suite, unit, etc.)" value={editForm.address2} onChange={e => setEditForm({ ...editForm, address2: e.target.value })} />
+                  <input className={inputCls} placeholder="City" value={editForm.city} onChange={e => setEditForm({ ...editForm, city: e.target.value })} />
+                  <input className={inputCls} placeholder="State" value={editForm.state} onChange={e => setEditForm({ ...editForm, state: e.target.value })} />
+                  <input className={inputCls} placeholder="ZIP" value={editForm.postal} onChange={e => setEditForm({ ...editForm, postal: e.target.value })} />
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <button onClick={saveEdit} disabled={savingEdit} className="h-8 px-4 rounded-md bg-amazon-blue text-white text-xs font-medium disabled:opacity-50 inline-flex items-center gap-1.5">
+                    {savingEdit ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Save
+                  </button>
+                  <button onClick={() => setEditingId(null)} className="h-8 px-3 rounded-md border border-gray-300 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">Cancel</button>
+                </div>
+              </div>
+            ) : (
             <div key={v.id} className="flex items-center gap-3 px-3 py-2 text-sm">
               <span className="font-medium text-gray-800 dark:text-gray-200 min-w-[120px]">{v.companyName}</span>
-              <span className="text-gray-400 text-xs">{v.email ?? ''} {v.phone ?? ''}</span>
-              <span className="text-gray-400 text-xs">{[v.city, v.state].filter(Boolean).join(', ')}</span>
+              <span className="text-gray-400 text-xs">{[v.address1, v.city, v.state, v.postal].filter(Boolean).join(', ') || 'No address'}</span>
               <label className="ml-auto flex items-center gap-1.5 text-xs text-gray-500">
                 <MapPin size={12} className="text-gray-400" />
                 <select className="h-7 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-800 px-1.5 text-xs max-w-[180px]"
@@ -479,8 +518,10 @@ function VendorsTab() {
                   {locs.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
                 </select>
               </label>
-              <button onClick={() => del(v.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
+              <button onClick={() => startEdit(v)} title="Edit vendor" className="text-gray-300 hover:text-amazon-blue"><Pencil size={14} /></button>
+              <button onClick={() => del(v.id)} title="Delete vendor" className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
             </div>
+            )
           ))}
       </div>
     </div>
