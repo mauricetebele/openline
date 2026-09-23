@@ -1087,6 +1087,9 @@ model ProductGradeMarketplaceSku {
   accountId     String? // null = applies to all accounts for that marketplace
   sellerSku     String
   syncQty       Boolean   @default(false)
+  // Suspend Listing: force-push 0 qty to the marketplace regardless of on-hand,
+  // and drop this SKU out of the group split so its units flow to its siblings.
+  suspended     Boolean   @default(false)
   maxQty        Int? // null = no cap; when set, pushed qty is min(available, maxQty)
   isDefaultSku  Boolean   @default(false) // "Last Unit Lean": receives the 1 unit when low-stock buffer applies
   // SEE-SAW: alternate which marketplace gets the LAST unit, flipping every 12h.

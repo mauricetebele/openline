@@ -14,13 +14,13 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { syncQty, maxQty, isDefaultSku, seeSaw, simulList, targetMarginPct, calculationTemplateId } = body as {
-    syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean; seeSaw?: boolean; simulList?: boolean
+  const { syncQty, suspended, maxQty, isDefaultSku, seeSaw, simulList, targetMarginPct, calculationTemplateId } = body as {
+    syncQty?: boolean; suspended?: boolean; maxQty?: number | null; isDefaultSku?: boolean; seeSaw?: boolean; simulList?: boolean
     targetMarginPct?: number | null; calculationTemplateId?: string | null
   }
 
   // At least one field must be provided
-  if (typeof syncQty !== 'boolean' && maxQty === undefined && typeof isDefaultSku !== 'boolean' && typeof seeSaw !== 'boolean' && typeof simulList !== 'boolean' && targetMarginPct === undefined && calculationTemplateId === undefined) {
+  if (typeof syncQty !== 'boolean' && typeof suspended !== 'boolean' && maxQty === undefined && typeof isDefaultSku !== 'boolean' && typeof seeSaw !== 'boolean' && typeof simulList !== 'boolean' && targetMarginPct === undefined && calculationTemplateId === undefined) {
     return NextResponse.json({ error: 'a settable field is required' }, { status: 400 })
   }
 
@@ -81,8 +81,9 @@ export async function PATCH(
   }
 
   // Target-row fields (group-wide strategy changes already applied above).
-  const data: { syncQty?: boolean; maxQty?: number | null; isDefaultSku?: boolean; targetMarginPct?: number | null; targetMarginSetAt?: Date | null; calculationTemplateId?: string | null } = {}
+  const data: { syncQty?: boolean; suspended?: boolean; maxQty?: number | null; isDefaultSku?: boolean; targetMarginPct?: number | null; targetMarginSetAt?: Date | null; calculationTemplateId?: string | null } = {}
   if (typeof syncQty === 'boolean') data.syncQty = syncQty
+  if (typeof suspended === 'boolean') data.suspended = suspended
   if (maxQty !== undefined) data.maxQty = maxQty
   if (typeof isDefaultSku === 'boolean') data.isDefaultSku = isDefaultSku
   if (targetMarginPct !== undefined) {

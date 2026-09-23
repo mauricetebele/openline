@@ -35,7 +35,8 @@ export function pushQtyForProducts(productIds: string[]): void {
   const work = (async () => {
     try {
       const mskus = await prisma.productGradeMarketplaceSku.findMany({
-        where: { productId: { in: unique }, syncQty: true },
+        // Suspended SKUs included even when syncQty is off so we push 0 for them.
+        where: { productId: { in: unique }, OR: [{ syncQty: true }, { suspended: true }] },
         include: {
           product: { select: { id: true, sku: true } },
           grade: { select: { id: true, grade: true } },
@@ -51,9 +52,11 @@ export function pushQtyForProducts(productIds: string[]): void {
       )
       if (filtered.length === 0) return
 
-      // Group by (productId, gradeId) for split calculation
+      // Group by (productId, gradeId) for split calculation. Suspended SKUs are
+      // excluded so their units flow to siblings; they are force-pushed 0 below.
       const groups = new Map<string, typeof filtered>()
       for (const msku of filtered) {
+        if (msku.suspended) continue
         const key = pgKey(msku.productId, msku.gradeId)
         const group = groups.get(key)
         if (group) group.push(msku)
@@ -122,7 +125,7 @@ export function pushQtyForProducts(productIds: string[]): void {
       const { bmClient, bmListingsCache } = await getBmContext(filtered)
 
       for (const msku of filtered) {
-        const finalQty = qtyMap.get(msku.id) ?? 0
+        const finalQty = msku.suspended ? 0 : (qtyMap.get(msku.id) ?? 0)
         try {
           if (msku.marketplace === 'amazon') {
             const accountId = msku.accountId ?? (await prisma.amazonAccount.findFirst({ where: { isActive: true } }))?.id

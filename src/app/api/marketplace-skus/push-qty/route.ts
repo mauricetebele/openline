@@ -290,9 +290,10 @@ export async function getBmContext(mskus: MskuWithRelations[]) {
 export async function pushAllQuantities(): Promise<{ results: PushResult[] }> {
   const startTime = Date.now()
 
-  // 1. Load all enabled MSKUs with relations
+  // 1. Load all enabled MSKUs with relations. Suspended SKUs are included even
+  //    when syncQty is off so we can actively push 0 to take the listing down.
   const mskus = await prisma.productGradeMarketplaceSku.findMany({
-    where: { syncQty: true },
+    where: { OR: [{ syncQty: true }, { suspended: true }] },
     include: {
       product: { select: { id: true, sku: true } },
       grade: { select: { id: true, grade: true } },
@@ -338,9 +339,12 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[] }> {
     console.log(`[push-qty] productType cache: ${productTypeCache.size}/${amazonSkus.length} cached`)
   }
 
-  // 8. Group MSKUs by (productId, gradeId) and compute split quantities
+  // 8. Group MSKUs by (productId, gradeId) and compute split quantities.
+  //    Suspended SKUs are excluded from the split so their would-be units flow
+  //    to their active siblings; they are force-pushed 0 below.
   const groups = new Map<string, typeof filteredMskus>()
   for (const msku of filteredMskus) {
+    if (msku.suspended) continue
     const key = pgKey(msku.productId, msku.gradeId)
     const group = groups.get(key)
     if (group) group.push(msku)
@@ -375,7 +379,8 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[] }> {
   let skipped = 0
 
   for (const msku of filteredMskus) {
-    const finalQty = qtyMap.get(msku.id) ?? 0
+    // Suspended = force 0 regardless of on-hand; otherwise the group-split qty.
+    const finalQty = msku.suspended ? 0 : (qtyMap.get(msku.id) ?? 0)
 
     // Skip if unchanged — unless stale (>6h since last push) to catch Amazon-side drift
     if (msku.lastPushedQty === finalQty) {
@@ -475,12 +480,13 @@ export async function pushSingleQuantity(mskuId: string): Promise<PushResult> {
     return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: -1, error: 'FBA inventory is managed by Amazon' }
   }
 
-  // Find all active-push siblings in the same (productId, gradeId) group
+  // Find all push siblings in the same (productId, gradeId) group. Suspended SKUs
+  // are included (even with syncQty off) so we can force-push 0 for them.
   const siblings = await prisma.productGradeMarketplaceSku.findMany({
     where: {
       productId: msku.productId,
       gradeId: msku.gradeId ?? null,
-      syncQty: true,
+      OR: [{ syncQty: true }, { suspended: true }],
     },
     include: {
       product: { select: { id: true, sku: true } },
@@ -495,9 +501,11 @@ export async function pushSingleQuantity(mskuId: string): Promise<PushResult> {
     return { sellerSku: msku.sellerSku, marketplace: msku.marketplace, quantity: 0 }
   }
 
-  // Compute split quantities for the whole group (+ see-saw rotation)
-  const bulk = await computeBulkQuantities(group)
-  const { qtys: qtyMap, flips } = calculateGroupQuantities(group, bulk, Date.now())
+  // Compute split quantities for the active (non-suspended) SKUs so suspended
+  // SKUs' units flow to their siblings; suspended SKUs are force-pushed 0 below.
+  const activeGroup = group.filter(m => !m.suspended)
+  const bulk = await computeBulkQuantities(activeGroup)
+  const { qtys: qtyMap, flips } = calculateGroupQuantities(activeGroup, bulk, Date.now())
   for (const f of flips) {
     await prisma.productGradeMarketplaceSku.update({
       where: { id: f.id },
@@ -510,7 +518,7 @@ export async function pushSingleQuantity(mskuId: string): Promise<PushResult> {
   let targetResult: PushResult | null = null
 
   for (const sibling of group) {
-    const finalQty = qtyMap.get(sibling.id) ?? 0
+    const finalQty = sibling.suspended ? 0 : (qtyMap.get(sibling.id) ?? 0)
     try {
       if (sibling.marketplace === 'amazon') {
         const accountId = sibling.accountId ?? (await prisma.amazonAccount.findFirst({ where: { isActive: true } }))?.id

@@ -1,7 +1,7 @@
 'use client'
 import { createPortal } from 'react-dom'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2, DollarSign, Eraser } from 'lucide-react'
+import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2, DollarSign, Eraser, Ban } from 'lucide-react'
 import { clsx } from 'clsx'
 import { resolveFees, computeTargetPrice, breakdownAtPrice, marginAtPrice, type CalcTemplate, type TemplateFees } from '@/lib/target-margin'
 import CalculationTemplateManager from './CalculationTemplateManager'
@@ -32,6 +32,7 @@ interface MarketplaceSku {
   asin: string | null
   fnsku: string | null
   syncQty: boolean
+  suspended: boolean
   maxQty: number | null
   isDefaultSku: boolean
   seeSaw: boolean
@@ -1260,6 +1261,28 @@ export default function MarketplaceSkuManager() {
     }
   }
 
+  // Suspend Listing: force-push 0 to the marketplace regardless of on-hand.
+  async function handleToggleSuspend(id: string, currentValue: boolean) {
+    setTogglingIds((prev) => new Set(prev).add(id))
+    try {
+      await apiPatch(`/api/marketplace-skus/${id}`, { suspended: !currentValue })
+      setSkus((prev) => prev.map((s) => (s.id === id ? { ...s, suspended: !currentValue } : s)))
+      // Push immediately so the marketplace reflects the change (0 when suspending,
+      // the real split qty when resuming). Pushes the whole group's split.
+      const data = await apiPost('/api/marketplace-skus/push-qty', { mskuId: id })
+      const pushed = data.pushed?.[0]
+      setToast(!currentValue
+        ? `Suspended — pushed qty 0${pushed ? ` for ${pushed.sellerSku}` : ''}`
+        : `Resumed${pushed ? ` — pushed qty ${pushed.quantity} for ${pushed.sellerSku}` : ''}`)
+      scheduleQtyBreakdown()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Suspend failed')
+      setSkus((prev) => prev.map((s) => (s.id === id ? { ...s, suspended: currentValue } : s)))
+    } finally {
+      setTogglingIds((prev) => { const next = new Set(prev); next.delete(id); return next })
+    }
+  }
+
   const sameGroupAs = (target: MarketplaceSku) => (s: MarketplaceSku) =>
     s.productId === target.productId && (s.gradeId ?? null) === (target.gradeId ?? null)
 
@@ -1988,7 +2011,10 @@ export default function MarketplaceSkuManager() {
                     {/* SKU: seller sku · asin/bmid · fnsku */}
                     <td className="align-top">
                       <div className="flex flex-col gap-0.5 leading-tight">
-                        <span className="font-mono text-xs font-medium text-gray-900">{s.sellerSku}</span>
+                        <span className="font-mono text-xs font-medium text-gray-900 inline-flex items-center gap-1.5">
+                          {s.sellerSku}
+                          {s.suspended && <span className="inline-flex items-center gap-0.5 rounded bg-red-100 text-red-700 border border-red-200 px-1 py-px text-[9px] font-bold uppercase tracking-wide"><Ban size={9} /> Suspended</span>}
+                        </span>
                         <span className="font-mono text-[11px] text-gray-500">
                           {s.asin
                             ? <a href={`https://www.amazon.com/dp/${s.asin}`} target="_blank" rel="noopener noreferrer" className="text-amazon-blue hover:underline">{s.asin}</a>
@@ -2357,6 +2383,8 @@ export default function MarketplaceSkuManager() {
                           <span className="text-gray-400 uppercase tracking-wide">Push</span>
                           {s.fulfillmentChannel === 'FBA' ? (
                             <span className="text-[10px] text-gray-400">—</span>
+                          ) : s.suspended ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600"><Ban size={10} /> 0 · Suspended</span>
                           ) : s.syncQty && qtyMap[s.id] ? (
                             <div className="inline-flex items-center gap-1.5">
                               <QtyBadge breakdown={qtyMap[s.id]} />
@@ -2386,14 +2414,30 @@ export default function MarketplaceSkuManager() {
                       </div>
                     </td>
                     <td className="px-3 py-2">
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(s.id)}
-                        disabled={deletingId === s.id}
-                        className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-60"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      <div className="flex items-center gap-0.5">
+                        {(s.marketplace === 'amazon' || s.marketplace === 'backmarket') && (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSuspend(s.id, s.suspended)}
+                            disabled={togglingIds.has(s.id)}
+                            title={s.suspended ? 'Listing suspended — pushing 0 qty. Click to resume.' : 'Suspend listing — force-push 0 qty regardless of stock'}
+                            className={clsx('p-1.5 rounded transition-colors disabled:opacity-50',
+                              s.suspended
+                                ? 'text-red-600 bg-red-50 hover:bg-red-100'
+                                : 'text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100')}
+                          >
+                            <Ban size={13} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(s.id)}
+                          disabled={deletingId === s.id}
+                          className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-60"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
