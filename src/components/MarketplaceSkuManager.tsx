@@ -2421,10 +2421,10 @@ export default function MarketplaceSkuManager() {
                             onClick={() => handleToggleSuspend(s.id, s.suspended)}
                             disabled={togglingIds.has(s.id)}
                             title={s.suspended ? 'Listing suspended — pushing 0 qty. Click to resume.' : 'Suspend listing — force-push 0 qty regardless of stock'}
-                            className={clsx('p-1.5 rounded transition-colors disabled:opacity-50',
+                            className={clsx('p-1.5 rounded border transition-colors disabled:opacity-50',
                               s.suspended
-                                ? 'text-red-600 bg-red-50 hover:bg-red-100'
-                                : 'text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100')}
+                                ? 'text-red-600 bg-red-50 border-red-200 hover:bg-red-100'
+                                : 'text-gray-400 border-gray-200 hover:text-red-600 hover:border-red-300 hover:bg-red-50')}
                           >
                             <Ban size={13} />
                           </button>
