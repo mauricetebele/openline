@@ -15,10 +15,18 @@ export function openLabel(base64: string, format: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
-/** Merge labels into one 4×6 multi-page PDF and open it for printing. Labels are
- *  already 4×6 (UPS converted, FedEx STOCK_4X6), so pages are preserved as-is. */
-export async function printAllLabels(labels: { labelData: string; labelFormat: string }[]): Promise<void> {
-  if (labels.length === 0) return
+/** Download a single label (PDF or image) to disk. */
+export function downloadLabel(base64: string, format: string, filename: string) {
+  const mime = format === 'pdf' ? 'application/pdf' : `image/${format}`
+  const ext = format === 'pdf' ? 'pdf' : (format || 'png')
+  const url = URL.createObjectURL(new Blob([b64ToBytes(base64) as BlobPart], { type: mime }))
+  triggerDownload(url, filename.endsWith(`.${ext}`) ? filename : `${filename}.${ext}`)
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+/** Merge labels into one 4×6 multi-page PDF (bytes). Labels are already 4×6 (UPS
+ *  converted, FedEx STOCK_4X6), so pages are preserved as-is. */
+async function mergeLabelsToPdf(labels: { labelData: string; labelFormat: string }[]): Promise<Uint8Array> {
   const out = await PDFDocument.create()
   const W = 4 * 72, H = 6 * 72
   for (const l of labels) {
@@ -35,8 +43,32 @@ export async function printAllLabels(labels: { labelData: string; labelFormat: s
       } catch { /* skip unrenderable image */ }
     }
   }
-  const merged = await out.save()
+  return out.save()
+}
+
+function triggerDownload(url: string, filename: string) {
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+/** Merge labels into one PDF and open it for printing. */
+export async function printAllLabels(labels: { labelData: string; labelFormat: string }[]): Promise<void> {
+  if (labels.length === 0) return
+  const merged = await mergeLabelsToPdf(labels)
   const url = URL.createObjectURL(new Blob([merged as BlobPart], { type: 'application/pdf' }))
   window.open(url, '_blank')
+  setTimeout(() => URL.revokeObjectURL(url), 120_000)
+}
+
+/** Merge labels into one PDF and download it to disk. */
+export async function downloadAllLabels(labels: { labelData: string; labelFormat: string }[], filename: string): Promise<void> {
+  if (labels.length === 0) return
+  const merged = await mergeLabelsToPdf(labels)
+  const url = URL.createObjectURL(new Blob([merged as BlobPart], { type: 'application/pdf' }))
+  triggerDownload(url, filename.endsWith('.pdf') ? filename : `${filename}.pdf`)
   setTimeout(() => URL.revokeObjectURL(url), 120_000)
 }

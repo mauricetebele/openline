@@ -1,9 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { Truck, Plus, X, Printer, Loader2, DollarSign, Ban, MapPin, CheckCircle2, AlertCircle, History } from 'lucide-react'
+import { Truck, Plus, X, Printer, Loader2, DollarSign, Ban, MapPin, CheckCircle2, AlertCircle, History, Download } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
-import { printAllLabels, openLabel } from '@/lib/print-labels'
+import { printAllLabels, openLabel, downloadLabel, downloadAllLabels } from '@/lib/print-labels'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 type Path = 'ups' | 'fedex' | 'ss'
@@ -247,12 +247,20 @@ export default function CreateShippingLabels() {
             <div className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-800 p-4 space-y-3">
               <div className="flex items-center gap-2 text-green-800 dark:text-green-300 font-semibold text-sm">
                 <CheckCircle2 size={16} /> Label created
-                <button
-                  onClick={() => printAllLabels(result.pieces.map(pc => ({ labelData: pc.labelBase64, labelFormat: pc.labelFormat })))}
-                  className="ml-auto inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-blue-700"
-                >
-                  <Printer size={13} /> Print {result.pieces.length > 1 ? `all ${result.pieces.length}` : 'label'}
-                </button>
+                <div className="ml-auto flex items-center gap-1.5">
+                  <button
+                    onClick={() => printAllLabels(result.pieces.map(pc => ({ labelData: pc.labelBase64, labelFormat: pc.labelFormat })))}
+                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-blue-700"
+                  >
+                    <Printer size={13} /> Print {result.pieces.length > 1 ? `all ${result.pieces.length}` : 'label'}
+                  </button>
+                  <button
+                    onClick={() => downloadAllLabels(result.pieces.map(pc => ({ labelData: pc.labelBase64, labelFormat: pc.labelFormat })), `labels-${result.masterTracking || result.pieces[0]?.trackingNumber || 'shipment'}`)}
+                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-white border border-amazon-blue text-amazon-blue text-xs font-semibold hover:bg-blue-50"
+                  >
+                    <Download size={13} /> Download
+                  </button>
+                </div>
               </div>
               {result.shipmentCost != null && <div className="text-xs text-gray-600 dark:text-gray-300">Cost: <span className="font-semibold">{result.currency} {result.shipmentCost.toFixed(2)}</span></div>}
               {result.accOlm != null && <div className="text-xs text-gray-700 dark:text-gray-200">Accessorial order <span className="font-semibold">OLM-{result.accOlm}</span> created → Awaiting Verification.</div>}
@@ -263,6 +271,9 @@ export default function CreateShippingLabels() {
                     <span className="font-mono text-gray-800 dark:text-gray-100">{pc.trackingNumber}</span>
                     <button onClick={() => openLabel(pc.labelBase64, pc.labelFormat)} className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 text-xs text-gray-600 hover:bg-white dark:hover:bg-gray-800">
                       <Printer size={12} /> Print
+                    </button>
+                    <button onClick={() => downloadLabel(pc.labelBase64, pc.labelFormat, `label-${pc.trackingNumber}`)} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 text-xs text-gray-600 hover:bg-white dark:hover:bg-gray-800">
+                      <Download size={12} /> Download
                     </button>
                   </div>
                 ))}
@@ -444,6 +455,14 @@ function HistoryTab() {
       openLabel(data.labelData, data.labelFormat ?? 'pdf')
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load label') }
   }
+  async function download(id: string, trackingNumber: string) {
+    try {
+      const res = await fetch(`/api/shipping-labels/${id}`)
+      const data = await res.json()
+      if (!res.ok || !data.labelData) throw new Error(data.error ?? 'Could not load label')
+      downloadLabel(data.labelData, data.labelFormat ?? 'pdf', `label-${trackingNumber}`)
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load label') }
+  }
   async function voidLabel(id: string) {
     if (!confirm('Void this label at the carrier? This cannot be undone.')) return
     setVoidingId(id)
@@ -486,6 +505,7 @@ function HistoryTab() {
               <td className="px-3 py-1.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap">{r.shipmentCost != null ? `${r.currency ?? 'USD'} ${Number(r.shipmentCost).toFixed(2)}` : '—'}</td>
               <td className="px-3 py-1.5 whitespace-nowrap text-right">
                 <button onClick={() => reprint(r.id)} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 text-xs text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"><Printer size={11} /> Print</button>
+                <button onClick={() => download(r.id, r.trackingNumber)} className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 text-xs text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"><Download size={11} /> Download</button>
                 {!r.voided && <button onClick={() => voidLabel(r.id)} disabled={voidingId === r.id} className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded border border-red-200 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50">{voidingId === r.id ? <Loader2 size={11} className="animate-spin" /> : <Ban size={11} />} Void</button>}
               </td>
             </tr>
