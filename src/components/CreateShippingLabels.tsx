@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Truck, Plus, X, Printer, Loader2, DollarSign, Ban, MapPin, CheckCircle2, AlertCircle, History } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
+import { printAllLabels, openLabel } from '@/lib/print-labels'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 type Path = 'ups' | 'fedex' | 'ss'
@@ -63,21 +64,6 @@ interface HistoryRow {
 const emptyPkg = (): Pkg => ({ weightValue: '', weightUnit: 'LBS', length: '', width: '', height: '' })
 const inputCls = 'w-full h-8 px-2 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue'
 const labelCls = 'block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-0.5'
-
-function printLabel(base64: string, format: string) {
-  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
-  const isPdf = (format || 'pdf').toLowerCase() === 'pdf'
-  const blob = new Blob([bytes], { type: isPdf ? 'application/pdf' : 'image/png' })
-  const url = URL.createObjectURL(blob)
-  if (isPdf) {
-    const iframe = document.createElement('iframe')
-    iframe.style.display = 'none'; document.body.appendChild(iframe); iframe.src = url
-    iframe.onload = () => { iframe.contentWindow?.print(); setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(url) }, 1500) }
-  } else {
-    const w = window.open('', '_blank')
-    if (w) { w.document.write(`<img src="${url}" style="max-width:100%" onload="window.print()" />`); w.document.close() }
-  }
-}
 
 export default function CreateShippingLabels() {
   const [tab, setTab] = useState<'create' | 'history'>('create')
@@ -222,7 +208,9 @@ export default function CreateShippingLabels() {
       toast.success(`Label created — ${data.pieces.length} piece${data.pieces.length !== 1 ? 's' : ''}`)
       if (data.accessorialError) toast.error(`Label made, but accessorial order failed: ${data.accessorialError}`)
       else if (data.accessorialOrder) toast.success(`Accessorial order OLM-${data.accessorialOrder.olmNumber} sent to Awaiting Verification`)
-      data.pieces.forEach((pc: Piece, i: number) => setTimeout(() => printLabel(pc.labelBase64, pc.labelFormat), i * 700))
+      // Merge all pieces into ONE PDF and open a single print tab — firing a
+      // separate print per piece (old behavior) drops all but the first.
+      printAllLabels((data.pieces as Piece[]).map(pc => ({ labelData: pc.labelBase64, labelFormat: pc.labelFormat })))
     } catch (e) { setErr(e instanceof Error ? e.message : 'Label creation failed') }
     finally { setCreating(false) }
   }
@@ -257,7 +245,15 @@ export default function CreateShippingLabels() {
 
           {result ? (
             <div className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-800 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-green-800 dark:text-green-300 font-semibold text-sm"><CheckCircle2 size={16} /> Label created</div>
+              <div className="flex items-center gap-2 text-green-800 dark:text-green-300 font-semibold text-sm">
+                <CheckCircle2 size={16} /> Label created
+                <button
+                  onClick={() => printAllLabels(result.pieces.map(pc => ({ labelData: pc.labelBase64, labelFormat: pc.labelFormat })))}
+                  className="ml-auto inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-semibold hover:bg-blue-700"
+                >
+                  <Printer size={13} /> Print {result.pieces.length > 1 ? `all ${result.pieces.length}` : 'label'}
+                </button>
+              </div>
               {result.shipmentCost != null && <div className="text-xs text-gray-600 dark:text-gray-300">Cost: <span className="font-semibold">{result.currency} {result.shipmentCost.toFixed(2)}</span></div>}
               {result.accOlm != null && <div className="text-xs text-gray-700 dark:text-gray-200">Accessorial order <span className="font-semibold">OLM-{result.accOlm}</span> created → Awaiting Verification.</div>}
               <div className="divide-y divide-green-100 dark:divide-green-900/40">
@@ -265,7 +261,7 @@ export default function CreateShippingLabels() {
                   <div key={i} className="flex items-center gap-2 py-1.5 text-sm">
                     <span className="text-gray-400 text-xs w-12">Box {i + 1}</span>
                     <span className="font-mono text-gray-800 dark:text-gray-100">{pc.trackingNumber}</span>
-                    <button onClick={() => printLabel(pc.labelBase64, pc.labelFormat)} className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 text-xs text-gray-600 hover:bg-white dark:hover:bg-gray-800">
+                    <button onClick={() => openLabel(pc.labelBase64, pc.labelFormat)} className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 text-xs text-gray-600 hover:bg-white dark:hover:bg-gray-800">
                       <Printer size={12} /> Print
                     </button>
                   </div>
@@ -445,7 +441,7 @@ function HistoryTab() {
       const res = await fetch(`/api/shipping-labels/${id}`)
       const data = await res.json()
       if (!res.ok || !data.labelData) throw new Error(data.error ?? 'Could not load label')
-      printLabel(data.labelData, data.labelFormat ?? 'pdf')
+      openLabel(data.labelData, data.labelFormat ?? 'pdf')
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load label') }
   }
   async function voidLabel(id: string) {
