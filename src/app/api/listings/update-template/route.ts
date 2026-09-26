@@ -6,9 +6,10 @@
  * GET /api/listings/update-template?jobId=xxx
  * Returns the TemplateBatchJob record (status, processed, updated, failedSkus, …)
  *
- * SKUs are patched sequentially with a 400 ms gap between each one (each iteration
- * is a GET + PATCH = 2 SP-API calls, so 400 ms keeps both under the 5 req/s limit).
- * Progress is flushed to the DB every 10 SKUs so the polling UI stays current.
+ * SKUs are patched with a small concurrency pool (each iteration is a GET + PATCH;
+ * the SP-API client retries 429/503 with exponential backoff, so a few in parallel
+ * self-throttle). Progress is flushed to the DB every 10 SKUs so the polling UI
+ * stays current.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -22,10 +23,6 @@ const postSchema = z.object({
   skus: z.array(z.string().min(1)).min(1),
   templateName: z.string().min(1),
 })
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms))
-}
 
 // ─── GET — poll job status ────────────────────────────────────────────────────
 
@@ -105,28 +102,37 @@ export async function POST(req: NextRequest) {
         return
       }
 
-      for (let i = 0; i < skus.length; i++) {
-        const sku = skus[i]
-        try {
-          await updateShippingTemplate(accountId, sku, templateName, templateGroupId)
-          updated++
-        } catch (err: unknown) {
-          failedSkus.push({ sku, error: err instanceof Error ? err.message : String(err) })
-        }
+      // Process with a small concurrency pool instead of strictly serial. Each SKU
+      // is a GET + PATCH; the SP-API client already retries 429/503 with
+      // exponential backoff, so running a few in parallel self-throttles if Amazon
+      // pushes back — roughly 3–4× faster than the old serial + 400ms-gap loop.
+      const CONCURRENCY = 4
+      let processed = 0
+      let nextIdx = 0
 
-        const processed = i + 1
-
-        // Flush progress every 10 SKUs so the polling client sees smooth updates
-        if (processed % 10 === 0 || processed === skus.length) {
-          await prisma.templateBatchJob.update({
-            where: { id: job.id },
-            data: { processed, updated, failedSkus },
-          })
-        }
-
-        // 400 ms gap — GET + PATCH = 2 SP-API calls per iteration
-        if (i < skus.length - 1) await sleep(400)
+      async function flush() {
+        await prisma.templateBatchJob.update({
+          where: { id: job.id },
+          data: { processed, updated, failedSkus },
+        }).catch(() => { /* ignore transient flush errors */ })
       }
+
+      async function worker() {
+        while (nextIdx < skus.length) {
+          const sku = skus[nextIdx++]
+          try {
+            await updateShippingTemplate(accountId, sku, templateName, templateGroupId)
+            updated++
+          } catch (err: unknown) {
+            failedSkus.push({ sku, error: err instanceof Error ? err.message : String(err) })
+          }
+          processed++
+          // Flush progress every 10 SKUs so the polling client sees smooth updates
+          if (processed % 10 === 0 || processed === skus.length) await flush()
+        }
+      }
+
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, skus.length) }, worker))
 
       await prisma.templateBatchJob.update({
         where: { id: job.id },
