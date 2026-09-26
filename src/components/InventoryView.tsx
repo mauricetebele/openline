@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useState, useCallback, useRef, useMemo, Fragment } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown, Barcode, Store } from 'lucide-react'
+import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown, Barcode, Store, Download } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import SNLookupModal from './SNLookupModal'
 import GradeBadge from '@/components/GradeBadge'
 
@@ -2684,6 +2685,37 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   const totalReserved  = visibleItems.reduce((s, i) => s + i.reserved, 0)
   const totalAvailable = visibleItems.reduce((s, i) => s + (i.onHand - i.reserved), 0)
 
+  // Export the CURRENT filtered + sorted view (sortedItems) to an .xlsx — same
+  // rows and order shown in the grid, with the marketplace facet resolved.
+  function exportXlsx() {
+    if (sortedItems.length === 0) return
+    const rows = sortedItems.map(item => {
+      const f = marketplaceFlags(item)
+      const value = item.unitCost != null ? item.onHand * item.unitCost : null
+      const markets = [f.amazon && 'Amazon', f.backmarket && 'Back Market'].filter(Boolean).join(', ') || 'None'
+      return {
+        SKU: item.product.sku,
+        Description: item.product.description,
+        Grade: item.grade?.grade ?? '',
+        Warehouse: item.location.warehouse.name,
+        Location: item.location.name,
+        Type: item.product.isSerializable ? 'Serialized' : 'Non-serial',
+        'On Hand': item.onHand,
+        Reserved: item.reserved,
+        Available: item.onHand - item.reserved,
+        'MP Sales (recent)': item.location.isFinishedGoods ? (item.mpSalesRecent ?? 0) : '',
+        Marketplace: markets,
+        'Avg Cost': item.unitCost != null ? Number(item.unitCost.toFixed(2)) : '',
+        Value: value != null ? Number(value.toFixed(2)) : '',
+      }
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventory')
+    const stamp = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `inventory-${stamp}.xlsx`)
+  }
+
   return (
     <div className="flex-1 overflow-auto px-6 py-4">
       {/* Toolbar */}
@@ -2776,6 +2808,16 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
         )}
 
         <div className="flex-1" />
+
+        <button
+          type="button"
+          onClick={exportXlsx}
+          disabled={sortedItems.length === 0}
+          title="Export the current filtered view to Excel"
+          className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition-colors"
+        >
+          <Download size={14} /> Export
+        </button>
 
         <button
           type="button"
