@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet, MapPin, Pencil } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
@@ -12,7 +12,7 @@ interface Vendor { id: string; companyName: string; email: string | null; phone:
 interface LocOption { id: string; label: string }
 interface RepairType { id: string; name: string; isActive: boolean }
 interface OrderRow { id: string; orderNumber: number; status: string; vendorName: string; itemCount: number; totalCost: number; createdAt: string; outboundTracking: string | null; inboundTracking: string | null }
-interface Item { id: string; serialNumber: string; sku: string | null; model: string | null; grade: string | null; location: string | null; repairTypeId: string | null; repairTypeName: string | null; repairCost: number | null; status: string; repairSummary: string | null }
+interface Item { id: string; serialNumber: string; sku: string | null; model: string | null; grade: string | null; location: string | null; repairTypeId: string | null; repairTypeName: string | null; repairCost: number | null; status: string; repairSummary: string | null; receivedAt: string | null; receivedLocation: string | null }
 interface OrderDetail { id: string; orderNumber: number; status: string; notes: string | null; vendor: Vendor; outboundCarrier: string | null; outboundTracking: string | null; inboundCarrier: string | null; inboundTracking: string | null; items: Item[]; totalCost: number }
 
 const money = (n: number | null | undefined) => n == null ? '—' : `$${Number(n).toFixed(2)}`
@@ -136,9 +136,18 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
   const [assignCost, setAssignCost] = useState('')
   const [tracking, setTracking] = useState<any>(null)
   const [labelDir, setLabelDir] = useState<null | 'outbound' | 'inbound'>(null)
+  const [locs, setLocs] = useState<LocOption[]>([])
+  const [receiveOpen, setReceiveOpen] = useState(false)
 
   const load = useCallback(() => api(`/api/repair-orders/${id}`).then(setOrder).catch(() => {}), [id])
-  useEffect(() => { load(); api('/api/repair-types').then(setTypes).catch(() => {}) }, [load])
+  useEffect(() => {
+    load(); api('/api/repair-types').then(setTypes).catch(() => {})
+    api('/api/warehouses').then((d: { data: { name: string; locations: { id: string; name: string }[] }[] }) => {
+      const flat: LocOption[] = []
+      for (const w of d.data ?? []) for (const l of w.locations ?? []) flat.push({ id: l.id, label: `${w.name} — ${l.name}` })
+      setLocs(flat)
+    }).catch(() => {})
+  }, [load])
 
   const toggle = (i: string) => setSelected(p => { const n = new Set(p); if (n.has(i)) n.delete(i); else n.add(i); return n })
   const allSel = order && order.items.length > 0 && selected.size === order.items.length
@@ -167,13 +176,6 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
     if (!confirm(`Remove ${selected.size} unit(s) from this order?`)) return
     setBusy(true)
     try { await api(`/api/repair-orders/${id}/items`, 'DELETE', { itemIds: Array.from(selected) }); setSelected(new Set()); await load() }
-    catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }
-  }
-  async function outcome(status: 'REPAIRED' | 'REFUSED') {
-    if (selected.size === 0) { toast.error('Select rows first'); return }
-    const summary = status === 'REFUSED' ? (prompt('Refusal summary (optional):') ?? '') : ''
-    setBusy(true)
-    try { await api(`/api/repair-orders/${id}/items`, 'PATCH', { itemIds: Array.from(selected), status, repairSummary: summary }); setSelected(new Set()); await load(); toast.success(status === 'REPAIRED' ? 'Marked repaired' : 'Marked refused') }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }
   }
   async function setStatus(status: string) {
@@ -287,10 +289,20 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
           <div><label className="block text-[11px] text-gray-500 mb-0.5">Cost ($)</label><input type="number" step="0.01" className={clsx(inputCls, 'w-24')} value={assignCost} onChange={e => setAssignCost(e.target.value)} /></div>
           <button onClick={assign} disabled={busy} className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium disabled:opacity-50">Assign to selected ({selected.size})</button>
           <div className="flex-1" />
-          <button onClick={() => outcome('REPAIRED')} disabled={busy} className="h-8 px-3 rounded-md border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50 inline-flex items-center gap-1"><CheckCircle2 size={12} /> Repaired</button>
-          <button onClick={() => outcome('REFUSED')} disabled={busy} className="h-8 px-3 rounded-md border border-red-300 text-red-600 text-xs font-medium hover:bg-red-50 inline-flex items-center gap-1"><Ban size={12} /> Refused</button>
+          <button onClick={() => setReceiveOpen(true)} disabled={busy} className="h-8 px-3 rounded-md bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 inline-flex items-center gap-1.5"><CheckCircle2 size={13} /> Receive Units</button>
           <button onClick={removeSel} disabled={busy} className="h-8 px-2 rounded-md border border-gray-300 text-gray-500 text-xs hover:bg-gray-100"><Trash2 size={13} /></button>
         </div>
+      )}
+
+      {receiveOpen && order && (
+        <ReceiveModal
+          orderId={id}
+          items={order.items}
+          preselected={selected}
+          locs={locs}
+          onClose={() => setReceiveOpen(false)}
+          onDone={() => { setReceiveOpen(false); setSelected(new Set()); load() }}
+        />
       )}
 
       {/* Items grid */}
@@ -300,11 +312,11 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
             <tr>
               <th className="w-8 px-2 py-2"><input type="checkbox" checked={!!allSel} onChange={e => setSelected(e.target.checked ? new Set(order.items.map(i => i.id)) : new Set())} /></th>
               <th className="text-left px-3 py-2">Serial / IMEI</th><th className="text-left px-3 py-2">SKU</th><th className="text-left px-3 py-2">Model Name</th>
-              <th className="text-left px-3 py-2">Grade</th><th className="text-left px-3 py-2">Repair Type</th><th className="text-right px-3 py-2">Repair Cost</th><th className="text-left px-3 py-2">Status</th>
+              <th className="text-left px-3 py-2">Grade</th><th className="text-left px-3 py-2">Repair Type</th><th className="text-right px-3 py-2">Repair Cost</th><th className="text-left px-3 py-2">Status</th><th className="text-left px-3 py-2">Received</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {order.items.length === 0 ? <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-400 text-sm">No units yet — paste serials above.</td></tr>
+            {order.items.length === 0 ? <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-400 text-sm">No units yet — paste serials above.</td></tr>
               : order.items.map(it => (
                 <tr key={it.id} className={clsx(selected.has(it.id) && 'bg-blue-50/50 dark:bg-gray-800/60')}>
                   <td className="px-2 py-1.5 text-center"><input type="checkbox" checked={selected.has(it.id)} onChange={() => toggle(it.id)} /></td>
@@ -317,11 +329,16 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
                   <td className="px-3 py-1.5">
                     <span className={clsx('inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium', it.status === 'REPAIRED' ? 'bg-green-100 text-green-700' : it.status === 'REFUSED' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500')} title={it.repairSummary ?? ''}>{it.status}</span>
                   </td>
+                  <td className="px-3 py-1.5 text-xs text-gray-500">
+                    {it.receivedAt
+                      ? <span title={new Date(it.receivedAt).toLocaleString()}>{it.receivedLocation ?? '✓'}</span>
+                      : <span className="text-gray-300">—</span>}
+                  </td>
                 </tr>
               ))}
           </tbody>
           {order.items.length > 0 && (
-            <tfoot className="bg-gray-50 dark:bg-gray-800 text-xs font-semibold"><tr><td colSpan={6} className="px-3 py-1.5 text-right text-gray-500">Total repair cost</td><td className="px-3 py-1.5 text-right">{money(order.totalCost)}</td><td /></tr></tfoot>
+            <tfoot className="bg-gray-50 dark:bg-gray-800 text-xs font-semibold"><tr><td colSpan={6} className="px-3 py-1.5 text-right text-gray-500">Total repair cost</td><td className="px-3 py-1.5 text-right">{money(order.totalCost)}</td><td colSpan={2} /></tr></tfoot>
           )}
         </table>
       </div>
@@ -408,6 +425,139 @@ function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; 
           {rate && <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{rate.currency} {rate.total.toFixed(2)}</span>}
           <button onClick={onClose} className="ml-auto h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-600">Cancel</button>
           <button onClick={create} disabled={busy} className="h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-1.5">{busy ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />} Create & print</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Receive Units modal ────────────────────────────────────────────────────
+// Per-serial receiving: mark each unit repaired/refused (+ reason), set/confirm
+// the repair cost, choose the destination location, then receive. On the server
+// this moves each unit, applies the cost for profitability, and writes a
+// REPAIR_RETURNED history record (work type · vendor · cost).
+function ReceiveModal({ orderId, items, preselected, locs, onClose, onDone }: {
+  orderId: string
+  items: Item[]
+  preselected: Set<string>
+  locs: LocOption[]
+  onClose: () => void
+  onDone: () => void
+}) {
+  // Receive the selected rows if any were checked, else every not-yet-received unit.
+  const targets = useMemo(() => {
+    const unreceived = items.filter(i => !i.receivedAt)
+    const pick = preselected.size > 0 ? unreceived.filter(i => preselected.has(i.id)) : unreceived
+    return pick
+  }, [items, preselected])
+
+  const [locationId, setLocationId] = useState('')
+  const [busy, setBusy] = useState(false)
+  // Per-item form: default REPAIRED (most units get serviced), cost prefilled.
+  const [form, setForm] = useState<Record<string, { status: 'REPAIRED' | 'REFUSED'; cost: string; note: string }>>(() => {
+    const f: Record<string, { status: 'REPAIRED' | 'REFUSED'; cost: string; note: string }> = {}
+    for (const it of targets) f[it.id] = { status: 'REPAIRED', cost: it.repairCost != null ? String(it.repairCost) : '', note: '' }
+    return f
+  })
+  const setItem = (id: string, patch: Partial<{ status: 'REPAIRED' | 'REFUSED'; cost: string; note: string }>) =>
+    setForm(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }))
+
+  const repairedCount = targets.filter(t => form[t.id]?.status === 'REPAIRED').length
+  const refusedCount = targets.length - repairedCount
+
+  async function submit() {
+    if (!locationId) { toast.error('Choose a destination location'); return }
+    setBusy(true)
+    try {
+      const payload = {
+        locationId,
+        items: targets.map(t => ({
+          itemId: t.id,
+          status: form[t.id].status,
+          repairSummary: form[t.id].note.trim() || undefined,
+          repairCost: form[t.id].status === 'REPAIRED' && form[t.id].cost !== '' ? Number(form[t.id].cost) : undefined,
+        })),
+      }
+      const r = await api(`/api/repair-orders/${orderId}/receive`, 'POST', payload)
+      toast.success(`Received ${r.received} unit${r.received !== 1 ? 's' : ''} into ${r.locationName}${r.allReceived ? ' — order completed' : ''}`)
+      onDone()
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Receive failed') } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-3xl max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 px-4 py-3 border-b dark:border-gray-700">
+          <CheckCircle2 size={16} className="text-emerald-600" />
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Receive {targets.length} unit{targets.length !== 1 ? 's' : ''}</h3>
+          <button onClick={onClose} className="ml-auto text-gray-400 hover:text-gray-600"><X size={17} /></button>
+        </div>
+
+        <div className="px-4 py-3 border-b dark:border-gray-700 flex items-end gap-3 flex-wrap">
+          <div>
+            <label className="block text-[11px] font-medium text-gray-500 mb-0.5">Move units to <span className="text-red-500">*</span></label>
+            <select className={clsx(inputCls, 'min-w-[240px]')} value={locationId} onChange={e => setLocationId(e.target.value)}>
+              <option value="">Select destination location…</option>
+              {locs.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+            </select>
+          </div>
+          <div className="text-xs text-gray-500 pb-2">
+            <span className="text-emerald-600 font-medium">{repairedCount} repaired</span>
+            {refusedCount > 0 && <> · <span className="text-red-600 font-medium">{refusedCount} refused</span></>}
+          </div>
+        </div>
+
+        <div className="overflow-auto flex-1">
+          {targets.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-gray-400">All units on this order are already received.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-800 text-gray-500 text-xs sticky top-0">
+                <tr>
+                  <th className="text-left px-3 py-2">Serial · SKU</th>
+                  <th className="text-left px-3 py-2">Repair Type</th>
+                  <th className="text-left px-3 py-2 w-44">Outcome</th>
+                  <th className="text-right px-3 py-2 w-24">Cost ($)</th>
+                  <th className="text-left px-3 py-2">Reason / notes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {targets.map(it => {
+                  const f = form[it.id]
+                  return (
+                    <tr key={it.id}>
+                      <td className="px-3 py-1.5">
+                        <div className="font-mono text-xs text-gray-700 dark:text-gray-300">{it.serialNumber}</div>
+                        <div className="text-[10px] text-gray-400">{it.sku ?? '—'}</div>
+                      </td>
+                      <td className="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300">{it.repairTypeName ?? '—'}</td>
+                      <td className="px-3 py-1.5">
+                        <div className="inline-flex rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden text-[11px] font-medium">
+                          <button onClick={() => setItem(it.id, { status: 'REPAIRED' })} className={clsx('px-2 py-1', f.status === 'REPAIRED' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 hover:bg-gray-50')}>Repaired</button>
+                          <button onClick={() => setItem(it.id, { status: 'REFUSED' })} className={clsx('px-2 py-1', f.status === 'REFUSED' ? 'bg-red-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 hover:bg-gray-50')}>Refused</button>
+                        </div>
+                      </td>
+                      <td className="px-3 py-1.5 text-right">
+                        {f.status === 'REPAIRED'
+                          ? <input type="number" step="0.01" min="0" value={f.cost} onChange={e => setItem(it.id, { cost: e.target.value })} className={clsx(inputCls, 'w-20 text-right')} placeholder="0.00" />
+                          : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <input value={f.note} onChange={e => setItem(it.id, { note: e.target.value })} placeholder={f.status === 'REFUSED' ? 'Why refused?' : 'Optional'} className={clsx(inputCls, 'w-full')} />
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 px-4 py-3 border-t dark:border-gray-700">
+          <button onClick={onClose} className="h-9 px-4 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-300">Cancel</button>
+          <button onClick={submit} disabled={busy || targets.length === 0 || !locationId} className="ml-auto h-9 px-4 rounded-md bg-emerald-600 text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-1.5">
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} Receive {targets.length} unit{targets.length !== 1 ? 's' : ''}
+          </button>
         </div>
       </div>
     </div>

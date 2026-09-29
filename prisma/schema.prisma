@@ -1370,6 +1370,7 @@ model Location {
   fbaReturnReceipts      FbaReturnReceipt[]
   legacyRMASerials       LegacyRMASerial[]
   repairVendors          RepairVendor[]                   @relation("RepairVendorLocation")
+  repairItemsReceived    RepairOrderItem[]                @relation("RepairItemReceivedLocation")
 
   @@unique([warehouseId, name])
   @@index([warehouseId])
@@ -2997,11 +2998,16 @@ model RepairOrderItem {
   status            RepairItemStatus @default(PENDING)
   // Vendor's per-IMEI repair summary (why refused, what was done, etc.).
   repairSummary     String?          @db.Text
+  // Set when the unit is received back from the vendor: when, and where it moved to.
+  receivedAt         DateTime?
+  receivedLocationId String?
+  receivedLocation   Location?       @relation("RepairItemReceivedLocation", fields: [receivedLocationId], references: [id], onDelete: SetNull)
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
   @@unique([repairOrderId, inventorySerialId])
   @@index([inventorySerialId])
   @@index([repairTypeId])
+  @@index([receivedLocationId])
   @@map("repair_order_items")
 }

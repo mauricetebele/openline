@@ -23,6 +23,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         orderBy: { createdAt: 'asc' },
         include: {
           repairType: { select: { id: true, name: true } },
+          receivedLocation: { select: { name: true } },
           inventorySerial: {
             select: {
               id: true, serialNumber: true, status: true,
@@ -51,6 +52,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     repairCost: it.repairCost != null ? Number(it.repairCost) : null,
     status: it.status,
     repairSummary: it.repairSummary,
+    receivedAt: it.receivedAt ? it.receivedAt.toISOString() : null,
+    receivedLocation: it.receivedLocation?.name ?? null,
   }))
   return NextResponse.json({
     id: order.id, orderNumber: order.orderNumber, status: order.status, notes: order.notes,
