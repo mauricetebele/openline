@@ -1,0 +1,106 @@
+/**
+ * POST /api/inventory/battery-health
+ * Bulk-set optional battery health % per serial. Two phases:
+ *   { rows, commit: false } → validate only (no writes), returns per-row status.
+ *   { rows, commit: true }  → apply the valid rows to IN_STOCK serials.
+ *
+ * Each row: { serial: string, batteryHealth: number }. A serial can only be set
+ * when it exists and is IN_STOCK; battery health must be 0–100.
+ */
+import { NextRequest, NextResponse } from 'next/server'
+import { getAuthUser } from '@/lib/get-auth-user'
+import { prisma } from '@/lib/prisma'
+
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+type RowStatus = 'valid' | 'not_found' | 'not_in_stock' | 'invalid_pct' | 'duplicate'
+interface RowResult {
+  serial: string
+  batteryHealth: number | null
+  status: RowStatus
+  serialId?: string
+  sku?: string | null
+  model?: string | null
+  grade?: string | null
+}
+
+const norm = (s: string) => s.trim().toUpperCase()
+
+export async function POST(req: NextRequest) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json().catch(() => ({}))
+  const rawRows: unknown[] = Array.isArray(body?.rows) ? body.rows : []
+  const commit = body?.commit === true
+
+  // Parse + de-duplicate (last value wins is avoided — first occurrence kept, rest flagged duplicate).
+  const seen = new Set<string>()
+  const parsed: { serial: string; key: string; batteryHealth: number | null; dup: boolean }[] = []
+  for (const r of rawRows) {
+    const o = (r ?? {}) as Record<string, unknown>
+    const serial = typeof o.serial === 'string' ? o.serial.trim() : ''
+    if (!serial) continue
+    const bhRaw = o.batteryHealth
+    const bh = bhRaw === '' || bhRaw == null ? NaN : Number(bhRaw)
+    const key = norm(serial)
+    const dup = seen.has(key)
+    if (!dup) seen.add(key)
+    parsed.push({ serial, key, batteryHealth: Number.isFinite(bh) ? bh : null, dup })
+  }
+  if (parsed.length === 0) return NextResponse.json({ error: 'No rows provided' }, { status: 400 })
+
+  // Look up all serials in one query.
+  const serials = await prisma.inventorySerial.findMany({
+    where: { serialNumber: { in: parsed.map(p => p.serial) } },
+    select: {
+      id: true, serialNumber: true, status: true,
+      product: { select: { sku: true, description: true } },
+      grade: { select: { grade: true } },
+    },
+  })
+  const bySerial = new Map(serials.map(s => [norm(s.serialNumber), s]))
+
+  const results: RowResult[] = parsed.map(p => {
+    const rec = bySerial.get(p.key)
+    let status: RowStatus
+    if (p.dup) status = 'duplicate'
+    else if (!rec) status = 'not_found'
+    else if (rec.status !== 'IN_STOCK') status = 'not_in_stock'
+    else if (p.batteryHealth == null || p.batteryHealth < 0 || p.batteryHealth > 100) status = 'invalid_pct'
+    else status = 'valid'
+    return {
+      serial: p.serial,
+      batteryHealth: p.batteryHealth,
+      status,
+      serialId: rec?.id,
+      sku: rec?.product?.sku ?? null,
+      model: rec?.product?.description ?? null,
+      grade: rec?.grade?.grade ?? null,
+    }
+  })
+
+  const validRows = results.filter(r => r.status === 'valid')
+  const counts = {
+    total: parsed.length,
+    valid: validRows.length,
+    not_found: results.filter(r => r.status === 'not_found').length,
+    not_in_stock: results.filter(r => r.status === 'not_in_stock').length,
+    invalid_pct: results.filter(r => r.status === 'invalid_pct').length,
+    duplicate: results.filter(r => r.status === 'duplicate').length,
+  }
+
+  if (!commit) return NextResponse.json({ staged: true, counts, results })
+
+  if (validRows.length === 0) return NextResponse.json({ error: 'No valid rows to apply', counts, results }, { status: 400 })
+  // Apply each valid row.
+  await prisma.$transaction(
+    validRows.map(r => prisma.inventorySerial.update({
+      where: { id: r.serialId! },
+      data: { batteryHealthPct: r.batteryHealth! },
+    })),
+  )
+
+  return NextResponse.json({ committed: true, applied: validRows.length, counts, results })
+}

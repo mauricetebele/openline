@@ -1449,6 +1449,8 @@ model InventorySerial {
   note          String?
   binLocation   String?
   unitCost      Decimal?       @db.Decimal(12, 2)
+  // Optional battery health %, uploaded per serial (only for in-stock units).
+  batteryHealthPct Float?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
