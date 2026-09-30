@@ -6,12 +6,10 @@
  * Uses Firebase REST API to validate the ID token — no service account key needed.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import jwt from 'jsonwebtoken'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { signSessionToken, sessionCookieOpts, roleCookieOpts } from '@/lib/session'
 
-const SESSION_DURATION_S = 60 * 60 * 24 * 5 // 5 days in seconds
 const API_KEY = process.env.NEXT_PUBLIC_FIREBASE_API_KEY!
-const SESSION_SECRET = process.env.SESSION_SECRET!
 
 export async function GET() {
   const user = await getAuthUser()
@@ -46,15 +44,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Sign our own session JWT
-    const sessionToken = jwt.sign(
-      {
-        uid: fbUser.localId,
-        email: fbUser.email,
-        name: fbUser.displayName ?? fbUser.email?.split('@')[0] ?? '',
-      },
-      SESSION_SECRET,
-      { expiresIn: SESSION_DURATION_S },
-    )
+    const sessionToken = signSessionToken({
+      uid: fbUser.localId,
+      email: fbUser.email,
+      name: fbUser.displayName ?? fbUser.email?.split('@')[0] ?? '',
+    })
 
     // Look up DB user to get role for routing
     const { prisma } = await import('@/lib/prisma')
@@ -65,21 +59,8 @@ export async function POST(req: NextRequest) {
     const role = dbUser?.role ?? 'REVIEWER'
 
     const res = NextResponse.json({ ok: true, token: idToken, role })
-    res.cookies.set('__session', sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: SESSION_DURATION_S,
-      path: '/',
-    })
-    // Non-httpOnly role cookie for middleware routing
-    res.cookies.set('__role', role, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: SESSION_DURATION_S,
-      path: '/',
-    })
+    res.cookies.set('__session', sessionToken, sessionCookieOpts)
+    res.cookies.set('__role', role, roleCookieOpts) // non-httpOnly, for middleware routing
     return res
   } catch (err) {
     console.error('Session creation error:', err)

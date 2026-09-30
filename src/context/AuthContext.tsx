@@ -40,15 +40,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     fetch('/api/auth/me')
       .then(async (r) => {
-        if (!r.ok) {
-          // Session is stale — clear the bad cookie then redirect to login
+        if (r.status === 401) {
+          // Genuinely unauthenticated — clear the stale cookie, then to login.
           await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {})
           router.push('/login')
           return null
         }
+        // Transient error (5xx / network) — DON'T nuke a valid session; a reload
+        // will recover. Leave the cookie intact.
+        if (!r.ok) return null
         return r.json()
       })
       .then((data) => setUser(data ?? null))
+      .catch(() => { /* network blip — keep the session, don't force logout */ })
       .finally(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
