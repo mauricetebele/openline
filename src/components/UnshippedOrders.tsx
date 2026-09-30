@@ -4,7 +4,7 @@ import {
   Search, RefreshCcw, Package, X, AlertCircle, ChevronLeft, ChevronRight,
   Download, Link2, CheckCircle2, Truck, Settings, FlaskConical, ClipboardCheck,
   MapPin, Printer, RotateCcw, Hash, XCircle, ExternalLink, Phone, FileText, Eye,
-  AlertTriangle, Pencil, Tag, History, ChevronDown, ChevronUp, Ban, ShieldCheck, ScanLine, Clock,
+  AlertTriangle, Pencil, Tag, History, ChevronDown, ChevronUp, Ban, ShieldCheck, ScanLine, Clock, GripVertical,
   Loader2, Scale,
 } from 'lucide-react'
 import { detectCarrier, trackingUrl } from '@/lib/tracking-utils'
@@ -5302,6 +5302,8 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
   const [batchId, setBatchId] = useState<string | null>(existingBatchId ?? null)
   const [pollData, setPollData] = useState<LabelBatchPollData | null>(null)
   const [expanded, setExpanded] = useState(false)   // docked-bar detail view
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)  // dragged position (null = default bottom-right)
+  const barRef = useRef<HTMLDivElement>(null)
 
   // Build shipping method breakdown from eligible orders
   const methodBreakdown = useMemo(() => {
@@ -5474,15 +5476,48 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
     )
   }
 
-  // ── Processing / Done — a compact docked bar (click to expand detail). ────────
+  // ── Processing / Done — a draggable docked bar (click to expand detail). ──────
   const pct = total > 0 ? Math.round(((completed + failed) / total) * 100) : 0
   const isDone = phase === 'done'
+
+  // Drag the whole bar; a click that didn't move toggles the detail view.
+  function onHandlePointerDown(e: React.PointerEvent) {
+    const rect = barRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const startX = e.clientX, startY = e.clientY
+    const origX = rect.left, origY = rect.top
+    const w = rect.width, h = rect.height
+    let moved = false
+    function move(ev: PointerEvent) {
+      const dx = ev.clientX - startX, dy = ev.clientY - startY
+      if (!moved && Math.abs(dx) + Math.abs(dy) > 4) moved = true
+      if (moved) {
+        setPos({
+          x: Math.min(Math.max(8, origX + dx), window.innerWidth - w - 8),
+          y: Math.min(Math.max(8, origY + dy), window.innerHeight - h - 8),
+        })
+      }
+    }
+    function up() {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      if (!moved) setExpanded(x => !x)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-[min(94vw,460px)]">
+    <div
+      ref={barRef}
+      className={clsx('fixed z-50', !pos && 'bottom-4 right-4', expanded ? 'w-[min(96vw,760px)]' : 'w-[min(94vw,460px)]')}
+      style={pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : undefined}
+    >
       <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-2xl overflow-hidden">
         <div className="flex items-start gap-2 px-4 py-3">
-          <button onClick={() => setExpanded(e => !e)} className="flex-1 min-w-0 text-left">
+          <div onPointerDown={onHandlePointerDown} className="flex-1 min-w-0 text-left cursor-grab active:cursor-grabbing select-none touch-none">
             <div className="flex items-center gap-2">
+              <GripVertical size={14} className="text-gray-300 shrink-0 -ml-1" />
               {isDone
                 ? (failed > 0 ? <AlertTriangle size={15} className="text-amber-500 shrink-0" /> : <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />)
                 : <Loader2 size={15} className="text-indigo-500 animate-spin shrink-0" />}
@@ -5497,14 +5532,14 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
             <div className="mt-1.5 flex items-center gap-3 text-[11px]">
               <span className="text-emerald-600 font-medium">{completed} done</span>
               {failed > 0 && <span className="text-red-600 font-medium">{failed} failed</span>}
-              {!isDone && <span className="text-gray-400">runs on the server — click for detail</span>}
+              {!isDone && <span className="text-gray-400">drag to move · click for detail</span>}
             </div>
-          </button>
+          </div>
           <button onClick={onClose} title={isDone ? 'Close' : 'Dismiss (batch keeps running)'} className="text-gray-400 hover:text-gray-600 shrink-0"><X size={15} /></button>
         </div>
 
         {expanded && pollData && (
-          <div className="border-t border-gray-100 dark:border-gray-800 max-h-[46vh] overflow-y-auto">
+          <div className="border-t border-gray-100 dark:border-gray-800 max-h-[64vh] overflow-y-auto">
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 text-gray-500">
                 <tr>
