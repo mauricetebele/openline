@@ -1,9 +1,9 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet, MapPin, Pencil, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet, MapPin, Pencil, ChevronUp, ChevronDown, ChevronsUpDown, Download } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
-import { printAllLabels } from '@/lib/print-labels'
+import { printAllLabels, openLabel, downloadLabel, downloadAllLabels } from '@/lib/print-labels'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -31,14 +31,6 @@ const SERVICES: Record<string, { code: string; label: string }[]> = {
   ups: [{ code: '03', label: 'UPS Ground' }, { code: '02', label: 'UPS 2nd Day Air' }, { code: '01', label: 'UPS Next Day Air' }],
   fedex: [{ code: 'FEDEX_GROUND', label: 'FedEx Ground' }, { code: 'FEDEX_2_DAY', label: 'FedEx 2Day' }, { code: 'STANDARD_OVERNIGHT', label: 'FedEx Standard Overnight' }],
   ss: [{ code: 'ups_ground', label: 'UPS Ground' }, { code: 'ups_2nd_day_air', label: 'UPS 2nd Day Air' }, { code: 'ups_next_day_air', label: 'UPS Next Day Air' }],
-}
-
-function printLabel(base64: string, format: string) {
-  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
-  const isPdf = (format || 'pdf').toLowerCase() === 'pdf'
-  const url = URL.createObjectURL(new Blob([bytes], { type: isPdf ? 'application/pdf' : 'image/png' }))
-  const iframe = document.createElement('iframe'); iframe.style.display = 'none'; document.body.appendChild(iframe); iframe.src = url
-  iframe.onload = () => { iframe.contentWindow?.print(); setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(url) }, 1500) }
 }
 
 async function api(url: string, method = 'GET', body?: any) {
@@ -200,10 +192,17 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
     try {
       const r = await api(`/api/repair-orders/${id}/label?direction=${dir}`)
       if (!r.labels?.length) { toast.error('No stored labels found'); return }
-      // Merge every piece into one PDF so all print from a single tab (one dialog
-      // per label fails — the modal print dialog drops the later ones).
-      if (r.labels.length === 1) printLabel(r.labels[0].labelData, r.labels[0].labelFormat)
+      // Open the label PDF in a new tab (reliable) — a single tab for all pieces.
+      if (r.labels.length === 1) openLabel(r.labels[0].labelData, r.labels[0].labelFormat)
       else await printAllLabels(r.labels.map((l: any) => ({ labelData: l.labelData, labelFormat: l.labelFormat })))
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load labels') }
+  }
+  async function downloadLabels(dir: 'outbound' | 'inbound') {
+    try {
+      const r = await api(`/api/repair-orders/${id}/label?direction=${dir}`)
+      if (!r.labels?.length) { toast.error('No stored labels found'); return }
+      if (r.labels.length === 1) downloadLabel(r.labels[0].labelData, r.labels[0].labelFormat, `RO-${order?.orderNumber ?? id}-${dir}`)
+      else await downloadAllLabels(r.labels.map((l: any) => ({ labelData: l.labelData, labelFormat: l.labelFormat })), `RO-${order?.orderNumber ?? id}-${dir}`)
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load labels') }
   }
 
@@ -286,6 +285,7 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
                 <span className="text-xs font-semibold uppercase text-gray-500">{dir === 'outbound' ? 'Outbound → Vendor' : 'Inbound → Us'}</span>
                 <div className="flex items-center gap-2">
                   {trk && <button onClick={() => printLabels(dir)} className="text-xs text-gray-500 hover:text-amazon-blue flex items-center gap-1"><Printer size={12} /> Print</button>}
+                  {trk && <button onClick={() => downloadLabels(dir)} className="text-xs text-gray-500 hover:text-amazon-blue flex items-center gap-1"><Download size={12} /> Download</button>}
                   <button onClick={() => setLabelDir(dir)} className="text-xs text-amazon-blue hover:underline flex items-center gap-1"><Truck size={12} /> {trk ? 'New label' : 'Create label'}</button>
                 </div>
               </div>
@@ -437,7 +437,7 @@ function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; 
       const r = await api(`/api/repair-orders/${orderId}/label`, 'POST', { direction, path, serviceCode, packages: buildPackages() })
       toast.success(`Label created — ${r.pieces?.length ?? 0} piece(s)`)
       const pieces = (r.pieces ?? []) as any[]
-      if (pieces.length === 1) printLabel(pieces[0].labelBase64, pieces[0].labelFormat)
+      if (pieces.length === 1) openLabel(pieces[0].labelBase64, pieces[0].labelFormat)
       else if (pieces.length > 1) await printAllLabels(pieces.map(p => ({ labelData: p.labelBase64, labelFormat: p.labelFormat })))
       onDone()
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Label failed') } finally { setBusy(false) }
