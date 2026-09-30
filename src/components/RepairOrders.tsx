@@ -312,11 +312,11 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
             <tr>
               <th className="w-8 px-2 py-2"><input type="checkbox" checked={!!allSel} onChange={e => setSelected(e.target.checked ? new Set(order.items.map(i => i.id)) : new Set())} /></th>
               <th className="text-left px-3 py-2">Serial / IMEI</th><th className="text-left px-3 py-2">SKU</th><th className="text-left px-3 py-2">Model Name</th>
-              <th className="text-left px-3 py-2">Grade</th><th className="text-left px-3 py-2">Repair Type</th><th className="text-right px-3 py-2">Repair Cost</th><th className="text-left px-3 py-2">Status</th><th className="text-left px-3 py-2">Received</th>
+              <th className="text-left px-3 py-2">Grade</th><th className="text-left px-3 py-2">Location</th><th className="text-left px-3 py-2">Repair Type</th><th className="text-right px-3 py-2">Repair Cost</th><th className="text-left px-3 py-2">Status</th><th className="text-left px-3 py-2">Received</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {order.items.length === 0 ? <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-400 text-sm">No units yet — paste serials above.</td></tr>
+            {order.items.length === 0 ? <tr><td colSpan={10} className="px-3 py-6 text-center text-gray-400 text-sm">No units yet — paste serials above.</td></tr>
               : order.items.map(it => (
                 <tr key={it.id} className={clsx(selected.has(it.id) && 'bg-blue-50/50 dark:bg-gray-800/60')}>
                   <td className="px-2 py-1.5 text-center"><input type="checkbox" checked={selected.has(it.id)} onChange={() => toggle(it.id)} /></td>
@@ -324,6 +324,7 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
                   <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">{it.sku ?? '—'}</td>
                   <td className="px-3 py-1.5 text-gray-500 truncate max-w-[240px]" title={it.model ?? ''}>{it.model ?? '—'}</td>
                   <td className="px-3 py-1.5 text-gray-500">{it.grade ?? '—'}</td>
+                  <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">{it.location ?? <span className="text-gray-300">—</span>}</td>
                   <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">{it.repairTypeName ?? <span className="text-gray-300">—</span>}</td>
                   <td className="px-3 py-1.5 text-right text-gray-800 dark:text-gray-200">{money(it.repairCost)}</td>
                   <td className="px-3 py-1.5">
@@ -338,7 +339,7 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
               ))}
           </tbody>
           {order.items.length > 0 && (
-            <tfoot className="bg-gray-50 dark:bg-gray-800 text-xs font-semibold"><tr><td colSpan={6} className="px-3 py-1.5 text-right text-gray-500">Total repair cost</td><td className="px-3 py-1.5 text-right">{money(order.totalCost)}</td><td colSpan={2} /></tr></tfoot>
+            <tfoot className="bg-gray-50 dark:bg-gray-800 text-xs font-semibold"><tr><td colSpan={7} className="px-3 py-1.5 text-right text-gray-500">Total repair cost</td><td className="px-3 py-1.5 text-right">{money(order.totalCost)}</td><td colSpan={2} /></tr></tfoot>
           )}
         </table>
       </div>
