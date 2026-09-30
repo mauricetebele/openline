@@ -158,6 +158,51 @@ export async function runAskAi(
   const { key, model, approved = [] } = opts
   let messages = [...opts.messages]
 
+  // ── Repair the tail before calling Anthropic ──────────────────────────────────
+  // Every `tool_use` block must be answered by a `tool_result` in the very next
+  // message, or Anthropic 400s ("tool_use ids were found without tool_result
+  // blocks"). Two ways the conversation can arrive here unbalanced:
+  //  (a) Resume-after-confirm: the client re-sends the history still ending in the
+  //      assistant turn that requested send_email (now approved) — no results yet.
+  //  (b) Decline / partial: the client appended a tool_result for only some of the
+  //      turn's tool_use blocks (e.g. the email, not its siblings).
+  {
+    const last = messages[messages.length - 1]
+    if (last?.role === 'assistant' && Array.isArray(last.content)) {
+      const toolUses = last.content.filter((b: any) => b.type === 'tool_use')
+      if (toolUses.length > 0) {
+        // Still needs confirmation? Pause again rather than executing.
+        const pendingEmail = toolUses.find((b: any) => b.name === 'send_email' && !approved.includes(b.id))
+        if (pendingEmail) return { type: 'confirm', pending: { toolUseId: pendingEmail.id, input: pendingEmail.input }, messages }
+        const toolResults: any[] = []
+        for (const tu of toolUses) {
+          const out = await executeTool(tu.name, tu.input)
+          toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: out.content, ...(out.isError ? { is_error: true } : {}) })
+        }
+        messages = [...messages, { role: 'user', content: toolResults }]
+      }
+    } else if (last?.role === 'user' && Array.isArray(last.content) && last.content.some((b: any) => b.type === 'tool_result')) {
+      // Fill any tool_use in the preceding assistant turn left without a result.
+      const prev = messages[messages.length - 2]
+      if (prev?.role === 'assistant' && Array.isArray(prev.content)) {
+        const answered = new Set(last.content.filter((b: any) => b.type === 'tool_result').map((b: any) => b.tool_use_id))
+        const missing = prev.content.filter((b: any) => b.type === 'tool_use' && !answered.has(b.id))
+        if (missing.length > 0) {
+          const extra: any[] = []
+          for (const tu of missing) {
+            if (tu.name === 'send_email' && !approved.includes(tu.id)) {
+              extra.push({ type: 'tool_result', tool_use_id: tu.id, content: 'Skipped — not confirmed.', is_error: true })
+            } else {
+              const out = await executeTool(tu.name, tu.input)
+              extra.push({ type: 'tool_result', tool_use_id: tu.id, content: out.content, ...(out.isError ? { is_error: true } : {}) })
+            }
+          }
+          messages = [...messages.slice(0, -1), { ...last, content: [...last.content, ...extra] }]
+        }
+      }
+    }
+  }
+
   for (let step = 0; step < MAX_STEPS; step++) {
     const resp = await callAnthropic(key, model, messages)
     const content: any[] = Array.isArray(resp.content) ? resp.content : []
