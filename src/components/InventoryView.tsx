@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef, useMemo, Fragment } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown, Barcode, Store, Download } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { clsx } from 'clsx'
 import SNLookupModal from './SNLookupModal'
 import GradeBadge from '@/components/GradeBadge'
 
@@ -10,7 +11,7 @@ import GradeBadge from '@/components/GradeBadge'
 
 interface Warehouse { id: string; name: string }
 interface Location  { id: string; name: string; warehouseId: string; warehouse: Warehouse; isFinishedGoods?: boolean }
-interface Product   { id: string; description: string; sku: string; isSerializable: boolean; marketplaceSkus?: { marketplace: string; gradeId: string | null; sellerSku: string; fulfillmentChannel: string | null }[] }
+interface Product   { id: string; description: string; sku: string; isSerializable: boolean; marketplaceSkus?: { marketplace: string; gradeId: string | null; sellerSku: string; fulfillmentChannel: string | null; suspended?: boolean }[] }
 
 interface InventoryGrade { id: string; grade: string; description: string | null }
 
@@ -2997,27 +2998,35 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                   <td className="px-2 py-1 text-center">
                     {(() => {
                       const matched = (item.product.marketplaceSkus ?? []).filter(s => (s.gradeId ?? null) === (item.grade?.id ?? null))
-                      const hasMfn = matched.some(s => s.marketplace === 'amazon' && s.fulfillmentChannel !== 'FBA')
-                      const hasFba = matched.some(s => s.marketplace === 'amazon' && s.fulfillmentChannel === 'FBA')
-                      const hasBm = matched.some(s => s.marketplace === 'backmarket')
+                      const amazonSkus = matched.filter(s => s.marketplace === 'amazon')
+                      const bmSkus = matched.filter(s => s.marketplace === 'backmarket')
+                      const hasMfn = amazonSkus.some(s => s.fulfillmentChannel !== 'FBA')
+                      const hasFba = amazonSkus.some(s => s.fulfillmentChannel === 'FBA')
+                      const hasBm = bmSkus.length > 0
                       if (!hasMfn && !hasFba && !hasBm) return <span className="text-gray-300 text-[10px]">None</span>
+                      // Red logo when EVERY marketplace SKU for that marketplace is suspended
+                      // (at least one live SKU keeps it normal).
+                      const amazonSuspended = amazonSkus.length > 0 && amazonSkus.every(s => s.suspended)
+                      const bmSuspended = bmSkus.length > 0 && bmSkus.every(s => s.suspended)
+                      // Colorize the (orange) Amazon PNG to red via a CSS filter.
+                      const redImg = { filter: 'grayscale(1) sepia(1) saturate(8) hue-rotate(-40deg) brightness(0.85)' }
                       return (
                         <span className="inline-flex items-center gap-1 justify-center">
                           {hasMfn && (
-                            <span title="Amazon MFN" className="inline-flex items-center justify-center shrink-0 select-none">
+                            <span title={amazonSuspended ? 'Amazon MFN — suspended' : 'Amazon MFN'} className="inline-flex items-center justify-center shrink-0 select-none">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src="/logos/amazon-icon.png" alt="Amazon MFN" width={20} height={20} className="inline-block rounded" />
+                              <img src="/logos/amazon-icon.png" alt="Amazon MFN" width={20} height={20} className="inline-block rounded" style={amazonSuspended ? redImg : undefined} />
                             </span>
                           )}
                           {hasFba && (
-                            <span title="Amazon FBA" className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 select-none">
+                            <span title={amazonSuspended ? 'Amazon FBA — suspended' : 'Amazon FBA'} className={clsx('inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 select-none', amazonSuspended ? 'bg-red-100' : 'bg-blue-100')}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src="/logos/amazon-icon.png" alt="FBA" width={14} height={14} className="inline-block rounded" />
-                              <span className="text-[9px] font-bold text-blue-700">FBA</span>
+                              <img src="/logos/amazon-icon.png" alt="FBA" width={14} height={14} className="inline-block rounded" style={amazonSuspended ? redImg : undefined} />
+                              <span className={clsx('text-[9px] font-bold', amazonSuspended ? 'text-red-700' : 'text-blue-700')}>FBA</span>
                             </span>
                           )}
                           {hasBm && (
-                            <span title="Back Market" className="inline-flex items-center justify-center shrink-0 select-none">
+                            <span title={bmSuspended ? 'Back Market — suspended' : 'Back Market'} className={clsx('inline-flex items-center justify-center shrink-0 select-none', bmSuspended && 'text-red-600')}>
                               <svg xmlns="http://www.w3.org/2000/svg" width={16} height={16} viewBox="0 0.72 182 166.32">
                                 <path d="M167.45.72H14.55C6.51.72 0 7.21 0 15.23v136.58c0 8.02 6.51 14.51 14.55 14.51h152.9c8.03 0 14.55-6.5 14.55-14.51V15.23C182 7.22 175.49.72 167.45.72ZM99.14 133.69H69.13c-.96 0-1.87-.38-2.55-1.06L18.54 84.59c-.59-.59-.59-1.55 0-2.15L66.58 34.4c.68-.68 1.59-1.06 2.55-1.06h30.01c.82 0 1.23.99.65 1.56L52.25 82.44c-.59.59-.59 1.55 0 2.15l47.54 47.54c.58.58.17 1.56-.65 1.56Zm16.04-49.1 47.54 47.54c.58.58.17 1.56-.65 1.56h-30.01c-.96 0-1.87-.38-2.55-1.06L81.47 84.58c-.59-.59-.59-1.55 0-2.15l48.04-48.04c.68-.68 1.59-1.06 2.55-1.06h30.01c.82 0 1.23.99.65 1.56l-47.54 47.54c-.59.59-.59 1.55 0 2.15Z" fill="currentColor"/>
                               </svg>
