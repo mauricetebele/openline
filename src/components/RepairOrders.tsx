@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet, MapPin, Pencil, ChevronUp, ChevronDown, ChevronsUpDown, Download } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
-import { printAllLabels, openLabel, downloadLabel, downloadAllLabels } from '@/lib/print-labels'
+import { printAllLabels, openLabel } from '@/lib/print-labels'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -188,23 +188,6 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
   async function loadTracking() {
     try { setTracking(await api(`/api/repair-orders/${id}/tracking`)) } catch { /* ignore */ }
   }
-  async function printLabels(dir: 'outbound' | 'inbound') {
-    try {
-      const r = await api(`/api/repair-orders/${id}/label?direction=${dir}`)
-      if (!r.labels?.length) { toast.error('No stored labels found'); return }
-      // Open the label PDF in a new tab (reliable) — a single tab for all pieces.
-      if (r.labels.length === 1) openLabel(r.labels[0].labelData, r.labels[0].labelFormat)
-      else await printAllLabels(r.labels.map((l: any) => ({ labelData: l.labelData, labelFormat: l.labelFormat })))
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load labels') }
-  }
-  async function downloadLabels(dir: 'outbound' | 'inbound') {
-    try {
-      const r = await api(`/api/repair-orders/${id}/label?direction=${dir}`)
-      if (!r.labels?.length) { toast.error('No stored labels found'); return }
-      if (r.labels.length === 1) downloadLabel(r.labels[0].labelData, r.labels[0].labelFormat, `RO-${order?.orderNumber ?? id}-${dir}`)
-      else await downloadAllLabels(r.labels.map((l: any) => ({ labelData: l.labelData, labelFormat: l.labelFormat })), `RO-${order?.orderNumber ?? id}-${dir}`)
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load labels') }
-  }
 
   // Column sorting for the items grid.
   const sortVal = (it: Item): string | number => {
@@ -284,8 +267,8 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-semibold uppercase text-gray-500">{dir === 'outbound' ? 'Outbound → Vendor' : 'Inbound → Us'}</span>
                 <div className="flex items-center gap-2">
-                  {trk && <button onClick={() => printLabels(dir)} className="text-xs text-gray-500 hover:text-amazon-blue flex items-center gap-1"><Printer size={12} /> Print</button>}
-                  {trk && <button onClick={() => downloadLabels(dir)} className="text-xs text-gray-500 hover:text-amazon-blue flex items-center gap-1"><Download size={12} /> Download</button>}
+                  {trk && <a href={`/api/repair-orders/${id}/label/pdf?direction=${dir}`} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-amazon-blue flex items-center gap-1"><Printer size={12} /> Print</a>}
+                  {trk && <a href={`/api/repair-orders/${id}/label/pdf?direction=${dir}&dl=1`} className="text-xs text-gray-500 hover:text-amazon-blue flex items-center gap-1"><Download size={12} /> Download</a>}
                   <button onClick={() => setLabelDir(dir)} className="text-xs text-amazon-blue hover:underline flex items-center gap-1"><Truck size={12} /> {trk ? 'New label' : 'Create label'}</button>
                 </div>
               </div>
