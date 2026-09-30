@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet, MapPin, Pencil } from 'lucide-react'
+import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet, MapPin, Pencil, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
 import { printAllLabels } from '@/lib/print-labels'
@@ -138,6 +138,9 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
   const [labelDir, setLabelDir] = useState<null | 'outbound' | 'inbound'>(null)
   const [locs, setLocs] = useState<LocOption[]>([])
   const [receiveOpen, setReceiveOpen] = useState(false)
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const toggleSort = (k: string) => { if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortKey(k); setSortDir('asc') } }
 
   const load = useCallback(() => api(`/api/repair-orders/${id}`).then(setOrder).catch(() => {}), [id])
   useEffect(() => {
@@ -202,6 +205,43 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
       if (r.labels.length === 1) printLabel(r.labels[0].labelData, r.labels[0].labelFormat)
       else await printAllLabels(r.labels.map((l: any) => ({ labelData: l.labelData, labelFormat: l.labelFormat })))
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load labels') }
+  }
+
+  // Column sorting for the items grid.
+  const sortVal = (it: Item): string | number => {
+    switch (sortKey) {
+      case 'serial': return it.serialNumber ?? ''
+      case 'sku': return it.sku ?? ''
+      case 'model': return it.model ?? ''
+      case 'grade': return it.grade ?? ''
+      case 'repairType': return it.repairTypeName ?? ''
+      case 'cost': return it.repairCost ?? -1
+      case 'status': return it.status ?? ''
+      case 'received': return it.receivedAt ?? ''
+      case 'location': return it.location ?? ''
+      default: return ''
+    }
+  }
+  const sortedItems = useMemo(() => {
+    if (!order) return []
+    if (!sortKey) return order.items
+    const arr = [...order.items].sort((a, b) => {
+      const av = sortVal(a), bv = sortVal(b)
+      const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).localeCompare(String(bv))
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return arr
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, sortKey, sortDir])
+  function sortTh(k: string, label: string, align: 'text-left' | 'text-right' = 'text-left') {
+    return (
+      <th className={clsx('px-3 py-2 cursor-pointer select-none hover:text-gray-700 transition-colors', align)} onClick={() => toggleSort(k)}>
+        <span className={clsx('inline-flex items-center gap-1', align === 'text-right' && 'justify-end')}>
+          {label}
+          {sortKey === k ? (sortDir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />) : <ChevronsUpDown size={11} className="text-gray-300" />}
+        </span>
+      </th>
+    )
   }
 
   if (!order) return <div className="py-8 text-center text-gray-400"><Loader2 className="animate-spin inline" /></div>
@@ -311,20 +351,26 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
           <thead className="bg-gray-50 dark:bg-gray-800 text-gray-500 text-xs">
             <tr>
               <th className="w-8 px-2 py-2"><input type="checkbox" checked={!!allSel} onChange={e => setSelected(e.target.checked ? new Set(order.items.map(i => i.id)) : new Set())} /></th>
-              <th className="text-left px-3 py-2">Serial / IMEI</th><th className="text-left px-3 py-2">SKU</th><th className="text-left px-3 py-2">Model Name</th>
-              <th className="text-left px-3 py-2">Grade</th><th className="text-left px-3 py-2">Location</th><th className="text-left px-3 py-2">Repair Type</th><th className="text-right px-3 py-2">Repair Cost</th><th className="text-left px-3 py-2">Status</th><th className="text-left px-3 py-2">Received</th>
+              {sortTh('serial', 'Serial / IMEI')}
+              {sortTh('sku', 'SKU')}
+              {sortTh('model', 'Model Name')}
+              {sortTh('grade', 'Grade')}
+              {sortTh('repairType', 'Repair Type')}
+              {sortTh('cost', 'Repair Cost', 'text-right')}
+              {sortTh('status', 'Status')}
+              {sortTh('received', 'Received')}
+              {sortTh('location', 'Current Location')}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {order.items.length === 0 ? <tr><td colSpan={10} className="px-3 py-6 text-center text-gray-400 text-sm">No units yet — paste serials above.</td></tr>
-              : order.items.map(it => (
+              : sortedItems.map(it => (
                 <tr key={it.id} className={clsx(selected.has(it.id) && 'bg-blue-50/50 dark:bg-gray-800/60')}>
                   <td className="px-2 py-1.5 text-center"><input type="checkbox" checked={selected.has(it.id)} onChange={() => toggle(it.id)} /></td>
                   <td className="px-3 py-1.5 font-mono text-xs text-gray-700 dark:text-gray-300">{it.serialNumber}</td>
                   <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">{it.sku ?? '—'}</td>
                   <td className="px-3 py-1.5 text-gray-500 truncate max-w-[240px]" title={it.model ?? ''}>{it.model ?? '—'}</td>
                   <td className="px-3 py-1.5 text-gray-500">{it.grade ?? '—'}</td>
-                  <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">{it.location ?? <span className="text-gray-300">—</span>}</td>
                   <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">{it.repairTypeName ?? <span className="text-gray-300">—</span>}</td>
                   <td className="px-3 py-1.5 text-right text-gray-800 dark:text-gray-200">{money(it.repairCost)}</td>
                   <td className="px-3 py-1.5">
@@ -335,11 +381,12 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
                       ? <span title={new Date(it.receivedAt).toLocaleString()}>{it.receivedLocation ?? '✓'}</span>
                       : <span className="text-gray-300">—</span>}
                   </td>
+                  <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">{it.location ?? <span className="text-gray-300">—</span>}</td>
                 </tr>
               ))}
           </tbody>
           {order.items.length > 0 && (
-            <tfoot className="bg-gray-50 dark:bg-gray-800 text-xs font-semibold"><tr><td colSpan={7} className="px-3 py-1.5 text-right text-gray-500">Total repair cost</td><td className="px-3 py-1.5 text-right">{money(order.totalCost)}</td><td colSpan={2} /></tr></tfoot>
+            <tfoot className="bg-gray-50 dark:bg-gray-800 text-xs font-semibold"><tr><td colSpan={6} className="px-3 py-1.5 text-right text-gray-500">Total repair cost</td><td className="px-3 py-1.5 text-right">{money(order.totalCost)}</td><td colSpan={3} /></tr></tfoot>
           )}
         </table>
       </div>
