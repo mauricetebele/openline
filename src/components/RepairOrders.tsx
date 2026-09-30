@@ -392,8 +392,19 @@ function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; 
   const [busy, setBusy] = useState(false)
   const [rating, setRating] = useState(false)
   const [rate, setRate] = useState<{ total: number; currency: string } | null>(null)
+  const [upsCreds, setUpsCreds] = useState<{ id: string; nickname: string; isDefault: boolean }[]>([])
+  const [upsCredentialId, setUpsCredentialId] = useState('')
   useEffect(() => { setServiceCode(SERVICES[path][0].code) }, [path])
-  useEffect(() => { setRate(null) }, [path, serviceCode, boxes])
+  useEffect(() => { setRate(null) }, [path, serviceCode, boxes, upsCredentialId])
+  // Load UPS accounts for the UPS-Direct account picker.
+  useEffect(() => {
+    fetch('/api/ups/credentials').then(r => r.ok ? r.json() : null).then(d => {
+      const list = Array.isArray(d?.accounts) ? d.accounts : []
+      setUpsCreds(list)
+      const def = list.find((c: { isDefault: boolean }) => c.isDefault) ?? list[0]
+      if (def) setUpsCredentialId(def.id)
+    }).catch(() => {})
+  }, [])
 
   const setBox = (i: number, k: 'weight' | 'l' | 'w' | 'h', v: string) => setBoxes(p => p.map((b, j) => j === i ? { ...b, [k]: v } : b))
 
@@ -408,7 +419,7 @@ function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; 
     if (!boxes.every(b => Number(b.weight) > 0)) { toast.error('Enter a weight for every box'); return }
     setRating(true); setRate(null)
     try {
-      const r = await api(`/api/repair-orders/${orderId}/label`, 'POST', { direction, path, serviceCode, packages: buildPackages(), rateOnly: true })
+      const r = await api(`/api/repair-orders/${orderId}/label`, 'POST', { direction, path, serviceCode, packages: buildPackages(), rateOnly: true, ...(path === 'ups' && upsCredentialId ? { upsCredentialId } : {}) })
       setRate({ total: Number(r.total), currency: r.currency ?? 'USD' })
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Rate failed') } finally { setRating(false) }
   }
@@ -417,7 +428,7 @@ function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; 
     if (!boxes.every(b => Number(b.weight) > 0)) { toast.error('Enter a weight for every box'); return }
     setBusy(true)
     try {
-      const r = await api(`/api/repair-orders/${orderId}/label`, 'POST', { direction, path, serviceCode, packages: buildPackages() })
+      const r = await api(`/api/repair-orders/${orderId}/label`, 'POST', { direction, path, serviceCode, packages: buildPackages(), ...(path === 'ups' && upsCredentialId ? { upsCredentialId } : {}) })
       toast.success(`Label created — ${r.pieces?.length ?? 0} piece(s)`)
       const pieces = (r.pieces ?? []) as any[]
       if (pieces.length === 1) openLabel(pieces[0].labelBase64, pieces[0].labelFormat)
@@ -436,6 +447,14 @@ function LabelModal({ orderId, direction, onClose, onDone }: { orderId: string; 
         <div className="p-5 space-y-3">
           <div className="flex gap-2">{(['ups', 'fedex', 'ss'] as const).map(p => <button key={p} onClick={() => setPath(p)} className={clsx('flex-1 h-9 rounded-lg border text-xs font-semibold', path === p ? 'border-amazon-blue bg-blue-50 text-amazon-blue' : 'border-gray-200 text-gray-600')}>{p === 'ups' ? 'UPS' : p === 'fedex' ? 'FedEx' : 'ShipStation'}</button>)}</div>
           <div><label className="block text-[11px] text-gray-500 mb-0.5">Service</label><select className={inputCls} value={serviceCode} onChange={e => setServiceCode(e.target.value)}>{SERVICES[path].map(s => <option key={s.code} value={s.code}>{s.label}</option>)}</select></div>
+          {path === 'ups' && (
+            <div><label className="block text-[11px] text-gray-500 mb-0.5">UPS Account</label>
+              <select className={inputCls} value={upsCredentialId} onChange={e => setUpsCredentialId(e.target.value)}>
+                {upsCreds.length === 0 && <option value="">Default</option>}
+                {upsCreds.map(c => <option key={c.id} value={c.id}>{c.nickname}{c.isDefault ? ' (default)' : ''}</option>)}
+              </select>
+            </div>
+          )}
           <div className="space-y-1.5">
             <div className="grid grid-cols-[1.2rem_1fr_1fr_1fr_1fr_1.2rem] gap-2 text-[10px] text-gray-400 px-0.5">
               <span /><span>Weight (lb)</span><span>L (in)</span><span>W</span><span>H</span><span />
