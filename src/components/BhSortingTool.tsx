@@ -1,7 +1,7 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
 import { clsx } from 'clsx'
-import { BatteryCharging, ScanLine, RotateCcw } from 'lucide-react'
+import { BatteryCharging, ScanLine, RotateCcw, Volume2, VolumeX } from 'lucide-react'
 
 type Verdict = 'good' | 'bad' | 'no_bh' | 'not_found' | 'not_in_stock'
 
@@ -14,8 +14,52 @@ interface Scan {
   grade: string | null
 }
 
+// Web Audio beep — no asset files (CSP-safe). Distinct tones per verdict so the
+// operator can sort by ear without looking at the screen.
+let audioCtx: AudioContext | null = null
+function beep(verdict: Verdict) {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+    if (!Ctx) return
+    if (!audioCtx) audioCtx = new Ctx()
+    if (audioCtx.state === 'suspended') void audioCtx.resume()
+    const ctx = audioCtx
+    // Per-verdict tone: positive (high, pleasant) for good; negative (low buzz)
+    // for below threshold; neutral blips for the error cases.
+    const tone: Record<Verdict, { freq: number; dur: number; type: OscillatorType }> = {
+      good:         { freq: 988, dur: 0.13, type: 'sine' },     // bright high beep
+      bad:          { freq: 196, dur: 0.42, type: 'square' },   // low buzzer
+      no_bh:        { freq: 440, dur: 0.20, type: 'triangle' }, // neutral blip
+      not_in_stock: { freq: 330, dur: 0.22, type: 'triangle' },
+      not_found:    { freq: 247, dur: 0.30, type: 'sawtooth' },
+    }
+    const { freq, dur, type } = tone[verdict]
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = type
+    osc.frequency.value = freq
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.01)
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur)
+    osc.connect(gain); gain.connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + dur + 0.02)
+    // "Good" gets a quick second note (pleasant confirmation chirp).
+    if (verdict === 'good') {
+      const o2 = ctx.createOscillator(); const g2 = ctx.createGain()
+      o2.type = 'sine'; o2.frequency.value = 1319
+      g2.gain.setValueAtTime(0.0001, ctx.currentTime + 0.11)
+      g2.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + 0.12)
+      g2.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.24)
+      o2.connect(g2); g2.connect(ctx.destination)
+      o2.start(ctx.currentTime + 0.11); o2.stop(ctx.currentTime + 0.26)
+    }
+  } catch { /* audio unavailable — ignore */ }
+}
+
 export default function BhSortingTool() {
   const [threshold, setThreshold] = useState('80')
+  const [muted, setMuted] = useState(false)
   const [started, setStarted] = useState(false)
   const [scan, setScan] = useState('')
   const [current, setCurrent] = useState<Scan | null>(null)
@@ -42,8 +86,10 @@ export default function BhSortingTool() {
       const s: Scan = { serial: d.serialNumber ?? serial, verdict, bh: d.batteryHealthPct ?? null, sku: d.sku ?? null, model: d.model ?? null, grade: d.grade ?? null }
       setCurrent(s)
       setLog(prev => [s, ...prev].slice(0, 50))
+      if (!muted) beep(verdict)
     } catch {
       setCurrent({ serial, verdict: 'not_found', bh: null, sku: null, model: null, grade: null })
+      if (!muted) beep('not_found')
     } finally {
       setLoading(false)
       setScan('')
@@ -111,6 +157,7 @@ export default function BhSortingTool() {
         <div className="ml-auto flex items-center gap-3 text-sm">
           <span className="inline-flex items-center gap-1 font-semibold text-emerald-600">{goodCount} good</span>
           <span className="inline-flex items-center gap-1 font-semibold text-red-600">{badCount} below</span>
+          <button onClick={() => setMuted(m => !m)} title={muted ? 'Unmute beeps' : 'Mute beeps'} className={clsx('hover:text-gray-600', muted ? 'text-gray-400' : 'text-amazon-blue')}>{muted ? <VolumeX size={15} /> : <Volume2 size={15} />}</button>
           <button onClick={() => { setLog([]); setCurrent(null); inputRef.current?.focus() }} title="Clear session" className="text-gray-400 hover:text-gray-600"><RotateCcw size={15} /></button>
         </div>
       </div>
