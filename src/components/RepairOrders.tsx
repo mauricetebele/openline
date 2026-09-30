@@ -12,7 +12,7 @@ interface Vendor { id: string; companyName: string; email: string | null; phone:
 interface LocOption { id: string; label: string }
 interface RepairType { id: string; name: string; isActive: boolean }
 interface OrderRow { id: string; orderNumber: number; status: string; vendorName: string; itemCount: number; totalCost: number; createdAt: string; outboundTracking: string | null; inboundTracking: string | null }
-interface Item { id: string; serialNumber: string; sku: string | null; model: string | null; grade: string | null; location: string | null; repairTypeId: string | null; repairTypeName: string | null; repairCost: number | null; status: string; repairSummary: string | null; receivedAt: string | null; receivedLocation: string | null }
+interface Item { id: string; serialNumber: string; serialStatus: string | null; sku: string | null; model: string | null; grade: string | null; location: string | null; repairTypeId: string | null; repairTypeName: string | null; repairCost: number | null; status: string; repairSummary: string | null; receivedAt: string | null; receivedLocation: string | null }
 interface OrderDetail { id: string; orderNumber: number; status: string; notes: string | null; vendor: Vendor; outboundCarrier: string | null; outboundTracking: string | null; inboundCarrier: string | null; inboundTracking: string | null; items: Item[]; totalCost: number }
 
 const money = (n: number | null | undefined) => n == null ? '—' : `$${Number(n).toFixed(2)}`
@@ -218,7 +218,7 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
       case 'cost': return it.repairCost ?? -1
       case 'status': return it.status ?? ''
       case 'received': return it.receivedAt ?? ''
-      case 'location': return it.location ?? ''
+      case 'location': return it.serialStatus === 'OUT_OF_STOCK' ? 'OUT OF STOCK' : (it.location ?? '')
       default: return ''
     }
   }
@@ -381,7 +381,11 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
                       ? <span title={new Date(it.receivedAt).toLocaleString()}>{it.receivedLocation ?? '✓'}</span>
                       : <span className="text-gray-300">—</span>}
                   </td>
-                  <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">{it.location ?? <span className="text-gray-300">—</span>}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap">
+                    {it.serialStatus === 'OUT_OF_STOCK'
+                      ? <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-gray-200 text-gray-600 uppercase tracking-wide" title="No longer in inventory (sold / shipped)">Out of Stock</span>
+                      : (it.location ?? <span className="text-gray-300">—</span>)}
+                  </td>
                 </tr>
               ))}
           </tbody>
