@@ -20,7 +20,7 @@ export async function GET(
     include: {
       items: {
         include: {
-          order: { select: { amazonOrderId: true, olmNumber: true, shipToName: true, presetRateService: true } },
+          order: { select: { amazonOrderId: true, olmNumber: true, shipToName: true, shipToCity: true, shipToState: true, presetRateService: true, presetRateCarrier: true, label: { select: { trackingNumber: true } } } },
         },
         orderBy: { createdAt: 'asc' },
       },
@@ -63,7 +63,7 @@ export async function GET(
       orderId: item.orderId,
       status:  item.status,
       error:   item.error,
-      order:   { amazonOrderId: item.order.amazonOrderId, olmNumber: item.order.olmNumber, shipToName: item.order.shipToName, presetRateService: item.order.presetRateService },
+      order:   { amazonOrderId: item.order.amazonOrderId, olmNumber: item.order.olmNumber, shipToName: item.order.shipToName, shipToCity: item.order.shipToCity, shipToState: item.order.shipToState, presetRateService: item.order.presetRateService, presetRateCarrier: item.order.presetRateCarrier, trackingNumber: item.order.label?.trackingNumber ?? null },
     })),
   })
 }

@@ -5063,7 +5063,7 @@ interface LabelBatchItemStatus {
   orderId: string
   status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
   error: string | null
-  order: { amazonOrderId: string; olmNumber: number | null; shipToName: string | null; presetRateService: string | null }
+  order: { amazonOrderId: string; olmNumber: number | null; shipToName: string | null; shipToCity: string | null; shipToState: string | null; presetRateService: string | null; presetRateCarrier: string | null; trackingNumber: string | null }
 }
 
 interface LabelBatchPollData {
@@ -5236,145 +5236,50 @@ function BatchHistoryModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-// ─── Batch Gauge SVG ─────────────────────────────────────────────────────────
+// ─── Batch Progress Bar ──────────────────────────────────────────────────────
+// A live "equalizer" strip: one segment per order that flips green as its label
+// is created (red on failure, indigo-pulsing while running). For very large
+// batches it falls back to a single gradient fill bar.
 
-function BatchGauge({ completed, total, failed }: { completed: number; total: number; failed: number }) {
-  const pct = total > 0 ? Math.min((completed + failed) / total, 1) : 0
-  const size = 200
-  const cx = size / 2, cy = size / 2 + 10
-  const r = 78
-  const startAngle = 135               // bottom-left
-  const endAngle = 405                  // bottom-right (270° arc)
-  const arcSpan = endAngle - startAngle // 270
-  const toRad = (d: number) => (d * Math.PI) / 180
+function BatchProgressBar({ items, completed, failed, total }: { items: LabelBatchItemStatus[]; completed: number; failed: number; total: number }) {
+  const done = completed + failed
+  const isDone = done >= total && total > 0
+  const useSegments = total > 0 && total <= 120 && items.length === total
+  const completedPct = total > 0 ? (completed / total) * 100 : 0
+  const failedPct = total > 0 ? (failed / total) * 100 : 0
+  const fillGrad = isDone
+    ? failed > 0 ? 'from-amber-400 to-amber-500' : 'from-emerald-400 to-emerald-500'
+    : 'from-indigo-500 to-violet-500'
 
-  // Background arc
-  const bgStart = { x: cx + r * Math.cos(toRad(startAngle)), y: cy + r * Math.sin(toRad(startAngle)) }
-  const bgEnd = { x: cx + r * Math.cos(toRad(endAngle)), y: cy + r * Math.sin(toRad(endAngle)) }
-  const bgPath = `M ${bgStart.x} ${bgStart.y} A ${r} ${r} 0 1 1 ${bgEnd.x} ${bgEnd.y}`
-
-  // Progress arc
-  const progAngle = startAngle + arcSpan * pct
-  const progEnd = { x: cx + r * Math.cos(toRad(progAngle)), y: cy + r * Math.sin(toRad(progAngle)) }
-  const largeArc = pct * arcSpan > 180 ? 1 : 0
-  const progPath = pct > 0 ? `M ${bgStart.x} ${bgStart.y} A ${r} ${r} 0 ${largeArc} 1 ${progEnd.x} ${progEnd.y}` : ''
-
-  // Needle
-  const needleAngle = startAngle + arcSpan * pct
-  const needleLen = r - 16
-  const needleTip = { x: cx + needleLen * Math.cos(toRad(needleAngle)), y: cy + needleLen * Math.sin(toRad(needleAngle)) }
-
-  const isDone = completed + failed >= total && total > 0
-  const hasErrors = failed > 0
-  const progressColor = isDone ? (hasErrors ? '#f59e0b' : '#22c55e') : '#6366f1'
-
-  return (
-    <div className="flex flex-col items-center">
-      <svg width={size} height={size * 0.65} viewBox={`0 0 ${size} ${size * 0.65}`}>
-        {/* Background track */}
-        <path d={bgPath} fill="none" stroke="#e5e7eb" strokeWidth={12} strokeLinecap="round" />
-        {/* Progress arc */}
-        {progPath && (
-          <path d={progPath} fill="none" stroke={progressColor} strokeWidth={12} strokeLinecap="round"
-            style={{ transition: 'stroke-dashoffset 0.5s ease, stroke 0.3s ease' }} />
-        )}
-        {/* Tick marks */}
-        {Array.from({ length: 11 }).map((_, i) => {
-          const angle = startAngle + (arcSpan / 10) * i
-          const inner = r + 8
-          const outer = r + 14
-          return (
-            <line key={i}
-              x1={cx + inner * Math.cos(toRad(angle))} y1={cy + inner * Math.sin(toRad(angle))}
-              x2={cx + outer * Math.cos(toRad(angle))} y2={cy + outer * Math.sin(toRad(angle))}
-              stroke="#d1d5db" strokeWidth={1.5} strokeLinecap="round" />
-          )
-        })}
-        {/* Needle */}
-        <line x1={cx} y1={cy} x2={needleTip.x} y2={needleTip.y}
-          stroke="#1f2937" strokeWidth={2.5} strokeLinecap="round"
-          style={{ transition: 'x2 0.5s ease, y2 0.5s ease' }} />
-        {/* Center cap */}
-        <circle cx={cx} cy={cy} r={5} fill="#374151" />
-      </svg>
-      <div className="text-center -mt-1">
-        <span className="text-3xl font-bold tabular-nums" style={{ color: progressColor }}>
-          {completed + failed}
-        </span>
-        <span className="text-lg text-gray-400 font-medium"> / {total}</span>
+  if (useSegments) {
+    return (
+      <div className="flex items-stretch gap-[2px] h-2.5">
+        {items.map(it => (
+          <div key={it.id} title={it.order.olmNumber ? `OLM-${it.order.olmNumber}` : it.order.amazonOrderId}
+            className={clsx('flex-1 rounded-[2px] transition-colors duration-300',
+              it.status === 'COMPLETED' ? 'bg-emerald-500'
+              : it.status === 'FAILED' ? 'bg-red-500'
+              : it.status === 'RUNNING' ? 'bg-indigo-500 animate-pulse'
+              : 'bg-gray-200 dark:bg-gray-700')} />
+        ))}
       </div>
-      <p className="text-xs text-gray-500 mt-0.5">
-        {isDone
-          ? hasErrors ? `Done — ${failed} failed` : 'All labels created'
-          : 'Labels processed'}
-      </p>
+    )
+  }
+  return (
+    <div className="relative h-2.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+      <div className={clsx('absolute inset-y-0 left-0 bg-gradient-to-r rounded-full transition-all duration-500', fillGrad, !isDone && 'animate-pulse')} style={{ width: `${completedPct}%` }} />
+      {failed > 0 && <div className="absolute inset-y-0 bg-red-500/80" style={{ left: `${completedPct}%`, width: `${failedPct}%` }} />}
     </div>
   )
 }
 
-// ─── BatchItemGrid ───────────────────────────────────────────────────────────
+// ─── Batch item status config ────────────────────────────────────────────────
 
 const ITEM_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon?: 'spin' | 'check' | 'x' }> = {
   PENDING:   { label: 'Queued',     bg: 'bg-gray-50',   text: 'text-gray-500' },
   RUNNING:   { label: 'Processing', bg: 'bg-blue-50',   text: 'text-blue-700', icon: 'spin' },
   COMPLETED: { label: 'Success',    bg: 'bg-green-50',  text: 'text-green-700', icon: 'check' },
   FAILED:    { label: 'Error',      bg: 'bg-red-50',    text: 'text-red-700', icon: 'x' },
-}
-
-function BatchItemGrid({ items }: { items: LabelBatchItemStatus[] }) {
-  return (
-    <div className="border rounded-lg overflow-hidden flex-1 min-h-0">
-      <div className="overflow-y-auto max-h-[40vh]">
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-gray-100 text-gray-500">
-              <th className="text-left px-3 py-1.5 font-semibold w-8">#</th>
-              <th className="text-left px-3 py-1.5 font-semibold">Order</th>
-              <th className="text-left px-3 py-1.5 font-semibold">Ship To</th>
-              <th className="text-left px-3 py-1.5 font-semibold">Service</th>
-              <th className="text-center px-3 py-1.5 font-semibold">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {items.map((item, idx) => {
-              const cfg = ITEM_STATUS_CONFIG[item.status] ?? ITEM_STATUS_CONFIG.PENDING
-              return (
-                <tr key={item.id} className={clsx(cfg.bg, item.status === 'RUNNING' && 'animate-pulse')}>
-                  <td className="px-3 py-1.5 tabular-nums text-gray-400 font-mono">{idx + 1}</td>
-                  <td className="px-3 py-1.5">
-                    <span className="font-medium text-gray-800">
-                      {item.order.olmNumber ? `OLM-${item.order.olmNumber}` : item.order.amazonOrderId}
-                    </span>
-                  </td>
-                  <td className="px-3 py-1.5 text-gray-600 truncate max-w-[120px]" title={item.order.shipToName ?? ''}>
-                    {item.order.shipToName ?? '—'}
-                  </td>
-                  <td className="px-3 py-1.5 text-gray-600 truncate max-w-[120px]" title={item.order.presetRateService ?? ''}>
-                    {item.order.presetRateService ?? '—'}
-                  </td>
-                  <td className="px-3 py-1.5 text-center">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className={clsx('inline-flex items-center gap-1 text-[10px] font-semibold', cfg.text)}>
-                        {cfg.icon === 'spin' && <RefreshCcw size={9} className="animate-spin" />}
-                        {cfg.icon === 'check' && <CheckCircle2 size={9} />}
-                        {cfg.icon === 'x' && <XCircle size={9} />}
-                        {cfg.label}
-                      </span>
-                      {item.status === 'FAILED' && item.error && (
-                        <span className="text-[9px] text-red-500 leading-tight max-w-[160px] text-center" title={item.error}>
-                          {item.error}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
 }
 
 // ─── LabelBatchModal ─────────────────────────────────────────────────────────
@@ -5396,7 +5301,7 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
   const [createErr, setCreateErr] = useState<string | null>(null)
   const [batchId, setBatchId] = useState<string | null>(existingBatchId ?? null)
   const [pollData, setPollData] = useState<LabelBatchPollData | null>(null)
-  const [showFailed, setShowFailed] = useState(false)
+  const [expanded, setExpanded] = useState(false)   // docked-bar detail view
 
   // Build shipping method breakdown from eligible orders
   const methodBreakdown = useMemo(() => {
@@ -5491,29 +5396,23 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
   const completed = pollData?.completed ?? 0
   const failed = pollData?.failed ?? 0
   const total = pollData?.totalOrders ?? batchEligible.length
-  const failedItems = pollData?.items.filter(i => i.status === 'FAILED') ?? []
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b bg-gray-50">
-          <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
-            <Tag size={14} className="text-indigo-600" />
-            {phase === 'confirm' ? 'Create Label Batch' : phase === 'processing' ? 'Purchasing Labels…' : 'Batch Complete'}
-          </h3>
-          {phase !== 'processing' && (
+  // ── Confirm phase — a centered modal (a deliberate pre-flight decision). ──────
+  if (phase === 'confirm') {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b bg-gray-50">
+            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+              <Tag size={14} className="text-indigo-600" /> Create Label Batch
+            </h3>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
-          )}
-        </div>
+          </div>
 
-        {/* ── Confirm Phase ─────────────────────────────────────── */}
-        {phase === 'confirm' && (
           <div className="px-5 py-4 space-y-4">
             <p className="text-sm text-gray-700">
               Purchase labels for{' '}
               <strong className="text-indigo-700">{batchEligible.length} order{batchEligible.length !== 1 ? 's' : ''}</strong>.
-              The batch will process on the server — you can close the modal at any time.
+              The batch will process on the server — it shows as a bar you can dismiss any time.
             </p>
 
             {skippedCount > 0 && (
@@ -5523,7 +5422,6 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
               </div>
             )}
 
-            {/* Shipping method breakdown */}
             <div>
               <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">Shipping Method Breakdown</h4>
               <div className="border rounded-lg overflow-hidden">
@@ -5557,8 +5455,6 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
               </div>
             </div>
 
-            {/* Test label option removed */}
-
             {createErr && (
               <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
                 <AlertCircle size={12} className="shrink-0 mt-0.5" />
@@ -5567,42 +5463,87 @@ function LabelBatchModal({ orders, batchEligible, skippedCount, existingBatchId,
             )}
 
             <div className="flex justify-end gap-2 pt-1">
-              <button onClick={onClose}
-                className="px-3.5 py-2 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
-                Cancel
-              </button>
-              <button onClick={handleConfirm}
-                className="px-3.5 py-2 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium flex items-center gap-1.5">
+              <button onClick={onClose} className="px-3.5 py-2 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+              <button onClick={handleConfirm} className="px-3.5 py-2 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium flex items-center gap-1.5">
                 <Tag size={11} /> Confirm &amp; Purchase
               </button>
             </div>
           </div>
-        )}
+        </div>
+      </div>
+    )
+  }
 
-        {/* ── Processing Phase ──────────────────────────────────── */}
-        {phase === 'processing' && (
-          <div className="px-5 py-4 flex flex-col min-h-0">
-            <BatchGauge completed={completed} total={total} failed={failed} />
-            <p className="text-center text-xs text-gray-400 mt-2 mb-3">
-              {pollData?.isTest && <span className="bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded font-semibold mr-1">TEST</span>}
-              Processing on the server… you can close this modal safely.
-            </p>
-            {pollData && <BatchItemGrid items={pollData.items} />}
-          </div>
-        )}
-
-        {/* ── Done Phase ────────────────────────────────────────── */}
-        {phase === 'done' && (
-          <div className="px-5 py-4 flex flex-col min-h-0 gap-3">
-            <BatchGauge completed={completed} total={total} failed={failed} />
-            {pollData && <BatchItemGrid items={pollData.items} />}
-
-            <div className="flex items-center justify-end pt-1">
-              <button onClick={onClose}
-                className="px-3.5 py-2 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
-                Close
-              </button>
+  // ── Processing / Done — a compact docked bar (click to expand detail). ────────
+  const pct = total > 0 ? Math.round(((completed + failed) / total) * 100) : 0
+  const isDone = phase === 'done'
+  return (
+    <div className="fixed bottom-4 right-4 z-50 w-[min(94vw,460px)]">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-2xl overflow-hidden">
+        <div className="flex items-start gap-2 px-4 py-3">
+          <button onClick={() => setExpanded(e => !e)} className="flex-1 min-w-0 text-left">
+            <div className="flex items-center gap-2">
+              {isDone
+                ? (failed > 0 ? <AlertTriangle size={15} className="text-amber-500 shrink-0" /> : <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />)
+                : <Loader2 size={15} className="text-indigo-500 animate-spin shrink-0" />}
+              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                {isDone ? (failed > 0 ? 'Batch complete — errors' : 'Batch complete') : 'Purchasing labels…'}
+              </span>
+              {pollData?.isTest && <span className="bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded text-[9px] font-semibold">TEST</span>}
+              <span className="ml-auto text-xs font-semibold tabular-nums text-gray-500 shrink-0">{completed + failed}/{total} · {pct}%</span>
+              {expanded ? <ChevronDown size={15} className="text-gray-400 shrink-0" /> : <ChevronUp size={15} className="text-gray-400 shrink-0" />}
             </div>
+            <div className="mt-2"><BatchProgressBar items={pollData?.items ?? []} completed={completed} failed={failed} total={total} /></div>
+            <div className="mt-1.5 flex items-center gap-3 text-[11px]">
+              <span className="text-emerald-600 font-medium">{completed} done</span>
+              {failed > 0 && <span className="text-red-600 font-medium">{failed} failed</span>}
+              {!isDone && <span className="text-gray-400">runs on the server — click for detail</span>}
+            </div>
+          </button>
+          <button onClick={onClose} title={isDone ? 'Close' : 'Dismiss (batch keeps running)'} className="text-gray-400 hover:text-gray-600 shrink-0"><X size={15} /></button>
+        </div>
+
+        {expanded && pollData && (
+          <div className="border-t border-gray-100 dark:border-gray-800 max-h-[46vh] overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 text-gray-500">
+                <tr>
+                  <th className="text-left px-3 py-1.5 font-semibold">Order</th>
+                  <th className="text-left px-3 py-1.5 font-semibold">Ship To</th>
+                  <th className="text-left px-3 py-1.5 font-semibold">Service</th>
+                  <th className="text-left px-3 py-1.5 font-semibold">Tracking</th>
+                  <th className="text-center px-3 py-1.5 font-semibold">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {pollData.items.map(item => {
+                  const cfg = ITEM_STATUS_CONFIG[item.status] ?? ITEM_STATUS_CONFIG.PENDING
+                  return (
+                    <tr key={item.id} className={clsx(item.status === 'RUNNING' && 'bg-blue-50/50 dark:bg-blue-900/10')}>
+                      <td className="px-3 py-1.5 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">{item.order.olmNumber ? `OLM-${item.order.olmNumber}` : item.order.amazonOrderId}</td>
+                      <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300">
+                        <div className="truncate max-w-[130px]" title={item.order.shipToName ?? ''}>{item.order.shipToName ?? '—'}</div>
+                        {(item.order.shipToCity || item.order.shipToState) && <div className="text-[10px] text-gray-400">{[item.order.shipToCity, item.order.shipToState].filter(Boolean).join(', ')}</div>}
+                      </td>
+                      <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300">
+                        <div className="truncate max-w-[120px]" title={item.order.presetRateService ?? ''}>{item.order.presetRateService ?? '—'}</div>
+                        {item.order.presetRateCarrier && <div className="text-[10px] text-gray-400">{item.order.presetRateCarrier}</div>}
+                      </td>
+                      <td className="px-3 py-1.5 font-mono text-[11px] text-gray-700 dark:text-gray-300">{item.order.trackingNumber ?? (item.status === 'FAILED' ? '—' : '…')}</td>
+                      <td className="px-3 py-1.5 text-center">
+                        <span className={clsx('inline-flex items-center gap-1 text-[10px] font-semibold', cfg.text)}>
+                          {cfg.icon === 'spin' && <RefreshCcw size={9} className="animate-spin" />}
+                          {cfg.icon === 'check' && <CheckCircle2 size={9} />}
+                          {cfg.icon === 'x' && <XCircle size={9} />}
+                          {cfg.label}
+                        </span>
+                        {item.status === 'FAILED' && item.error && <div className="text-[9px] text-red-500 leading-tight max-w-[140px] truncate" title={item.error}>{item.error}</div>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
