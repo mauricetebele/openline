@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { AlertCircle, X, Package, Hash, Clock, ShoppingCart, Search, ArrowRightLeft, Tag, Printer, LockOpen } from 'lucide-react'
+import { AlertCircle, X, Package, Hash, Clock, ShoppingCart, Search, ArrowRightLeft, Tag, Printer, Unlock } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
 import GradeBadge from '@/components/GradeBadge'
 import { jsPDF } from 'jspdf'
@@ -332,7 +332,7 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                   <div className="pl-0.5">
                     <span className="inline-flex items-center gap-1.5 bg-violet-50 text-violet-700 border border-violet-200 text-sm px-2.5 py-1 rounded-lg"
                       title="Device unlock code / passcode">
-                      <LockOpen size={12} className="text-violet-500" />
+                      <Unlock size={12} className="text-violet-500" />
                       <span className="font-semibold">Unlock Code:</span>
                       <span className="font-mono font-semibold">{result.unlockCode}</span>
                     </span>
