@@ -30,6 +30,7 @@ interface SerialResult {
   cost: number | null
   grade: string | null
   note: string | null
+  unlockCode: string | null
   vrma: string | null
 }
 
@@ -64,8 +65,8 @@ function parseSNs(raw: string) {
     .filter((s, i, arr) => arr.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
 }
 
-function exportCSV(found: SerialResult[], notFound: string[]) {
-  const headers = ['Serial #', 'Status', 'SKU', 'Grade', 'Description', 'Vendor', 'Last Event Type', 'Date of Last Event', 'Last Movement', 'Date of Last Movement', 'Current Location', 'Bin', 'PO #', 'VRMA', 'Cost', 'Note']
+function exportCSV(found: SerialResult[], notFound: string[], showUnlockCode = false) {
+  const headers = ['Serial #', 'Status', 'SKU', 'Grade', 'Description', 'Vendor', 'Last Event Type', 'Date of Last Event', 'Last Movement', 'Date of Last Movement', 'Current Location', 'Bin', ...(showUnlockCode ? ['Unlock Code'] : []), 'PO #', 'VRMA', 'Cost', 'Note']
   const rows = found.map(r => [
     r.serialNumber,
     r.status.replace('_', ' '),
@@ -79,12 +80,13 @@ function exportCSV(found: SerialResult[], notFound: string[]) {
     fmtDate(r.lastMovementDate),
     r.location ?? '',
     r.binLocation ?? '',
+    ...(showUnlockCode ? [r.unlockCode ?? ''] : []),
     r.poNumber ?? '',
     r.vrma ?? '',
     r.cost != null ? r.cost.toFixed(2) : '',
     r.note ?? '',
   ])
-  notFound.forEach(sn => rows.push([sn, 'NOT FOUND', '', '', '', '', '', '', '', '', '', '', '', '', '', '']))
+  notFound.forEach(sn => rows.push([sn, 'NOT FOUND', ...Array(headers.length - 2).fill('')]))
 
   const csv = [headers, ...rows]
     .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -179,6 +181,19 @@ export default function SerialSearchManager() {
   // Sort state
   const [sortCol, setSortCol] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  // Optional "Unlock Code" column — off by default, choice remembered per browser.
+  const [showUnlockCode, setShowUnlockCode] = useState(false)
+  useEffect(() => {
+    try { setShowUnlockCode(localStorage.getItem('serialSearch_showUnlockCode') === '1') } catch { /* ignore */ }
+  }, [])
+  function toggleUnlockCol() {
+    setShowUnlockCode(v => {
+      const nv = !v
+      try { localStorage.setItem('serialSearch_showUnlockCode', nv ? '1' : '0') } catch { /* ignore */ }
+      return nv
+    })
+  }
 
   const count = parseSNs(input).length
   const allSelected = found.length > 0 && found.every(r => selectedIds.has(r.id))
@@ -495,6 +510,7 @@ export default function SerialSearchManager() {
     if (sortCol === 'lastMovementDate') { av = a.lastMovementDate; bv = b.lastMovementDate }
     if (sortCol === 'location')        { av = a.location;        bv = b.location }
     if (sortCol === 'binLocation')    { av = a.binLocation;    bv = b.binLocation }
+    if (sortCol === 'unlockCode')     { av = a.unlockCode;     bv = b.unlockCode }
     if (sortCol === 'poNumber')       { av = a.poNumber;       bv = b.poNumber }
     if (sortCol === 'cost')           { av = a.cost ?? -Infinity; bv = b.cost ?? -Infinity }
     if (sortCol === 'note')           { av = a.note;           bv = b.note }
@@ -681,12 +697,23 @@ export default function SerialSearchManager() {
                 )}
               </div>
               {hasResults && (
-                <button
-                  onClick={() => exportCSV(sortedFound, notFound)}
-                  className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50"
-                >
-                  <Download size={13} /> Export CSV
-                </button>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none" title="Show the Unlock Code column">
+                    <input
+                      type="checkbox"
+                      checked={showUnlockCode}
+                      onChange={toggleUnlockCol}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    Unlock Code
+                  </label>
+                  <button
+                    onClick={() => exportCSV(sortedFound, notFound, showUnlockCode)}
+                    className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50"
+                  >
+                    <Download size={13} /> Export CSV
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -998,6 +1025,7 @@ export default function SerialSearchManager() {
                       ['lastMovementDate', 'Movement Date'],
                       ['location',         'Location'],
                       ['binLocation',   'Bin'],
+                      ...(showUnlockCode ? [['unlockCode', 'Unlock Code'] as [string, string]] : []),
                       ['poNumber',      'PO #'],
                       ['vrma',          'VRMA'],
                       ['cost',          'Cost'],
@@ -1060,6 +1088,9 @@ export default function SerialSearchManager() {
                       <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(r.lastMovementDate)}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{r.location ?? <span className="text-gray-300">—</span>}</td>
                       <td className="px-3 py-2.5 text-xs font-mono text-gray-500 whitespace-nowrap">{r.binLocation ?? <span className="text-gray-300">—</span>}</td>
+                      {showUnlockCode && (
+                        <td className="px-3 py-2.5 text-xs font-mono text-gray-700 whitespace-nowrap">{r.unlockCode ?? <span className="text-gray-300">—</span>}</td>
+                      )}
                       <td className="px-3 py-2.5 text-xs font-mono text-gray-600 whitespace-nowrap">{r.poNumber ?? <span className="text-gray-300">—</span>}</td>
                       <td className="px-3 py-2.5 text-xs font-mono text-gray-600 whitespace-nowrap">{r.vrma ? <span className="font-semibold text-orange-600">{r.vrma}</span> : <span className="text-gray-300">—</span>}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">

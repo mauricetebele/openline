@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { AlertCircle, X, Package, Hash, Clock, ShoppingCart, Search, ArrowRightLeft, Tag, Printer } from 'lucide-react'
+import { AlertCircle, X, Package, Hash, Clock, ShoppingCart, Search, ArrowRightLeft, Tag, Printer, KeyRound } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
 import GradeBadge from '@/components/GradeBadge'
 import { jsPDF } from 'jspdf'
@@ -28,6 +28,7 @@ interface LookupSerial {
   status:       string
   binLocation:  string | null
   unitCost:     number | null
+  unlockCode:   string | null
   product:      { description: string; sku: string }
   grade:        { id: string; grade: string } | null
   location:     { name: string; warehouse: { name: string } }
@@ -327,6 +328,15 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                 <p className="text-xs text-gray-500 pl-0.5">
                   Bin: <span className="font-mono font-medium text-gray-700">{result.binLocation ?? '—'}</span>
                 </p>
+                {result.unlockCode && (
+                  <div className="pl-0.5">
+                    <span className="inline-flex items-center gap-1.5 bg-violet-50 text-violet-700 border border-violet-200 font-mono font-semibold text-sm px-2.5 py-1 rounded-lg"
+                      title="Device unlock code / passcode">
+                      <KeyRound size={12} className="text-violet-500" />
+                      {result.unlockCode}
+                    </span>
+                  </div>
+                )}
                 <div className="pl-0.5 pt-1">
                   <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono font-semibold text-sm px-2.5 py-1 rounded-lg"
                     title="Unit cost of this serial">

@@ -10,7 +10,7 @@ import {
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone, BatteryCharging,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
   Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain, AlertCircle, Mail,
-  Sparkles, Receipt, Ban, Wrench,
+  Sparkles, Receipt, Ban, Wrench, KeyRound,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { clsx } from 'clsx'
@@ -140,6 +140,7 @@ const NAV: NavItem[] = [
       { href: '/sickw',             label: 'SICKW',              icon: Smartphone },
       { href: '/battery-health',     label: 'Battery Health Upload', icon: BatteryCharging },
       { href: '/bh-sort',           label: 'BH Sorting Tool',    icon: BatteryCharging },
+      { href: '/unlock-codes',       label: 'Unlock Codes',       icon: KeyRound },
       { href: '/audit',              label: 'Audit Log',          icon: ClipboardList },
     ],
   },

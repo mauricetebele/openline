@@ -180,6 +180,7 @@ export async function GET(req: NextRequest) {
       grade:         r.grade?.grade ?? null,
       note:          r.note ?? null,
       binLocation:   r.binLocation ?? null,
+      unlockCode:    r.unlockCode ?? null,
       vrma:          getActiveVrma(r.serialNumber, r.history),
     }
   })

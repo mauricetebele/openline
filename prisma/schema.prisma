@@ -1455,6 +1455,9 @@ model InventorySerial {
   unitCost      Decimal?       @db.Decimal(12, 2)
   // Optional battery health %, uploaded per serial (only for in-stock units).
   batteryHealthPct Float?
+  // Optional device unlock code / passcode, uploaded per serial. Shown on the
+  // Serial # Lookup modal and available as an optional Serial Search column.
+  unlockCode    String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
