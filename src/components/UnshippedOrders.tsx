@@ -117,6 +117,8 @@ interface Order {
   weightDimsText?: string | null
   weightDimsRequestedAt?: string | null
   weightDimsEnteredAt?: string | null
+  pleaseSerialize?: boolean
+  pleaseSerializeAt?: string | null
 }
 
 // BackMarket "mystery"/quality-control orders ship to their audit facility at
@@ -5725,6 +5727,7 @@ export default function UnshippedOrders() {
   const [bulkCancelResult, setBulkCancelResult]   = useState<{ cancelled: number; total: number; errors: string[] } | null>(null)
   const [requestingWeightDims, setRequestingWeightDims] = useState(false)
   const [savingWeightDimsId, setSavingWeightDimsId]     = useState<string | null>(null)
+  const [requestingSerialize, setRequestingSerialize]   = useState(false)
   const [reinstatingId, setReinstatingId]         = useState<string | null>(null)
   const [voidingId, setVoidingId]                 = useState<string | null>(null)
   const [voidSuccessMsg, setVoidSuccessMsg]       = useState<string | null>(null)
@@ -6431,6 +6434,34 @@ export default function UnshippedOrders() {
     setOrders(prev => prev.map(o => o.id === order.id ? { ...o, weightDimsRequested: false } : o))
     try {
       await apiPost('/api/orders/weight-dims-request', { orderIds: [order.id], requested: false })
+    } catch { setFetchKey(k => k + 1) }
+  }
+
+  // Flag the selected UNSHIPPED orders so the warehouse knows to serialize them.
+  async function requestPleaseSerialize() {
+    const ids = Array.from(selectedOrderIds).filter(id => {
+      const o = orders.find(x => x.id === id)
+      return o && o.workflowStatus !== 'SHIPPED' && o.workflowStatus !== 'CANCELLED'
+    })
+    if (ids.length === 0) return
+    setRequestingSerialize(true)
+    try {
+      await apiPost('/api/orders/please-serialize', { orderIds: ids, requested: true })
+      const now = new Date().toISOString()
+      setOrders(prev => prev.map(o => ids.includes(o.id) ? { ...o, pleaseSerialize: true, pleaseSerializeAt: now } : o))
+      setSelectedOrderIds(new Set())
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to mark please serialize')
+    } finally {
+      setRequestingSerialize(false)
+    }
+  }
+
+  // Clear the please-serialize request on a single order.
+  async function clearPleaseSerialize(order: Order) {
+    setOrders(prev => prev.map(o => o.id === order.id ? { ...o, pleaseSerialize: false } : o))
+    try {
+      await apiPost('/api/orders/please-serialize', { orderIds: [order.id], requested: false })
     } catch { setFetchKey(k => k + 1) }
   }
 
@@ -7624,6 +7655,23 @@ export default function UnshippedOrders() {
             </button>
           )}
 
+          {/* Please serialize — tell the warehouse to serialize these unshipped orders */}
+          {(activeTab === 'pending' || activeTab === 'unshipped') && selectedOrderIds.size > 0 && (
+            <button
+              onClick={requestPleaseSerialize}
+              disabled={requestingSerialize}
+              title="Flag the selected orders so the warehouse knows to serialize them"
+              className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
+                requestingSerialize
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-violet-600 text-white hover:bg-violet-700')}
+            >
+              {requestingSerialize
+                ? <><RefreshCcw size={11} className="animate-spin" /> Marking…</>
+                : <><ScanLine size={11} /> Please Serialize ({selectedOrderIds.size})</>}
+            </button>
+          )}
+
           {/* Batch history */}
           <button
             onClick={() => setShowBatchHistory(true)}
@@ -7880,6 +7928,10 @@ export default function UnshippedOrders() {
               const wdProcessed = order.workflowStatus !== 'PENDING'
               const wantsWeightDims = !!order.weightDimsRequested && !order.weightDimsEnteredAt && !wdProcessed
               const hasWeightDims = !!order.weightDimsRequested && !!order.weightDimsEnteredAt && !wdProcessed
+              // "Please serialize" stays highlighted the whole time the order is
+              // unshipped, so the warehouse can't miss it.
+              const needsSerialize = !!order.pleaseSerialize
+                && order.workflowStatus !== 'SHIPPED' && order.workflowStatus !== 'CANCELLED'
               return (
                 <tr key={order.id} className={clsx(
                   'border-b border-slate-100 dark:border-gray-800 last:border-0 transition-colors align-middle',
@@ -7887,6 +7939,8 @@ export default function UnshippedOrders() {
                     ? 'bg-fuchsia-50 hover:bg-fuchsia-100/70 dark:bg-fuchsia-900/30 dark:hover:bg-fuchsia-900/50 ring-2 ring-inset ring-fuchsia-500'
                     : hasCancelRequest
                     ? 'bg-amber-50 hover:bg-amber-100/60 dark:bg-amber-900/30 dark:hover:bg-amber-900/50'
+                    : needsSerialize
+                      ? 'bg-violet-100 hover:bg-violet-200/70 dark:bg-violet-900/30 dark:hover:bg-violet-900/50 ring-2 ring-inset ring-violet-500'
                     : wantsWeightDims
                       ? 'bg-yellow-100 hover:bg-yellow-200/70 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50 ring-1 ring-inset ring-yellow-400'
                     : hasWeightDims
@@ -7999,6 +8053,14 @@ export default function UnshippedOrders() {
                                 <Scale size={8} /> ENTER WEIGHT &amp; DIMS
                               </span>
                             )
+                          )}
+                          {needsSerialize && (
+                            <span title="Order processor flagged this order — warehouse: please serialize it" className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-violet-600 text-white px-1 py-px rounded animate-pulse whitespace-nowrap">
+                              <ScanLine size={8} /> PLEASE SERIALIZE
+                              <button onClick={e => { e.stopPropagation(); clearPleaseSerialize(order) }} title="Clear please-serialize request" className="ml-0.5 hover:text-violet-200">
+                                <X size={8} />
+                              </button>
+                            </span>
                           )}
                         </div>
                         <a

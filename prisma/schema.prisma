@@ -612,6 +612,10 @@ model Order {
   weightDimsText            String?                     @db.Text
   weightDimsRequestedAt     DateTime?
   weightDimsEnteredAt       DateTime?
+  // "Please serialize" request: the order processor flags an unshipped order so
+  // warehouse staff know to serialize it. Highlights the row on the fulfillment grid.
+  pleaseSerialize           Boolean                     @default(false)
+  pleaseSerializeAt         DateTime?
   marketplaceRMAs           MarketplaceRMA[]
 
   @@unique([accountId, amazonOrderId, orderSource])
@@ -1036,7 +1040,7 @@ model Product {
   @@map("products")
 }
 
-// ─── Product Families ───────────────────────────────
+// ─── Product Families ────────────────────────────────────────────────────────
 // Groups SKUs that are the same product in different configurations (RAM,
 // storage, color, GPU…) so their pricing can be managed together.
 model ProductFamily {
@@ -2840,6 +2844,58 @@ model LegacyRMASerial {
   @@index([itemId])
   @@index([inventorySerialId])
   @@map("legacy_rma_serials")
+}
+
+/// A diagnostic scan of a USB-connected Apple device (iPhone/iPad), captured by
+/// the local Windows agent (libimobiledevice) and enriched server-side. Raw
+/// payloads are stored so enrichment (marketing name, region, battery formula)
+/// can be reprocessed without re-scanning the device.
+model DeviceDiagnostic {
+  id          String  @id @default(cuid())
+  udid        String? // device UDID reported by the agent
+  deviceClass String? // 'iPhone' | 'iPad' (from lockdown DeviceClass)
+
+  // Identity
+  serialNumber String?
+  imei         String? // absent on WiFi-only iPads
+  imei2        String? // dual-SIM
+  meid         String?
+
+  // Model
+  productType   String? // e.g. iPhone14,5 / iPad13,4
+  marketingName String? // e.g. "iPhone 13" / "iPad Pro 11-inch (3rd gen)"
+  modelNumber   String? // e.g. MLPK3LL/A
+  regionCode    String? // e.g. LL/A
+  regionName    String? // e.g. "United States"
+  iosVersion    String? // ProductVersion
+
+  // Battery (from AppleSmartBattery ioregentry)
+  batteryHealthPct      Float? // NominalChargeCapacity / DesignCapacity * 100
+  batteryCycleCount     Int?
+  batteryDesignCapacity Int? // mAh
+  batteryFullCapacity   Int? // mAh (nominal/raw max)
+  batteryCurrentCharge  Int? // 0-100 charge level at scan time
+
+  // Status / future
+  activationState String? // e.g. Activated (basis for Find My follow-up)
+
+  // Raw captures for reprocessing / audit
+  rawLockdown Json?
+  rawBattery  Json?
+
+  agentVersion    String?
+  scannedByUserId String? // User.id (kept as scalar; no back-relation needed)
+
+  // Optional link to inventory for a later integration phase
+  inventorySerialId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([serialNumber])
+  @@index([imei])
+  @@index([udid])
+  @@index([createdAt])
+  @@map("device_diagnostics")
 }
 
 // ─── Email (Gmail) accounts ──────────────────────────────────────────────────
