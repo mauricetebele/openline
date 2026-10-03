@@ -79,5 +79,35 @@ export async function GET(
     cost: c.cost != null ? Number(c.cost) : null, // Decimal → number over JSON
   }))
 
-  return NextResponse.json({ data: { ...order, sickwChecks } })
+  // Amazon-native return authorization + replacement + issued-refund data. These
+  // models have no FK to Order — they're keyed by the Amazon order ID string.
+  const [mfnReturnsRaw, freeReplacements, refundsIssuedRaw] = order.orderSource === 'amazon'
+    ? await Promise.all([
+        prisma.mFNReturn.findMany({
+          where: { orderId: order.amazonOrderId, accountId: order.accountId },
+          orderBy: { returnDate: 'desc' },
+        }),
+        prisma.freeReplacement.findMany({
+          where: { originalOrderId: order.amazonOrderId },
+          orderBy: { createdAt: 'desc' },
+        }),
+        prisma.amazonRefundIssued.findMany({
+          where: { orderId: order.id },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ])
+    : [[], [], []]
+
+  const decimal = (d: unknown) => (d == null ? null : Number(d))
+  const mfnReturns = mfnReturnsRaw.map((r) => ({
+    ...r,
+    returnValue: decimal(r.returnValue),
+    labelCost: decimal(r.labelCost),
+    orderAmount: decimal(r.orderAmount),
+    refundedAmount: decimal(r.refundedAmount),
+    safetReimbursement: decimal(r.safetReimbursement),
+  }))
+  const refundsIssued = refundsIssuedRaw.map((r) => ({ ...r, amount: Number(r.amount) }))
+
+  return NextResponse.json({ data: { ...order, sickwChecks, mfnReturns, freeReplacements, refundsIssued } })
 }

@@ -1306,6 +1306,30 @@ model MFNReturn {
   @@map("mfn_returns")
 }
 
+// A refund issued to Amazon via the Feeds OrderAdjustment
+// (POST_PAYMENT_ADJUSTMENT_DATA) feed. One row per submission — the audit trail,
+// and the guard that blocks accidental double-refunds on the same order.
+model AmazonRefundIssued {
+  id            String   @id @default(cuid())
+  accountId     String
+  orderId       String   // internal Order.id
+  amazonOrderId String
+  amount        Decimal  @db.Decimal(12, 2)
+  currency      String   @default("USD")
+  reason        String
+  feedId        String?
+  feedStatus    String?  // IN_QUEUE | IN_PROGRESS | DONE | FATAL | CANCELLED
+  feedResult    String?  @db.Text
+  issuedById    String?
+  issuedByEmail String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([amazonOrderId])
+  @@index([orderId])
+  @@map("amazon_refunds_issued")
+}
+
 model MFNReturnSyncJob {
   id            String              @id @default(cuid())
   accountId     String

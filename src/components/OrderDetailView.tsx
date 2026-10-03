@@ -69,6 +69,24 @@ interface SickwCheck {
   id: string; imei: string; serviceName: string; status: string
   result: string | null; cost: number | null; source: string | null; createdAt: string
 }
+interface MfnReturn {
+  id: string; rmaId: string | null; merchantRmaId: string | null
+  returnReason: string | null; returnStatus: string | null; resolution: string | null
+  returnDate: string | null; returnDeliveryDate: string | null
+  trackingNumber: string | null; returnCarrier: string | null
+  carrierStatus: string | null; deliveredAt: string | null; estimatedDelivery: string | null
+  refundedAmount: number | null; sku: string | null; title: string | null; quantity: number | null
+  fmiStatus: string | null
+}
+interface FreeReplacement {
+  id: string; replacementOrderId: string; originalOrderId: string
+  title: string | null; asin: string | null; shippedAt: string | null
+  returnTrackingNumber: string | null; returnCarrierStatus: string | null
+}
+interface RefundIssued {
+  id: string; amount: number; currency: string; reason: string
+  feedId: string | null; feedStatus: string | null; issuedByEmail: string | null; createdAt: string
+}
 interface FullOrder {
   id: string; olmNumber: number | null; amazonOrderId: string; orderSource: string
   orderStatus: string; workflowStatus: string; purchaseDate: string; lastUpdateDate: string
@@ -79,6 +97,7 @@ interface FullOrder {
   shipToCountry: string | null; shipToPhone: string | null
   items: OrderItem[]; label: Label | null; serialAssignments: SerialAssignment[]
   marketplaceRMAs: RMA[]; sickwChecks: SickwCheck[]
+  mfnReturns?: MfnReturn[]; freeReplacements?: FreeReplacement[]; refundsIssued?: RefundIssued[]
   customerPo?: string | null; shippedAt?: string | null; shipCarrier?: string | null; shipTracking?: string | null
 }
 
@@ -112,6 +131,103 @@ function fmt(amount: string | null | undefined): string {
   if (!amount) return '$0.00'
   const n = parseFloat(amount)
   return isNaN(n) ? '$0.00' : `$${n.toFixed(2)}`
+}
+
+function fmtD(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+// ─── Amazon refund confirmation modal ───────────────────────────────────────
+function AmazonRefundModal({ order, suggestedAmount, onClose, onDone }: {
+  order: FullOrder; suggestedAmount: number; onClose: () => void; onDone: () => void
+}) {
+  const [mode, setMode] = useState<'full' | 'custom'>('full')
+  const [customAmount, setCustomAmount] = useState(suggestedAmount.toFixed(2))
+  const [reason, setReason] = useState<'CustomerReturn' | 'GeneralAdjustment' | 'CouldNotShip'>('CustomerReturn')
+  const [submitting, setSubmitting] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [conflict, setConflict] = useState(false)
+  const amount = mode === 'full' ? suggestedAmount : (parseFloat(customAmount) || 0)
+
+  async function submit(force = false) {
+    setSubmitting(true); setErr(null)
+    try {
+      const res = await fetch(`/api/orders/${order.id}/refund`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode, customAmount: mode === 'custom' ? parseFloat(customAmount) : undefined, reason, force }),
+      })
+      const data = await res.json()
+      if (res.status === 409 && data.alreadyIssued) { setConflict(true); setErr(data.error); return }
+      if (!res.ok) throw new Error(data.error ?? 'Refund failed')
+      onDone()
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Refund failed') }
+    finally { setSubmitting(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-white/10 flex items-center gap-2">
+          <RotateCcw size={15} className="text-red-600" />
+          <h3 className="text-sm font-bold text-gray-900 dark:text-white">Refund on Amazon</h3>
+          <span className="ml-auto text-xs font-mono text-gray-400">{order.amazonOrderId}</span>
+        </div>
+        <div className="px-4 py-3 space-y-3">
+          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700/40 text-xs text-red-700 dark:text-red-300">
+            <AlertCircle size={14} className="shrink-0 mt-0.5" />
+            This issues a <strong>real, irreversible refund</strong> to the buyer via Amazon. It is submitted as a payment-adjustment feed and cannot be undone.
+          </div>
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="radio" checked={mode === 'full'} onChange={() => setMode('full')} />
+              <span className="text-gray-700 dark:text-gray-200">Full order refund <span className="font-semibold">${suggestedAmount.toFixed(2)}</span> <span className="text-gray-400">(item + tax + shipping)</span></span>
+            </label>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="radio" checked={mode === 'custom'} onChange={() => setMode('custom')} />
+              <span className="text-gray-700 dark:text-gray-200">Custom amount</span>
+              <span className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                <input type="text" inputMode="decimal" value={customAmount}
+                  onFocus={() => setMode('custom')}
+                  onChange={e => setCustomAmount(e.target.value)}
+                  className="w-24 h-7 pl-5 pr-2 text-xs rounded border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800" />
+              </span>
+            </label>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-500">Reason</span>
+            <select value={reason} onChange={e => setReason(e.target.value as typeof reason)}
+              className="h-7 px-2 text-xs rounded border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800">
+              <option value="CustomerReturn">Customer return</option>
+              <option value="GeneralAdjustment">General adjustment</option>
+              <option value="CouldNotShip">Could not ship</option>
+            </select>
+          </div>
+          {err && (
+            <div className="flex items-start gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 text-amber-800 dark:text-amber-300 text-[11px]">
+              <AlertCircle size={13} className="shrink-0 mt-0.5" />{err}
+            </div>
+          )}
+        </div>
+        <div className="px-4 py-3 border-t border-gray-200 dark:border-white/10 flex items-center justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-white/15 rounded-lg hover:bg-gray-50 dark:hover:bg-white/5">Cancel</button>
+          {conflict ? (
+            <button onClick={() => submit(true)} disabled={submitting}
+              className="px-3 py-1.5 text-xs bg-red-700 text-white rounded-lg hover:bg-red-800 disabled:opacity-50 flex items-center gap-1.5">
+              {submitting ? <Loader2 size={13} className="animate-spin" /> : <AlertCircle size={13} />} Refund again anyway
+            </button>
+          ) : (
+            <button onClick={() => submit(false)} disabled={submitting || !(amount > 0)}
+              className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5">
+              {submitting ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />} Issue refund ${amount.toFixed(2)}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─── SICKW / FMI result parsing ──────────────────────────────────────────────
@@ -184,6 +300,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
   const [bmEntries, setBmEntries] = useState<BmEntry[]>([])
   const [expandedChecks, setExpandedChecks] = useState<Set<string>>(new Set())
   const [showReplacementModal, setShowReplacementModal] = useState(false)
+  const [showRefundModal, setShowRefundModal] = useState(false)
 
   useEffect(() => {
     fetch(`/api/orders/${orderId}`)
@@ -192,6 +309,14 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }, [orderId])
+
+  // Re-fetch the order (used after issuing a refund) without the full-page spinner.
+  function reload() {
+    fetch(`/api/orders/${orderId}`)
+      .then(r => r.json())
+      .then(j => setOrder(j.data))
+      .catch(() => {})
+  }
 
   // Load this order's BackMarket accounting entries (for the Financials panel).
   useEffect(() => {
@@ -331,6 +456,15 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
               className="flex items-center gap-1.5 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700/40 px-3 py-1.5 rounded-md transition-colors"
             >
               <RotateCcw size={14} /> Create Replacement Order
+            </button>
+          )}
+          {order.orderSource === 'amazon' && (
+            <button
+              onClick={() => setShowRefundModal(true)}
+              title="Issue a refund to the buyer via the Amazon API"
+              className="flex items-center gap-1.5 text-xs font-medium bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700/40 px-3 py-1.5 rounded-md transition-colors"
+            >
+              <RotateCcw size={14} /> Refund on Amazon
             </button>
           )}
           <button
@@ -568,6 +702,72 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
             </Section>
           )}
 
+          {/* Amazon Return Authorization (MFN/FBM) */}
+          {order.orderSource === 'amazon' && ((order.mfnReturns?.length ?? 0) > 0 || (order.freeReplacements?.length ?? 0) > 0 || (order.refundsIssued?.length ?? 0) > 0) && (
+            <Section title="Amazon Return" icon={<RotateCcw size={12} />}>
+              <div className="space-y-3">
+                {/* Replacement indicator */}
+                {((order.freeReplacements?.length ?? 0) > 0 || order.mfnReturns?.some(r => (r.resolution ?? '').toLowerCase().includes('replace'))) && (
+                  <div className="flex items-start gap-2 p-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700/40 text-xs text-indigo-700 dark:text-indigo-300">
+                    <RotateCcw size={14} className="shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold">Replacement order issued on Amazon.</span>
+                      {(order.freeReplacements ?? []).map(fr => (
+                        <div key={fr.id} className="mt-0.5 font-mono text-[11px]">
+                          {fr.replacementOrderId}{fr.shippedAt ? ` · shipped ${fmtD(fr.shippedAt)}` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Return authorization(s) */}
+                {(order.mfnReturns ?? []).map(r => (
+                  <div key={r.id} className="border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-mono text-xs font-semibold text-gray-900 dark:text-white">{r.rmaId ?? r.merchantRmaId ?? 'Return'}</span>
+                      {r.resolution && (
+                        <span className={clsx('text-[10px] px-1.5 py-0.5 rounded font-semibold',
+                          r.resolution.toLowerCase().includes('replace') ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700')}>
+                          {r.resolution}
+                        </span>
+                      )}
+                    </div>
+                    <KV label="Return reason" value={r.returnReason ?? '—'} />
+                    <KV label="Requested" value={fmtD(r.returnDate)} />
+                    {r.returnStatus && <KV label="Status" value={r.returnStatus} />}
+                    <KV label="Return tracking" value={r.trackingNumber ? `${r.trackingNumber}${r.returnCarrier ? ` · ${r.returnCarrier}` : ''}` : '—'} />
+                    {(r.carrierStatus || r.deliveredAt) && (
+                      <KV label="Carrier status" value={`${r.carrierStatus ?? '—'}${r.deliveredAt ? ` · delivered ${fmtD(r.deliveredAt)}` : ''}`} />
+                    )}
+                    {r.refundedAmount != null && <KV label="Refunded (per Amazon)" value={`$${r.refundedAmount.toFixed(2)}`} />}
+                  </div>
+                ))}
+
+                {/* Refunds we issued from this screen */}
+                {(order.refundsIssued ?? []).length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Refunds issued from here</p>
+                    {(order.refundsIssued ?? []).map(rf => (
+                      <div key={rf.id} className="flex items-center justify-between text-xs border border-gray-200 dark:border-white/10 rounded px-2 py-1.5">
+                        <span className="text-gray-700 dark:text-gray-200">${rf.amount.toFixed(2)} · {rf.reason}</span>
+                        <span className="flex items-center gap-2">
+                          <span className={clsx('text-[10px] px-1.5 py-0.5 rounded font-semibold',
+                            rf.feedStatus === 'DONE' ? 'bg-green-100 text-green-700'
+                            : rf.feedStatus === 'FATAL' || rf.feedStatus === 'CANCELLED' ? 'bg-red-100 text-red-700'
+                            : 'bg-amber-100 text-amber-800')}>
+                            {rf.feedStatus ?? 'IN_QUEUE'}
+                          </span>
+                          <span className="text-gray-400">{fmtD(rf.createdAt)}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Section>
+          )}
+
           {/* Returns (Marketplace RMAs) */}
           {order.marketplaceRMAs.length > 0 && (
             <Section title="Returns" icon={<RotateCcw size={12} />}>
@@ -751,6 +951,16 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
             setShowReplacementModal(false)
             router.push(`/orders/${o.id}`)
           }}
+        />
+      )}
+
+      {/* Amazon Refund Modal */}
+      {showRefundModal && (
+        <AmazonRefundModal
+          order={order}
+          suggestedAmount={orderTotalNum}
+          onClose={() => setShowRefundModal(false)}
+          onDone={() => { setShowRefundModal(false); reload() }}
         />
       )}
     </div>
