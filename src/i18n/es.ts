@@ -205,6 +205,20 @@ export const ES: Record<string, string> = {
   'Invoiced': 'Facturado',
   'Paid in full': 'Pagado en su totalidad',
 
+  // ── Fulfillment grid tabs + filters ───────────────────────────────────────
+  'Pending Orders': 'Pedidos pendientes',
+  'Unshipped Orders': 'Pedidos no enviados',
+  'Awaiting Verification': 'En espera de verificación',
+  'Shipped Orders': 'Pedidos enviados',
+  'Cancelled Orders': 'Pedidos cancelados',
+  'Back Market': 'Back Market',
+  'Accessorial': 'Accesorios',
+  'Ship By Today': 'Enviar hoy',
+  'Request Weight & Dims': 'Solicitar peso y dimensiones',
+  'Pick List': 'Lista de preparación',
+  'Label Batch': 'Lote de etiquetas',
+  'Batches': 'Lotes',
+
   // ── Misc ──────────────────────────────────────────────────────────────────
   'No results': 'Sin resultados',
   'No results found': 'No se encontraron resultados',
