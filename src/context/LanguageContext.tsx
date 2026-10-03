@@ -151,6 +151,16 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       const v = el.getAttribute(attr)?.trim()
       if (v) { const es = lookup(v); if (es) return es }
     }
+    // Direct text-node children first — handles a label that sits beside another
+    // element (e.g. a tab label next to a count badge), where textContent would
+    // otherwise concatenate "Unshipped Orders" + "5" and never match.
+    for (const n of Array.from(el.childNodes)) {
+      if (n.nodeType === Node.TEXT_NODE) {
+        const t = (n.nodeValue ?? '').trim()
+        if (t) { const es = lookup(t); if (es) return es }
+      }
+    }
+    // Whole-element text fallback.
     const txt = (el.textContent ?? '').trim()
     if (txt && txt.length <= 120) { const es = lookup(txt); if (es) return es }
     return null
