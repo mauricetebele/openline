@@ -1266,6 +1266,7 @@ model MFNReturn {
   title               String?
   quantity            Int?
   returnReason        String?
+  buyerComment        String?       @db.Text // Free-text comment the buyer left with the return
   returnStatus        String?
   resolution          String? // "Refund", "Replacement", etc.
   inPolicy            String? // "yes"/"no" — within Amazon return window

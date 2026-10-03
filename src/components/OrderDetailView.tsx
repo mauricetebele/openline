@@ -71,10 +71,10 @@ interface SickwCheck {
 }
 interface MfnReturn {
   id: string; rmaId: string | null; merchantRmaId: string | null
-  returnReason: string | null; returnStatus: string | null; resolution: string | null
+  returnReason: string | null; buyerComment: string | null; returnStatus: string | null; resolution: string | null
   returnDate: string | null; returnDeliveryDate: string | null
   trackingNumber: string | null; returnCarrier: string | null
-  carrierStatus: string | null; deliveredAt: string | null; estimatedDelivery: string | null
+  carrierStatus: string | null; deliveredAt: string | null; estimatedDelivery: string | null; trackingUpdatedAt: string | null
   refundedAmount: number | null; sku: string | null; title: string | null; quantity: number | null
   fmiStatus: string | null
 }
@@ -137,6 +137,31 @@ function fmtD(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function fmtDT(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+// Client-side carrier detection + tracking URL (mirrors @/lib/ups-tracking, which
+// is server-only — can't be imported here).
+function carrierOf(tracking: string): 'UPS' | 'FEDEX' | 'USPS' | 'UNKNOWN' {
+  const t = tracking.replace(/\s+/g, '').toUpperCase()
+  if (/^1Z[0-9A-Z]{16}$/.test(t)) return 'UPS'
+  if (/^\d{12}$/.test(t) || /^\d{15}$/.test(t) || /^\d{20,22}$/.test(t)) return 'FEDEX'
+  if (/^(9\d{21,25})$/.test(t)) return 'USPS'
+  return 'UNKNOWN'
+}
+function trackingHref(tracking: string): string {
+  const t = encodeURIComponent(tracking.trim())
+  switch (carrierOf(tracking)) {
+    case 'UPS':   return `https://www.ups.com/track?loc=en_US&tracknum=${t}`
+    case 'FEDEX': return `https://www.fedex.com/fedextrack/?trknbr=${t}`
+    case 'USPS':  return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${t}`
+    default:      return `https://www.google.com/search?q=${t}`
+  }
 }
 
 // ─── Amazon refund confirmation modal ───────────────────────────────────────
@@ -301,6 +326,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
   const [expandedChecks, setExpandedChecks] = useState<Set<string>>(new Set())
   const [showReplacementModal, setShowReplacementModal] = useState(false)
   const [showRefundModal, setShowRefundModal] = useState(false)
+  const [trackingBusy, setTrackingBusy] = useState<string | null>(null)
 
   useEffect(() => {
     fetch(`/api/orders/${orderId}`)
@@ -317,6 +343,35 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
       .then(j => setOrder(j.data))
       .catch(() => {})
   }
+
+  // Pull live carrier status for one return's tracking number and patch it in place.
+  async function refreshReturnTracking(returnId: string) {
+    setTrackingBusy(returnId)
+    try {
+      const res = await fetch(`/api/returns/${returnId}/tracking`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Tracking lookup failed')
+      setOrder(prev => prev ? {
+        ...prev,
+        mfnReturns: (prev.mfnReturns ?? []).map(r => r.id === returnId
+          ? { ...r, carrierStatus: data.carrierStatus, deliveredAt: data.deliveredAt, estimatedDelivery: data.estimatedDelivery, trackingUpdatedAt: data.trackingUpdatedAt }
+          : r),
+      } : prev)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Tracking lookup failed')
+    } finally {
+      setTrackingBusy(null)
+    }
+  }
+
+  // First time an order with a return tracking # is opened and we have no cached
+  // carrier status, fetch it once so the view shows live tracking immediately.
+  useEffect(() => {
+    if (!order) return
+    const needs = (order.mfnReturns ?? []).find(r => r.trackingNumber && !r.carrierStatus)
+    if (needs) refreshReturnTracking(needs.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.id])
 
   // Load this order's BackMarket accounting entries (for the Financials panel).
   useEffect(() => {
@@ -734,13 +789,46 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                       )}
                     </div>
                     <KV label="Return reason" value={r.returnReason ?? '—'} />
+                    {r.buyerComment && (
+                      <div className="py-1">
+                        <p className="text-[11px] text-gray-500 mb-0.5">Buyer comment</p>
+                        <p className="text-xs text-gray-800 dark:text-gray-200 italic bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded px-2 py-1.5 whitespace-pre-wrap">“{r.buyerComment}”</p>
+                      </div>
+                    )}
                     <KV label="Requested" value={fmtD(r.returnDate)} />
                     {r.returnStatus && <KV label="Status" value={r.returnStatus} />}
-                    <KV label="Return tracking" value={r.trackingNumber ? `${r.trackingNumber}${r.returnCarrier ? ` · ${r.returnCarrier}` : ''}` : '—'} />
-                    {(r.carrierStatus || r.deliveredAt) && (
-                      <KV label="Carrier status" value={`${r.carrierStatus ?? '—'}${r.deliveredAt ? ` · delivered ${fmtD(r.deliveredAt)}` : ''}`} />
-                    )}
                     {r.refundedAmount != null && <KV label="Refunded (per Amazon)" value={`$${r.refundedAmount.toFixed(2)}`} />}
+
+                    {/* Live return tracking */}
+                    {r.trackingNumber && (
+                      <div className="mt-2 pt-2 border-t border-gray-100 dark:border-white/10">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Truck size={12} className="text-gray-400 shrink-0" />
+                            <a href={trackingHref(r.trackingNumber)} target="_blank" rel="noopener noreferrer"
+                              className="text-xs font-mono text-amazon-blue hover:underline truncate">{r.trackingNumber}</a>
+                            <span className="text-[10px] text-gray-400 shrink-0">{r.returnCarrier ?? carrierOf(r.trackingNumber)}</span>
+                          </div>
+                          <button onClick={() => refreshReturnTracking(r.id)} disabled={trackingBusy === r.id}
+                            title="Refresh live carrier tracking"
+                            className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-amazon-blue disabled:opacity-50 shrink-0">
+                            {trackingBusy === r.id ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />} Refresh
+                          </button>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 flex-wrap">
+                          {r.carrierStatus
+                            ? <span className={clsx('text-[11px] px-1.5 py-0.5 rounded font-semibold',
+                                r.deliveredAt ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700')}>
+                                {r.deliveredAt ? `Delivered ${fmtD(r.deliveredAt)}` : r.carrierStatus}
+                              </span>
+                            : <span className="text-[11px] text-gray-400">{trackingBusy === r.id ? 'Checking…' : 'No live status yet'}</span>}
+                          {!r.deliveredAt && r.estimatedDelivery && (
+                            <span className="text-[11px] text-gray-500">Est. delivery {fmtD(r.estimatedDelivery)}</span>
+                          )}
+                          {r.trackingUpdatedAt && <span className="text-[10px] text-gray-400">as of {fmtDT(r.trackingUpdatedAt)}</span>}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
 

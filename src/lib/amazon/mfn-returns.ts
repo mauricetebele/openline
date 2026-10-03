@@ -141,6 +141,7 @@ export async function syncMfnReturns(
     const qtyRaw              = col(row, headers, 'return_quantity', 'return-quantity', 'quantity', 'qty')
     const quantity            = qtyRaw ? (parseInt(qtyRaw, 10) || null) : null
     const returnReason        = col(row, headers, 'return_reason_code', 'return-reason-code', 'return-reason', 'return reason') || null
+    const buyerComment        = col(row, headers, 'customer_comments', 'customer-comments', 'customer comments', 'buyer_comment', 'buyer-comment', 'return_comments', 'return-comments', 'comments', 'customer-return-comments') || null
     const returnStatus        = col(row, headers, 'return_request_status', 'return-request-status', 'return-status', 'status') || null
     const resolution          = col(row, headers, 'resolution', 'return-resolution') || null
     const inPolicy            = col(row, headers, 'in_policy', 'in-policy', 'in policy') || null
@@ -179,7 +180,7 @@ export async function syncMfnReturns(
 
     const data = {
       orderDate, rmaId, trackingNumber, returnValue, currency, returnDate,
-      asin, sku, title, quantity, returnReason, returnStatus, resolution,
+      asin, sku, title, quantity, returnReason, buyerComment, returnStatus, resolution,
       inPolicy, isPrime, aToZClaim, returnType, labelType, labelCost,
       labelPaidBy, returnCarrier, merchantRmaId, returnDeliveryDate,
       orderAmount, orderQuantity, refundedAmount,
