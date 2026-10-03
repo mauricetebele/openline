@@ -3,6 +3,7 @@ import { Open_Sans } from 'next/font/google'
 import { Toaster } from 'sonner'
 import { ReprintConfirmHost } from '@/lib/confirm-reprint'
 import AskAI from '@/components/AskAI'
+import { LanguageProvider } from '@/context/LanguageContext'
 import './globals.css'
 
 const openSans = Open_Sans({ subsets: ['latin'] })
@@ -33,10 +34,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={openSans.className}>
-        {children}
-        <Toaster position="top-right" richColors />
-        <ReprintConfirmHost />
-        <AskAI />
+        <LanguageProvider>
+          {children}
+          <Toaster position="top-right" richColors />
+          <ReprintConfirmHost />
+          <AskAI />
+        </LanguageProvider>
       </body>
     </html>
   )

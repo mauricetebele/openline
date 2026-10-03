@@ -10,9 +10,10 @@ import {
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone, BatteryCharging,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
   Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain, AlertCircle, Mail,
-  Sparkles, Receipt, Ban, Wrench, KeyRound,
+  Sparkles, Receipt, Ban, Wrench, KeyRound, Languages,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
+import { useLanguage } from '@/context/LanguageContext'
 import { clsx } from 'clsx'
 import { useAuth } from '@/context/AuthContext'
 import OrderSearchDropdown from './OrderSearchDropdown'
@@ -266,6 +267,45 @@ function DarkModeToggle() {
   )
 }
 
+// ─── EN / ES Language Toggle ─────────────────────────────────────────────────
+
+function LanguageToggle() {
+  const { lang, toggle } = useLanguage()
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      data-no-translate
+      title={lang === 'es' ? 'Switch to English' : 'Switch to Spanish'}
+      aria-label={lang === 'es' ? 'Switch to English' : 'Switch to Spanish'}
+      className="hidden lg:flex items-center justify-center h-8 px-2 rounded-md text-xs font-bold tracking-wide text-gray-300 hover:bg-white/10 hover:text-white transition-colors shrink-0 gap-0.5"
+    >
+      <span className={lang === 'en' ? 'text-white' : 'text-gray-500'}>EN</span>
+      <span className="text-gray-600">/</span>
+      <span className={lang === 'es' ? 'text-white' : 'text-gray-500'}>ES</span>
+    </button>
+  )
+}
+
+function MobileLanguageToggle() {
+  const { lang, toggle } = useLanguage()
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      data-no-translate
+      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+    >
+      <Languages size={14} />
+      <span>
+        <span className={lang === 'en' ? 'text-white font-bold' : ''}>EN</span>
+        <span className="text-gray-600"> / </span>
+        <span className={lang === 'es' ? 'text-white font-bold' : ''}>ES</span>
+      </span>
+    </button>
+  )
+}
+
 // ─── Main TopNav ───────────────────────────────────────────────────────────────
 
 export default function TopNav() {
@@ -410,6 +450,9 @@ export default function TopNav() {
         </div>
 
         <div className="hidden lg:block w-px h-6 bg-white/10 shrink-0 ml-1" />
+
+        {/* Language toggle — desktop */}
+        <LanguageToggle />
 
         {/* Dark mode toggle — desktop */}
         <DarkModeToggle />
@@ -641,6 +684,7 @@ export default function TopNav() {
             >
               <Settings size={14} /> Settings
             </Link>
+            <MobileLanguageToggle />
           </div>
 
           {/* User row */}
