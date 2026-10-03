@@ -2,7 +2,9 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { ES } from '@/i18n/es'
 
-type Lang = 'en' | 'es'
+// 'en' = English, 'es' = Spanish (full UI translation),
+// 'hybrid' = English UI with a Spanish translation popup on 1s hover.
+type Lang = 'en' | 'es' | 'hybrid'
 
 interface LanguageContextValue {
   lang: Lang
@@ -45,13 +47,13 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     setMounted(true)
     try {
       const stored = localStorage.getItem('app-lang') as Lang | null
-      if (stored === 'es' || stored === 'en') setLangState(stored)
+      if (stored === 'es' || stored === 'en' || stored === 'hybrid') setLangState(stored)
     } catch { /* SSR safety */ }
   }, [])
 
   useEffect(() => {
     if (!mounted) return
-    try { document.documentElement.lang = lang } catch { /* noop */ }
+    try { document.documentElement.lang = lang === 'es' ? 'es' : 'en' } catch { /* noop */ }
 
     if (lang === 'es') {
       translateTree(document.body)
@@ -70,11 +72,15 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       obs.observe(document.body, { childList: true, subtree: true, characterData: true })
       observerRef.current = obs
       return () => { obs.disconnect(); observerRef.current = null }
-    } else {
-      observerRef.current?.disconnect()
-      observerRef.current = null
-      restoreAll()
     }
+
+    // Leaving Spanish: make sure any swapped text is back to English.
+    observerRef.current?.disconnect()
+    observerRef.current = null
+    restoreAll()
+
+    // Hybrid: English UI + Spanish translation popup after 1s hover.
+    if (lang === 'hybrid') return setupHybridHover()
   }, [lang, mounted])
 
   function translateTextNode(node: Text) {
@@ -138,11 +144,74 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     attrEdits.current = []
   }
 
+  // ── Hybrid mode: English UI, Spanish popup after the pointer rests 1s ──────
+  function hybridLookup(el: Element): string | null {
+    if (el.closest('[data-no-translate]')) return null
+    for (const attr of ['aria-label', 'title', 'placeholder']) {
+      const v = el.getAttribute(attr)?.trim()
+      if (v) { const es = lookup(v); if (es) return es }
+    }
+    const txt = (el.textContent ?? '').trim()
+    if (txt && txt.length <= 120) { const es = lookup(txt); if (es) return es }
+    return null
+  }
+
+  function setupHybridHover(): () => void {
+    const tip = document.createElement('div')
+    tip.setAttribute('data-no-translate', '')
+    tip.style.cssText = [
+      'position:fixed', 'z-index:2147483647', 'max-width:320px', 'padding:6px 10px',
+      'border-radius:8px', 'background:#1e293b', 'color:#fff', 'font-size:12px',
+      'line-height:1.35', 'box-shadow:0 6px 20px rgba(0,0,0,.35)', 'pointer-events:none',
+      'opacity:0', 'transition:opacity .12s ease', 'font-family:inherit', 'white-space:normal',
+    ].join(';')
+    document.body.appendChild(tip)
+
+    let timer = 0
+    let x = 0, y = 0
+    const hide = () => { if (timer) { clearTimeout(timer); timer = 0 } tip.style.opacity = '0' }
+
+    const onOver = (e: MouseEvent) => {
+      const el = e.target as Element | null
+      x = e.clientX; y = e.clientY
+      if (timer) clearTimeout(timer)
+      tip.style.opacity = '0'
+      if (!el || !(el instanceof Element) || el === tip) return
+      const tag = el.tagName
+      if (tag === 'SCRIPT' || tag === 'STYLE') return
+      timer = window.setTimeout(() => {
+        const es = hybridLookup(el)
+        if (!es) return
+        tip.textContent = `🇪🇸 ${es}`
+        let left = x + 14, top = y + 18
+        const w = Math.min(320, tip.offsetWidth || 240)
+        const h = tip.offsetHeight || 30
+        if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8
+        if (top + h > window.innerHeight - 8) top = y - h - 10
+        tip.style.left = `${Math.max(8, left)}px`
+        tip.style.top = `${Math.max(8, top)}px`
+        tip.style.opacity = '1'
+      }, 1000)
+    }
+
+    document.addEventListener('mouseover', onOver, true)
+    document.addEventListener('mouseout', hide, true)
+    window.addEventListener('scroll', hide, true)
+    return () => {
+      hide()
+      document.removeEventListener('mouseover', onOver, true)
+      document.removeEventListener('mouseout', hide, true)
+      window.removeEventListener('scroll', hide, true)
+      tip.remove()
+    }
+  }
+
   function setLang(l: Lang) {
     setLangState(l)
     try { localStorage.setItem('app-lang', l) } catch { /* SSR safety */ }
   }
-  function toggle() { setLang(lang === 'en' ? 'es' : 'en') }
+  // Cycle EN → ES → Hybrid → EN.
+  function toggle() { setLang(lang === 'en' ? 'es' : lang === 'es' ? 'hybrid' : 'en') }
   function t(text: string): string {
     if (lang !== 'es') return text
     return ES[text] ?? text

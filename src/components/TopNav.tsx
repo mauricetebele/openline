@@ -269,40 +269,55 @@ function DarkModeToggle() {
 
 // ─── EN / ES Language Toggle ─────────────────────────────────────────────────
 
+const LANG_SEGMENTS: Array<{ code: string; value: 'en' | 'es' | 'hybrid'; title: string }> = [
+  { code: 'EN', value: 'en',     title: 'English' },
+  { code: 'ES', value: 'es',     title: 'Español — translate the whole site' },
+  { code: 'HY', value: 'hybrid', title: 'Hybrid — English, with a Spanish popup when you hover for 1s' },
+]
+
 function LanguageToggle() {
-  const { lang, toggle } = useLanguage()
+  const { lang, setLang } = useLanguage()
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      data-no-translate
-      title={lang === 'es' ? 'Switch to English' : 'Switch to Spanish'}
-      aria-label={lang === 'es' ? 'Switch to English' : 'Switch to Spanish'}
-      className="hidden lg:flex items-center justify-center h-8 px-2 rounded-md text-xs font-bold tracking-wide text-gray-300 hover:bg-white/10 hover:text-white transition-colors shrink-0 gap-0.5"
-    >
-      <span className={lang === 'en' ? 'text-white' : 'text-gray-500'}>EN</span>
-      <span className="text-gray-600">/</span>
-      <span className={lang === 'es' ? 'text-white' : 'text-gray-500'}>ES</span>
-    </button>
+    <div data-no-translate className="hidden lg:flex items-center gap-0.5 h-8 px-0.5 rounded-md bg-white/5 shrink-0">
+      {LANG_SEGMENTS.map(s => (
+        <button
+          key={s.value}
+          type="button"
+          onClick={() => setLang(s.value)}
+          title={s.title}
+          className={clsx(
+            'px-1.5 h-6 rounded text-[11px] font-bold tracking-wide transition-colors',
+            lang === s.value ? 'bg-white/20 text-white' : 'text-gray-400 hover:text-white',
+          )}
+        >
+          {s.code}
+        </button>
+      ))}
+    </div>
   )
 }
 
 function MobileLanguageToggle() {
-  const { lang, toggle } = useLanguage()
+  const { lang, setLang } = useLanguage()
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      data-no-translate
-      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
-    >
-      <Languages size={14} />
-      <span>
-        <span className={lang === 'en' ? 'text-white font-bold' : ''}>EN</span>
-        <span className="text-gray-600"> / </span>
-        <span className={lang === 'es' ? 'text-white font-bold' : ''}>ES</span>
-      </span>
-    </button>
+    <div data-no-translate className="flex items-center gap-2 px-3 py-2">
+      <Languages size={14} className="text-gray-300 shrink-0" />
+      <div className="flex items-center gap-1">
+        {LANG_SEGMENTS.map(s => (
+          <button
+            key={s.value}
+            type="button"
+            onClick={() => setLang(s.value)}
+            className={clsx(
+              'px-2 py-1 rounded text-xs font-bold tracking-wide transition-colors',
+              lang === s.value ? 'bg-amazon-blue text-white' : 'text-gray-400 hover:text-white',
+            )}
+          >
+            {s.code}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
