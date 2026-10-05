@@ -165,23 +165,42 @@ function trackingHref(tracking: string): string {
 }
 
 // ─── Amazon refund confirmation modal ───────────────────────────────────────
-function AmazonRefundModal({ order, suggestedAmount, onClose, onDone }: {
-  order: FullOrder; suggestedAmount: number; onClose: () => void; onDone: () => void
+interface RefundEligible { source: string; currency: string; principal: number; tax: number; shipping: number; regulatoryFee: number }
+
+function AmazonRefundModal({ order, onClose, onDone }: {
+  order: FullOrder; onClose: () => void; onDone: () => void
 }) {
-  const [mode, setMode] = useState<'full' | 'custom'>('full')
-  const [customAmount, setCustomAmount] = useState(suggestedAmount.toFixed(2))
+  const [elig, setElig] = useState<RefundEligible | null>(null)
+  const [eligLoading, setEligLoading] = useState(true)
+  const [amountStr, setAmountStr] = useState('')
   const [reason, setReason] = useState<'CustomerReturn' | 'GeneralAdjustment' | 'CouldNotShip'>('CustomerReturn')
   const [submitting, setSubmitting] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [conflict, setConflict] = useState(false)
-  const amount = mode === 'full' ? suggestedAmount : (parseFloat(customAmount) || 0)
+
+  // Prepopulate with the true item price (principal, no tax, no regulatory fee).
+  useEffect(() => {
+    let cancel = false
+    fetch(`/api/orders/${order.id}/refund-eligible`)
+      .then(r => r.json())
+      .then(d => {
+        if (cancel || d?.error) return
+        setElig(d)
+        if (typeof d.principal === 'number') setAmountStr(d.principal.toFixed(2))
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancel) setEligLoading(false) })
+    return () => { cancel = true }
+  }, [order.id])
+
+  const amount = parseFloat(amountStr) || 0
 
   async function submit(force = false) {
     setSubmitting(true); setErr(null)
     try {
       const res = await fetch(`/api/orders/${order.id}/refund`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, customAmount: mode === 'custom' ? parseFloat(customAmount) : undefined, reason, force }),
+        body: JSON.stringify({ mode: 'custom', customAmount: amount, reason, force }),
       })
       const data = await res.json()
       if (res.status === 409 && data.alreadyIssued) { setConflict(true); setErr(data.error); return }
@@ -191,6 +210,7 @@ function AmazonRefundModal({ order, suggestedAmount, onClose, onDone }: {
     finally { setSubmitting(false) }
   }
 
+  const cur = elig?.currency ?? 'USD'
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
@@ -204,23 +224,38 @@ function AmazonRefundModal({ order, suggestedAmount, onClose, onDone }: {
             <AlertCircle size={14} className="shrink-0 mt-0.5" />
             This issues a <strong>real, irreversible refund</strong> to the buyer via Amazon. It is submitted as a payment-adjustment feed and cannot be undone.
           </div>
-          <div className="space-y-1.5">
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input type="radio" checked={mode === 'full'} onChange={() => setMode('full')} />
-              <span className="text-gray-700 dark:text-gray-200">Full order refund <span className="font-semibold">${suggestedAmount.toFixed(2)}</span> <span className="text-gray-400">(item + tax + shipping)</span></span>
-            </label>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input type="radio" checked={mode === 'custom'} onChange={() => setMode('custom')} />
-              <span className="text-gray-700 dark:text-gray-200">Custom amount</span>
-              <span className="relative">
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                <input type="text" inputMode="decimal" value={customAmount}
-                  onFocus={() => setMode('custom')}
-                  onChange={e => setCustomAmount(e.target.value)}
-                  className="w-24 h-7 pl-5 pr-2 text-xs rounded border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800" />
-              </span>
-            </label>
+
+          {/* Refundable breakdown */}
+          <div className="rounded-lg border border-gray-200 dark:border-white/10 px-3 py-2 text-xs space-y-1">
+            {eligLoading ? (
+              <div className="flex items-center gap-2 text-gray-500"><Loader2 size={13} className="animate-spin" /> Calculating refundable amount…</div>
+            ) : elig ? (
+              <>
+                <div className="flex justify-between"><span className="text-gray-500">Item price (principal)</span><span className="font-semibold text-gray-900 dark:text-white">${elig.principal.toFixed(2)}</span></div>
+                {elig.shipping > 0 && <div className="flex justify-between"><span className="text-gray-500">Shipping</span><span>${elig.shipping.toFixed(2)}</span></div>}
+                <div className="flex justify-between text-gray-400"><span>Tax (Amazon refunds automatically)</span><span>${elig.tax.toFixed(2)}</span></div>
+                {elig.regulatoryFee > 0 && <div className="flex justify-between text-gray-400"><span>Regulatory fee (not refundable)</span><span>${elig.regulatoryFee.toFixed(2)}</span></div>}
+                {elig.source === 'stored' && (
+                  <div className="text-[10px] text-amber-600 pt-0.5">Couldn’t read live charges — showing stored item price; verify the amount before refunding.</div>
+                )}
+              </>
+            ) : (
+              <div className="text-gray-400">Enter the item price to refund.</div>
+            )}
           </div>
+
+          {/* Amount — prepopulated with the item price (no tax) */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-500 shrink-0">Refund amount</span>
+            <span className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+              <input type="text" inputMode="decimal" value={amountStr}
+                onChange={e => setAmountStr(e.target.value)}
+                className="w-28 h-7 pl-5 pr-2 text-xs rounded border border-gray-300 dark:border-white/15 bg-white dark:bg-gray-800" />
+            </span>
+            <span className="text-[10px] text-gray-400">item price, no tax</span>
+          </div>
+
           <div className="flex items-center gap-2 text-xs">
             <span className="text-gray-500">Reason</span>
             <select value={reason} onChange={e => setReason(e.target.value as typeof reason)}
@@ -244,9 +279,9 @@ function AmazonRefundModal({ order, suggestedAmount, onClose, onDone }: {
               {submitting ? <Loader2 size={13} className="animate-spin" /> : <AlertCircle size={13} />} Refund again anyway
             </button>
           ) : (
-            <button onClick={() => submit(false)} disabled={submitting || !(amount > 0)}
+            <button onClick={() => submit(false)} disabled={submitting || eligLoading || !(amount > 0)}
               className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5">
-              {submitting ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />} Issue refund ${amount.toFixed(2)}
+              {submitting ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />} Issue refund {cur === 'USD' ? '$' : ''}{amount.toFixed(2)}
             </button>
           )}
         </div>
@@ -1046,7 +1081,6 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
       {showRefundModal && (
         <AmazonRefundModal
           order={order}
-          suggestedAmount={orderTotalNum}
           onClose={() => setShowRefundModal(false)}
           onDone={() => { setShowRefundModal(false); reload() }}
         />
