@@ -7922,10 +7922,11 @@ export default function UnshippedOrders() {
               const paidShipping = order.orderSource === 'backmarket'
                 ? order.items.reduce((s, i) => s + (i.shippingPrice ? parseFloat(i.shippingPrice) : 0), 0)
                 : 0
-              // Weight & dims request: highlight only while the order is still
-              // unprocessed (PENDING). Once processed, drop the highlight/badge but
-              // keep the note. Yellow while awaiting entry; green once entered.
-              const wdProcessed = order.workflowStatus !== 'PENDING'
+              // Weight & dims request: keep the row highlighted/badged the whole
+              // time it's actionable — through Pending, Unshipped (PROCESSING) and
+              // Awaiting — and only drop it once the order ships or is cancelled.
+              // Yellow while awaiting entry; green once entered.
+              const wdProcessed = order.workflowStatus === 'SHIPPED' || order.workflowStatus === 'CANCELLED'
               const wantsWeightDims = !!order.weightDimsRequested && !order.weightDimsEnteredAt && !wdProcessed
               const hasWeightDims = !!order.weightDimsRequested && !!order.weightDimsEnteredAt && !wdProcessed
               // "Please serialize" stays highlighted the whole time the order is
