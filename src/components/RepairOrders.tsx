@@ -79,6 +79,13 @@ function OrdersList({ onOpen }: { onOpen: (id: string) => void }) {
     catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') } finally { setCreating(false) }
   }
 
+  async function del(o: OrderRow) {
+    if (o.status !== 'DRAFT') return
+    if (!confirm(`Delete draft RO-${String(o.orderNumber).padStart(4, '0')}? This can't be undone.`)) return
+    try { await api(`/api/repair-orders/${o.id}`, 'DELETE'); toast.success('Draft repair order deleted'); load() }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to delete') }
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
@@ -96,7 +103,7 @@ function OrdersList({ onOpen }: { onOpen: (id: string) => void }) {
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 dark:bg-gray-800 text-gray-500 text-xs">
-                <tr><th className="text-left px-3 py-2">RO #</th><th className="text-left px-3 py-2">Vendor</th><th className="text-left px-3 py-2">Status</th><th className="text-right px-3 py-2">Units</th><th className="text-right px-3 py-2">Repair Cost</th><th className="text-left px-3 py-2">Created</th></tr>
+                <tr><th className="text-left px-3 py-2">RO #</th><th className="text-left px-3 py-2">Vendor</th><th className="text-left px-3 py-2">Status</th><th className="text-right px-3 py-2">Units</th><th className="text-right px-3 py-2">Repair Cost</th><th className="text-left px-3 py-2">Created</th><th className="px-3 py-2 w-8" /></tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {orders.map(o => (
@@ -107,6 +114,12 @@ function OrdersList({ onOpen }: { onOpen: (id: string) => void }) {
                     <td className="px-3 py-1.5 text-right text-gray-600">{o.itemCount}</td>
                     <td className="px-3 py-1.5 text-right text-gray-800 dark:text-gray-200">{money(o.totalCost)}</td>
                     <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{new Date(o.createdAt).toLocaleDateString()}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      {o.status === 'DRAFT' && (
+                        <button onClick={(e) => { e.stopPropagation(); del(o) }} title="Delete draft repair order"
+                          className="text-gray-300 hover:text-red-500"><Trash2 size={13} /></button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -172,6 +185,14 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
     setBusy(true)
     try { await api(`/api/repair-orders/${id}/items`, 'DELETE', { itemIds: Array.from(selected) }); setSelected(new Set()); await load() }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }
+  }
+  async function deleteDraft() {
+    if (order?.status !== 'DRAFT') return
+    if (!confirm(`Delete draft RO-${String(order.orderNumber).padStart(4, '0')}? This removes the draft and its ${order.items.length} item(s) and can't be undone.`)) return
+    setBusy(true)
+    try { await api(`/api/repair-orders/${id}`, 'DELETE'); toast.success('Draft repair order deleted'); onBack() }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to delete') }
+    finally { setBusy(false) }
   }
   async function setStatus(status: string) {
     try { await api(`/api/repair-orders/${id}`, 'PATCH', { status }); await load() } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') }
@@ -251,6 +272,13 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
           <select className="h-8 px-2 rounded border border-gray-300 text-xs" value={order.status} onChange={e => setStatus(e.target.value)}>
             {['DRAFT', 'SHIPPED_OUT', 'AT_VENDOR', 'RETURNED', 'COMPLETED', 'CANCELLED'].map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
           </select>
+          {order.status === 'DRAFT' && (
+            <button onClick={deleteDraft} disabled={busy}
+              title="Delete this draft repair order"
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-red-300 text-red-700 text-xs font-medium hover:bg-red-50 disabled:opacity-50">
+              <Trash2 size={13} /> Delete Draft
+            </button>
+          )}
         </div>
       </div>
 
