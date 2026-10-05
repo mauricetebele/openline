@@ -10,6 +10,7 @@
  * Refunds are irreversible once Amazon processes the feed. The caller (route)
  * is responsible for confirmation, double-refund guarding, and recording.
  */
+import zlib from 'zlib'
 import { SpApiClient } from './sp-api'
 import { prisma } from '@/lib/prisma'
 
@@ -149,7 +150,12 @@ export async function issueOrderRefund(
   return { feedId: feed.feedId, amount, currency }
 }
 
-/** Poll a feed's processing status (and result doc summary when available). */
+/**
+ * Poll a feed's processing status and decode the processing report. A feed status
+ * of DONE only means Amazon *processed the feed* — the refund itself can still be
+ * rejected (e.g. already refunded → error 18010). We download + gunzip the result
+ * document and map DONE to SUCCESS or ERROR with the human-readable reason.
+ */
 export async function getRefundFeedStatus(
   accountId: string,
   feedId: string,
@@ -158,13 +164,38 @@ export async function getRefundFeedStatus(
   const feed = await client.get<{ processingStatus: string; resultFeedDocumentId?: string }>(
     `/feeds/2021-06-30/feeds/${feedId}`,
   )
+  let status = feed.processingStatus
   let result: string | undefined
+
   if (feed.resultFeedDocumentId) {
     try {
-      const resDoc = await client.get<{ url: string }>(`/feeds/2021-06-30/documents/${feed.resultFeedDocumentId}`)
-      const txt = await (await fetch(resDoc.url)).text()
-      result = txt.slice(0, 4000)
+      const doc = await client.get<{ url: string; compressionAlgorithm?: string }>(
+        `/feeds/2021-06-30/documents/${feed.resultFeedDocumentId}`,
+      )
+      const resp = await fetch(doc.url)
+      let buf = Buffer.from(await resp.arrayBuffer())
+      if (doc.compressionAlgorithm === 'GZIP') buf = zlib.gunzipSync(buf)
+      // Strip NULs (Postgres rejects them) and any BOM.
+      const xml = buf.toString('utf-8').replace(/\u0000/g, '').replace(/^\uFEFF/, '')
+
+      const errMatch = xml.match(/<ResultCode>Error<\/ResultCode>[\s\S]*?<ResultDescription>([\s\S]*?)<\/ResultDescription>/)
+      const codeMatch = xml.match(/<ResultMessageCode>(\d+)<\/ResultMessageCode>/)
+      const successful = xml.match(/<MessagesSuccessful>(\d+)<\/MessagesSuccessful>/)?.[1]
+
+      if (feed.processingStatus === 'DONE') {
+        if (errMatch) {
+          status = 'ERROR'
+          result = `${errMatch[1].trim().replace(/\s+/g, ' ')}${codeMatch ? ` (code ${codeMatch[1]})` : ''}`
+        } else if (successful && Number(successful) >= 1) {
+          status = 'SUCCESS'
+          result = 'Refund accepted by Amazon.'
+        } else {
+          result = xml.slice(0, 2000)
+        }
+      } else {
+        result = xml.slice(0, 2000)
+      }
     } catch { /* result doc not critical */ }
   }
-  return { processingStatus: feed.processingStatus, result }
+  return { processingStatus: status, result }
 }
