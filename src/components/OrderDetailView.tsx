@@ -3,7 +3,7 @@ import { useState, useEffect, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Package, MapPin, Truck, Hash, FileText, Printer,
-  CheckCircle2, AlertCircle, Loader2, RotateCcw, Landmark, Smartphone, ChevronRight,
+  CheckCircle2, AlertCircle, AlertTriangle, Loader2, RotateCcw, Landmark, Smartphone, ChevronRight,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
@@ -177,6 +177,11 @@ function AmazonRefundModal({ order, onClose, onDone }: {
   const [submitting, setSubmitting] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [conflict, setConflict] = useState(false)
+  const [ackReplacement, setAckReplacement] = useState(false)
+
+  // Warn when the order's Amazon return is set to be resolved by a Replacement —
+  // refunding on top of a replacement is usually a mistake.
+  const replacementReturn = (order.mfnReturns ?? []).find(r => (r.resolution ?? '').toLowerCase().includes('replace'))
 
   // Prepopulate with the true item price (principal, no tax, no regulatory fee).
   useEffect(() => {
@@ -224,6 +229,21 @@ function AmazonRefundModal({ order, onClose, onDone }: {
             <AlertCircle size={14} className="shrink-0 mt-0.5" />
             This issues a <strong>real, irreversible refund</strong> to the buyer via Amazon. It is submitted as a payment-adjustment feed and cannot be undone.
           </div>
+
+          {/* Replacement-resolution warning */}
+          {replacementReturn && (
+            <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700/50 text-xs text-amber-800 dark:text-amber-300">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">This order’s return resolution is “Replacement”.</p>
+                <p className="mt-0.5">Are you sure you want to continue issuing the refund, even though the Return Resolution is Replacement?</p>
+                <label className="mt-1.5 flex items-center gap-1.5 cursor-pointer font-medium">
+                  <input type="checkbox" checked={ackReplacement} onChange={e => setAckReplacement(e.target.checked)} />
+                  Yes, issue the refund anyway
+                </label>
+              </div>
+            </div>
+          )}
 
           {/* Refundable breakdown */}
           <div className="rounded-lg border border-gray-200 dark:border-white/10 px-3 py-2 text-xs space-y-1">
@@ -279,7 +299,7 @@ function AmazonRefundModal({ order, onClose, onDone }: {
               {submitting ? <Loader2 size={13} className="animate-spin" /> : <AlertCircle size={13} />} Refund again anyway
             </button>
           ) : (
-            <button onClick={() => submit(false)} disabled={submitting || eligLoading || !(amount > 0)}
+            <button onClick={() => submit(false)} disabled={submitting || eligLoading || !(amount > 0) || (!!replacementReturn && !ackReplacement)}
               className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5">
               {submitting ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />} Issue refund {cur === 'USD' ? '$' : ''}{amount.toFixed(2)}
             </button>
