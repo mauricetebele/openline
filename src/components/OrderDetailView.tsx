@@ -85,7 +85,7 @@ interface FreeReplacement {
 }
 interface RefundIssued {
   id: string; amount: number; currency: string; reason: string
-  feedId: string | null; feedStatus: string | null; issuedByEmail: string | null; createdAt: string
+  feedId: string | null; feedStatus: string | null; feedResult?: string | null; issuedByEmail: string | null; createdAt: string
 }
 interface FullOrder {
   id: string; olmNumber: number | null; amazonOrderId: string; orderSource: string
@@ -813,7 +813,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
           )}
 
           {/* Amazon Return Authorization (MFN/FBM) */}
-          {order.orderSource === 'amazon' && ((order.mfnReturns?.length ?? 0) > 0 || (order.freeReplacements?.length ?? 0) > 0 || (order.refundsIssued?.length ?? 0) > 0) && (
+          {order.orderSource === 'amazon' && ((order.mfnReturns?.length ?? 0) > 0 || (order.freeReplacements?.length ?? 0) > 0) && (
             <Section title="Amazon Return" icon={<RotateCcw size={12} />}>
               <div className="space-y-3">
                 {/* Replacement indicator */}
@@ -886,27 +886,35 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                     )}
                   </div>
                 ))}
+              </div>
+            </Section>
+          )}
 
-                {/* Refunds we issued from this screen */}
-                {(order.refundsIssued ?? []).length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Refunds issued from here</p>
-                    {(order.refundsIssued ?? []).map(rf => (
-                      <div key={rf.id} className="flex items-center justify-between text-xs border border-gray-200 dark:border-white/10 rounded px-2 py-1.5">
-                        <span className="text-gray-700 dark:text-gray-200">${rf.amount.toFixed(2)} · {rf.reason}</span>
-                        <span className="flex items-center gap-2">
-                          <span className={clsx('text-[10px] px-1.5 py-0.5 rounded font-semibold',
-                            rf.feedStatus === 'DONE' ? 'bg-green-100 text-green-700'
-                            : rf.feedStatus === 'FATAL' || rf.feedStatus === 'CANCELLED' ? 'bg-red-100 text-red-700'
-                            : 'bg-amber-100 text-amber-800')}>
-                            {rf.feedStatus ?? 'IN_QUEUE'}
-                          </span>
-                          <span className="text-gray-400">{fmtD(rf.createdAt)}</span>
+          {/* Seller-Initiated Refund — refunds issued to Amazon via this system */}
+          {order.orderSource === 'amazon' && (order.refundsIssued?.length ?? 0) > 0 && (
+            <Section title="Seller-Initiated Refund" icon={<RotateCcw size={12} />}>
+              <div className="space-y-2">
+                {(order.refundsIssued ?? []).map(rf => {
+                  const ok = rf.feedStatus === 'SUCCESS' || rf.feedStatus === 'DONE'
+                  const failed = rf.feedStatus === 'ERROR' || rf.feedStatus === 'FATAL' || rf.feedStatus === 'CANCELLED'
+                  return (
+                    <div key={rf.id} className="border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-gray-900 dark:text-white">${rf.amount.toFixed(2)}</span>
+                        <span className={clsx('text-[10px] px-1.5 py-0.5 rounded font-semibold',
+                          ok ? 'bg-green-100 text-green-700' : failed ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800')}>
+                          {ok ? 'Refunded' : failed ? 'Declined' : 'Pending'}
                         </span>
                       </div>
-                    ))}
-                  </div>
-                )}
+                      <div className="mt-0.5 text-[11px] text-gray-500 flex flex-wrap items-center gap-x-2">
+                        <span>{fmtDT(rf.createdAt)}</span>
+                        <span>· {rf.reason}</span>
+                        {rf.issuedByEmail && <span>· by {rf.issuedByEmail}</span>}
+                      </div>
+                      {failed && rf.feedResult && <p className="mt-1 text-[11px] text-red-600">{rf.feedResult}</p>}
+                    </div>
+                  )
+                })}
               </div>
             </Section>
           )}
