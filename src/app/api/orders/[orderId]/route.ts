@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { getRefundFeedStatus } from '@/lib/amazon/issue-refund'
 
 export const dynamic = 'force-dynamic'
 
@@ -97,6 +98,26 @@ export async function GET(
         }),
       ])
     : [[], [], []]
+
+  // Resolve any still-in-flight seller-initiated refunds: a record is saved as
+  // IN_QUEUE at submit time and only becomes SUCCESS/ERROR once Amazon processes
+  // the feed, so refresh the feed result here (best-effort) before returning.
+  const needsPoll = (s: string | null, result: string | null) =>
+    s === 'IN_QUEUE' || s === 'IN_PROGRESS' || (s === 'DONE' && !result)
+  for (const r of refundsIssuedRaw) {
+    if (!r.feedId || !needsPoll(r.feedStatus, r.feedResult)) continue
+    try {
+      const status = await getRefundFeedStatus(r.accountId, r.feedId)
+      if (status.processingStatus !== r.feedStatus || status.result) {
+        await prisma.amazonRefundIssued.update({
+          where: { id: r.id },
+          data: { feedStatus: status.processingStatus, feedResult: status.result ?? undefined },
+        })
+        r.feedStatus = status.processingStatus
+        r.feedResult = status.result ?? r.feedResult
+      }
+    } catch { /* best-effort */ }
+  }
 
   const decimal = (d: unknown) => (d == null ? null : Number(d))
   const mfnReturns = mfnReturnsRaw.map((r) => ({

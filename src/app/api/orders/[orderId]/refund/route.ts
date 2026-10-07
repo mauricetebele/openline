@@ -94,17 +94,24 @@ export async function GET(
     orderBy: { createdAt: 'desc' },
   })
 
-  // Refresh the latest refund's feed status from Amazon if still in flight.
-  const latest = refunds[0]
-  if (latest?.feedId && (latest.feedStatus === 'IN_QUEUE' || latest.feedStatus === 'IN_PROGRESS')) {
+  // Refresh every still-in-flight refund's feed status from Amazon. "IN_QUEUE"
+  // only means we submitted it — Amazon finishes processing shortly after, so we
+  // poll the feed result and resolve each to SUCCESS / ERROR.
+  const needsPoll = (s: string | null, result: string | null) =>
+    s === 'IN_QUEUE' || s === 'IN_PROGRESS' || (s === 'DONE' && !result)
+  for (const r of refunds) {
+    if (!r.feedId || !needsPoll(r.feedStatus, r.feedResult)) continue
     try {
-      const status = await getRefundFeedStatus(latest.accountId, latest.feedId)
-      await prisma.amazonRefundIssued.update({
-        where: { id: latest.id },
-        data: { feedStatus: status.processingStatus, feedResult: status.result ?? undefined },
-      })
-      latest.feedStatus = status.processingStatus
-    } catch { /* status refresh best-effort */ }
+      const status = await getRefundFeedStatus(r.accountId, r.feedId)
+      if (status.processingStatus !== r.feedStatus || status.result) {
+        await prisma.amazonRefundIssued.update({
+          where: { id: r.id },
+          data: { feedStatus: status.processingStatus, feedResult: status.result ?? undefined },
+        })
+        r.feedStatus = status.processingStatus
+        r.feedResult = status.result ?? r.feedResult
+      }
+    } catch { /* best-effort */ }
   }
 
   return NextResponse.json({
