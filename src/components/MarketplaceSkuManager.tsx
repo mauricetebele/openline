@@ -1356,24 +1356,25 @@ export default function MarketplaceSkuManager() {
     }
   }
 
-  // Product+grade groups actively pushing on >1 marketplace — the only place the
-  // last-unit strategy toggles (SEE-SAW / Last Unit Lean) are meaningful. Shown
-  // regardless of current stock (we're configuring behaviour for when it hits 1 unit).
-  const multiMarketplaceGroups = useMemo(() => {
-    const byGroup = new Map<string, Set<string>>()
+  // Product+grade groups with >1 actively-syncing listing — the only place the
+  // last-unit strategy toggles (SEE-SAW / Last Unit Lean / SIMUL-LIST) are
+  // meaningful. Counts LISTINGS, not distinct marketplaces, so two listings for
+  // the same SKU+grade qualify even when they're on the same marketplace (e.g.
+  // two Amazon listings). Shown regardless of current stock (we're configuring
+  // behaviour for when it hits 1 unit).
+  const multiListingGroups = useMemo(() => {
+    const counts = new Map<string, number>()
     for (const s of skus) {
       if (!s.syncQty) continue
       const key = `${s.productId}::${s.gradeId ?? 'null'}`
-      const set = byGroup.get(key) ?? new Set<string>()
-      set.add(s.marketplace)
-      byGroup.set(key, set)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
     }
     const multi = new Set<string>()
-    byGroup.forEach((mps, key) => { if (mps.size > 1) multi.add(key) })
+    counts.forEach((n, key) => { if (n > 1) multi.add(key) })
     return multi
   }, [skus])
   const showStrategyToggles = (s: MarketplaceSku) =>
-    multiMarketplaceGroups.has(`${s.productId}::${s.gradeId ?? 'null'}`)
+    multiListingGroups.has(`${s.productId}::${s.gradeId ?? 'null'}`)
 
   async function handlePushQty() {
     setPushing(true)
