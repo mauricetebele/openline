@@ -468,7 +468,17 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                             )}
                           </div>
                         </td>
-                        <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.reference}</td>
+                        <td className="px-5 py-2.5 font-mono text-xs text-gray-600">
+                          {isCM && line.creditMemoId ? (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); router.push(`/wholesale/credit-memo/${line.creditMemoId}`) }}
+                              className="text-orange-600 hover:text-orange-700 hover:underline font-medium"
+                              title="Open credit memo (apply to invoices)"
+                            >
+                              {line.reference}
+                            </button>
+                          ) : line.reference}
+                        </td>
                         <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.invoiceNumber ?? ''}</td>
                         <td className="px-5 py-2.5 text-right">{line.charges > 0 ? fmt(line.charges) : ''}</td>
                         <td className="px-5 py-2.5 text-right text-green-600">{line.credits > 0 ? fmt(line.credits) : ''}</td>
