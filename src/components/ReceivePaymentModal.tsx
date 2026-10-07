@@ -48,6 +48,7 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10))
   const [method, setMethod] = useState('CHECK')
   const [memo, setMemo] = useState('')
+  const [creditsOnly, setCreditsOnly] = useState(false) // apply credits without receiving a payment
 
   // Step 3
   const [invoices, setInvoices] = useState<OpenInvoice[]>([])
@@ -61,7 +62,7 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
   const [expandedMemo, setExpandedMemo] = useState<string | null>(null)
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) ?? null
-  const paymentAmount = parseFloat(amount) || 0
+  const paymentAmount = creditsOnly ? 0 : (parseFloat(amount) || 0)
 
   const totalAllocated = Object.values(allocations).reduce((s, v) => s + (parseFloat(v) || 0), 0)
   const remaining = Math.max(0, paymentAmount - totalAllocated)
@@ -93,7 +94,7 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
   // Load open invoices when entering step 3
   function enterStep3() {
     const amt = parseFloat(amount)
-    if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return }
+    if (!creditsOnly && (!amt || amt <= 0)) { toast.error('Enter a valid amount'); return }
     setStep(3)
     setInvoicesLoading(true)
     Promise.all([
@@ -167,8 +168,39 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
     }
   }
 
+  async function applyCreditMemos(): Promise<number> {
+    let applied = 0
+    for (const [memoId, memoAllocs] of Object.entries(creditMemoAllocations)) {
+      const cmAllocs = Object.entries(memoAllocs)
+        .map(([orderId, val]) => ({ orderId, amount: parseFloat(val) || 0 }))
+        .filter((a) => a.amount > 0)
+      if (cmAllocs.length === 0) continue
+      try {
+        const cmRes = await fetch(`/api/wholesale/credit-memo/${memoId}/apply`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ allocations: cmAllocs }),
+        })
+        if (cmRes.ok) { applied++; const m = creditMemos.find((x) => x.id === memoId); toast.success(`Credit memo ${m?.memoNumber ?? ''} applied`) }
+        else { const e = await cmRes.json().catch(() => ({})); toast.error(e.error ?? 'Failed to apply credit memo') }
+      } catch { toast.error('Failed to apply credit memo') }
+    }
+    return applied
+  }
+
   async function handleSubmit() {
     if (!selectedCustomer) return
+
+    // Credits-only: apply credit memos, record NO payment.
+    if (creditsOnly) {
+      if (totalCreditApplied <= 0.005) { toast.error('Apply at least one credit'); return }
+      setSubmitting(true)
+      try {
+        const applied = await applyCreditMemos()
+        if (applied > 0) { onSuccess(); onClose() }
+      } finally { setSubmitting(false) }
+      return
+    }
+
     if (paymentAmount <= 0) { toast.error('Enter a valid amount'); return }
 
     // Build allocations array (only non-zero)
@@ -304,13 +336,18 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
           {/* Step 2 — Payment Details */}
           {step === 2 && (
             <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Amount *</label>
+              <label className="flex items-center gap-2 text-sm text-gray-700 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 cursor-pointer">
+                <input type="checkbox" checked={creditsOnly} onChange={(e) => setCreditsOnly(e.target.checked)} />
+                Apply credits only — no payment received
+              </label>
+              <div className={creditsOnly ? 'opacity-40 pointer-events-none' : ''}>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Amount {creditsOnly ? '' : '*'}</label>
                 <input
                   type="number"
                   min="0.01"
                   step="0.01"
                   value={amount}
+                  disabled={creditsOnly}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
                   autoFocus
@@ -355,10 +392,10 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
                 </button>
                 <button
                   onClick={enterStep3}
-                  disabled={!amount || parseFloat(amount) <= 0}
+                  disabled={!creditsOnly && (!amount || parseFloat(amount) <= 0)}
                   className="px-6 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
                 >
-                  Next: Allocate
+                  {creditsOnly ? 'Next: Apply Credits' : 'Next: Allocate'}
                 </button>
               </div>
             </div>
@@ -369,33 +406,41 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
             <div className="space-y-4">
               {/* Payment summary bar */}
               <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 text-sm">
-                <div>
-                  <span className="text-gray-500">Payment:</span>{' '}
-                  <span className="font-semibold">{fmt(paymentAmount)}</span>
-                </div>
+                {creditsOnly ? (
+                  <div className="font-medium text-purple-700">Applying credits only — no payment will be recorded</div>
+                ) : (
+                  <div>
+                    <span className="text-gray-500">Payment:</span>{' '}
+                    <span className="font-semibold">{fmt(paymentAmount)}</span>
+                  </div>
+                )}
                 {totalCreditApplied > 0 && (
                   <div>
                     <span className="text-gray-500">Credits:</span>{' '}
                     <span className="font-semibold text-purple-600">{fmt(totalCreditApplied)}</span>
                   </div>
                 )}
-                <div>
-                  <span className="text-gray-500">Allocated:</span>{' '}
-                  <span className={`font-semibold ${totalAllocated > paymentAmount + 0.005 ? 'text-red-600' : 'text-green-600'}`}>
-                    {fmt(totalAllocated)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-500">Remaining:</span>{' '}
-                  <span className="font-semibold">{fmt(remaining)}</span>
-                </div>
+                {!creditsOnly && (
+                  <>
+                    <div>
+                      <span className="text-gray-500">Allocated:</span>{' '}
+                      <span className={`font-semibold ${totalAllocated > paymentAmount + 0.005 ? 'text-red-600' : 'text-green-600'}`}>
+                        {fmt(totalAllocated)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Remaining:</span>{' '}
+                      <span className="font-semibold">{fmt(remaining)}</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               {invoicesLoading ? (
                 <div className="py-8 text-center text-gray-400 text-sm">Loading invoices...</div>
               ) : invoices.length === 0 ? (
                 <div className="py-8 text-center text-gray-400 text-sm">No open invoices for this customer</div>
-              ) : (
+              ) : !creditsOnly ? (
                 <div className="overflow-y-auto max-h-72 border border-gray-200 rounded-lg">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-gray-50">
@@ -458,7 +503,7 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
                     </tbody>
                   </table>
                 </div>
-              )}
+              ) : null}
 
               {/* Credit Memos Section */}
               {creditMemos.length > 0 && invoices.length > 0 && (
@@ -557,6 +602,10 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
                 </div>
               )}
 
+              {creditsOnly && creditMemos.length === 0 && !invoicesLoading && invoices.length > 0 && (
+                <div className="py-6 text-center text-gray-400 text-sm">No open credit memos for this customer.</div>
+              )}
+
               {totalAllocated > paymentAmount + 0.005 && (
                 <p className="text-xs text-red-600">Allocations exceed payment amount by {fmt(totalAllocated - paymentAmount)}</p>
               )}
@@ -567,10 +616,10 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
                 </button>
                 <button
                   onClick={handleSubmit}
-                  disabled={submitting || totalAllocated > paymentAmount + 0.005}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+                  disabled={submitting || (creditsOnly ? totalCreditApplied <= 0.005 : totalAllocated > paymentAmount + 0.005)}
+                  className={`px-6 py-2 text-white rounded-lg text-sm font-medium disabled:opacity-50 ${creditsOnly ? 'bg-purple-600 hover:bg-purple-700' : 'bg-green-600 hover:bg-green-700'}`}
                 >
-                  {submitting ? 'Submitting...' : 'Submit Payment'}
+                  {submitting ? 'Submitting...' : creditsOnly ? `Apply Credits ${totalCreditApplied > 0 ? fmt(totalCreditApplied) : ''}` : 'Submit Payment'}
                 </button>
               </div>
             </div>
