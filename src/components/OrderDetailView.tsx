@@ -103,14 +103,15 @@ interface FullOrder {
 
 // ─── Section card helper ───────────────────────────────────────────────────────
 
-function Section({ title, icon, children }: {
-  title: string; icon?: React.ReactNode; children: React.ReactNode
+function Section({ title, icon, children, check }: {
+  title: string; icon?: React.ReactNode; children: React.ReactNode; check?: boolean
 }) {
   return (
     <div className="rounded-lg border border-gray-200 dark:border-white/10 overflow-hidden">
       <div className="px-4 py-2 bg-gray-50 dark:bg-white/5 border-b border-gray-200 dark:border-white/10">
         <h3 className="text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
           {icon}{title}
+          {check && <CheckCircle2 size={15} className="text-green-600 shrink-0" aria-label="yes" />}
         </h3>
       </div>
       <div className="px-4 py-3">{children}</div>
@@ -892,7 +893,9 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
 
           {/* Seller-Initiated Refund — refunds issued to Amazon via this system */}
           {order.orderSource === 'amazon' && (order.refundsIssued?.length ?? 0) > 0 && (
-            <Section title="Seller-Initiated Refund" icon={<RotateCcw size={12} />}>
+            <Section title="Seller-Initiated Refund" icon={<RotateCcw size={12} />}
+              check={(order.refundsIssued ?? []).some(rf => rf.feedStatus === 'SUCCESS' || rf.feedStatus === 'DONE')}>
+
               <div className="space-y-2">
                 {(order.refundsIssued ?? []).map(rf => {
                   const ok = rf.feedStatus === 'SUCCESS' || rf.feedStatus === 'DONE'
@@ -921,7 +924,9 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
 
           {/* Returns (Marketplace RMAs) */}
           {order.marketplaceRMAs.length > 0 && (
-            <Section title="Returns" icon={<RotateCcw size={12} />}>
+            <Section title="Returns" icon={<RotateCcw size={12} />}
+              check={order.marketplaceRMAs.some(r => r.status === 'RECEIVED')}>
+
               <div className="space-y-4">
                 {order.marketplaceRMAs.map(rma => (
                   <div key={rma.id} className="border border-gray-200 dark:border-white/10 rounded-lg overflow-hidden">
