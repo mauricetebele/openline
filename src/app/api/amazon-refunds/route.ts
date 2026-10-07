@@ -33,18 +33,58 @@ export async function GET(req: NextRequest) {
   const countMap: Record<string, number> = { NOT_REVIEWED: 0, FLAGGED: 0, VALIDATED: 0 }
   for (const c of counts) countMap[c.status] = c._count._all
 
-  // Resolve FBA vs MFN per refund from the order's fulfillment channel.
+  // Resolve FBA vs MFN + per-order return/refund stats.
   const orderIds = Array.from(new Set(rows.map(r => r.orderId).filter((o): o is string => !!o)))
   const orders = orderIds.length > 0
     ? await prisma.order.findMany({
         where: { amazonOrderId: { in: orderIds }, orderSource: 'amazon' },
-        select: { amazonOrderId: true, fulfillmentChannel: true },
+        select: {
+          amazonOrderId: true, fulfillmentChannel: true,
+          items: { select: { quantityOrdered: true } },
+          marketplaceRMAs: { select: { status: true, items: { select: { quantityReturned: true } } } },
+        },
       })
     : []
-  const channelByOrder = new Map(orders.map(o => [o.amazonOrderId, o.fulfillmentChannel === 'AFN' ? 'FBA' : o.fulfillmentChannel === 'MFN' ? 'MFN' : null]))
+
+  // Seller-initiated refunds issued via our system, summed per Amazon order
+  // (exclude rejected ones so the total reflects refunds that actually went out).
+  const issued = orderIds.length > 0
+    ? await prisma.amazonRefundIssued.groupBy({
+        by: ['amazonOrderId'],
+        where: { amazonOrderId: { in: orderIds }, feedStatus: { notIn: ['ERROR', 'FATAL', 'CANCELLED'] } },
+        _sum: { amount: true },
+      })
+    : []
+  const sellerRefundByOrder = new Map(issued.map(i => [i.amazonOrderId, Number(i._sum.amount ?? 0)]))
+
+  interface OrderStat { channel: 'MFN' | 'FBA' | null; unitsSold: number; unitsReceived: number }
+  const statByOrder = new Map<string, OrderStat>()
+  for (const o of orders) {
+    const channel = o.fulfillmentChannel === 'AFN' ? 'FBA' : o.fulfillmentChannel === 'MFN' ? 'MFN' : null
+    const unitsSold = o.items.reduce((s, it) => s + (it.quantityOrdered ?? 0), 0)
+    const unitsReceived = o.marketplaceRMAs
+      .filter(rma => rma.status === 'RECEIVED')
+      .reduce((s, rma) => s + rma.items.reduce((a, it) => a + Number(it.quantityReturned ?? 0), 0), 0)
+    statByOrder.set(o.amazonOrderId, { channel, unitsSold, unitsReceived })
+  }
 
   return NextResponse.json({
-    rows: rows.map(r => ({ ...r, amount: Number(r.amount), channel: r.orderId ? channelByOrder.get(r.orderId) ?? null : null })),
+    rows: rows.map(r => {
+      const stat = r.orderId ? statByOrder.get(r.orderId) : undefined
+      const channel = stat?.channel ?? null
+      const isMfn = channel === 'MFN'
+      return {
+        ...r,
+        amount: Number(r.amount),
+        channel,
+        // MFN only: total of our seller-initiated refunds on this order.
+        sellerRefundTotal: isMfn ? (sellerRefundByOrder.get(r.orderId ?? '') ?? 0) : null,
+        // MFN only: units received back on a return vs units sold.
+        merchReturn: isMfn && stat && stat.unitsSold > 0
+          ? { received: stat.unitsReceived, sold: stat.unitsSold }
+          : null,
+      }
+    }),
     counts: { notReviewed: countMap.NOT_REVIEWED, flagged: countMap.FLAGGED, validated: countMap.VALIDATED },
   })
 }

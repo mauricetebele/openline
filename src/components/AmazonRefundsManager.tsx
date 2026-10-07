@@ -27,6 +27,8 @@ interface Refund {
   flaggedByLabel: string | null
   validatedByLabel: string | null
   channel: 'FBA' | 'MFN' | null
+  sellerRefundTotal: number | null
+  merchReturn: { received: number; sold: number } | null
 }
 interface Counts { notReviewed: number; flagged: number; validated: number }
 
@@ -191,6 +193,8 @@ export default function AmazonRefundsManager() {
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Order ID</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Channel</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Amount</th>
+                <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap" title="Total seller-initiated Amazon refunds issued on this order (MFN only)">Seller Refund</th>
+                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap" title="Units received back on a return vs units sold (MFN only)">Merch Return</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Type</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Description</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap w-64">Note</th>
@@ -235,6 +239,21 @@ export default function AmazonRefundsManager() {
                     )}
                   </td>
                   <td className={clsx('px-3 py-2 text-right font-mono font-semibold whitespace-nowrap', r.amount < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400')}>{money(r.amount, r.currency)}</td>
+                  <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
+                    {r.sellerRefundTotal != null && r.sellerRefundTotal > 0
+                      ? <span className="text-gray-700 dark:text-gray-200">{money(r.sellerRefundTotal, r.currency)}</span>
+                      : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {r.merchReturn
+                      ? <span className={clsx('inline-flex px-1.5 py-0.5 rounded text-[11px] font-semibold',
+                          r.merchReturn.received >= r.merchReturn.sold ? 'bg-green-100 text-green-700'
+                          : r.merchReturn.received > 0 ? 'bg-amber-100 text-amber-800'
+                          : 'bg-gray-100 text-gray-500')}>
+                          {r.merchReturn.received}/{r.merchReturn.sold} RET
+                        </span>
+                      : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                  </td>
                   <td className="px-3 py-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.transactionType ?? 'Refund'}</td>
                   <td className="px-3 py-2 text-gray-500 dark:text-gray-400 max-w-[240px] truncate" title={r.description ?? ''}>{r.description ?? '—'}</td>
                   <td className="px-3 py-2">
