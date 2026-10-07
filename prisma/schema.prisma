@@ -1504,6 +1504,26 @@ model InventorySerial {
   @@map("inventory_serials")
 }
 
+// One row per physical scan in the BH Sorting Tool — the audit/history of when a
+// device was scanned, the battery health % read at that moment, and the verdict.
+model BhScanEvent {
+  id               String   @id @default(cuid())
+  serialNumber     String
+  batteryHealthPct Float?
+  verdict          String   // good | bad | no_bh | not_found | not_in_stock
+  threshold        Int?
+  sku              String?
+  model            String?
+  grade            String?
+  scannedById      String?
+  scannedByEmail   String?
+  scannedAt        DateTime @default(now())
+
+  @@index([scannedAt])
+  @@index([serialNumber])
+  @@map("bh_scan_events")
+}
+
 enum SerialStatus {
   IN_STOCK
   OUT_OF_STOCK
