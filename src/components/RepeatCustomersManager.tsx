@@ -71,6 +71,24 @@ export default function RepeatCustomersManager() {
     return next
   })
 
+  const [sortCol, setSortCol] = useState<'orderCount' | 'lastOrderDate'>('lastOrderDate')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  function sortByCol(col: 'orderCount' | 'lastOrderDate') {
+    if (sortCol === col) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortCol(col); setSortDir('desc') }
+  }
+  const sorted = [...customers].sort((a, b) => {
+    const d = sortCol === 'orderCount'
+      ? a.orderCount - b.orderCount
+      : new Date(a.lastOrderDate ?? 0).getTime() - new Date(b.lastOrderDate ?? 0).getTime()
+    return sortDir === 'asc' ? d : -d
+  })
+  const arrow = (col: 'orderCount' | 'lastOrderDate') => (
+    <span className={clsx('text-[10px]', sortCol === col ? 'text-indigo-500' : 'text-gray-300')}>
+      {sortCol === col ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+    </span>
+  )
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
@@ -93,8 +111,12 @@ export default function RepeatCustomersManager() {
               <th className="w-6 px-2 py-2.5" />
               <th className="text-left px-3 py-2.5 font-semibold">Customer Name</th>
               <th className="text-left px-3 py-2.5 font-semibold">Customer Address</th>
-              <th className="text-right px-3 py-2.5 font-semibold"># of Orders</th>
-              <th className="text-left px-3 py-2.5 font-semibold">Date of Last Order</th>
+              <th className="text-right px-3 py-2.5 font-semibold cursor-pointer select-none hover:text-gray-700" onClick={() => sortByCol('orderCount')}>
+                <span className="inline-flex items-center gap-1"># of Orders {arrow('orderCount')}</span>
+              </th>
+              <th className="text-left px-3 py-2.5 font-semibold cursor-pointer select-none hover:text-gray-700" onClick={() => sortByCol('lastOrderDate')}>
+                <span className="inline-flex items-center gap-1">Date of Last Order {arrow('lastOrderDate')}</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -102,7 +124,7 @@ export default function RepeatCustomersManager() {
               <tr><td colSpan={5} className="px-3 py-10 text-center text-gray-400"><Loader2 size={18} className="animate-spin inline" /></td></tr>
             ) : customers.length === 0 ? (
               <tr><td colSpan={5} className="px-3 py-10 text-center text-sm text-gray-400">No repeat customers found.</td></tr>
-            ) : customers.map((c, i) => {
+            ) : sorted.map((c) => {
               const k = `${c.name}|${c.postal}`
               const isOpen = expanded.has(k)
               return (
