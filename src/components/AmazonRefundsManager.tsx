@@ -214,7 +214,7 @@ export default function AmazonRefundsManager() {
                     <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
                       {r.validatedAt ? (
                         <div className="flex flex-col leading-tight">
-                          <span>{new Date(r.validatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          <span>{new Date(r.validatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
                           {r.validatedByLabel && <span className="text-[10px] text-gray-400">{r.validatedByLabel}</span>}
                         </div>
                       ) : '—'}
