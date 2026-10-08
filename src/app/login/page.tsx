@@ -29,11 +29,15 @@ export default function LoginPage() {
     })
     if (!res.ok) throw new Error('Failed to create session')
     const data = await res.json()
-    const dest = data.role === 'VENDOR' ? '/vendor/inventory'
+    const roleDest = data.role === 'VENDOR' ? '/vendor/inventory'
       : data.role === 'CLIENT' ? '/client/inventory'
       : data.role === 'RESOLUTION_PROVIDER' ? '/cases'
       : data.role === 'MARKETPLACE_CS' ? '/customer-service'
       : '/refunds'
+    // Honor a deep link preserved through login (e.g. a case notification link),
+    // falling back to the role's home. Middleware still guards role access.
+    const from = new URLSearchParams(window.location.search).get('from')
+    const dest = from && from.startsWith('/') && !from.startsWith('/login') ? from : roleDest
     router.push(dest)
     router.refresh()
   }

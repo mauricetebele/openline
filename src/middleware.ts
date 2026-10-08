@@ -37,10 +37,11 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  // No session → redirect to login
+  // No session → redirect to login, preserving the full path + query so deep
+  // links (e.g. /customer-service?case=<id>) survive authentication.
   if (!session) {
     const loginUrl = new URL('/login', req.url)
-    loginUrl.searchParams.set('from', pathname)
+    loginUrl.searchParams.set('from', pathname + req.nextUrl.search)
     return NextResponse.redirect(loginUrl)
   }
 
