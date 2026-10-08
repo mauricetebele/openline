@@ -25,8 +25,9 @@ const fullInclude = {
   },
 } satisfies Prisma.InventorySerialInclude
 
-/** Landed unit cost of the serial: PO-line unit cost (fallback to the serial's own
- *  unitCost) + its cost-code amount. Returns null when no cost is known. */
+/** Unit cost of the serial: PO-line unit cost (fallback to the serial's own
+ *  unitCost). Cost-code amount is intentionally NOT included. Returns null when
+ *  no cost is known. */
 async function fetchFullWithCost(id: string) {
   const full = await prisma.inventorySerial.findUnique({ where: { id }, include: fullInclude })
   if (!full) return null
@@ -34,8 +35,7 @@ async function fetchFullWithCost(id: string) {
   const base = pol?.unitCost != null ? Number(pol.unitCost)
     : full.unitCost != null ? Number(full.unitCost)
     : null
-  const costCode = pol?.costCode?.amount != null ? Number(pol.costCode.amount) : 0
-  const unitCost = base != null ? Math.round((base + costCode) * 100) / 100 : null
+  const unitCost = base != null ? Math.round(base * 100) / 100 : null
   return { ...full, unitCost }
 }
 
