@@ -537,6 +537,27 @@ export default function BulkListingCreator() {
 
   const succeededCount = progressRows.filter(r => r.status === 'success').length
   const failedCount = progressRows.filter(r => r.status === 'error').length
+
+  // Qty-sync (push) toggle for just-created listings — keyed by seller SKU.
+  const [syncOn, setSyncOn] = useState<Record<string, boolean>>({})
+  const [syncBusy, setSyncBusy] = useState<string | null>(null)
+  async function toggleSync(sellerSku: string) {
+    const next = !syncOn[sellerSku]
+    setSyncBusy(sellerSku)
+    try {
+      const res = await fetch('/api/marketplace-skus/set-sync', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sellerSku, marketplace, accountId, syncQty: next }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error ?? 'Failed to update qty sync')
+      setSyncOn(p => ({ ...p, [sellerSku]: next }))
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to update qty sync')
+    } finally {
+      setSyncBusy(null)
+    }
+  }
   const checkedCount = stagingRows.filter(r => r.checked).length
 
   // ─── Upload: file handler ───────────────────────────────────────────────
@@ -1603,6 +1624,7 @@ export default function BulkListingCreator() {
                       {isBM && <th className="px-3 py-2">Condition</th>}
                       {!isBM && <th className="px-3 py-2">Price</th>}
                       <th className="px-3 py-2 w-16">Status</th>
+                      <th className="px-3 py-2 w-20" title="Enable marketplace qty sync / push for the created listing">Sync Qty</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1631,6 +1653,27 @@ export default function BulkListingCreator() {
                               <XCircle size={14} className="text-red-500 shrink-0" />
                               <span className="text-xs text-red-600 break-all">{row.error}</span>
                             </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {row.status === 'success' ? (
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={!!syncOn[row.marketplaceSku]}
+                              disabled={syncBusy === row.marketplaceSku}
+                              onClick={() => toggleSync(row.marketplaceSku)}
+                              title={syncOn[row.marketplaceSku] ? 'Qty sync ON — quantity pushes to the marketplace' : 'Enable qty sync / push for this listing'}
+                              className={clsx(
+                                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1',
+                                syncOn[row.marketplaceSku] ? 'bg-teal-500' : 'bg-gray-200 hover:bg-gray-300',
+                                syncBusy === row.marketplaceSku && 'opacity-50',
+                              )}
+                            >
+                              <span className={clsx('inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform', syncOn[row.marketplaceSku] ? 'translate-x-4' : 'translate-x-0.5')} />
+                            </button>
+                          ) : (
+                            <span className="text-xs text-gray-300">—</span>
                           )}
                         </td>
                       </tr>
