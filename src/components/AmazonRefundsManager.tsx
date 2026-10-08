@@ -26,6 +26,7 @@ interface Refund {
   note: string | null
   flaggedByLabel: string | null
   validatedByLabel: string | null
+  validatedAt: string | null
   channel: 'FBA' | 'MFN' | null
   sellerRefundTotal: number | null
   merchReturn: { received: number; sold: number } | null
@@ -190,6 +191,7 @@ export default function AmazonRefundsManager() {
             <thead className="sticky top-0 bg-gray-800 z-10">
               <tr>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Posted</th>
+                {tab === 'validated' && <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Validated</th>}
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Order ID</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Channel</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Amount</th>
@@ -208,6 +210,16 @@ export default function AmazonRefundsManager() {
                     ? 'bg-amber-100 dark:bg-amber-900/30 ring-2 ring-inset ring-amber-400'
                     : i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50')}>
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(r.postedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                  {tab === 'validated' && (
+                    <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                      {r.validatedAt ? (
+                        <div className="flex flex-col leading-tight">
+                          <span>{new Date(r.validatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          {r.validatedByLabel && <span className="text-[10px] text-gray-400">{r.validatedByLabel}</span>}
+                        </div>
+                      ) : '—'}
+                    </td>
+                  )}
                   <td className="px-3 py-2 font-mono whitespace-nowrap">
                     {r.orderId ? (
                       <span className="inline-flex items-center gap-1.5">

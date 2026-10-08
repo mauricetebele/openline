@@ -24,7 +24,10 @@ export async function GET(req: NextRequest) {
   const [rows, counts] = await Promise.all([
     prisma.amazonRefundReview.findMany({
       where: { status },
-      orderBy: { postedDate: 'desc' },
+      // Validated tab: most-recently-validated first. Other tabs: newest posted.
+      orderBy: status === 'VALIDATED'
+        ? [{ validatedAt: { sort: 'desc', nulls: 'last' } }, { postedDate: 'desc' }]
+        : { postedDate: 'desc' },
       take: 2000,
     }),
     prisma.amazonRefundReview.groupBy({ by: ['status'], _count: { _all: true } }),
