@@ -226,6 +226,7 @@ export async function GET(req: NextRequest) {
           : null,
         quantity: ret.quantity,
         returnReason: ret.returnReason,
+        buyerComment: ret.buyerComment,
         returnStatus: ret.returnStatus,
         resolution: ret.resolution,
         returnCarrier: ret.returnCarrier,

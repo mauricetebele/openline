@@ -25,6 +25,7 @@ interface MFNReturnRow {
   orderAmount: number | null
   quantity: number | null
   returnReason: string | null
+  buyerComment: string | null
   returnStatus: string | null
   resolution: string | null
   returnCarrier: string | null
@@ -670,6 +671,14 @@ export default function MFNReturnsManager() {
                           <span className="text-amber-500 font-semibold">Qty {r.quantity}</span>
                         )}
                       </div>
+                      {r.buyerComment && (
+                        <div className="mt-1.5 flex items-start gap-1.5 max-w-md">
+                          <MessageSquare size={12} className="text-indigo-400 shrink-0 mt-0.5" />
+                          <p className="text-[11px] italic text-gray-600 dark:text-gray-300 leading-snug" title={r.buyerComment}>
+                            “{r.buyerComment}”
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Middle: Price, Date, Tracking */}
