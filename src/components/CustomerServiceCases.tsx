@@ -70,6 +70,12 @@ export default function CustomerServiceCases() {
   }, [tab])
   useEffect(() => { loadList() }, [loadList])
 
+  // Deep link from email notifications: /customer-service?case=<id> auto-opens it.
+  useEffect(() => {
+    const caseId = new URLSearchParams(window.location.search).get('case')
+    if (caseId) setSelectedId(caseId)
+  }, [])
+
   return (
     <div className="flex h-[calc(100vh-7rem)] gap-4 p-4">
       {/* Left: list */}

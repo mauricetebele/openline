@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
+import { sendCsCaseMessageNotification } from '@/lib/cs-case-emails'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,7 +27,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'Message body or attachment required' }, { status: 400 })
   }
 
-  const c = await prisma.csCase.findUnique({ where: { id }, select: { id: true, createdById: true } })
+  const c = await prisma.csCase.findUnique({
+    where: { id },
+    select: { id: true, caseNumber: true, createdById: true, createdBy: { select: { email: true, name: true } } },
+  })
   if (!c) return NextResponse.json({ error: 'Case not found' }, { status: 404 })
   const isAdmin = user.role === 'ADMIN'
   if (!isAdmin && c.createdById !== user.dbId) {
@@ -48,6 +52,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
     }),
   ])
+
+  // Notify the case's customer-service agent (the creator) at their login email
+  // whenever someone else posts — i.e. when we (admin) reply on their thread.
+  if (c.createdById !== user.dbId && c.createdBy?.email) {
+    sendCsCaseMessageNotification({
+      caseId: id,
+      caseNumber: c.caseNumber,
+      authorName: user.name || user.email,
+      body: body || '(see attachments)',
+      hasAttachments: attachments.length > 0,
+      recipientEmail: c.createdBy.email,
+      recipientName: c.createdBy.name || c.createdBy.email.split('@')[0],
+    })
+  }
 
   return NextResponse.json({ ok: true, id: msg.id })
 }
