@@ -82,6 +82,7 @@ interface Order {
   shipToName: string | null; shipToAddress1: string | null; shipToAddress2: string | null
   shipToCity: string | null; shipToState: string | null; shipToPostal: string | null
   shipToCountry: string | null; shipToPhone: string | null
+  customerOrderCount?: number | null
   items: OrderItem[]
   label?: OrderLabelSummary | null
   serialAssignments?: { id: string; orderItemId: string; inventorySerial: { serialNumber: string } }[]
@@ -8100,8 +8101,16 @@ export default function UnshippedOrders() {
                   {/* Customer + Ship To / Tracking */}
                   <td className="px-3 py-2.5 whitespace-nowrap align-top">
                     <div className="flex flex-col gap-0.5">
-                      <span className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate block max-w-[160px]" title={order.shipToName ?? order.wholesaleCustomerName ?? ''}>
-                        {order.shipToName ?? order.wholesaleCustomerName ?? '—'}
+                      <span className="flex items-center gap-1 max-w-[180px]">
+                        <span className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate" title={order.shipToName ?? order.wholesaleCustomerName ?? ''}>
+                          {order.shipToName ?? order.wholesaleCustomerName ?? '—'}
+                        </span>
+                        {(order.customerOrderCount ?? 0) > 1 && (
+                          <span title={`${order.customerOrderCount} orders from this customer — possible wholesale lead`}
+                            className="shrink-0 text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+                            ({order.customerOrderCount})
+                          </span>
+                        )}
                       </span>
                       <span className="text-[11px] text-gray-500 dark:text-gray-400">
                         {(() => {

@@ -187,10 +187,30 @@ export async function GET(req: NextRequest) {
       : []
     const mskuMap = new Map(mskuMappings.map(m => [m.sellerSku, m]))
 
+    // Repeat-customer counts: how many orders this account has from the same buyer
+    // (matched on ship-to name + postal). Surfaced so the grid can flag repeat
+    // retail buyers — potential wholesale opportunities.
+    const normBuyer = (s: string | null | undefined) => (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
+    const buyerKey = (o: { shipToName: string | null; shipToPostal: string | null }) =>
+      `${normBuyer(o.shipToName)}|${normBuyer(o.shipToPostal)}`
+    const pageNames = Array.from(new Set(orders.map(o => o.shipToName).filter((n): n is string => !!n)))
+    const countByKey = new Map<string, number>()
+    if (pageNames.length > 0) {
+      const peers = await prisma.order.findMany({
+        where: { accountId, shipToName: { in: pageNames } },
+        select: { shipToName: true, shipToPostal: true },
+      })
+      for (const pr of peers) {
+        const k = buyerKey(pr)
+        countByKey.set(k, (countByKey.get(k) ?? 0) + 1)
+      }
+    }
+
     // Compute requiresTransparency + isSerializable + internalSku/gradeName per order item
     const data = orders.map(order => ({
       ...order,
       requiresTransparency: order.items.some(item => item.isTransparency),
+      customerOrderCount: order.shipToName ? (countByKey.get(buyerKey(order)) ?? 1) : null,
       items: order.items.map(item => {
         const mapping = item.sellerSku ? mskuMap.get(item.sellerSku) : undefined
         const directMatch = item.sellerSku ? serializableSkus.has(item.sellerSku) : false
