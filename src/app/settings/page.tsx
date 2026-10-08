@@ -87,7 +87,7 @@ interface AmazonAccount {
   createdAt: string
 }
 
-type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'ups-buy-shipping' | 'fedex' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer' | 'sickw' | 'grades' | 'cost-codes' | 'security'
+type Section = 'amazon' | 'shipstation' | 'warehouses' | 'ups' | 'ups-buy-shipping' | 'fedex' | 'veeqo' | 'backmarket' | 'rma-settings' | 'store-settings' | 'users' | 'printer' | 'sickw' | 'grades' | 'cost-codes' | 'security'
 
 // ─── Amazon Accounts Section ──────────────────────────────────────────────────
 
@@ -3065,6 +3065,14 @@ const HUB_GROUPS: HubGroup[] = [
         description: 'Store your FedEx developer credentials to enable live tracking status for FedEx shipments on the Shipping Manifest.',
       },
       {
+        id: 'veeqo',
+        icon: Truck,
+        iconBg: 'bg-teal-50',
+        iconColor: 'text-teal-600',
+        title: 'Veeqo Shipping',
+        description: 'Connect your Veeqo account with an API key to rate-shop and buy discounted shipping labels.',
+      },
+      {
         id: 'sickw',
         icon: Smartphone,
         iconBg: 'bg-cyan-50',
@@ -3246,6 +3254,7 @@ function SettingsContent() {
             {activeSection === 'ups'            && <UpsCredentialsSection />}
             {activeSection === 'ups-buy-shipping' && <UpsBuyShippingSection />}
             {activeSection === 'fedex'          && <FedexCredentialsSection />}
+            {activeSection === 'veeqo'          && <VeeqoCredentialsSection />}
             {activeSection === 'sickw'          && <SickwCredentialsSection />}
             {activeSection === 'backmarket'     && <BackMarketSection />}
             {activeSection === 'rma-settings'   && <RMASettingsSection />}
@@ -3258,6 +3267,107 @@ function SettingsContent() {
           </div>
         )}
 
+      </div>
+    </div>
+  )
+}
+
+// ─── Veeqo Shipping Section ───────────────────────────────────────────────────
+function VeeqoCredentialsSection() {
+  const [configured, setConfigured] = useState(false)
+  const [maskedKey, setMaskedKey] = useState<string | null>(null)
+  const [lastTestedAt, setLastTestedAt] = useState<string | null>(null)
+  const [lastTestOk, setLastTestOk] = useState<boolean | null>(null)
+  const [apiKey, setApiKey] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const load = useCallback(() => {
+    fetch('/api/veeqo/credentials').then(r => r.json()).then(d => {
+      setConfigured(!!d.configured)
+      setMaskedKey(d.maskedKey ?? null)
+      setLastTestedAt(d.lastTestedAt ?? null)
+      setLastTestOk(d.lastTestOk ?? null)
+    }).catch(() => {})
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  async function save() {
+    if (!apiKey.trim()) { setMsg({ ok: false, text: 'Enter an API key' }); return }
+    setSaving(true); setMsg(null)
+    try {
+      const res = await fetch('/api/veeqo/credentials', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: apiKey.trim() }) })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error ?? 'Failed to save')
+      setApiKey(''); setMsg({ ok: true, text: 'API key saved.' }); load()
+    } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : 'Failed to save' }) }
+    finally { setSaving(false) }
+  }
+
+  async function test() {
+    setTesting(true); setMsg(null)
+    try {
+      const res = await fetch('/api/veeqo/credentials/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) })
+      const d = await res.json()
+      if (d.ok) setMsg({ ok: true, text: `Connected to Veeqo${typeof d.deliveryMethods === 'number' ? ` · ${d.deliveryMethods} delivery method(s) available` : ''}.` })
+      else setMsg({ ok: false, text: d.error ?? 'Connection failed' })
+      load()
+    } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : 'Connection failed' }) }
+    finally { setTesting(false) }
+  }
+
+  async function disconnect() {
+    if (!confirm('Remove the Veeqo API key?')) return
+    await fetch('/api/veeqo/credentials', { method: 'DELETE' })
+    setMsg({ ok: true, text: 'Veeqo disconnected.' }); load()
+  }
+
+  return (
+    <div className="max-w-xl space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900">Veeqo Shipping</h2>
+        <p className="text-sm text-gray-500 mt-0.5">Connect Veeqo with an API key to rate-shop and buy discounted labels. Generate a key in Veeqo → Settings → Users → your profile → API key.</p>
+      </div>
+
+      {configured && (
+        <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+          <div className="text-sm">
+            <span className="font-medium text-gray-900">Connected</span>
+            {maskedKey && <span className="ml-2 font-mono text-gray-500">{maskedKey}</span>}
+            <div className="text-xs text-gray-500 mt-0.5">
+              {lastTestedAt
+                ? <>Last test: {new Date(lastTestedAt).toLocaleString()} · {lastTestOk ? <span className="text-green-600 font-medium">OK</span> : <span className="text-red-600 font-medium">Failed</span>}</>
+                : 'Not tested yet'}
+            </div>
+          </div>
+          <button onClick={disconnect} className="text-xs text-gray-500 hover:text-red-600 border border-gray-300 rounded-md px-2.5 py-1.5">Disconnect</button>
+        </div>
+      )}
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">API Key {configured && <span className="text-gray-400">(enter to replace)</span>}</label>
+        <input
+          type="password"
+          value={apiKey}
+          onChange={e => setApiKey(e.target.value)}
+          placeholder={configured ? '•••• enter a new key to replace ••••' : 'Veeqo API key (x-api-key)'}
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-400"
+          autoComplete="off"
+        />
+      </div>
+
+      {msg && (
+        <div className={`text-xs rounded-md px-3 py-2 ${msg.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>{msg.text}</div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button onClick={save} disabled={saving || !apiKey.trim()} className="h-9 px-4 rounded-md bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save API Key'}
+        </button>
+        <button onClick={test} disabled={testing || (!configured && !apiKey.trim())} className="h-9 px-4 rounded-md border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
+          {testing ? 'Testing…' : 'Test Connection'}
+        </button>
       </div>
     </div>
   )

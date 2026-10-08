@@ -830,6 +830,21 @@ model FedexShippingCredential {
   @@map("fedex_shipping_credentials")
 }
 
+// Veeqo shipping integration — single API key (x-api-key) for rate-shopping and
+// buying discounted labels. Key stored encrypted.
+model VeeqoCredential {
+  id           String    @id @default(cuid())
+  apiKeyEnc    String
+  nickname     String?
+  isActive     Boolean   @default(true)
+  lastTestedAt DateTime?
+  lastTestOk   Boolean?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("veeqo_credentials")
+}
+
 model BackMarketCredential {
   id        String   @id @default(cuid())
   apiKeyEnc String
