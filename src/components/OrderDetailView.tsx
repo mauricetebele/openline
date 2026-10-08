@@ -165,6 +165,50 @@ function trackingHref(tracking: string): string {
   }
 }
 
+// ─── Live outbound-shipment tracking (UPS / FedEx) ──────────────────────────
+function ShipmentTracking({ tracking }: { tracking: string }) {
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [data, setData] = useState<{ status: string | null; deliveredAt: string | null; estimatedDelivery: string | null } | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function load() {
+    setBusy(true); setErr(null)
+    try {
+      const res = await fetch(`/api/tracking/status?tracking=${encodeURIComponent(tracking)}`)
+      const d = await res.json()
+      if (!res.ok || d.error) { setErr(d.error ?? 'Tracking unavailable'); setData(null) }
+      else setData({ status: d.status ?? null, deliveredAt: d.deliveredAt ?? null, estimatedDelivery: d.estimatedDelivery ?? null })
+    } catch { setErr('Tracking unavailable') }
+    finally { setBusy(false); setLoading(false) }
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [tracking])
+
+  const delivered = !!data?.deliveredAt
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-100 dark:border-white/10 flex items-center justify-between gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap min-w-0">
+        <a href={trackingHref(tracking)} target="_blank" rel="noopener noreferrer" className="font-mono text-xs text-amazon-blue hover:underline break-all">{tracking}</a>
+        <span className="text-[10px] text-gray-400 shrink-0">{carrierOf(tracking)}</span>
+        {loading ? (
+          <span className="text-[11px] text-gray-400 inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> checking…</span>
+        ) : data?.status ? (
+          <span className={clsx('text-[11px] px-1.5 py-0.5 rounded font-semibold', delivered ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700')}>
+            {delivered ? `Delivered ${fmtD(data.deliveredAt)}` : data.status}
+          </span>
+        ) : err ? (
+          <span className="text-[11px] text-gray-400">{err}</span>
+        ) : null}
+        {!delivered && data?.estimatedDelivery && <span className="text-[11px] text-gray-500">Est. {fmtD(data.estimatedDelivery)}</span>}
+      </div>
+      <button onClick={load} disabled={busy} title="Refresh live carrier tracking" className="text-[11px] text-gray-500 hover:text-amazon-blue inline-flex items-center gap-1 disabled:opacity-50 shrink-0">
+        {busy ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />} Refresh
+      </button>
+    </div>
+  )
+}
+
 // ─── Amazon refund confirmation modal ───────────────────────────────────────
 interface RefundEligible { source: string; currency: string; principal: number; tax: number; shipping: number; regulatoryFee: number }
 
@@ -731,6 +775,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
               {order.label.isTest && (
                 <span className="inline-block mt-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">Test Label</span>
               )}
+              {order.label.trackingNumber && !order.label.isTest && <ShipmentTracking tracking={order.label.trackingNumber} />}
             </Section>
           ) : order.shipTracking ? (
             <Section title="Shipment" icon={<Truck size={12} />}>
@@ -746,6 +791,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                   <p className="font-mono font-medium text-gray-900 dark:text-white break-all">{order.shipTracking}</p>
                 </div>
               </div>
+              {order.shipTracking && <ShipmentTracking tracking={order.shipTracking} />}
             </Section>
           ) : null}
 
