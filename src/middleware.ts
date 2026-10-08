@@ -71,6 +71,19 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/cases', req.url))
   }
 
+  // MARKETPLACE_CS role — restricted to the Customer Service Case Manager only
+  if (role === 'MARKETPLACE_CS') {
+    if (
+      pathname.startsWith('/customer-service') ||
+      pathname.startsWith('/api/cs-cases') ||
+      pathname === '/api/cases/upload' ||
+      pathname.startsWith('/api/auth/')
+    ) {
+      return NextResponse.next()
+    }
+    return NextResponse.redirect(new URL('/customer-service', req.url))
+  }
+
   // REVIEWER role — restricted to the Removal Cases feature only
   if (role === 'REVIEWER') {
     if (

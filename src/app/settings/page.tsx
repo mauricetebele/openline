@@ -1905,7 +1905,7 @@ function UsersSection() {
   const [formEmail, setFormEmail] = useState('')
   const [formName, setFormName] = useState('')
   const [formPassword, setFormPassword] = useState('')
-  const [formRole, setFormRole] = useState<'REVIEWER' | 'EMPLOYEE' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR'>('REVIEWER')
+  const [formRole, setFormRole] = useState<'REVIEWER' | 'EMPLOYEE' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR' | 'MARKETPLACE_CS'>('REVIEWER')
 
   // Firebase Admin (direct password setting) config
   const [fbConfigured, setFbConfigured] = useState(false) // service-account key present
@@ -2345,7 +2345,7 @@ function UsersSection() {
               />
               <select
                 value={formRole}
-                onChange={e => setFormRole(e.target.value as 'REVIEWER' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR')}
+                onChange={e => setFormRole(e.target.value as 'REVIEWER' | 'ADMIN' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR' | 'MARKETPLACE_CS')}
                 className="input"
               >
                 <option value="REVIEWER">Reviewer (Removal Cases)</option>
@@ -2354,6 +2354,7 @@ function UsersSection() {
                 <option value="CLIENT">Client</option>
                 <option value="RESOLUTION_PROVIDER">Resolution Provider</option>
                 <option value="VENDOR">Vendor</option>
+                <option value="MARKETPLACE_CS">Marketplace Customer Service Agent</option>
               </select>
               {formRole === 'CLIENT' && (
                 <input
@@ -2522,7 +2523,9 @@ function UsersSection() {
                         ? 'bg-teal-100 text-teal-700'
                         : u.role === 'VENDOR'
                           ? 'bg-orange-100 text-orange-700'
-                          : 'bg-gray-100 text-gray-600'
+                          : u.role === 'MARKETPLACE_CS'
+                            ? 'bg-indigo-100 text-indigo-700'
+                            : 'bg-gray-100 text-gray-600'
                 }`}
               >
                 <option value="REVIEWER">Reviewer (Removal Cases)</option>
@@ -2531,6 +2534,7 @@ function UsersSection() {
                 <option value="CLIENT">Client</option>
                 <option value="RESOLUTION_PROVIDER">Resolution Provider</option>
                 <option value="VENDOR">Vendor</option>
+                <option value="MARKETPLACE_CS">Marketplace Customer Service Agent</option>
               </select>
               <button
                 onClick={() => handleResetPassword(u)}

@@ -32,6 +32,7 @@ export default function LoginPage() {
     const dest = data.role === 'VENDOR' ? '/vendor/inventory'
       : data.role === 'CLIENT' ? '/client/inventory'
       : data.role === 'RESOLUTION_PROVIDER' ? '/cases'
+      : data.role === 'MARKETPLACE_CS' ? '/customer-service'
       : '/refunds'
     router.push(dest)
     router.refresh()

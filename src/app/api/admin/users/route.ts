@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
   if (password.length < 6)
     return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
 
-  const validRoles = ['ADMIN', 'EMPLOYEE', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER', 'VENDOR']
+  const validRoles = ['ADMIN', 'EMPLOYEE', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER', 'VENDOR', 'MARKETPLACE_CS']
   const finalRole = validRoles.includes(role ?? '') ? role! : 'REVIEWER'
 
   // Check email uniqueness in our DB
@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
         email,
         name,
         firebaseUid,
-        role: finalRole as 'ADMIN' | 'EMPLOYEE' | 'REVIEWER' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR',
+        role: finalRole as 'ADMIN' | 'EMPLOYEE' | 'REVIEWER' | 'CLIENT' | 'RESOLUTION_PROVIDER' | 'VENDOR' | 'MARKETPLACE_CS',
         ...(companyName ? { companyName } : {}),
       },
       select: { id: true, name: true, email: true, role: true, createdAt: true, companyName: true },
@@ -215,7 +215,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   const data: Record<string, string | boolean | null> = {}
-  if (role && ['ADMIN', 'EMPLOYEE', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER', 'VENDOR'].includes(role)) data.role = role
+  if (role && ['ADMIN', 'EMPLOYEE', 'REVIEWER', 'CLIENT', 'RESOLUTION_PROVIDER', 'VENDOR', 'MARKETPLACE_CS'].includes(role)) data.role = role
   if (name) data.name = name
   if (companyName !== undefined) data.companyName = companyName ?? null
   if (typeof canAccessOli === 'boolean') data.canAccessOli = canAccessOli

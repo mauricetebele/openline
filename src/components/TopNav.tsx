@@ -10,7 +10,7 @@ import {
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone, BatteryCharging,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
   Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain, AlertCircle, Mail,
-  Sparkles, Receipt, Ban, Wrench, KeyRound, Languages,
+  Sparkles, Receipt, Ban, Wrench, KeyRound, Languages, MessageSquare,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLanguage } from '@/context/LanguageContext'
@@ -122,6 +122,7 @@ const NAV: NavItem[] = [
   },
   { href: '/oli',              label: 'OLI',               icon: Brain },
   { href: '/cases',            label: 'Resolution Center', icon: FolderOpen },
+  { href: '/customer-service', label: 'Customer Service',  icon: MessageSquare },
   { href: '/serial-search',    label: 'Serial Search',    icon: Barcode },
   {
     group: true,
@@ -331,6 +332,7 @@ export default function TopNav() {
   const [storeLogo, setStoreLogo] = useState<string | null>(null)
   const [dueToday, setDueToday] = useState(0)
   const [unreadAlerts, setUnreadAlerts] = useState(0)
+  const [csUnread, setCsUnread] = useState(0)
   const [unreviewedRefunds, setUnreviewedRefunds] = useState(0)
 
   // Fetch store logo — validate it actually loads before using
@@ -386,6 +388,19 @@ export default function TopNav() {
     return () => clearInterval(interval)
   }, [])
 
+  // Fetch unread Customer Service case count for the nav badge
+  useEffect(() => {
+    function fetchCs() {
+      fetch('/api/cs-cases/unread-count')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.count !== undefined) setCsUnread(d.count) })
+        .catch(() => {})
+    }
+    fetchCs()
+    const interval = setInterval(fetchCs, 60_000)
+    return () => clearInterval(interval)
+  }, [])
+
   function isActive(href: string) {
     const path = href.split('?')[0]  // strip query string for active check
     if (path === '/wholesale') return pathname === '/wholesale'
@@ -400,6 +415,8 @@ export default function TopNav() {
   let base: NavItem[] = user?.canAccessOli ? NAV : NAV.filter(i => !('href' in i && i.href === '/oli'))
   if (!(user?.canAccessMail || user?.role === 'ADMIN')) base = base.filter(i => !('href' in i && i.href === '/mail'))
   if (user?.role === 'EMPLOYEE') base = base.filter(i => !('group' in i && i.label === 'Reports'))
+  // Customer Service case manager is ADMIN-only on the internal nav (CS agents use their own shell).
+  if (user?.role !== 'ADMIN') base = base.filter(i => !('href' in i && i.href === '/customer-service'))
   const filteredNav: NavItem[] = user?.role === 'REVIEWER'
     ? [{ href: '/removal-cases', label: 'Removal Cases', icon: AlertCircle }]
     : base
@@ -431,6 +448,11 @@ export default function TopNav() {
       >
         <item.icon size={14} />
         {item.label}
+        {item.href === '/customer-service' && csUnread > 0 && (
+          <span className="ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+            {csUnread > 99 ? '99+' : csUnread}
+          </span>
+        )}
       </Link>
     )
   }

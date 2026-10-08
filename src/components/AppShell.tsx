@@ -16,9 +16,12 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     if (!loading && user?.role === 'RESOLUTION_PROVIDER') {
       router.replace('/cases')
     }
+    if (!loading && user?.role === 'MARKETPLACE_CS') {
+      router.replace('/customer-service')
+    }
   }, [user, loading, router])
 
-  if (!loading && (user?.role === 'CLIENT' || user?.role === 'RESOLUTION_PROVIDER')) return null
+  if (!loading && (user?.role === 'CLIENT' || user?.role === 'RESOLUTION_PROVIDER' || user?.role === 'MARKETPLACE_CS')) return null
 
   return (
     <div className="flex flex-col min-h-screen">

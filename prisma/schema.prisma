@@ -37,6 +37,10 @@ model User {
   caseTaggedUsers CaseTaggedUser[]
   caseMessages    CaseMessage[]
 
+  csCasesCreated  CsCase[]        @relation("CsCaseCreatedBy")
+  csCasesResolved CsCase[]        @relation("CsCaseResolvedBy")
+  csCaseMessages  CsCaseMessage[] @relation("CsCaseMessageAuthor")
+
   visibleUsers       ResolutionProviderVisibility[] @relation("ResProviderVisibility")
   visibleToProviders ResolutionProviderVisibility[] @relation("ResProviderVisibleTo")
 
@@ -370,6 +374,7 @@ enum UserRole {
   CLIENT
   RESOLUTION_PROVIDER
   VENDOR
+  MARKETPLACE_CS // Marketplace Customer Service Agent — scoped to the Case Manager
 }
 
 enum FulfillmentType {
@@ -2613,6 +2618,50 @@ model CaseMessage {
 
   @@index([caseId])
   @@map("case_messages")
+}
+
+// ─── Marketplace Customer Service Cases (agent ↔ admin ticketing) ────────────
+enum CsCaseStatus {
+  OPEN
+  RESOLVED
+}
+
+model CsCase {
+  id              String          @id @default(cuid())
+  caseNumber      Int             @unique @default(autoincrement())
+  orderId         String? // optional marketplace order id the question is about
+  status          CsCaseStatus    @default(OPEN)
+  createdById     String
+  createdBy       User            @relation("CsCaseCreatedBy", fields: [createdById], references: [id])
+  resolvedAt      DateTime?
+  resolvedById    String?
+  resolvedBy      User?           @relation("CsCaseResolvedBy", fields: [resolvedById], references: [id])
+  // Thread activity + efficient 2-party unread tracking.
+  lastMessageAt   DateTime        @default(now())
+  lastMessageById String?
+  agentReadAt     DateTime?
+  adminReadAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  messages        CsCaseMessage[]
+
+  @@index([status])
+  @@index([createdById])
+  @@map("cs_cases")
+}
+
+model CsCaseMessage {
+  id          String   @id @default(cuid())
+  caseId      String
+  case        CsCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User     @relation("CsCaseMessageAuthor", fields: [authorId], references: [id])
+  body        String   @db.Text
+  attachments Json? // [{ url, filename, contentType, size }]
+  createdAt   DateTime @default(now())
+
+  @@index([caseId])
+  @@map("cs_case_messages")
 }
 
 model ResolutionProviderVisibility {
