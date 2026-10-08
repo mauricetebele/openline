@@ -4,7 +4,7 @@ import { format, formatDistanceToNowStrict } from 'date-fns'
 import {
   Search, RefreshCcw, ExternalLink, Loader2, Filter, CheckCircle, XCircle,
   Package, Truck, Calendar, DollarSign, Smartphone, ChevronLeft, ChevronRight,
-  AlertTriangle, Clock,
+  AlertTriangle, Clock, MessageSquare,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { getFmiService, parseFmiStatus, FMI_ICLOUD_ON_OFF } from '@/lib/sickw/fmi'
@@ -106,6 +106,10 @@ export default function MFNReturnsManager() {
   const [syncStart, setSyncStart] = useState('')
   const [syncEnd, setSyncEnd] = useState('')
 
+  // Buyer-note backfill (pulls "Customer's Comment" from return-notification emails)
+  const [notesSyncing, setNotesSyncing] = useState(false)
+  const [notesMsg, setNotesMsg] = useState<string | null>(null)
+
   // Find My iPhone check state
   const [fmiChecking, setFmiChecking] = useState<Set<string>>(new Set())
 
@@ -188,6 +192,27 @@ export default function MFNReturnsManager() {
     } catch (err) {
       console.error('[MFNReturns] sync error:', err)
       setSyncing(false)
+    }
+  }
+
+  // Backfill buyer notes from the Return-authorization emails for all returns.
+  async function pullBuyerNotes() {
+    setNotesSyncing(true)
+    setNotesMsg(null)
+    try {
+      const res = await fetch('/api/returns/sync-buyer-notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const d = await res.json()
+      if (!res.ok) { setNotesMsg(d.error ?? 'Failed'); return }
+      setNotesMsg(`Updated ${d.returnsUpdated} return${d.returnsUpdated === 1 ? '' : 's'} from ${d.emailsScanned} emails`)
+      setFetchKey((k) => k + 1)
+    } catch {
+      setNotesMsg('Failed to pull buyer notes')
+    } finally {
+      setNotesSyncing(false)
     }
   }
 
@@ -527,6 +552,17 @@ export default function MFNReturnsManager() {
             <RefreshCcw size={11} className={clsx(syncing && 'animate-spin')} />
             {syncing ? 'Syncing...' : 'Sync'}
           </button>
+          <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5" />
+          <button
+            onClick={pullBuyerNotes}
+            disabled={notesSyncing}
+            title="Pull buyer notes (Customer's Comment) from the Return-authorization emails and attach them to returns"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-md font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+          >
+            {notesSyncing ? <Loader2 size={11} className="animate-spin" /> : <MessageSquare size={11} />}
+            {notesSyncing ? 'Pulling...' : 'Pull Buyer Notes'}
+          </button>
+          {notesMsg && <span className="text-xs font-medium text-gray-500 dark:text-gray-400 ml-1">{notesMsg}</span>}
           {syncJob && (
             <span className={clsx(
               'text-xs font-medium ml-1',

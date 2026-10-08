@@ -12,6 +12,7 @@ import { decrypt } from '@/lib/crypto'
 import { getFmiService, parseFmiStatus } from '@/lib/sickw/fmi'
 import { runSickwCheck } from '@/lib/sickw/check'
 import { SpApiClient } from './sp-api'
+import { syncReturnBuyerNotes } from './sync-return-buyer-notes'
 
 const gunzipAsync = promisify(gunzip)
 
@@ -178,9 +179,13 @@ export async function syncMfnReturns(
       select: { id: true },
     })
 
+    // buyerComment is handled separately: the flat-file report usually leaves
+    // it blank, but we backfill it from the Return authorization notification
+    // emails (see sync-return-buyer-notes). Never clobber an email-sourced note
+    // with the report's empty value.
     const data = {
       orderDate, rmaId, trackingNumber, returnValue, currency, returnDate,
-      asin, sku, title, quantity, returnReason, buyerComment, returnStatus, resolution,
+      asin, sku, title, quantity, returnReason, returnStatus, resolution,
       inPolicy, isPrime, aToZClaim, returnType, labelType, labelCost,
       labelPaidBy, returnCarrier, merchantRmaId, returnDeliveryDate,
       orderAmount, orderQuantity, refundedAmount,
@@ -189,9 +194,13 @@ export async function syncMfnReturns(
     }
 
     if (existing) {
-      await prisma.mFNReturn.update({ where: { id: existing.id }, data })
+      await prisma.mFNReturn.update({
+        where: { id: existing.id },
+        // Only overwrite buyerComment when the report actually carries one.
+        data: { ...data, ...(buyerComment ? { buyerComment } : {}) },
+      })
     } else {
-      await prisma.mFNReturn.create({ data: { accountId, orderId, ...data } })
+      await prisma.mFNReturn.create({ data: { accountId, orderId, ...data, buyerComment } })
     }
     totalUpserted++
 
@@ -204,7 +213,20 @@ export async function syncMfnReturns(
     }
   }
 
-  // ── 5. Finalize ────────────────────────────────────────────────────────────
+  // ── 5. Pull buyer notes from the Return-authorization emails ────────────────
+  // The flat-file report omits the buyer's free-text comment; recover it from
+  // the notification emails and attach it to the rows we just synced.
+  try {
+    const spanMs = endDate.getTime() - startDate.getTime()
+    const newerThanDays = Math.min(400, Math.max(1, Math.ceil(spanMs / 86_400_000) + 2))
+    const notes = await syncReturnBuyerNotes({ newerThanDays })
+    if (notes.ok) console.log(`[MFN Returns] buyer notes: scanned ${notes.emailsScanned} emails, updated ${notes.returnsUpdated} returns`)
+    else console.warn(`[MFN Returns] buyer-note sync skipped: ${notes.reason}`)
+  } catch (err) {
+    console.error('[MFN Returns] buyer-note sync failed:', err instanceof Error ? err.message : err)
+  }
+
+  // ── 6. Finalize ────────────────────────────────────────────────────────────
   await prisma.mFNReturnSyncJob.update({
     where: { id: jobId },
     data: { status: 'COMPLETED', totalFound, totalUpserted, completedAt: new Date() },
