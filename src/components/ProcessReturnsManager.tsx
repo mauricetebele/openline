@@ -40,6 +40,8 @@ interface ProcessReturn {
   archivedAt: string | null
   archivedByLabel: string | null
   units: Unit[]
+  // Serial-vs-order match for single-unit Amazon returns (server-computed).
+  match?: { eligible: boolean; matched: boolean }
 }
 interface Grade { id: string; grade: string }
 
@@ -540,6 +542,7 @@ export default function ProcessReturnsManager() {
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Carrier</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Tracking</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Serial #</th>
+                <th className="px-3 py-2.5 text-center font-semibold text-gray-100 whitespace-nowrap">Match</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Units</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Processor</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Received</th>
@@ -578,6 +581,19 @@ export default function ProcessReturnsManager() {
                           <span key={u.id} className="font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{u.serialNumber}</span>
                         ))}
                       </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    {r.match?.matched ? (
+                      <span className="inline-flex" title="Serial matches the order for this return's tracking number">
+                        <CheckCircle2 size={16} className="text-green-500" />
+                      </span>
+                    ) : r.match?.eligible ? (
+                      <span className="inline-flex" title="Serial does not match the order for this return's tracking number">
+                        <XCircle size={15} className="text-gray-300 dark:text-gray-600" />
+                      </span>
+                    ) : (
+                      <span className="text-gray-300 dark:text-gray-600">—</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right text-gray-700 dark:text-gray-300">{r.units.length}</td>

@@ -57,7 +57,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const serialNumbers = Array.from(new Set(units.map(u => u.serialNumber)))
     const existing = serialNumbers.length
       ? await prisma.inventorySerial.findMany({
-          where: { serialNumber: { in: serialNumbers } },
+          // Case-insensitive so a processor's casing doesn't break the match.
+          where: { OR: serialNumbers.map(sn => ({ serialNumber: { equals: sn, mode: 'insensitive' as const } })) },
           select: { serialNumber: true, product: { select: { sku: true } } },
         })
       : []
