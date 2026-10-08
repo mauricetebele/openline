@@ -1,6 +1,6 @@
 'use client'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, X, Search, CheckCircle2, RotateCcw, Package, ChevronDown, Trash2, StickyNote } from 'lucide-react'
+import { Plus, X, Search, CheckCircle2, RotateCcw, Package, ChevronDown, Trash2, StickyNote, ExternalLink } from 'lucide-react'
 import { clsx } from 'clsx'
 import CreateReturnModal from './CreateMarketplaceReturnModal'
 import SickwCheckButton from './SickwCheckButton'
@@ -316,7 +316,22 @@ export default function MarketplaceReturnsManager() {
                         </button>
                       </td>
                       <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400">{rma.order.olmNumber ? `#${rma.order.olmNumber}` : '—'}</td>
-                      <td className="px-3 py-1.5 font-mono text-gray-500 dark:text-gray-400">{rma.order.amazonOrderId}</td>
+                      <td className="px-3 py-1.5 font-mono text-gray-500 dark:text-gray-400">
+                        <span className="inline-flex items-center gap-1">
+                          {rma.order.amazonOrderId}
+                          {rma.order.orderSource === 'backmarket' && rma.order.amazonOrderId && (
+                            <a
+                              href={`https://www.backmarket.com/bo-seller/customer-care/all-requests?orderId=${encodeURIComponent(rma.order.amazonOrderId)}`}
+                              target="_blank" rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              title="Open the BackMarket return request in a new tab"
+                              className="text-blue-600 hover:text-blue-700 shrink-0"
+                            >
+                              <ExternalLink size={12} />
+                            </a>
+                          )}
+                        </span>
+                      </td>
                       <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">{rma.order.shipToName ?? '—'}</td>
                       <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
                         {rma.items.length === 1 ? (rma.items[0].product?.sku ?? rma.items[0].sellerSku ?? '—') : rma.items.length > 1 ? 'Multiple Items' : '—'}
