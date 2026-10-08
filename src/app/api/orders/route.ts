@@ -197,7 +197,7 @@ export async function GET(req: NextRequest) {
     const countByKey = new Map<string, number>()
     if (pageNames.length > 0) {
       const peers = await prisma.order.findMany({
-        where: { accountId, shipToName: { in: pageNames } },
+        where: { accountId, shipToName: { in: pageNames }, workflowStatus: { not: 'CANCELLED' } },
         select: { shipToName: true, shipToPostal: true },
       })
       for (const pr of peers) {

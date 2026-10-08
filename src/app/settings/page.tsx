@@ -3170,6 +3170,15 @@ function SettingsContent() {
           <h1 className="text-xl font-semibold text-gray-900">Settings</h1>
           <p className="text-sm text-gray-500 mt-0.5">Manage integrations and configuration</p>
         </div>
+        <div className="ml-auto text-right">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Last Commit</p>
+          <p className="text-xs text-gray-600 font-mono" title={process.env.NEXT_PUBLIC_COMMIT_MESSAGE || 'Deploy/build time'}>
+            {process.env.NEXT_PUBLIC_BUILD_TIME
+              ? new Date(process.env.NEXT_PUBLIC_BUILD_TIME).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+              : '—'}
+            {process.env.NEXT_PUBLIC_COMMIT_SHA ? ` · ${process.env.NEXT_PUBLIC_COMMIT_SHA.slice(0, 7)}` : ''}
+          </p>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-6 space-y-8">

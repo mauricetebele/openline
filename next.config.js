@@ -5,6 +5,13 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Build-time deploy stamp + commit, surfaced on Settings as "Last Commit".
+  // Evaluated once when Vercel builds the deploy (i.e. on each push).
+  env: {
+    NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),
+    NEXT_PUBLIC_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA || '',
+    NEXT_PUBLIC_COMMIT_MESSAGE: process.env.VERCEL_GIT_COMMIT_MESSAGE || '',
+  },
   typescript: {
     ignoreBuildErrors: true,
   },

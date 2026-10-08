@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
     by: ['shipToName', 'shipToPostal'],
     where: {
       orderSource: { in: ['amazon', 'backmarket'] },
+      workflowStatus: { not: 'CANCELLED' }, // cancelled orders don't count toward repeat
       shipToName: search ? { contains: search, mode: 'insensitive' } : { not: null },
     },
     _count: { _all: true },
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
   //    address + the expandable per-order list.
   const names = Array.from(new Set(groups.map(g => g.shipToName).filter((n): n is string => !!n)))
   const orders = await prisma.order.findMany({
-    where: { orderSource: { in: ['amazon', 'backmarket'] }, shipToName: { in: names } },
+    where: { orderSource: { in: ['amazon', 'backmarket'] }, workflowStatus: { not: 'CANCELLED' }, shipToName: { in: names } },
     select: {
       shipToName: true, shipToPostal: true, shipToAddress1: true, shipToAddress2: true,
       shipToCity: true, shipToState: true,
