@@ -109,6 +109,20 @@ export async function POST(req: NextRequest) {
             throw new Error(`Insufficient stock at selected location (available: ${inv?.qty ?? 0})`)
           }
 
+          // For serialized products the aggregate qty can drift above the real
+          // serial count (a phantom left in a Finished Goods location that holds
+          // zero physical units). Gate on IN_STOCK serials physically at this
+          // location so Auto-FG can't reserve against non-existent inventory.
+          const prod = await tx.product.findUnique({ where: { id: r.productId }, select: { isSerializable: true } })
+          if (prod?.isSerializable) {
+            const serialCount = await tx.inventorySerial.count({
+              where: { productId: r.productId, locationId: r.locationId, status: 'IN_STOCK' },
+            })
+            if (serialCount < r.qtyReserved) {
+              throw new Error(`No physical units available at the selected location (serials on hand: ${serialCount}, requested: ${r.qtyReserved}). The inventory count is out of sync with the serials — reconcile before processing.`)
+            }
+          }
+
           // Deduct from inventory
           await tx.inventoryItem.update({
             where: { id: inv.id },
