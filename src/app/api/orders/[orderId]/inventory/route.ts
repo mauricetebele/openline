@@ -120,7 +120,7 @@ export async function GET(
       })
     }
 
-    const locations: InventoryLocation[] = (product?.inventoryItems ?? []).map(inv => ({
+    let locations: InventoryLocation[] = (product?.inventoryItems ?? []).map(inv => ({
       locationId:      inv.locationId,
       locationName:    inv.location.name,
       warehouseName:   inv.location.warehouse.name,
@@ -129,6 +129,25 @@ export async function GET(
       gradeName:       inv.grade?.grade ?? null,
       isFinishedGoods: inv.location.isFinishedGoods,
     }))
+
+    // Serialized products: the aggregate InventoryItem.qty can drift out of sync
+    // with the physical serial units (e.g. a phantom "1" left in a Finished Goods
+    // location that actually holds zero serials). Reservation/fulfillment consumes
+    // real serials, so cap each location's available qty by the count of IN_STOCK
+    // serials physically there — this prevents Auto-FG from offering phantom stock.
+    if (product && product.isSerializable && locations.length > 0) {
+      const locIds = locations.map(l => l.locationId)
+      const serialCounts = await prisma.inventorySerial.groupBy({
+        by: ['locationId'],
+        where: { productId: product.id, status: 'IN_STOCK', locationId: { in: locIds } },
+        _count: { _all: true },
+      })
+      const countByLoc = new Map(serialCounts.map(s => [s.locationId, s._count._all]))
+      locations = locations
+        .map(l => ({ ...l, qty: Math.min(l.qty, countByLoc.get(l.locationId) ?? 0) }))
+        .filter(l => l.qty > 0)
+        .sort((a, b) => b.qty - a.qty)
+    }
 
     result.push({
       orderItemId:        item.id,
