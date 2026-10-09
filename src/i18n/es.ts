@@ -92,6 +92,7 @@ export const ES: Record<string, string> = {
   'Battery Health Upload': 'Carga de salud de batería',
   'BH Sorting Tool': 'Herramienta de clasificación BH',
   'Unlock Codes': 'Códigos de desbloqueo',
+  'TRG IDs': 'TRG IDs',
   'Audit Log': 'Registro de auditoría',
 
   // Wholesale children
@@ -181,6 +182,7 @@ export const ES: Record<string, string> = {
   'Serial #': 'N.º de serie',
   'Serial / IMEI': 'N.º de serie / IMEI',
   'Unlock Code': 'Código de desbloqueo',
+  'TRG ID': 'TRG ID',
   'Battery Health %': 'Salud de batería %',
   'SKU': 'SKU',
   'Type': 'Tipo',

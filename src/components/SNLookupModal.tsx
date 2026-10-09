@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { AlertCircle, X, Package, Hash, Clock, ShoppingCart, Search, ArrowRightLeft, Tag, Printer, Unlock } from 'lucide-react'
+// Hash is already imported above and reused for the TRG ID badge.
 import JsBarcode from 'jsbarcode'
 import GradeBadge from '@/components/GradeBadge'
 import { jsPDF } from 'jspdf'
@@ -29,6 +30,7 @@ interface LookupSerial {
   binLocation:  string | null
   unitCost:     number | null
   unlockCode:   string | null
+  trgId:        string | null
   product:      { description: string; sku: string }
   grade:        { id: string; grade: string } | null
   location:     { name: string; warehouse: { name: string } }
@@ -335,6 +337,16 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                       <Unlock size={12} className="text-violet-500" />
                       <span className="font-semibold">Unlock Code:</span>
                       <span className="font-mono font-semibold">{result.unlockCode}</span>
+                    </span>
+                  </div>
+                )}
+                {result.trgId && (
+                  <div className="pl-0.5">
+                    <span className="inline-flex items-center gap-1.5 bg-sky-50 text-sky-700 border border-sky-200 text-sm px-2.5 py-1 rounded-lg"
+                      title="TRG ID">
+                      <Hash size={12} className="text-sky-500" />
+                      <span className="font-semibold">TRG ID:</span>
+                      <span className="font-mono font-semibold">{result.trgId}</span>
                     </span>
                   </div>
                 )}

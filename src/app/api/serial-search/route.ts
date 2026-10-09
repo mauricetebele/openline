@@ -181,6 +181,7 @@ export async function GET(req: NextRequest) {
       note:          r.note ?? null,
       binLocation:   r.binLocation ?? null,
       unlockCode:    r.unlockCode ?? null,
+      trgId:         r.trgId ?? null,
       batteryHealthPct: r.batteryHealthPct ?? null,
       vrma:          getActiveVrma(r.serialNumber, r.history),
     }

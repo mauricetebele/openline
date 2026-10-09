@@ -1503,6 +1503,9 @@ model InventorySerial {
   // Optional device unlock code / passcode, uploaded per serial. Shown on the
   // Serial # Lookup modal and available as an optional Serial Search column.
   unlockCode    String?
+  // Optional TRG ID, uploaded per serial via the TRG IDs bulk paste tool. Shown
+  // on the Serial # Lookup modal and available as an optional Serial Search column.
+  trgId         String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 

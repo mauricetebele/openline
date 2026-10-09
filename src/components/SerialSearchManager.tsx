@@ -31,6 +31,7 @@ interface SerialResult {
   grade: string | null
   note: string | null
   unlockCode: string | null
+  trgId: string | null
   batteryHealthPct: number | null
   vrma: string | null
 }
@@ -66,8 +67,8 @@ function parseSNs(raw: string) {
     .filter((s, i, arr) => arr.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
 }
 
-function exportCSV(found: SerialResult[], notFound: string[], showUnlockCode = false, showBatteryHealth = false) {
-  const headers = ['Serial #', 'Status', 'SKU', 'Grade', 'Description', 'Vendor', 'Last Event Type', 'Date of Last Event', 'Last Movement', 'Date of Last Movement', 'Current Location', 'Bin', ...(showUnlockCode ? ['Unlock Code'] : []), ...(showBatteryHealth ? ['Battery Health %'] : []), 'PO #', 'VRMA', 'Cost', 'Note']
+function exportCSV(found: SerialResult[], notFound: string[], showUnlockCode = false, showBatteryHealth = false, showTrgId = false) {
+  const headers = ['Serial #', 'Status', 'SKU', 'Grade', 'Description', 'Vendor', 'Last Event Type', 'Date of Last Event', 'Last Movement', 'Date of Last Movement', 'Current Location', 'Bin', ...(showUnlockCode ? ['Unlock Code'] : []), ...(showTrgId ? ['TRG ID'] : []), ...(showBatteryHealth ? ['Battery Health %'] : []), 'PO #', 'VRMA', 'Cost', 'Note']
   const rows = found.map(r => [
     r.serialNumber,
     r.status.replace('_', ' '),
@@ -82,6 +83,7 @@ function exportCSV(found: SerialResult[], notFound: string[], showUnlockCode = f
     r.location ?? '',
     r.binLocation ?? '',
     ...(showUnlockCode ? [r.unlockCode ?? ''] : []),
+    ...(showTrgId ? [r.trgId ?? ''] : []),
     ...(showBatteryHealth ? [r.batteryHealthPct != null ? String(r.batteryHealthPct) : ''] : []),
     r.poNumber ?? '',
     r.vrma ?? '',
@@ -193,6 +195,19 @@ export default function SerialSearchManager() {
     setShowUnlockCode(v => {
       const nv = !v
       try { localStorage.setItem('serialSearch_showUnlockCode', nv ? '1' : '0') } catch { /* ignore */ }
+      return nv
+    })
+  }
+
+  // Optional "TRG ID" column — off by default, choice remembered per browser.
+  const [showTrgId, setShowTrgId] = useState(false)
+  useEffect(() => {
+    try { setShowTrgId(localStorage.getItem('serialSearch_showTrgId') === '1') } catch { /* ignore */ }
+  }, [])
+  function toggleTrgIdCol() {
+    setShowTrgId(v => {
+      const nv = !v
+      try { localStorage.setItem('serialSearch_showTrgId', nv ? '1' : '0') } catch { /* ignore */ }
       return nv
     })
   }
@@ -526,6 +541,7 @@ export default function SerialSearchManager() {
     if (sortCol === 'location')        { av = a.location;        bv = b.location }
     if (sortCol === 'binLocation')    { av = a.binLocation;    bv = b.binLocation }
     if (sortCol === 'unlockCode')     { av = a.unlockCode;     bv = b.unlockCode }
+    if (sortCol === 'trgId')          { av = a.trgId;          bv = b.trgId }
     if (sortCol === 'batteryHealthPct') { av = a.batteryHealthPct ?? -Infinity; bv = b.batteryHealthPct ?? -Infinity }
     if (sortCol === 'poNumber')       { av = a.poNumber;       bv = b.poNumber }
     if (sortCol === 'cost')           { av = a.cost ?? -Infinity; bv = b.cost ?? -Infinity }
@@ -723,6 +739,15 @@ export default function SerialSearchManager() {
                     />
                     Unlock Code
                   </label>
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none" title="Show the TRG ID column">
+                    <input
+                      type="checkbox"
+                      checked={showTrgId}
+                      onChange={toggleTrgIdCol}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    TRG ID
+                  </label>
                   <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none" title="Show the Battery Health % column">
                     <input
                       type="checkbox"
@@ -733,7 +758,7 @@ export default function SerialSearchManager() {
                     Battery Health
                   </label>
                   <button
-                    onClick={() => exportCSV(sortedFound, notFound, showUnlockCode, showBatteryHealth)}
+                    onClick={() => exportCSV(sortedFound, notFound, showUnlockCode, showBatteryHealth, showTrgId)}
                     className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50"
                   >
                     <Download size={13} /> Export CSV
@@ -1051,6 +1076,7 @@ export default function SerialSearchManager() {
                       ['location',         'Location'],
                       ['binLocation',   'Bin'],
                       ...(showUnlockCode ? [['unlockCode', 'Unlock Code'] as [string, string]] : []),
+                      ...(showTrgId ? [['trgId', 'TRG ID'] as [string, string]] : []),
                       ...(showBatteryHealth ? [['batteryHealthPct', 'Battery %'] as [string, string]] : []),
                       ['poNumber',      'PO #'],
                       ['vrma',          'VRMA'],
@@ -1116,6 +1142,9 @@ export default function SerialSearchManager() {
                       <td className="px-3 py-2.5 text-xs font-mono text-gray-500 whitespace-nowrap">{r.binLocation ?? <span className="text-gray-300">—</span>}</td>
                       {showUnlockCode && (
                         <td className="px-3 py-2.5 text-xs font-mono text-gray-700 whitespace-nowrap">{r.unlockCode ?? <span className="text-gray-300">—</span>}</td>
+                      )}
+                      {showTrgId && (
+                        <td className="px-3 py-2.5 text-xs font-mono text-gray-700 whitespace-nowrap">{r.trgId ?? <span className="text-gray-300">—</span>}</td>
                       )}
                       {showBatteryHealth && (
                         <td className="px-3 py-2.5 text-xs font-mono text-gray-700 whitespace-nowrap">{r.batteryHealthPct != null ? `${r.batteryHealthPct}%` : <span className="text-gray-300">—</span>}</td>
