@@ -18,6 +18,7 @@ interface ReconcileResult {
   created: number
   staleReservationsDeleted: number
   staleAssignmentsDeleted: number
+  duplicatesDeleted: number
 }
 
 /**
@@ -57,6 +58,33 @@ export async function reconcileSerialQty(dryRun: boolean): Promise<ReconcileResu
       staleAssignmentsDeleted = staleAssignments.length
       console.log(`[reconcile-qty] Cleaned up ${staleAssignments.length} stale serial assignment(s)`)
     }
+  }
+
+  // ── Phase 0b: collapse duplicate inventory_items rows ───────────────────────
+  // Postgres treats NULL gradeId as distinct in the (productId, locationId,
+  // gradeId) unique index, so repeated no-grade upserts can create duplicate
+  // rows for the same bucket — which show up multiple times in the inventory
+  // grid and inflate totals. Keep the highest-qty row per bucket and drop the
+  // rest (serializable qty is corrected to the serial ledger just below).
+  let duplicatesDeleted = 0
+  const dupBuckets = await prisma.$queryRawUnsafe<{ productId: string; locationId: string; gradeId: string | null }[]>(
+    `SELECT "productId","locationId","gradeId" FROM inventory_items GROUP BY "productId","locationId","gradeId" HAVING COUNT(*) > 1`,
+  )
+  for (const b of dupBuckets) {
+    const rows = await prisma.inventoryItem.findMany({
+      where: { productId: b.productId, locationId: b.locationId, gradeId: b.gradeId },
+      select: { id: true },
+      orderBy: { qty: 'desc' },
+    })
+    const drop = rows.slice(1)
+    if (drop.length === 0) continue
+    duplicatesDeleted += drop.length
+    if (!dryRun) {
+      await prisma.inventoryItem.deleteMany({ where: { id: { in: drop.map(r => r.id) } } })
+    }
+  }
+  if (duplicatesDeleted > 0) {
+    console.log(`[reconcile-qty] ${dryRun ? 'Would collapse' : 'Collapsed'} ${duplicatesDeleted} duplicate inventory_items row(s)`)
   }
 
   // ── Load everything with a few grouped queries ──────────────────────────────
@@ -145,5 +173,5 @@ export async function reconcileSerialQty(dryRun: boolean): Promise<ReconcileResu
     }
   }
 
-  return { checked, mismatches, fixed, created, staleReservationsDeleted, staleAssignmentsDeleted }
+  return { checked, mismatches, fixed, created, staleReservationsDeleted, staleAssignmentsDeleted, duplicatesDeleted }
 }
