@@ -19,6 +19,7 @@ interface RowInput {
   bmId: string
   condition: string
   price: number
+  quantity?: number // defaults to 1; 0 for grades created ahead of stock
 }
 
 export async function POST(req: NextRequest) {
@@ -119,7 +120,7 @@ export async function POST(req: NextRequest) {
           sku: r.sellerSku.trim(),
           backmarketId: parseInt(r.bmId.trim(), 10),
           price: r.price,
-          quantity: 1,
+          quantity: r.quantity === 0 ? 0 : 1,
           state,
         }
       })

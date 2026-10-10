@@ -1,9 +1,11 @@
 /**
  * POST /api/products/lookup-skus
- * Body: { skus: string[] }  (max 200)
+ * Body: { skus: string[], includeAllGrades?: boolean }  (max 200)
  *
  * Looks up products by internal SKU and returns inventory grouped by grade.
  * Used by the bulk listing creator to auto-expand rows per grade.
+ * includeAllGrades: also return every grade with no stock (availableQty 0), so
+ * listings can be created ahead of inventory.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -12,6 +14,7 @@ import { getAuthUser } from '@/lib/get-auth-user'
 
 const bodySchema = z.object({
   skus: z.array(z.string().min(1)).min(1).max(200),
+  includeAllGrades: z.boolean().optional(),
 })
 
 export async function POST(req: NextRequest) {
@@ -31,7 +34,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid request', issues: parsed.error.issues }, { status: 400 })
     }
 
-    const { skus } = parsed.data
+    const { skus, includeAllGrades } = parsed.data
     const uniqueSkus = Array.from(new Set(skus.map(s => s.trim()).filter(Boolean)))
 
     // Fetch matching products
@@ -50,16 +53,18 @@ export async function POST(req: NextRequest) {
       _sum: { qty: true },
     })
 
-    // Collect all grade IDs to look up names
+    // Collect all grade IDs to look up names (every grade when includeAllGrades)
     const gradeIds = inventoryGroups
       .map(g => g.gradeId)
       .filter((id): id is string => id !== null)
-    const grades = gradeIds.length > 0
-      ? await prisma.grade.findMany({
-          where: { id: { in: Array.from(new Set(gradeIds)) } },
-          select: { id: true, grade: true },
-        })
-      : []
+    const grades = includeAllGrades
+      ? await prisma.grade.findMany({ select: { id: true, grade: true } })
+      : gradeIds.length > 0
+        ? await prisma.grade.findMany({
+            where: { id: { in: Array.from(new Set(gradeIds)) } },
+            select: { id: true, grade: true },
+          })
+        : []
     const gradeMap = new Map(grades.map(g => [g.id, g.grade]))
 
     // Build per-product grade arrays
@@ -72,6 +77,18 @@ export async function POST(req: NextRequest) {
         availableQty: group._sum.qty ?? 0,
       })
       productGrades.set(group.productId, arr)
+    }
+
+    // Fill in out-of-stock grades so every product × grade combo is listable
+    if (includeAllGrades) {
+      for (const p of products) {
+        const arr = productGrades.get(p.id) ?? []
+        const have = new Set(arr.map(g => g.gradeId))
+        for (const g of grades) {
+          if (!have.has(g.id)) arr.push({ gradeId: g.id, gradeName: g.grade, availableQty: 0 })
+        }
+        productGrades.set(p.id, arr)
+      }
     }
 
     // Build found array

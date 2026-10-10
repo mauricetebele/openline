@@ -133,6 +133,8 @@ export default function BulkListingCreator() {
   // Step 1 — staging
   const [stagingRows, setStagingRows] = useState<StagingRow[]>([])
   const [notFoundSkus, setNotFoundSkus] = useState<string[]>([])
+  // Off = only SKU+grade combos with stock are selectable; on = every grade
+  const [includeNoStock, setIncludeNoStock] = useState(false)
 
   // Step 2 — listing details
   const [listingRows, setListingRows] = useState<ListingRow[]>([])
@@ -207,7 +209,7 @@ export default function BulkListingCreator() {
 
   // ─── Step 0 → Step 1: Load SKUs ─────────────────────────────────────────
 
-  const handleLoadSkus = useCallback(async () => {
+  const handleLoadSkus = useCallback(async (includeAllGrades: boolean = includeNoStock) => {
     const lines = rawText
       .split('\n')
       .map(l => l.trim())
@@ -223,7 +225,7 @@ export default function BulkListingCreator() {
       const res = await fetch('/api/products/lookup-skus', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ skus: uniqueSkus }),
+        body: JSON.stringify({ skus: uniqueSkus, includeAllGrades }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Lookup failed')
@@ -281,7 +283,7 @@ export default function BulkListingCreator() {
     } finally {
       setLookupLoading(false)
     }
-  }, [rawText])
+  }, [rawText, includeNoStock])
 
   // ─── Step 1 → Step 2: Move to form ──────────────────────────────────────
 
@@ -437,6 +439,8 @@ export default function BulkListingCreator() {
               bmId: r.asin.trim(),
               condition: r.condition,
               price: parseFloat(r.price),
+              // Out-of-stock grades go live with 0 qty so we never oversell
+              quantity: r.availableQty > 0 ? 1 : 0,
             })),
           }
           const res = await fetch('/api/marketplace-skus/bulk-backmarket', {
@@ -806,7 +810,7 @@ export default function BulkListingCreator() {
 
           <button
             type="button"
-            onClick={handleLoadSkus}
+            onClick={() => handleLoadSkus()}
             disabled={!rawText.trim() || lookupLoading}
             className={clsx(
               'flex items-center justify-center gap-2 h-10 px-6 rounded-md text-sm font-semibold transition-colors',
@@ -1131,6 +1135,21 @@ export default function BulkListingCreator() {
                 <p className="text-sm text-gray-500 mt-0.5">
                   Products expanded by grade. Uncheck any you don&apos;t want to list.
                 </p>
+                <label className="mt-2 inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={includeNoStock}
+                    disabled={lookupLoading}
+                    onChange={(e) => {
+                      const val = e.target.checked
+                      setIncludeNoStock(val)
+                      handleLoadSkus(val)
+                    }}
+                    className="rounded border-gray-300"
+                  />
+                  Include grades with no stock
+                  {lookupLoading && <Loader2 size={14} className="animate-spin text-gray-400" />}
+                </label>
               </div>
               <button type="button" onClick={handleClose} className="text-gray-400 hover:text-gray-600">
                 <X size={20} />
@@ -1156,10 +1175,10 @@ export default function BulkListingCreator() {
                       <th className="px-3 py-2 w-10">
                         <input
                           type="checkbox"
-                          checked={stagingRows.length > 0 && stagingRows.filter(r => r.availableQty > 0).every(r => r.checked)}
+                          checked={stagingRows.length > 0 && stagingRows.filter(r => includeNoStock || r.availableQty > 0).every(r => r.checked)}
                           onChange={(e) => {
                             const val = e.target.checked
-                            setStagingRows(prev => prev.map(r => r.availableQty > 0 ? { ...r, checked: val } : r))
+                            setStagingRows(prev => prev.map(r => includeNoStock || r.availableQty > 0 ? { ...r, checked: val } : r))
                           }}
                           className="rounded border-gray-300"
                         />
@@ -1173,16 +1192,17 @@ export default function BulkListingCreator() {
                   <tbody>
                     {stagingRows.map((row, i) => {
                       const noStock = row.availableQty === 0
+                      const locked = noStock && !includeNoStock
                       return (
                         <tr
                           key={`${row.productId}-${row.gradeId ?? 'null'}-${i}`}
-                          className={clsx('border-b last:border-0', noStock && 'opacity-40')}
+                          className={clsx('border-b last:border-0', locked && 'opacity-40', noStock && !locked && 'text-gray-500')}
                         >
                           <td className="px-3 py-2">
                             <input
                               type="checkbox"
                               checked={row.checked}
-                              disabled={noStock}
+                              disabled={locked}
                               onChange={(e) => {
                                 setStagingRows(prev => prev.map((r, idx) => idx === i ? { ...r, checked: e.target.checked } : r))
                               }}
