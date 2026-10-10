@@ -36,6 +36,7 @@ interface FeedGroup {
     confidence: 'low' | 'medium' | 'high'; baseline: number | null; target: number | null
     atPrice: { score: number | null; units: number; liveDays: number; since: string } | null
     buyBoxShare: number | null; buyBoxChecks: number
+    uptime: { from: number; to: number; trackedSince: number | null; measured: [number, number][]; estimated: [number, number][] }
   }
   snoozedUntil: string | null; cooldownUntil: string | null
   lastRejectedAt: string | null; lastRejectedBy: string | null
@@ -328,6 +329,163 @@ export default function RepricingFeed() {
   )
 }
 
+// ── Uptime tiles ─────────────────────────────────────────────────────────────
+// Each day is laid out in the viewer's local time; a tile is a vertical 24-hour
+// timeline (top = midnight) coloured by live / down, measured vs estimated.
+type UptimeData = FeedGroup['velocity']['uptime']
+type SegKind = 'live' | 'down' | 'liveEst' | 'downEst' | 'future' | 'none'
+const SEG_COLOR: Record<SegKind, string> = {
+  live: '#86efac',     // soft green — live on Amazon (measured)
+  down: '#fda4af',     // soft rose — down (measured)
+  liveEst: '#d1fae5',  // pale green — live (estimated from stock history)
+  downEst: '#ffe4e6',  // pale rose — down (estimated)
+  future: '#f3f4f6',   // not happened yet
+  none: '#f3f4f6',     // outside the 30-day window
+}
+const HOUR = 3_600_000
+const inAny = (ivs: [number, number][], t: number) => ivs.some(([a, b]) => t >= a && t < b)
+
+interface DayTile { start: number; end: number; segs: { kind: SegKind; frac: number }[]; liveH: number; knownH: number; measuredH: number }
+
+function buildDays(u: UptimeData): DayTile[] {
+  const days: DayTile[] = []
+  const today = new Date(u.to); today.setHours(0, 0, 0, 0)
+  for (let k = 29; k >= 0; k--) {
+    const s = new Date(today); s.setDate(s.getDate() - k)
+    const e = new Date(s); e.setDate(e.getDate() + 1)
+    const start = s.getTime(), end = e.getTime()
+    const cuts = new Set<number>([start, end])
+    for (const t of [u.from, u.to, u.trackedSince ?? -1, ...u.measured.flat(), ...u.estimated.flat()]) if (t > start && t < end) cuts.add(t)
+    const pts = Array.from(cuts).sort((a, b) => a - b)
+    const segs: DayTile['segs'] = []
+    let liveH = 0, knownH = 0, measuredH = 0
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1], mid = (a + b) / 2
+      let kind: SegKind
+      if (mid >= u.to) kind = 'future'
+      else if (mid < u.from) kind = 'none'
+      else {
+        const measuredZone = u.trackedSince != null && mid >= u.trackedSince
+        const live = inAny(measuredZone ? u.measured : u.estimated, mid)
+        kind = measuredZone ? (live ? 'live' : 'down') : (live ? 'liveEst' : 'downEst')
+        knownH += (b - a) / HOUR
+        if (live) liveH += (b - a) / HOUR
+        if (measuredZone) measuredH += (b - a) / HOUR
+      }
+      const frac = (b - a) / (end - start)
+      const last = segs[segs.length - 1]
+      if (last && last.kind === kind) last.frac += frac; else segs.push({ kind, frac })
+    }
+    days.push({ start, end, segs, liveH, knownH, measuredH })
+  }
+  return days
+}
+
+const tileBg = (d: DayTile) => {
+  let acc = 0
+  const stops = d.segs.map(s => { const a = acc * 100; acc += s.frac; return `${SEG_COLOR[s.kind]} ${a.toFixed(2)}% ${(acc * 100).toFixed(2)}%` })
+  return `linear-gradient(to bottom, ${stops.join(', ')})`
+}
+const dayLabel = (t: number) => new Date(t).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+const shortDate = (t: number) => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+function uptimeSummary(u: UptimeData) {
+  const days = buildDays(u)
+  const liveH = days.reduce((a, d) => a + d.liveH, 0)
+  const knownH = days.reduce((a, d) => a + d.knownH, 0)
+  const pct = knownH > 0 ? Math.round(liveH / knownH * 100) : null
+  // Outages = runs of days with < 5% live; current live stretch from the end.
+  const downRuns: [number, number][] = []
+  let runStart: number | null = null
+  days.forEach((d, i) => {
+    const down = d.knownH > 0 && d.liveH / d.knownH < 0.05
+    if (down && runStart == null) runStart = i
+    if ((!down || i === days.length - 1) && runStart != null) { downRuns.push([runStart, down ? i : i - 1]); runStart = null }
+  })
+  const longest = downRuns.reduce((m, [a, b]) => Math.max(m, b - a + 1), 0)
+  let liveStreak = 0
+  for (let i = days.length - 1; i >= 0; i--) { if (days[i].knownH > 0 && days[i].liveH / days[i].knownH >= 0.95) liveStreak++; else if (i !== days.length - 1) break }
+  const lead = pct == null ? 'No uptime data yet.'
+    : pct >= 95 ? 'Live essentially the whole 30 days.'
+    : pct >= 70 ? `Live most of the last 30 days (${pct}%).`
+    : pct >= 30 ? `Live about ${pct}% of the last 30 days.`
+    : `Mostly down — live only ${pct}% of the last 30 days.`
+  const outages = downRuns.slice(-3).map(([a, b]) => (a === b ? shortDate(days[a].start) : `${shortDate(days[a].start)}–${shortDate(days[b].start)}`))
+  const parts = [lead]
+  if (outages.length) parts.push(`Down ${outages.join(', ')}${downRuns.length > 3 ? ' (and earlier)' : ''}.`)
+  if (liveStreak >= 1 && liveStreak < 30 && pct != null && pct < 95) parts.push(`Live continuously for the last ${liveStreak} day${liveStreak === 1 ? '' : 's'}.`)
+  if (u.trackedSince == null) parts.push('All of this is estimated from stock history — Amazon uptime tracking hasn\'t observed this listing yet.')
+  else if (u.trackedSince > u.from) parts.push(`Before ${shortDate(u.trackedSince)} it's estimated from stock history; from then on it's measured by Amazon uptime checks.`)
+  return { days, pct, liveDays: liveH / 24, longest, liveStreak, text: parts.join(' ') }
+}
+
+function UptimePill({ g }: { g: FeedGroup }) {
+  const [open, setOpen] = useState(false)
+  const s = uptimeSummary(g.velocity.uptime)
+  const tone: Tone = s.pct == null ? 'gray' : s.pct >= 90 ? 'green' : s.pct >= 60 ? 'amber' : 'red'
+  return (
+    <>
+      <button onClick={() => setOpen(true)} title={`${s.text}\n\nClick for the 30-day uptime view.`}
+        className={clsx('inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-4 hover:brightness-95', TONE[tone].pill)}>
+        ⏱ Uptime {s.pct == null ? '—' : `${s.pct}%`}
+      </button>
+      {open && <UptimeModal g={g} s={s} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+function UptimeModal({ g, s, onClose }: { g: FeedGroup; s: ReturnType<typeof uptimeSummary>; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-4xl rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 px-5 py-3 border-b border-gray-200 dark:border-gray-700">
+          <div className="min-w-0">
+            <h2 className="font-semibold text-gray-900 dark:text-gray-100">⏱ Amazon uptime — last 30 days</h2>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="font-mono font-bold text-amazon-blue">{g.asin}</span>
+              <Pill tone={g.itemCondition === 'New' ? 'violet' : 'amber'}>{g.itemCondition}</Pill>
+              <span className="truncate text-gray-500 max-w-[420px]">{g.title}</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"><X size={18} /></button>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Stat label="Uptime" value={s.pct == null ? '—' : `${s.pct}%`} tone={s.pct == null ? 'gray' : s.pct >= 90 ? 'green' : s.pct >= 60 ? 'amber' : 'red'} />
+            <Stat label="Live days" value={`${s.liveDays.toFixed(1)} / 30`} />
+            <Stat label="Longest outage" value={s.longest ? `${s.longest}d` : 'none'} tone={s.longest ? 'red' : 'green'} />
+            <Stat label="Live streak" value={`${s.liveStreak}d`} tone="teal" />
+            <Stat label="VelocityScore™" value={g.velocity.score == null ? '—' : g.velocity.score.toFixed(2)} tone="violet" />
+          </div>
+          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{s.text}</p>
+          <div className="flex gap-1 overflow-x-auto pb-1">
+            {s.days.map(d => {
+              const pctDay = d.knownH > 0 ? Math.round(d.liveH / d.knownH * 100) : null
+              const src = d.measuredH > 0 && d.measuredH >= d.knownH - 0.01 ? 'measured by Amazon uptime' : d.measuredH > 0 ? 'partly measured, partly estimated' : 'estimated from stock history'
+              const isToday = new Date(d.start).toDateString() === new Date().toDateString()
+              return (
+                <div key={d.start} className="flex flex-col items-center gap-0.5">
+                  <div className={clsx('h-20 w-6 rounded border', isToday ? 'border-amazon-blue' : 'border-gray-200 dark:border-gray-700')}
+                    style={{ background: tileBg(d) }}
+                    title={`${dayLabel(d.start)} — ${pctDay == null ? 'no data' : `live ${d.liveH.toFixed(1)} h of ${d.knownH.toFixed(1)} h (${pctDay}%)`}${d.knownH > 0 ? ` · ${src}` : ''}${isToday ? ' · today so far' : ''}`} />
+                  <span className="text-[9px] text-gray-500 tabular-nums">{new Date(d.start).getDate()}</span>
+                  <span className="text-[8px] text-gray-400">{new Date(d.start).toLocaleDateString('en-US', { weekday: 'narrow' })}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-600 dark:text-gray-300">
+            {([['live', 'Live (Amazon)'], ['down', 'Down (Amazon)'], ['liveEst', 'Live (estimated)'], ['downEst', 'Down (estimated)'], ['future', 'Not yet / no data']] as [SegKind, string][]).map(([k, label]) => (
+              <span key={k} className="inline-flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm border border-gray-300" style={{ background: SEG_COLOR[k] }} />{label}</span>
+            ))}
+            <span className="text-gray-400">· Each tile runs midnight (top) to midnight (bottom), your local time. Hover a tile for its hours.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /**
  * VelocityScore™ — units sold per 24 h of Amazon uptime (30-day window), with
  * confidence, target, score at the current price, and Buy Box share.
@@ -484,6 +642,7 @@ function FeedRows({ g, open, up, busy, refreshing, onRefresh, editValue, onToggl
         {/* ── Sales ───────────────────────────────────────────────── */}
         <td className={cell}>
           <VelocityPanel g={g} />
+          <div className="mt-1"><UptimePill g={g} /></div>
           <div className="mt-1 flex gap-1">
             <Stat label="7d sold" value={g.units7d} tone={g.units7d > 0 ? 'green' : 'gray'} title="Units sold in the last 7 days (all SKUs in the group)" />
             <Stat label="30d sold" value={g.units30d} tone={g.units30d > 0 ? 'green' : 'gray'} title="Units sold in the last 30 days (all SKUs in the group)" />

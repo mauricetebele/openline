@@ -101,6 +101,18 @@ function currentRunStart(ivs: [number, number][], now: number, gap: number): num
   return start
 }
 
+/** Union of intervals clipped to [a, b], merged and sorted. */
+function mergeClip(ivs: [number, number][], a: number, b: number): [number, number][] {
+  const c = ivs.map(([x, y]) => [Math.max(x, a), Math.min(y, b)] as [number, number]).filter(([x, y]) => y > x).sort((p, q) => p[0] - q[0])
+  const out: [number, number][] = []
+  for (const iv of c) {
+    const last = out[out.length - 1]
+    if (last && iv[0] <= last[1]) last[1] = Math.max(last[1], iv[1])
+    else out.push([iv[0], iv[1]])
+  }
+  return out
+}
+
 /** Total ms of [a, b] covered by the union of intervals. */
 function coveredMs(ivs: [number, number][], a: number, b: number): number {
   if (b <= a || !ivs.length) return 0
@@ -126,6 +138,8 @@ export interface VelocityScore {
   atPrice: { score: number | null; units: number; liveDays: number; since: string } | null
   buyBoxShare: number | null // % of live checks where we held the Buy Box
   buyBoxChecks: number
+  // Uptime tiles: live periods over the 30-day window (epoch ms pairs).
+  uptime: { from: number; to: number; trackedSince: number | null; measured: [number, number][]; estimated: [number, number][] }
 }
 
 /**
@@ -402,7 +416,15 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     const skus = new Set(g.rows.map(r => r.sku))
     const units = saleLines.filter(s => skus.has(s.sku) && s.at.getTime() >= from).reduce((a, s) => a + s.qty, 0)
     const liveDays = (realMs + estMs) / DAY
-    return { units, liveDays, estDays: estMs / DAY, raw: liveDays > 0 ? units / liveDays : null }
+    return {
+      units, liveDays, estDays: estMs / DAY, raw: liveDays > 0 ? units / liveDays : null,
+      // For the uptime tiles: merged live periods, measured (Amazon) vs estimated.
+      timeline: {
+        trackedSince: trackedSince != null && trackedSince < now ? Math.max(trackedSince, from) : null,
+        measured: mergeClip(ups.flatMap(u => u.intervals), split, now),
+        estimated: mergeClip(estIvs, from, split),
+      },
+    }
   }
   // Baseline (prior) per Amazon condition: median raw score of groups with ≥ 7 live days.
   const priorByCond = new Map<string, number>()
@@ -525,6 +547,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       target: stock > 0 ? r2(stock / P.targetCoverDays) : null,
       atPrice: vAt ? { score: r2(vAt.raw), units: vAt.units, liveDays: Math.round(vAt.liveDays * 10) / 10, since: new Date(priceSince).toISOString() } : null,
       buyBoxShare: bb.known ? Math.round(bb.held / bb.known * 100) : null, buyBoxChecks: bb.known,
+      uptime: { from: vsFrom, to: now, ...v30.timeline },
     }
 
     // Speed — "no sale" days only count while the group was live.
