@@ -599,7 +599,8 @@ function FeedRows({ g, open, up, busy, refreshing, onRefresh, editValue, onToggl
                   <RefreshCw size={11} className={clsx(refreshing && 'animate-spin text-amazon-blue')} />
                 </button>
               </div>
-              <div className="mt-1 text-[11px] leading-snug text-gray-700 dark:text-gray-300 max-w-[250px] line-clamp-3" title={g.title ?? ''}>
+              <div className="mt-1 text-[11px] leading-snug text-gray-700 dark:text-gray-300 w-[280px] whitespace-normal break-words">
+
                 {g.title ?? <span className="italic text-gray-400">Title not pulled yet</span>}
               </div>
             </div>
