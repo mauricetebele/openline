@@ -28,7 +28,7 @@ interface FeedGroup {
   suggestedPrice: number | null; changePct: number | null
   marginCurrent: { min: number | null; max: number | null }
   marginSuggested: { min: number | null; max: number | null }
-  reason: string; status: Status
+  reason: string; explanation: string[]; status: Status
   snoozedUntil: string | null; cooldownUntil: string | null
   lastRejectedAt: string | null; lastRejectedBy: string | null
 }
@@ -182,7 +182,7 @@ export default function RepricingFeed() {
               <th className="px-2 py-2.5 text-right font-semibold" title="Lowest competing offer in the same condition">Lowest Comp.</th>
               <th className="px-2 py-2.5 text-right font-semibold">Current → Suggested</th>
               <th className="px-2 py-2.5 text-right font-semibold" title="Net margin at current → suggested price (range across the group's SKUs)">Margin</th>
-              <th className="px-2 py-2.5 text-left font-semibold w-80">Reason</th>
+              <th className="px-2 py-2.5 text-left font-semibold w-96">Why</th>
               <th className="px-2 py-2.5 text-right font-semibold">Decision</th>
             </tr>
           </thead>
@@ -281,11 +281,13 @@ function FeedRows({ g, i, open, up, busy, editValue, onToggle, onEdit, onStrateg
             </>
           )}
         </td>
-        <td className="px-2 py-2 text-gray-600 dark:text-gray-300">
-          {g.reason}
-          {g.status === 'SNOOZED' && <span className="block text-[10px] text-amber-600">Rejected — snoozed until {when(g.snoozedUntil)}</span>}
-          {g.status === 'COOLDOWN' && <span className="block text-[10px] text-sky-600">Recently repriced — cooling down until {when(g.cooldownUntil)}</span>}
-          {g.status === 'SUGGESTION' && g.lastRejectedAt && <span className="block text-[10px] text-gray-400">Previously rejected {when(g.lastRejectedAt)}{g.lastRejectedBy ? ` by ${g.lastRejectedBy}` : ''}</span>}
+        <td className="px-2 py-2 text-gray-700 dark:text-gray-300 w-96">
+          <ol className="list-decimal pl-4 space-y-0.5 leading-snug">
+            {g.explanation.map((line, idx) => (
+              <li key={idx} className={clsx(line.startsWith('Suggested:') && 'font-semibold text-gray-900 dark:text-gray-100')}>{line}</li>
+            ))}
+          </ol>
+          {g.status === 'SUGGESTION' && g.lastRejectedAt && <span className="block mt-1 text-[10px] text-gray-400">Previously rejected {when(g.lastRejectedAt)}{g.lastRejectedBy ? ` by ${g.lastRejectedBy}` : ''}</span>}
         </td>
         <td className="px-2 py-2 text-right whitespace-nowrap">
           {decidable && g.suggestedPrice != null ? (

@@ -84,6 +84,7 @@ export interface FeedGroup {
   marginCurrent: { min: number | null; max: number | null }
   marginSuggested: { min: number | null; max: number | null }
   reason: string
+  explanation: string[] // step-by-step plain-English reasoning
   status: 'SUGGESTION' | 'NO_CHANGE' | 'SNOOZED' | 'COOLDOWN' | 'NO_DATA'
   snoozedUntil: string | null
   cooldownUntil: string | null
@@ -98,13 +99,22 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
   const now = Date.now()
 
   // ── 1. Active Amazon listings with stock → groups ──────────────────────────
-  const listings = await prisma.sellerListing.findMany({
+  // The catalog sync upserts but never deactivates listings Amazon has removed,
+  // so a row not touched since the account's last full catalog sync is a ghost
+  // (deleted on Amazon) — skip it. Rows refreshed later (price crons, new
+  // listings) have a newer lastSyncedAt and stay in.
+  const lastFullSync = await prisma.listingSyncJob.groupBy({
+    by: ['accountId'], where: { status: 'COMPLETED' }, _max: { startedAt: true },
+  })
+  const seenSince = new Map(lastFullSync.map(j => [j.accountId, j._max.startedAt?.getTime() ?? 0]))
+  const rawListings = await prisma.sellerListing.findMany({
     where: {
       listingStatus: 'Active', quantity: { gt: 0 }, asin: only ? only.asin : { not: null },
       ...(only ? { accountId: only.accountId } : {}),
     },
-    select: { accountId: true, sku: true, asin: true, condition: true, productTitle: true, price: true, maxPrice: true, quantity: true, fulfillmentChannel: true, buyBoxPrice: true, buyBoxSeller: true, buyBoxSyncedAt: true },
+    select: { accountId: true, sku: true, asin: true, condition: true, productTitle: true, price: true, maxPrice: true, quantity: true, fulfillmentChannel: true, buyBoxPrice: true, buyBoxSeller: true, buyBoxSyncedAt: true, lastSyncedAt: true },
   })
+  const listings = rawListings.filter(l => l.lastSyncedAt.getTime() >= (seenSince.get(l.accountId) ?? 0))
   type L = typeof listings[number]
   const groups = new Map<string, { accountId: string; asin: string; itemCondition: string; rows: L[] }>()
   for (const l of listings) {
@@ -216,11 +226,30 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
 
     // Speed
     const noSale = daysSinceLastSale ?? Infinity
+    // (speedWhy = the plain-English test that put it in this bucket)
+    const sName = strategy.charAt(0) + strategy.slice(1).toLowerCase()
+    const accelerating = units7d >= 2 && units7d / 7 > 1.5 * (units30d / 30)
     let speed: Speed
-    if (noSale >= P.staleNoSaleDays) speed = 'STALE'
-    else if ((daysOfCover != null && daysOfCover < P.targetCoverDays / 2) || (units7d >= 2 && units7d / 7 > 1.5 * (units30d / 30))) speed = 'HOT'
-    else if (noSale >= P.slowNoSaleDays || daysOfCover == null || daysOfCover > P.targetCoverDays * 1.5) speed = 'SLOW'
-    else speed = 'HEALTHY'
+    let speedWhy: string
+    if (noSale >= P.staleNoSaleDays) {
+      speed = 'STALE'
+      speedWhy = `${daysSinceLastSale == null ? 'It has no sales on record' : `It hasn't sold in ${daysSinceLastSale} days`}, which ${sName} treats as stale (no sale in ${P.staleNoSaleDays}+ days).`
+    } else if (daysOfCover != null && daysOfCover < P.targetCoverDays / 2) {
+      speed = 'HOT'
+      speedWhy = `At this pace the stock lasts only about ${daysOfCover} days — under half of ${sName}'s ${P.targetCoverDays}-day target — so it's selling hot.`
+    } else if (accelerating) {
+      speed = 'HOT'
+      speedWhy = `Sales are speeding up: ${units7d} in the last 7 days is well above its 30-day pace, so it's treated as hot.`
+    } else if (noSale >= P.slowNoSaleDays) {
+      speed = 'SLOW'
+      speedWhy = `It hasn't sold in ${daysSinceLastSale} days, which ${sName} treats as slow (no sale in ${P.slowNoSaleDays}+ days).`
+    } else if (daysOfCover == null || daysOfCover > P.targetCoverDays * 1.5) {
+      speed = 'SLOW'
+      speedWhy = `At this pace the stock would last ${daysOfCover == null ? 'indefinitely' : `about ${daysOfCover} days`} — well over ${sName}'s ${P.targetCoverDays}-day target — so it's slow.`
+    } else {
+      speed = 'HEALTHY'
+      speedWhy = `About ${daysOfCover} days of stock at the current pace is close to ${sName}'s ${P.targetCoverDays}-day target, so sales are healthy.`
+    }
 
     // Competition — Buy Box from the 30-min listing refresh when fresh, else offers
     const gOffers = offersByGroup.get(key) ?? []
@@ -263,6 +292,8 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     // Target price
     let target: number | null = null
     let why = ''
+    const adjustments: string[] = [] // plain-English limits applied to the raw target
+    let dropped: string | null = null // why a computed move was abandoned
     if (currentPrice != null) {
       switch (action) {
         case 'RAISE': target = currentPrice * (1 + P.raisePct / 100); why = `raise ${P.raisePct}%`; break
@@ -275,20 +306,30 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
         case 'HOLD': break
       }
       // Competitive moves only ever lower; raises only ever raise.
-      if (target != null && DOWN_ONLY.includes(action) && target >= currentPrice) target = null
-      if (target != null && UP_ONLY.includes(action) && target <= currentPrice) target = null
+      if (target != null && DOWN_ONLY.includes(action) && target >= currentPrice) { target = null; dropped = `we're already at or below ${fmt(ref ?? currentPrice)}, so there's nothing to cut` }
+      if (target != null && UP_ONLY.includes(action) && target <= currentPrice) { target = null; dropped = 'there was no room to raise' }
       // When we hold the Buy Box (or are lowest), don't raise past the next competitor.
       if (target != null && target > currentPrice && (weHoldBuyBox || competition === 'LOWEST') && lowestCompetitor != null) {
         const cap = lowestCompetitor - P.undercut(lowestCompetitor)
-        if (cap < target) { target = Math.max(currentPrice, cap); why += ` (capped below next offer ${fmt(lowestCompetitor)})` }
+        if (cap < target) {
+          target = Math.max(currentPrice, cap); why += ` (capped below next offer ${fmt(lowestCompetitor)})`
+          adjustments.push(`It's capped at ${fmt(target)} so we stay just under the next-cheapest seller at ${fmt(lowestCompetitor)} and don't hand them the sale.`)
+        }
       }
       if (target != null) {
         const maxMove = currentPrice * P.maxDailyPct / 100
-        if (Math.abs(target - currentPrice) > maxMove) { target = currentPrice + Math.sign(target - currentPrice) * maxMove; why += ` (limited to ${P.maxDailyPct}%/day)` }
+        if (Math.abs(target - currentPrice) > maxMove) {
+          const raw = target
+          target = currentPrice + Math.sign(target - currentPrice) * maxMove; why += ` (limited to ${P.maxDailyPct}%/day)`
+          adjustments.push(`The full move would be to ${fmt(raw)}, but ${sName} changes price by at most ${P.maxDailyPct}% per step, so this step stops at ${fmt(round2(target))}; the feed can suggest the next step after the cooldown.`)
+        }
         const ceiling = g.rows.map(r => (r.maxPrice != null ? Number(r.maxPrice) : null)).filter((p): p is number => p != null)
-        if (ceiling.length && target > Math.min(...ceiling)) { target = Math.min(...ceiling); why += ' (max price)' }
+        if (ceiling.length && target > Math.min(...ceiling)) {
+          target = Math.min(...ceiling); why += ' (max price)'
+          adjustments.push(`It's held to the listing's max price of ${fmt(target)}.`)
+        }
         target = round2(target)
-        if (Math.abs(target - currentPrice) / currentPrice * 100 < MIN_CHANGE_PCT) target = null
+        if (Math.abs(target - currentPrice) / currentPrice * 100 < MIN_CHANGE_PCT) { target = null; dropped = `the change would be under ${MIN_CHANGE_PCT}% — too small to be worth it` }
       }
     }
     const changePct = target != null && currentPrice ? round2((target - currentPrice) / currentPrice * 100) : null
@@ -333,6 +374,61 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       ? `Waiting for competitor data · ${salesTxt}${coverTxt}`
       : `${speed} · ${compTxt} · ${salesTxt}${coverTxt}${target != null ? ` → ${why}` : ' → hold'}`
 
+    // ── Plain-English explanation, step by step ──────────────────────────────
+    const marginCurrent = span(skus.map(s => s.marginCurrent))
+    const marginSuggested = span(skus.map(s => s.marginSuggested))
+    const cond = g.itemCondition
+    const pctTxt = (m: { min: number | null; max: number | null }) => m.min == null ? '—' : m.min === m.max ? `${m.min.toFixed(1)}%` : `${m.min.toFixed(1)}–${m.max!.toFixed(1)}%`
+    const explanation: string[] = []
+    explanation.push(
+      `${g.rows.length > 1 ? `Across its ${g.rows.length} SKUs (a sale on any of them counts for all, since Amazon picks which one sells)` : 'This SKU'} sold ${units7d} in the last 7 days and ${units30d} in the last 30, with ${stock} in stock.`,
+    )
+    explanation.push(speedWhy)
+    if (noData) {
+      explanation.push(`We don't have competitor data for this ${cond} ASIN yet, so there's no suggestion until the hourly competitor refresh pulls it.`)
+    } else {
+      const holder = buyBoxHolder && buyBoxHolder !== 'Competitor' && buyBoxHolder !== 'You' ? buyBoxHolder : 'A competitor'
+      const gapTxt = currentPrice != null && ref != null ? `${fmt(currentPrice - ref)} (${((currentPrice - ref) / ref * 100).toFixed(1)}%)` : ''
+      const refWho = ref == null ? '' : buyBoxPrice != null ? `${holder} holds the Buy Box at ${fmt(ref)}` : `The cheapest other ${cond} seller is at ${fmt(ref)}`
+      explanation.push(
+        competition === 'WINNING' ? `We currently hold the Buy Box at ${fmt(currentPrice ?? 0)}.${lowestCompetitor != null ? ` The next-cheapest ${cond} seller is at ${fmt(lowestCompetitor)}.` : ' No other seller is competing on price.'}`
+        : competition === 'LOWEST' ? `We're already the cheapest ${cond} offer at ${fmt(currentPrice ?? 0)} (next is ${fmt(ref!)}), but we don't hold the Buy Box — so price isn't what's holding us back.`
+        : competition === 'CLOSE' ? `${refWho}; we're only ${gapTxt} above it, so we're close.`
+        : competition === 'LOSING' ? `${refWho}; we're ${gapTxt} above it, so we're losing sales on price.`
+        : `No other seller has a ${cond} offer on this ASIN right now.`,
+      )
+      const holdWhy: Partial<Record<string, string>> = {
+        'HOT+CLOSE': "It's selling fast even without the Buy Box, so there's no reason to cut the price — hold.",
+        'HOT+LOSING': "It's selling fast even without the Buy Box, so there's no reason to cut the price — hold.",
+        'HEALTHY+LOWEST': "Sales are healthy and we're already the cheapest, so hold.",
+        'HEALTHY+ALONE': 'Sales are healthy with no competition, so hold.',
+        'SLOW+WINNING': "We already hold the Buy Box, so a cut is unlikely to add sales yet — hold.",
+        'SLOW+LOWEST': "We're already the cheapest, so cutting further is unlikely to help — hold.",
+      }
+      const actionTxt: Record<Action, string> = {
+        RAISE: `Since it's selling fast and ${weHoldBuyBox ? 'we hold the Buy Box' : 'nobody is competing'}, there's room to earn more: ${sName} raises the price ${P.raisePct}%.`,
+        PROBE: `${competition === 'LOWEST' ? "Since it's selling fast at the lowest price" : 'Since sales are healthy and we hold the Buy Box'}, ${sName} tests a small ${P.raisePct / 2}% increase to see if the market will take it.`,
+        HOLD: holdWhy[rule] ?? 'The rules call for holding the current price.',
+        MATCH: `To win back sales, ${sName} matches the Buy Box at ${fmt(ref ?? 0)}.`,
+        PARTWAY: `${sName} moves halfway toward the Buy Box (${fmt(ref ?? 0)}) to compete without giving up too much margin.`,
+        UNDERCUT: `To take the Buy Box and get it moving, ${sName} undercuts ${fmt(ref ?? 0)} by ${fmt(P.undercut(ref ?? 0))}.`,
+        LOWER: `To get it moving, ${sName} lowers the price ${P.lowerPct}%.`,
+        LOWER2: `With no competition and no sales, ${sName} lowers the price ${2 * P.lowerPct}% to find demand.`,
+      }
+      explanation.push(actionTxt[action])
+      explanation.push(...adjustments)
+      if (target == null && dropped) explanation.push(`No change is suggested because ${dropped}.`)
+      if (target != null && currentPrice != null) {
+        explanation.push(`Suggested: ${fmt(currentPrice)} → ${fmt(target)} (${changePct! > 0 ? '+' : ''}${changePct}%).`)
+        explanation.push(marginCurrent.min != null
+          ? `Net margin goes from ${pctTxt(marginCurrent)} to ${pctTxt(marginSuggested)}${g.rows.length > 1 ? ' across the SKUs' : ''}.`
+          : "Margin isn't shown because the SKU isn't mapped to a product with a known cost and a calculation template.")
+      }
+      const hoursLeft = (t: number) => Math.max(1, Math.round((t - now) / 3_600_000))
+      if (status === 'SNOOZED' && snooze?.snoozeUntil) explanation.push(`You rejected this same suggestion${snooze.decidedBy ? ` (${snooze.decidedBy})` : ''}, so it's snoozed for another ${hoursLeft(snooze.snoozeUntil.getTime())} hours.`)
+      if (status === 'COOLDOWN') explanation.push(`The price was changed recently; ${sName} waits ${P.cooldownHours} hours between changes to see how sales respond (${hoursLeft(cooldownEnd)} hours left).`)
+    }
+
     out.push({
       key, accountId: g.accountId, asin: g.asin, itemCondition: g.itemCondition,
       title: g.rows.find(r => r.productTitle)?.productTitle ?? null,
@@ -340,8 +436,8 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       buyBoxPrice, buyBoxHolder, weHoldBuyBox, lowestCompetitor: lowestCompetitor != null ? round2(lowestCompetitor) : null,
       competitorCount: comps.length, offersFetchedAt,
       speed, competition, rule, action, suggestedPrice: target, changePct,
-      marginCurrent: span(skus.map(s => s.marginCurrent)), marginSuggested: span(skus.map(s => s.marginSuggested)),
-      reason, status,
+      marginCurrent, marginSuggested,
+      reason, explanation, status,
       snoozedUntil: snooze?.snoozeUntil?.toISOString() ?? null,
       cooldownUntil: cooldownEnd > now ? new Date(cooldownEnd).toISOString() : null,
       lastRejectedAt: lastRejected?.decidedAt.toISOString() ?? null,
