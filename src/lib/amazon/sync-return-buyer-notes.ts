@@ -64,12 +64,14 @@ export interface SyncBuyerNotesResult {
  * @param opts.orderIds       only update returns for these order ids (still scans the mailbox)
  * @param opts.onlyMissing    skip returns that already have a buyerComment (default false — refresh all)
  * @param opts.maxEmails      safety cap on emails scanned (default 3000)
+ * @param opts.search         extra Gmail search terms (e.g. a quoted order id for a targeted pull)
  */
 export async function syncReturnBuyerNotes(opts: {
   newerThanDays?: number
   orderIds?: string[]
   onlyMissing?: boolean
   maxEmails?: number
+  search?: string
 } = {}): Promise<SyncBuyerNotesResult> {
   const empty: SyncBuyerNotesResult = { ok: false, emailsScanned: 0, ordersWithComment: 0, returnsMatched: 0, returnsUpdated: 0, unmatchedOrderIds: [] }
 
@@ -80,6 +82,7 @@ export async function syncReturnBuyerNotes(opts: {
   // Build the Gmail query.
   let q = 'subject:"Return authorization notification"'
   if (opts.newerThanDays && opts.newerThanDays > 0) q += ` newer_than:${opts.newerThanDays}d`
+  if (opts.search) q += ` ${opts.search}`
 
   // Collect message ids (paginated, newest first).
   const cap = opts.maxEmails ?? 3000

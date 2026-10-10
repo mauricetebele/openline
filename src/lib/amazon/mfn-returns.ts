@@ -64,6 +64,7 @@ export async function syncMfnReturns(
   jobId: string,
   startDate: Date,
   endDate: Date,
+  opts: { skipBuyerNotes?: boolean } = {}, // ad-hoc per-order pulls run a targeted note scan instead
 ): Promise<{ totalFound: number; totalUpserted: number }> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
@@ -216,7 +217,7 @@ export async function syncMfnReturns(
   // ── 5. Pull buyer notes from the Return-authorization emails ────────────────
   // The flat-file report omits the buyer's free-text comment; recover it from
   // the notification emails and attach it to the rows we just synced.
-  try {
+  if (!opts.skipBuyerNotes) try {
     const spanMs = endDate.getTime() - startDate.getTime()
     const newerThanDays = Math.min(400, Math.max(1, Math.ceil(spanMs / 86_400_000) + 2))
     const notes = await syncReturnBuyerNotes({ newerThanDays })

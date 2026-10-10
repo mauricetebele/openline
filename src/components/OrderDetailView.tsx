@@ -3,7 +3,7 @@ import { useState, useEffect, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Package, MapPin, Truck, Hash, FileText, Printer,
-  CheckCircle2, AlertCircle, AlertTriangle, Loader2, RotateCcw, Landmark, Smartphone, ChevronRight,
+  CheckCircle2, AlertCircle, AlertTriangle, Loader2, RotateCcw, Landmark, Smartphone, ChevronRight, Download,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
@@ -427,6 +427,7 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
   const [showReplacementModal, setShowReplacementModal] = useState(false)
   const [showRefundModal, setShowRefundModal] = useState(false)
   const [trackingBusy, setTrackingBusy] = useState<string | null>(null)
+  const [pullingReturns, setPullingReturns] = useState(false)
 
   useEffect(() => {
     fetch(`/api/orders/${orderId}`)
@@ -555,6 +556,31 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
     setReturnLoading(false)
   }
 
+  // Ad-hoc: pull this order's Amazon MFN return report rows + the buyer comment
+  // parsed from the returns Gmail mailbox, then refresh the Returns section.
+  async function handlePullReturns() {
+    setPullingReturns(true)
+    try {
+      const res = await fetch(`/api/orders/${orderId}/pull-returns`, { method: 'POST' })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error ?? 'Return data pull failed')
+      reload()
+      const lines = [
+        d.returnsForOrder > 0
+          ? `${d.returnsForOrder} Amazon return record${d.returnsForOrder === 1 ? '' : 's'} on file for this order.`
+          : 'No Amazon return found for this order.',
+        d.commentsUpdated > 0 ? `Buyer comment updated from Gmail.` : null,
+        d.reportError ? `Amazon report error: ${d.reportError}` : null,
+        d.notesError ? `Gmail buyer-comment error: ${d.notesError}` : null,
+      ].filter(Boolean)
+      alert(lines.join('\n'))
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Return data pull failed')
+    } finally {
+      setPullingReturns(false)
+    }
+  }
+
   function handleReturnCreated() {
     setReturnModalOrder(null)
     // Re-fetch order to refresh Returns section
@@ -611,6 +637,17 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
               className="flex items-center gap-1.5 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700/40 px-3 py-1.5 rounded-md transition-colors"
             >
               <RotateCcw size={14} /> Create Replacement Order
+            </button>
+          )}
+          {order.orderSource === 'amazon' && (
+            <button
+              onClick={handlePullReturns}
+              disabled={pullingReturns}
+              title="Pull the latest Amazon MFN return data + buyer comment (from the returns Gmail) for this order. Can take a minute or two."
+              className="flex items-center gap-1.5 text-xs font-medium bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700/40 px-3 py-1.5 rounded-md transition-colors disabled:opacity-60"
+            >
+              {pullingReturns ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              {pullingReturns ? 'Pulling… (1–2 min)' : 'Pull Return Data'}
             </button>
           )}
           {order.orderSource === 'amazon' && (
