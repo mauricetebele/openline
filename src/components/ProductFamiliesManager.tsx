@@ -93,9 +93,17 @@ export default function ProductFamiliesManager() {
     setLoadingDetails(true)
     try {
       const d = await (await fetch(`/api/product-families/${id}/details`)).json()
-      const map: Record<string, GradeRow[]> = {}
-      for (const p of (d.products ?? [])) map[p.productId] = p.grades
-      setDetails(map)
+      // Target margins are page-local: ignore any stored server-side (legacy) and
+      // carry over what's been typed this session across in-page reloads.
+      setDetails(prev => {
+        const local = new Map<string, number | null>()
+        for (const grades of Object.values(prev)) for (const g of grades) for (const l of g.listings) local.set(l.mskuId, l.targetMarginPct)
+        const map: Record<string, GradeRow[]> = {}
+        for (const p of (d.products ?? []) as { productId: string; grades: GradeRow[] }[]) {
+          map[p.productId] = p.grades.map(g => ({ ...g, listings: g.listings.map(l => ({ ...l, targetMarginPct: local.get(l.mskuId) ?? null })) }))
+        }
+        return map
+      })
     } catch { /* ignore */ } finally { setLoadingDetails(false) }
   }, [])
 
@@ -208,19 +216,16 @@ export default function ProductFamiliesManager() {
     }, 10_000)
   }
 
-  // Persist a target margin on the msku (shared with the Marketplace SKUs grid).
-  async function setTargetMargin(mskuId: string, val: number | null) {
-    try {
-      const res = await fetch(`/api/marketplace-skus/${mskuId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetMarginPct: val }) })
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed to set target margin')
-      setDetails(prev => {
-        const next: Record<string, GradeRow[]> = {}
-        for (const [pid, grades] of Object.entries(prev)) {
-          next[pid] = grades.map(g => ({ ...g, listings: g.listings.map(x => x.mskuId === mskuId ? { ...x, targetMarginPct: val } : x) }))
-        }
-        return next
-      })
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to set target margin') }
+  // Target margin is a page-local scratch value: never persisted, so an unpushed
+  // number is abandoned on refresh / navigating away. Pushing the price clears it.
+  function setTargetMargin(mskuId: string, val: number | null) {
+    setDetails(prev => {
+      const next: Record<string, GradeRow[]> = {}
+      for (const [pid, grades] of Object.entries(prev)) {
+        next[pid] = grades.map(g => ({ ...g, listings: g.listings.map(x => x.mskuId === mskuId ? { ...x, targetMarginPct: val } : x) }))
+      }
+      return next
+    })
   }
 
   async function applyTarget(l: Listing, target: number, margin: number) {
@@ -232,13 +237,16 @@ export default function ProductFamiliesManager() {
   async function clearUnpushedTargets() {
     if (!activeId) return
     if (!window.confirm('Clear all unpushed target margins for this family?')) return
-    try {
-      const res = await fetch(`/api/product-families/${activeId}/clear-target-margins`, { method: 'POST' })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error ?? 'Failed')
-      toast.success(`Cleared ${d.cleared} target margin${d.cleared !== 1 ? 's' : ''}`)
-      await loadDetails(activeId)
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to clear') }
+    let cleared = 0
+    for (const grades of Object.values(details)) for (const g of grades) for (const l of g.listings) if (l.targetMarginPct != null) cleared++
+    setDetails(prev => {
+      const next: Record<string, GradeRow[]> = {}
+      for (const [pid, grades] of Object.entries(prev)) {
+        next[pid] = grades.map(g => ({ ...g, listings: g.listings.map(x => ({ ...x, targetMarginPct: null })) }))
+      }
+      return next
+    })
+    toast.success(`Cleared ${cleared} target margin${cleared !== 1 ? 's' : ''}`)
   }
 
   async function createFamily() {

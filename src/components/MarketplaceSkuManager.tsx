@@ -779,28 +779,20 @@ export default function MarketplaceSkuManager() {
     }
   }
 
-  async function handleSetTargetMargin(id: string, val: number | null) {
-    try {
-      await apiPatch(`/api/marketplace-skus/${id}`, { targetMarginPct: val })
-      setSkus(prev => prev.map(x => (x.id === id ? { ...x, targetMarginPct: val != null ? String(val) : null } : x)))
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Failed to update target margin')
-    }
+  // Target margins are page-local scratch values: never persisted, so an unpushed
+  // number is abandoned on refresh / navigating away. Pushing the price clears it.
+  function handleSetTargetMargin(id: string, val: number | null) {
+    setSkus(prev => prev.map(x => (x.id === id ? { ...x, targetMarginPct: val != null ? String(val) : null } : x)))
   }
 
   const [clearingTargets, setClearingTargets] = useState(false)
-  async function clearUnpushedTargets() {
+  function clearUnpushedTargets() {
     if (!window.confirm('Clear all unpushed target margins?')) return
     setClearingTargets(true)
-    try {
-      const res = await apiPost('/api/marketplace-skus/clear-target-margins', {})
-      setSkus(prev => prev.map(x => (x.targetMarginPct != null ? { ...x, targetMarginPct: null } : x)))
-      setToast(`Cleared ${res.cleared} target margin${res.cleared !== 1 ? 's' : ''}`)
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Failed to clear target margins')
-    } finally {
-      setClearingTargets(false)
-    }
+    const cleared = skus.filter(x => x.targetMarginPct != null).length
+    setSkus(prev => prev.map(x => (x.targetMarginPct != null ? { ...x, targetMarginPct: null } : x)))
+    setToast(`Cleared ${cleared} target margin${cleared !== 1 ? 's' : ''}`)
+    setClearingTargets(false)
   }
 
   async function applyTargetPrice() {
@@ -1020,7 +1012,12 @@ export default function MarketplaceSkuManager() {
   const loadSkus = useCallback(async () => {
     try {
       const data = await apiFetch('/api/marketplace-skus')
-      setSkus(data.data ?? [])
+      // Target margins are page-local: ignore any stored server-side (legacy) and
+      // carry over what's been typed this session across in-page reloads.
+      setSkus(prev => {
+        const local = new Map(prev.map(s => [s.id, s.targetMarginPct]))
+        return ((data.data ?? []) as MarketplaceSku[]).map(s => ({ ...s, targetMarginPct: local.get(s.id) ?? null }))
+      })
       setShippingTemplates(data.shippingTemplates ?? [])
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to load')
