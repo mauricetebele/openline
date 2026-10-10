@@ -5,7 +5,8 @@
  *   1. Pulls the Amazon MFN returns flat-file report over a window covering this
  *      order (purchase date → now, capped at 60 days back) and upserts the rows.
  *   2. Scans the returns Gmail mailbox for this order's "Return authorization
- *      notification" emails only, and parses the buyer comment onto its returns.
+ *      notification" emails only, parses the buyer comment onto its returns, and
+ *      archives those emails once the comment is stored.
  *
  * Runs synchronously (report generation usually takes ~30–90 s) so the caller
  * can re-fetch the order when it finishes.

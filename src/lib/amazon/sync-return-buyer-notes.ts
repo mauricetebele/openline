@@ -9,7 +9,7 @@
  * Mailbox: amazonrefunds@openline.us (override via EMAIL_RETURNS_MAILBOX).
  */
 import { prisma } from '@/lib/prisma'
-import { listMessages, getMessage, pMap } from '@/lib/email/google'
+import { listMessages, getMessage, batchModify, pMap } from '@/lib/email/google'
 import { parseReturnEmail, type ParsedReturnEmail, type ReturnEmailItem } from './parse-return-email'
 
 export const RETURNS_MAILBOX = process.env.EMAIL_RETURNS_MAILBOX || 'amazonrefunds@openline.us'
@@ -56,6 +56,7 @@ export interface SyncBuyerNotesResult {
   ordersWithComment: number
   returnsMatched: number
   returnsUpdated: number
+  emailsArchived: number
   unmatchedOrderIds: string[]
 }
 
@@ -65,6 +66,9 @@ export interface SyncBuyerNotesResult {
  * @param opts.onlyMissing    skip returns that already have a buyerComment (default false — refresh all)
  * @param opts.maxEmails      safety cap on emails scanned (default 3000)
  * @param opts.search         extra Gmail search terms (e.g. a quoted order id for a targeted pull)
+ * @param opts.archive        archive (remove INBOX) emails whose buyer comment is now stored on
+ *                            its return (default true). Emails with no comment, or whose return
+ *                            isn't in mfn_returns yet, stay in the inbox for a later sync.
  */
 export async function syncReturnBuyerNotes(opts: {
   newerThanDays?: number
@@ -72,8 +76,9 @@ export async function syncReturnBuyerNotes(opts: {
   onlyMissing?: boolean
   maxEmails?: number
   search?: string
+  archive?: boolean
 } = {}): Promise<SyncBuyerNotesResult> {
-  const empty: SyncBuyerNotesResult = { ok: false, emailsScanned: 0, ordersWithComment: 0, returnsMatched: 0, returnsUpdated: 0, unmatchedOrderIds: [] }
+  const empty: SyncBuyerNotesResult = { ok: false, emailsScanned: 0, ordersWithComment: 0, returnsMatched: 0, returnsUpdated: 0, emailsArchived: 0, unmatchedOrderIds: [] }
 
   const account = await prisma.emailAccount.findFirst({ where: { email: RETURNS_MAILBOX } })
   if (!account) return { ...empty, reason: `Returns mailbox ${RETURNS_MAILBOX} is not connected` }
@@ -101,17 +106,21 @@ export async function syncReturnBuyerNotes(opts: {
     try {
       const full = await getMessage(account.id, id, 'full') as GmailFullMessage
       const { subject, html } = extractBody(full)
-      return parseReturnEmail(subject, html)
+      return { id, parsed: parseReturnEmail(subject, html) }
     } catch {
       return null
     }
   }, 5)
 
   const byOrder = new Map<string, ParsedReturnEmail>()
-  for (const p of parsedList) {
-    if (!p?.orderId) continue
+  const emailIdsByOrder = new Map<string, string[]>()
+  for (const e of parsedList) {
+    const p = e?.parsed
+    if (!e || !p?.orderId) continue
     if (!byOrder.has(p.orderId)) byOrder.set(p.orderId, p)
+    emailIdsByOrder.set(p.orderId, [...(emailIdsByOrder.get(p.orderId) ?? []), e.id])
   }
+  const toArchive: string[] = []
 
   // Restrict to requested order ids, if any.
   const wantOrderIds = opts.orderIds?.length ? new Set(opts.orderIds) : null
@@ -131,16 +140,34 @@ export async function syncReturnBuyerNotes(opts: {
     })
     if (rows.length === 0) { unmatched.push(orderId); continue }
 
+    let captured = false
     for (const row of rows) {
       const item = pickItem(parsed, row.asin)
       if (!item?.buyerComment) continue
       returnsMatched++
+      captured = true
       const data: { buyerComment: string; returnReason?: string } = { buyerComment: item.buyerComment }
       if (!row.returnReason && item.returnReason) data.returnReason = item.returnReason
       // Skip no-op writes.
       if (row.buyerComment === data.buyerComment && data.returnReason === undefined) continue
       await prisma.mFNReturn.update({ where: { id: row.id }, data })
       returnsUpdated++
+    }
+    // Comment is stored on the return — this order's notification email(s) are done.
+    if (captured) toArchive.push(...(emailIdsByOrder.get(orderId) ?? []))
+  }
+
+  // Archive = remove the INBOX label (email stays in All Mail). Best-effort.
+  let emailsArchived = 0
+  if (opts.archive !== false && toArchive.length > 0) {
+    for (let i = 0; i < toArchive.length; i += 1000) {
+      const chunk = toArchive.slice(i, i + 1000)
+      try {
+        await batchModify(account.id, chunk, undefined, ['INBOX'])
+        emailsArchived += chunk.length
+      } catch (err) {
+        console.error('[buyer-notes] archive failed:', err instanceof Error ? err.message : err)
+      }
     }
   }
 
@@ -150,6 +177,7 @@ export async function syncReturnBuyerNotes(opts: {
     ordersWithComment,
     returnsMatched,
     returnsUpdated,
+    emailsArchived,
     unmatchedOrderIds: unmatched.slice(0, 100),
   }
 }

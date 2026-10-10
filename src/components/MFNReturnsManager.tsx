@@ -208,7 +208,7 @@ export default function MFNReturnsManager() {
       })
       const d = await res.json()
       if (!res.ok) { setNotesMsg(d.error ?? 'Failed'); return }
-      setNotesMsg(`Updated ${d.returnsUpdated} return${d.returnsUpdated === 1 ? '' : 's'} from ${d.emailsScanned} emails`)
+      setNotesMsg(`Updated ${d.returnsUpdated} return${d.returnsUpdated === 1 ? '' : 's'} from ${d.emailsScanned} emails · archived ${d.emailsArchived ?? 0}`)
       setFetchKey((k) => k + 1)
     } catch {
       setNotesMsg('Failed to pull buyer notes')
