@@ -174,6 +174,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
             // BackBox competitors (best-effort). winner_price = current BackBox price.
             let backboxWon: boolean | undefined
             let backboxPrice: number | undefined
+            let backboxPriceToWin: number | null = null
             if (live.id) {
               try {
                 const comps = await client.getBackboxCompetitors(live.id)
@@ -182,6 +183,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
                 const winner = comps.find(c => c.is_winning) ?? comps[0]
                 const wp = num(winner?.winner_price?.amount)
                 if (Number.isFinite(wp)) backboxPrice = wp
+                const ptw = num(mine?.price_to_win?.amount)
+                if (Number.isFinite(ptw)) backboxPriceToWin = ptw
               } catch { /* BackBox unavailable — leave as-is */ }
             }
 
@@ -191,7 +194,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
                 ...(Number.isFinite(price) ? { price } : {}),
                 ...(Number.isFinite(qty) ? { quantity: qty } : {}),
                 ...(listingStatus !== undefined ? { listingStatus } : {}),
-                ...(backboxWon !== undefined ? { backboxWon, backboxPrice: backboxPrice ?? null, backboxSyncedAt: new Date() } : {}),
+                ...(backboxWon !== undefined ? { backboxWon, backboxPrice: backboxPrice ?? null, backboxPriceToWin, backboxSyncedAt: new Date() } : {}),
                 lastSyncedAt: new Date(),
               },
             })

@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
     const bmListings = bmSkus.length > 0
       ? await prisma.marketplaceListing.findMany({
           where: { marketplace: 'backmarket', sellerSku: { in: bmSkus } },
-          select: { sellerSku: true, externalId: true, condition: true, listingStatus: true, price: true, backboxWon: true, backboxPrice: true },
+          select: { sellerSku: true, externalId: true, condition: true, listingStatus: true, price: true, backboxWon: true, backboxPrice: true, backboxPriceToWin: true },
         })
       : []
     const bmIdMap = new Map(bmListings.filter(l => l.externalId).map(l => [l.sellerSku, l.externalId]))
@@ -97,6 +97,7 @@ export async function GET(req: NextRequest) {
     const bmPriceMap = new Map(bmListings.map(l => [l.sellerSku, l.price != null ? l.price.toString() : null]))
     const backboxWonMap = new Map(bmListings.map(l => [l.sellerSku, l.backboxWon ?? null]))
     const backboxPriceMap = new Map(bmListings.map(l => [l.sellerSku, l.backboxPrice != null ? l.backboxPrice.toString() : null]))
+    const backboxPriceToWinMap = new Map(bmListings.map(l => [l.sellerSku, l.backboxPriceToWin != null ? l.backboxPriceToWin.toString() : null]))
 
     const enriched = skus.map(s => ({
       ...s,
@@ -124,6 +125,7 @@ export async function GET(req: NextRequest) {
       buyBoxSeller: s.marketplace === 'amazon' ? (buyBoxSellerMap.get(s.sellerSku) ?? null) : null,
       backboxWon: s.marketplace === 'backmarket' ? (backboxWonMap.get(s.sellerSku) ?? null) : null,
       backboxPrice: s.marketplace === 'backmarket' ? (backboxPriceMap.get(s.sellerSku) ?? null) : null,
+      backboxPriceToWin: s.marketplace === 'backmarket' ? (backboxPriceToWinMap.get(s.sellerSku) ?? null) : null,
     }))
 
     return NextResponse.json({ data: enriched, shippingTemplates })

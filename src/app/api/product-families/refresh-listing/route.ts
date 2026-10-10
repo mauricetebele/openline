@@ -97,6 +97,7 @@ export async function POST(req: NextRequest) {
 
       let backboxWon: boolean | null = null
       let backboxPrice: number | null = null
+      let backboxPriceToWin: number | null = null
       if (live.id) {
         try {
           const comps = await client.getBackboxCompetitors(live.id)
@@ -105,12 +106,14 @@ export async function POST(req: NextRequest) {
           const winner = comps.find(c => c.is_winning) ?? comps[0]
           const wp = num(winner?.winner_price?.amount)
           backboxPrice = Number.isFinite(wp) ? wp : null
+          const ptw = num(mine?.price_to_win?.amount)
+          backboxPriceToWin = Number.isFinite(ptw) ? ptw : null
         } catch { /* BackBox best-effort */ }
       }
 
       await prisma.marketplaceListing.update({
         where: { id: listing.id },
-        data: { ...(price != null ? { price } : {}), ...(quantity != null ? { quantity } : {}), ...(listingStatus != null ? { listingStatus } : {}), backboxWon, backboxPrice, backboxSyncedAt: new Date(), lastSyncedAt: new Date() },
+        data: { ...(price != null ? { price } : {}), ...(quantity != null ? { quantity } : {}), ...(listingStatus != null ? { listingStatus } : {}), backboxWon, backboxPrice, backboxPriceToWin, backboxSyncedAt: new Date(), lastSyncedAt: new Date() },
       })
       return NextResponse.json({ mskuId, marketplace: 'backmarket', price, listingStatus, pushingQty: quantity, backboxPrice, backboxWon })
     }

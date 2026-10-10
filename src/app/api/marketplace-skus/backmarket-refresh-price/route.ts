@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
     // retries 429s). Mirrors the 30-min cron so pressing refresh fills it too.
     let backboxWon: boolean | undefined
     let backboxPrice: number | null | undefined
+    let backboxPriceToWin: number | null = null
     if (live.id != null) {
       try {
         const comps = await client.getBackboxCompetitors(String(live.id))
@@ -60,6 +61,8 @@ export async function POST(req: NextRequest) {
         const winner = comps.find(c => c.is_winning) ?? comps[0]
         const wp = Number(winner?.winner_price?.amount)
         backboxPrice = Number.isFinite(wp) ? wp : null
+        const ptw = Number(mine?.price_to_win?.amount ?? NaN)
+        backboxPriceToWin = Number.isFinite(ptw) ? ptw : null
       } catch { /* BackBox unavailable */ }
     }
 
@@ -68,12 +71,12 @@ export async function POST(req: NextRequest) {
       data: {
         ...(price != null ? { price } : {}),
         ...(listingStatus != null ? { listingStatus } : {}),
-        ...(backboxWon !== undefined ? { backboxWon, backboxPrice: backboxPrice ?? null, backboxSyncedAt: new Date() } : {}),
+        ...(backboxWon !== undefined ? { backboxWon, backboxPrice: backboxPrice ?? null, backboxPriceToWin, backboxSyncedAt: new Date() } : {}),
         lastSyncedAt: new Date(),
       },
     })
 
-    return NextResponse.json({ sellerSku, price, listingStatus, backboxWon: backboxWon ?? null, backboxPrice: backboxPrice ?? null })
+    return NextResponse.json({ sellerSku, price, listingStatus, backboxWon: backboxWon ?? null, backboxPrice: backboxPrice ?? null, backboxPriceToWin })
   } catch (err) {
     console.error('[backmarket-refresh-price]', err)
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed to refresh price' }, { status: 500 })

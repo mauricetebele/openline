@@ -53,6 +53,7 @@ interface MarketplaceSku {
   buyBoxSeller: string | null
   backboxWon: boolean | null
   backboxPrice: string | null
+  backboxPriceToWin: string | null
 }
 
 interface MarketplaceListing {
@@ -939,6 +940,7 @@ export default function MarketplaceSkuManager() {
               : {
                   backboxWon: res.backboxWon ?? x.backboxWon,
                   backboxPrice: res.backboxPrice != null ? String(res.backboxPrice) : x.backboxPrice,
+                  backboxPriceToWin: res.backboxWon != null ? (res.backboxPriceToWin != null ? String(res.backboxPriceToWin) : null) : x.backboxPriceToWin,
                 }),
           }
         : x)))
@@ -2227,10 +2229,15 @@ export default function MarketplaceSkuManager() {
                         ) : <span className="text-gray-300 text-xs">—</span>
                       ) : s.marketplace === 'backmarket' ? (
                         s.backboxPrice != null ? (
-                          <span className="text-xs">
+                          <div className="text-xs">
                             <span className={clsx('font-medium', s.backboxWon ? 'text-green-700' : 'text-gray-800')}>${Number(s.backboxPrice).toFixed(2)}</span>
                             {s.backboxWon && <span className="ml-1 text-green-600" title="You hold the BackBox">✓</span>}
-                          </span>
+                            {!s.backboxWon && s.backboxPriceToWin != null && (
+                              <div className="text-[11px] text-amber-700" title="Back Market price_to_win: price this listing needs to take the BackBox">
+                                to win <span className="font-mono font-semibold">${Number(s.backboxPriceToWin).toFixed(2)}</span>
+                              </div>
+                            )}
+                          </div>
                         ) : <span className="text-gray-300 text-xs">—</span>
                       ) : <span className="text-gray-300 text-xs">—</span>}
                     </td>
