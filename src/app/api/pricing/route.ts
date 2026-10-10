@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { amazonItemCondition } from '@/lib/amazon/competitive-pricing'
 
 export async function GET(req: NextRequest) {
   try {
@@ -109,23 +110,24 @@ export async function GET(req: NextRequest) {
     const offerSummaries =
       pageAsins.length > 0
         ? await prisma.competitiveOffer.groupBy({
-            by: ['asin'],
+            by: ['asin', 'itemCondition'],
             where: { accountId, asin: { in: pageAsins } },
             _count: { id: true },
             _min: { landedPrice: true },
           })
         : []
 
+    // Summaries per ASIN + Amazon condition, matched to each listing's own condition
     type SummaryMap = { count: number; minPrice: Prisma.Decimal | null }
     const summaryByAsin = new Map<string, SummaryMap>(
       offerSummaries.map((s) => [
-        s.asin,
+        `${s.asin}|${s.itemCondition}`,
         { count: s._count.id, minPrice: s._min.landedPrice },
       ]),
     )
 
     const data = listings.map((l) => {
-      const summary = l.asin ? summaryByAsin.get(l.asin) : undefined
+      const summary = l.asin ? summaryByAsin.get(`${l.asin}|${amazonItemCondition(l.condition)}`) : undefined
       return {
         ...l,
         competitorCount: summary?.count ?? 0,

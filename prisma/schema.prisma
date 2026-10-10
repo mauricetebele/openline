@@ -532,12 +532,13 @@ model CompetitiveOffer {
   landedPrice     Decimal       @db.Decimal(12, 2)
   isPrime         Boolean       @default(false)
   isBuyBoxWinner  Boolean       @default(false)
-  condition       String        @default("new")
+  condition       String        @default("new") // offer sub-condition (new, mint, very_good, good, acceptable)
+  itemCondition   String        @default("New") // Amazon ItemCondition queried: New | Used | Refurbished | Collectible
   feedbackRating  Decimal?      @db.Decimal(5, 2) // seller positive feedback %
   feedbackCount   Int? // number of feedback ratings
   lastFetchedAt   DateTime      @default(now())
 
-  @@unique([accountId, asin, sellerId, fulfillmentType])
+  @@unique([accountId, asin, itemCondition, sellerId, fulfillmentType])
   @@index([accountId, asin])
   @@map("competitive_offers")
 }
