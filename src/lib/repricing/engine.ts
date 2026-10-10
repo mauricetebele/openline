@@ -160,6 +160,7 @@ export const groupKeyOf = (accountId: string, asin: string, itemCondition: strin
 
 export interface FeedSku {
   sku: string; grade: string | null; channel: string; price: number | null; qty: number
+  internalSku: string | null; internalDescription: string | null // OpenLine product the SKU is mapped to
   units7d: number; units30d: number
   marginCurrent: number | null; marginSuggested: number | null
   mapped: boolean
@@ -283,7 +284,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
   // ── 4. Margin inputs: msku → product/grade/template, avg costs ─────────────
   const mskus = await prisma.productGradeMarketplaceSku.findMany({
     where: { marketplace: 'amazon', sellerSku: { in: allSkus } },
-    select: { sellerSku: true, productId: true, gradeId: true, calculationTemplateId: true, grade: { select: { grade: true } }, product: { select: { defaultPackagePresetId: true } } },
+    select: { sellerSku: true, productId: true, gradeId: true, calculationTemplateId: true, grade: { select: { grade: true } }, product: { select: { defaultPackagePresetId: true, sku: true, description: true } } },
   })
   const mskuBySku = new Map(mskus.map(m => [m.sellerSku, m]))
   const productIds = Array.from(new Set(mskus.map(m => m.productId)))
@@ -710,6 +711,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       const price = r.price != null ? Number(r.price) : null
       return {
         sku: r.sku, grade: mskuBySku.get(r.sku)?.grade?.grade ?? null, channel: r.fulfillmentChannel, price, qty: r.quantity,
+        internalSku: mskuBySku.get(r.sku)?.product.sku ?? null, internalDescription: mskuBySku.get(r.sku)?.product.description ?? null,
         units7d: v?.u7 ?? 0, units30d: v?.u30 ?? 0,
         marginCurrent: skuMargin(r.sku, price), marginSuggested: target != null ? skuMargin(r.sku, target) : null,
         mapped: mskuBySku.has(r.sku),

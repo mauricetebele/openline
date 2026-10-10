@@ -14,6 +14,7 @@ type Status = 'SUGGESTION' | 'NO_CHANGE' | 'SNOOZED' | 'COOLDOWN' | 'NO_DATA'
 
 interface FeedSku {
   sku: string; grade: string | null; channel: string; price: number | null; qty: number
+  internalSku: string | null; internalDescription: string | null
   units7d: number; units30d: number
   marginCurrent: number | null; marginSuggested: number | null; mapped: boolean
 }
@@ -607,13 +608,21 @@ function FeedRows({ g, open, up, busy, refreshing, onRefresh, editValue, onToggl
 
         {/* ── SKUs & grades ───────────────────────────────────────── */}
         <td className={cell}>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1.5">
             {g.skus.map(s => (
-              <div key={s.sku} className="flex items-center gap-1">
-                <span className="rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-1.5 py-0.5 font-mono text-[10px] text-gray-800 dark:text-gray-200 whitespace-nowrap">{s.sku}</span>
-                {s.grade
-                  ? <Pill tone="blue" title="OpenLine grade">Grade {s.grade}</Pill>
-                  : <Pill tone="amber" title={s.mapped ? 'Mapped with no grade' : 'Not mapped to a product'}>{s.mapped ? 'No grade' : 'Unmapped'}</Pill>}
+              <div key={s.sku} className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-1">
+                  <span className="rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-1.5 py-0.5 font-mono text-[10px] text-gray-800 dark:text-gray-200 whitespace-nowrap" title="Marketplace (Amazon seller) SKU">{s.sku}</span>
+                  {s.grade
+                    ? <Pill tone="blue" title="OpenLine grade">Grade {s.grade}</Pill>
+                    : <Pill tone="amber" title={s.mapped ? 'Mapped with no grade' : 'Not mapped to a product'}>{s.mapped ? 'No grade' : 'Unmapped'}</Pill>}
+                </div>
+                {s.internalSku && (
+                  <span className="flex items-center gap-1 pl-1 text-[10px] text-gray-500 whitespace-nowrap" title={`Internal OpenLine SKU${s.internalDescription ? ` — ${s.internalDescription}` : ''}`}>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Internal</span>
+                    <span className="font-mono font-semibold text-violet-700 dark:text-violet-300">{s.internalSku}</span>
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -774,7 +783,7 @@ function FeedRows({ g, open, up, busy, refreshing, onRefresh, editValue, onToggl
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-2">
               <table className="w-full text-[11px]">
                 <thead><tr className="text-[9px] uppercase tracking-wider text-gray-500">
-                  <th className="px-2 py-1 text-left font-bold">SKU</th><th className="px-2 py-1 text-left font-bold">Grade</th><th className="px-2 py-1 text-left font-bold">Channel</th>
+                  <th className="px-2 py-1 text-left font-bold">SKU</th><th className="px-2 py-1 text-left font-bold">Internal SKU</th><th className="px-2 py-1 text-left font-bold">Grade</th><th className="px-2 py-1 text-left font-bold">Channel</th>
                   <th className="px-2 py-1 text-right font-bold">Price</th><th className="px-2 py-1 text-right font-bold">In stock</th>
                   <th className="px-2 py-1 text-right font-bold">7d sold</th><th className="px-2 py-1 text-right font-bold">30d sold</th>
                   <th className="px-2 py-1 text-right font-bold">Margin now</th><th className="px-2 py-1 text-right font-bold">Margin after</th>
@@ -783,6 +792,7 @@ function FeedRows({ g, open, up, busy, refreshing, onRefresh, editValue, onToggl
                   {g.skus.map(s => (
                     <tr key={s.sku}>
                       <td className="px-2 py-1 font-mono">{s.sku}</td>
+                      <td className="px-2 py-1 font-mono text-violet-700 dark:text-violet-300" title={s.internalDescription ?? ''}>{s.internalSku ?? '—'}</td>
                       <td className="px-2 py-1">{s.grade ? <Pill tone="blue">Grade {s.grade}</Pill> : <Pill tone="amber">{s.mapped ? 'No grade' : 'Unmapped'}</Pill>}</td>
                       <td className="px-2 py-1"><Pill tone={s.channel === 'FBA' ? 'violet' : 'gray'}>{s.channel}</Pill></td>
                       <td className="px-2 py-1 text-right font-mono font-semibold">{money(s.price)}</td>
