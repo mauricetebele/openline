@@ -30,12 +30,13 @@ interface StrategyParams {
   targetCoverDays: number
   cooldownHours: number
   minFeedback: number // ignore competitors below this positive-feedback %
+  primePremiumPct: number // ours is Prime, theirs isn't → we may sit this % above them
 }
 
 export const STRATEGIES: Record<Strategy, StrategyParams> = {
-  CONSERVATIVE: { raisePct: 2, lowerPct: 1, undercut: () => 0.01, maxDailyPct: 3, slowNoSaleDays: 14, staleNoSaleDays: 28, targetCoverDays: 45, cooldownHours: 72, minFeedback: 95 },
-  STANDARD:     { raisePct: 3, lowerPct: 2, undercut: (r) => Math.max(0.5, r * 0.005), maxDailyPct: 6, slowNoSaleDays: 10, staleNoSaleDays: 21, targetCoverDays: 30, cooldownHours: 48, minFeedback: 90 },
-  AGGRESSIVE:   { raisePct: 4, lowerPct: 4, undercut: (r) => r * 0.015, maxDailyPct: 12, slowNoSaleDays: 5, staleNoSaleDays: 14, targetCoverDays: 14, cooldownHours: 24, minFeedback: 0 },
+  CONSERVATIVE: { raisePct: 2, lowerPct: 1, undercut: () => 0.01, maxDailyPct: 3, slowNoSaleDays: 14, staleNoSaleDays: 28, targetCoverDays: 45, cooldownHours: 72, minFeedback: 95, primePremiumPct: 5 },
+  STANDARD:     { raisePct: 3, lowerPct: 2, undercut: (r) => Math.max(0.5, r * 0.005), maxDailyPct: 6, slowNoSaleDays: 10, staleNoSaleDays: 21, targetCoverDays: 30, cooldownHours: 48, minFeedback: 90, primePremiumPct: 3 },
+  AGGRESSIVE:   { raisePct: 4, lowerPct: 4, undercut: (r) => r * 0.015, maxDailyPct: 12, slowNoSaleDays: 5, staleNoSaleDays: 14, targetCoverDays: 14, cooldownHours: 24, minFeedback: 0, primePremiumPct: 1.5 },
 }
 
 // LOWEST = we're the cheapest same-condition offer but don't hold the Buy Box.
@@ -85,6 +86,7 @@ export interface FeedGroup {
   marginSuggested: { min: number | null; max: number | null }
   reason: string
   explanation: string[] // step-by-step plain-English reasoning
+  primeEdgePct: number | null // set when our Prime offer is allowed above a non-Prime reference
   status: 'SUGGESTION' | 'NO_CHANGE' | 'SNOOZED' | 'COOLDOWN' | 'NO_DATA'
   snoozedUntil: string | null
   cooldownUntil: string | null
@@ -143,10 +145,13 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
   // ── 3. Competition (per ASIN + condition) ──────────────────────────────────
   const offers = await prisma.competitiveOffer.findMany({
     where: { asin: { in: asins } },
-    select: { accountId: true, asin: true, itemCondition: true, isMyOffer: true, landedPrice: true, shippingPrice: true, isBuyBoxWinner: true, feedbackRating: true, lastFetchedAt: true },
+    select: { accountId: true, asin: true, itemCondition: true, isMyOffer: true, landedPrice: true, shippingPrice: true, isBuyBoxWinner: true, isPrime: true, feedbackRating: true, lastFetchedAt: true },
   })
   const offersByGroup = new Map<string, typeof offers>()
   for (const o of offers) {
+    // Older than 48 h ⇒ not trustworthy for pricing (prices + Prime flags move); the
+    // hourly refresh keeps active pairs < ~1 day old, so stale rows mean "no data".
+    if (now - o.lastFetchedAt.getTime() > 48 * 3_600_000) continue
     const k = groupKeyOf(o.accountId, o.asin, o.itemCondition)
     offersByGroup.set(k, [...(offersByGroup.get(k) ?? []), o])
   }
@@ -256,7 +261,10 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     const mine = gOffers.find(o => o.isMyOffer)
     const ourShipping = mine ? Number(mine.shippingPrice) : 0
     const comps = gOffers.filter(o => !o.isMyOffer && (o.feedbackRating == null || Number(o.feedbackRating) >= P.minFeedback))
-    const lowestCompetitor = comps.length ? Math.min(...comps.map(o => Number(o.landedPrice))) - ourShipping : null
+    const lowestCompOffer = comps.length ? comps.reduce((a, b) => (Number(b.landedPrice) < Number(a.landedPrice) ? b : a)) : null
+    const lowestCompetitor = lowestCompOffer ? Number(lowestCompOffer.landedPrice) - ourShipping : null
+    const weArePrime = mine?.isPrime === true
+    const premium = (price: number) => price * (1 + P.primePremiumPct / 100)
     // seller_listings.buyBox* is the featured (New) Buy Box — only valid for New groups.
     const fresh = g.itemCondition === 'New'
       ? g.rows.find(r => r.buyBoxSyncedAt && now - r.buyBoxSyncedAt.getTime() < 6 * 3_600_000 && r.buyBoxPrice != null)
@@ -278,8 +286,16 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
 
     // Reference = Buy Box, else the lowest same-condition competitor. Already at or
     // below it without the Buy Box ⇒ LOWEST (price isn't what's holding us back).
+    // Prime premium: when ours is Prime and the reference offer isn't, the target
+    // is that price + the strategy's premium (buyers pay a bit more for Prime).
     let competition: Competition
-    const ref = !weHoldBuyBox ? (buyBoxPrice ?? lowestCompetitor) : null
+    const refRaw = !weHoldBuyBox ? (buyBoxPrice ?? lowestCompetitor) : null
+    const refOffer = refRaw == null ? null
+      : buyBoxPrice != null
+        ? (gOffers.find(o => o.isBuyBoxWinner && !o.isMyOffer) ?? comps.find(o => Math.abs(Number(o.landedPrice) - ourShipping - buyBoxPrice!) < 0.01) ?? null)
+        : lowestCompOffer
+    const primeEdge = refRaw != null && weArePrime && refOffer != null && !refOffer.isPrime
+    const ref = refRaw != null && primeEdge ? round2(premium(refRaw)) : refRaw
     if (weHoldBuyBox) competition = 'WINNING'
     else if (ref == null) competition = 'ALONE'
     else if (currentPrice != null && currentPrice <= ref) competition = 'LOWEST'
@@ -310,10 +326,18 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       if (target != null && UP_ONLY.includes(action) && target <= currentPrice) { target = null; dropped = 'there was no room to raise' }
       // When we hold the Buy Box (or are lowest), don't raise past the next competitor.
       if (target != null && target > currentPrice && (weHoldBuyBox || competition === 'LOWEST') && lowestCompetitor != null) {
-        const cap = lowestCompetitor - P.undercut(lowestCompetitor)
-        if (cap < target) {
-          target = Math.max(currentPrice, cap); why += ` (capped below next offer ${fmt(lowestCompetitor)})`
-          adjustments.push(`It's capped at ${fmt(target)} so we stay just under the next-cheapest seller at ${fmt(lowestCompetitor)} and don't hand them the sale.`)
+        // Next seller non-Prime while we're Prime → the cap gets the Prime premium too.
+        const capPrime = weArePrime && lowestCompOffer != null && !lowestCompOffer.isPrime
+        const capBase = capPrime ? premium(lowestCompetitor) : lowestCompetitor
+        const cap = capBase - P.undercut(capBase)
+        if (cap <= currentPrice) {
+          target = null
+          dropped = `there's no room to raise — the next-cheapest seller is at ${fmt(lowestCompetitor)}${capPrime ? ` (non-Prime; ${P.primePremiumPct}% allowance included)` : ''}`
+        } else if (cap < target) {
+          target = cap; why += ` (capped below next offer ${fmt(lowestCompetitor)})`
+          adjustments.push(capPrime
+            ? `It's capped at ${fmt(target)}: the next-cheapest seller is at ${fmt(lowestCompetitor)} but isn't Prime, so we can stay up to ${P.primePremiumPct}% above them (${fmt(round2(capBase))}) without handing them the sale.`
+            : `It's capped at ${fmt(target)} so we stay just under the next-cheapest seller at ${fmt(lowestCompetitor)} and don't hand them the sale.`)
         }
       }
       if (target != null) {
@@ -389,12 +413,15 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     } else {
       const holder = buyBoxHolder && buyBoxHolder !== 'Competitor' && buyBoxHolder !== 'You' ? buyBoxHolder : 'A competitor'
       const gapTxt = currentPrice != null && ref != null ? `${fmt(currentPrice - ref)} (${((currentPrice - ref) / ref * 100).toFixed(1)}%)` : ''
-      const refWho = ref == null ? '' : buyBoxPrice != null ? `${holder} holds the Buy Box at ${fmt(ref)}` : `The cheapest other ${cond} seller is at ${fmt(ref)}`
+      const primeTxt = primeEdge ? ` with a non-Prime offer; ours is Prime, so ${sName} lets us sit up to ${P.primePremiumPct}% above it — an effective target of ${fmt(ref!)}` : ''
+      const refWho = refRaw == null ? '' : buyBoxPrice != null ? `${holder} holds the Buy Box at ${fmt(refRaw)}${primeTxt}` : `The cheapest other ${cond} seller is at ${fmt(refRaw)}${primeTxt}`
       explanation.push(
         competition === 'WINNING' ? `We currently hold the Buy Box at ${fmt(currentPrice ?? 0)}.${lowestCompetitor != null ? ` The next-cheapest ${cond} seller is at ${fmt(lowestCompetitor)}.` : ' No other seller is competing on price.'}`
-        : competition === 'LOWEST' ? `We're already the cheapest ${cond} offer at ${fmt(currentPrice ?? 0)} (next is ${fmt(ref!)}), but we don't hold the Buy Box — so price isn't what's holding us back.`
-        : competition === 'CLOSE' ? `${refWho}; we're only ${gapTxt} above it, so we're close.`
-        : competition === 'LOSING' ? `${refWho}; we're ${gapTxt} above it, so we're losing sales on price.`
+        : competition === 'LOWEST' ? (primeEdge
+            ? `${refWho}. At ${fmt(currentPrice ?? 0)} we're within that Prime allowance, so price isn't what's holding us back.`
+            : `We're already the cheapest ${cond} offer at ${fmt(currentPrice ?? 0)} (next is ${fmt(ref!)}), but we don't hold the Buy Box — so price isn't what's holding us back.`)
+        : competition === 'CLOSE' ? `${refWho}; we're only ${gapTxt} above ${primeEdge ? 'that' : 'it'}, so we're close.`
+        : competition === 'LOSING' ? `${refWho}; we're ${gapTxt} above ${primeEdge ? 'that' : 'it'}, so we're losing sales on price.`
         : `No other seller has a ${cond} offer on this ASIN right now.`,
       )
       const holdWhy: Partial<Record<string, string>> = {
@@ -409,9 +436,9 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
         RAISE: `Since it's selling fast and ${weHoldBuyBox ? 'we hold the Buy Box' : 'nobody is competing'}, there's room to earn more: ${sName} raises the price ${P.raisePct}%.`,
         PROBE: `${competition === 'LOWEST' ? "Since it's selling fast at the lowest price" : 'Since sales are healthy and we hold the Buy Box'}, ${sName} tests a small ${P.raisePct / 2}% increase to see if the market will take it.`,
         HOLD: holdWhy[rule] ?? 'The rules call for holding the current price.',
-        MATCH: `To win back sales, ${sName} matches the Buy Box at ${fmt(ref ?? 0)}.`,
-        PARTWAY: `${sName} moves halfway toward the Buy Box (${fmt(ref ?? 0)}) to compete without giving up too much margin.`,
-        UNDERCUT: `To take the Buy Box and get it moving, ${sName} undercuts ${fmt(ref ?? 0)} by ${fmt(P.undercut(ref ?? 0))}.`,
+        MATCH: `To win back sales, ${sName} ${primeEdge ? 'moves to the Prime-adjusted target of' : 'matches the Buy Box at'} ${fmt(ref ?? 0)}.`,
+        PARTWAY: `${sName} moves halfway toward ${primeEdge ? 'the Prime-adjusted target' : 'the Buy Box'} (${fmt(ref ?? 0)}) to compete without giving up too much margin.`,
+        UNDERCUT: `To take the Buy Box and get it moving, ${sName} undercuts ${primeEdge ? 'the Prime-adjusted target of ' : ''}${fmt(ref ?? 0)} by ${fmt(P.undercut(ref ?? 0))}.`,
         LOWER: `To get it moving, ${sName} lowers the price ${P.lowerPct}%.`,
         LOWER2: `With no competition and no sales, ${sName} lowers the price ${2 * P.lowerPct}% to find demand.`,
       }
@@ -437,7 +464,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       competitorCount: comps.length, offersFetchedAt,
       speed, competition, rule, action, suggestedPrice: target, changePct,
       marginCurrent, marginSuggested,
-      reason, explanation, status,
+      reason, explanation, status, primeEdgePct: primeEdge ? P.primePremiumPct : null,
       snoozedUntil: snooze?.snoozeUntil?.toISOString() ?? null,
       cooldownUntil: cooldownEnd > now ? new Date(cooldownEnd).toISOString() : null,
       lastRejectedAt: lastRejected?.decidedAt.toISOString() ?? null,

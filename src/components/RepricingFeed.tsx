@@ -28,7 +28,7 @@ interface FeedGroup {
   suggestedPrice: number | null; changePct: number | null
   marginCurrent: { min: number | null; max: number | null }
   marginSuggested: { min: number | null; max: number | null }
-  reason: string; explanation: string[]; status: Status
+  reason: string; explanation: string[]; status: Status; primeEdgePct: number | null
   snoozedUntil: string | null; cooldownUntil: string | null
   lastRejectedAt: string | null; lastRejectedBy: string | null
 }
@@ -257,6 +257,10 @@ function FeedRows({ g, i, open, up, busy, editValue, onToggle, onEdit, onStrateg
         <td className="px-2 py-2 text-right font-mono whitespace-nowrap">
           {money(g.buyBoxPrice)}
           <span className={clsx('block text-[10px] font-sans', g.weHoldBuyBox ? 'text-green-600' : 'text-gray-400')}>{g.weHoldBuyBox ? 'You' : g.buyBoxHolder ?? ''}</span>
+          {g.primeEdgePct != null && (
+            <span className="inline-block mt-0.5 px-1 rounded text-[10px] font-sans font-semibold bg-[#00A8E1] text-white"
+              title={`Their offer isn't Prime and ours is — we're allowed up to ${g.primeEdgePct}% above it`}>Prime +{g.primeEdgePct}%</span>
+          )}
         </td>
         <td className="px-2 py-2 text-right font-mono whitespace-nowrap">
           {money(g.lowestCompetitor)}
