@@ -1,6 +1,6 @@
 /**
- * GET /api/cs-cases/unread-count — number of cases with unread activity for the
- * viewer (admin: all; agent: own). Powers the nav badge.
+ * GET /api/cs-cases/unread-count — number of OPEN cases with unread activity for
+ * the viewer (admin: all; agent: own). Powers the nav badge.
  */
 import { NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
@@ -17,7 +17,8 @@ export async function GET() {
 
   const isAdmin = user.role === 'ADMIN'
   const rows = await prisma.csCase.findMany({
-    where: isAdmin ? {} : { createdById: user.dbId },
+    // Only OPEN cases count — new activity on a resolved case shouldn't bump the badge.
+    where: { status: 'OPEN', ...(isAdmin ? {} : { createdById: user.dbId }) },
     select: { lastMessageAt: true, lastMessageById: true, adminReadAt: true, agentReadAt: true },
     take: 2000,
   })
