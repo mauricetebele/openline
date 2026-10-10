@@ -29,6 +29,7 @@ interface FeedGroup {
   marginCurrent: { min: number | null; max: number | null }
   marginSuggested: { min: number | null; max: number | null }
   reason: string; explanation: string[]; status: Status; primeEdgePct: number | null
+  weArePrime: boolean | null; buyBoxPrime: boolean | null; lowestCompPrime: boolean | null
   snoozedUntil: string | null; cooldownUntil: string | null
   lastRejectedAt: string | null; lastRejectedBy: string | null
 }
@@ -59,6 +60,14 @@ const FILTERS: { key: 'SUGGESTION' | 'WAITING' | 'ALL'; label: string }[] = [
   { key: 'ALL', label: 'All groups' },
 ]
 
+// Offer type tag: Prime (FBA / Seller-Fulfilled Prime) vs non-Prime; nothing when unknown.
+function PrimeTag({ prime }: { prime: boolean | null }) {
+  if (prime == null) return null
+  return prime
+    ? <span className="inline-block mt-0.5 px-1 rounded text-[10px] font-sans font-semibold bg-[#00A8E1] text-white">Prime</span>
+    : <span className="inline-block mt-0.5 px-1 rounded text-[10px] font-sans font-semibold bg-gray-200 text-gray-600 dark:bg-white/10 dark:text-gray-300">Non-Prime</span>
+}
+
 export default function RepricingFeed() {
   const [groups, setGroups] = useState<FeedGroup[]>([])
   const [loading, setLoading] = useState(true)
@@ -81,6 +90,24 @@ export default function RepricingFeed() {
     } finally { setLoading(false) }
   }, [])
   useEffect(() => { load() }, [load])
+
+  // Refresh = pull fresh competitor offers (incl. Prime / non-Prime) from Amazon
+  // for anything older than 1 h (up to ~4 min, rate-limited), then rebuild the feed.
+  const [pulling, setPulling] = useState(false)
+  async function refresh() {
+    setPulling(true)
+    try {
+      const res = await fetch('/api/repricing/refresh-offers', { method: 'POST' })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j.error || 'Competitor pull failed')
+      if (j.remainingStale > 0) toast.success(`Pulled competitor offers for ${j.fetched} ASIN+condition pairs · ${j.remainingStale} still to go — click Refresh again`)
+      else toast.success(j.fetched > 0 ? `Pulled competitor offers for ${j.fetched} ASIN+condition pairs — all up to date` : 'Competitor data already up to date (< 1 h old)')
+      if (j.errors > 0) toast.error(`${j.errors} offer request(s) failed — they'll retry on the next refresh`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Competitor pull failed')
+    } finally { setPulling(false) }
+    await load()
+  }
 
   async function setStrategy(g: FeedGroup, strategy: Strategy) {
     setBusy(g.key)
@@ -153,9 +180,12 @@ export default function RepricingFeed() {
             {noData > 0 && <span className="ml-1 text-amber-600">{noData} group{noData === 1 ? '' : 's'} waiting for competitor data.</span>}
           </p>
         </div>
-        <button onClick={load} disabled={loading}
+        <button onClick={refresh} disabled={loading || pulling}
+          title="Pull fresh competitor offers (price + Prime / non-Prime) from Amazon, then rebuild the feed. Can take up to ~4 minutes."
           className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-          {loading ? <><Loader2 size={14} className="animate-spin" /> Loading…</> : <><RefreshCw size={14} /> Refresh</>}
+          {pulling ? <><Loader2 size={14} className="animate-spin" /> Pulling competitor offers… (up to ~4 min)</>
+            : loading ? <><Loader2 size={14} className="animate-spin" /> Loading…</>
+            : <><RefreshCw size={14} /> Refresh</>}
         </button>
       </div>
 
@@ -257,6 +287,7 @@ function FeedRows({ g, i, open, up, busy, editValue, onToggle, onEdit, onStrateg
         <td className="px-2 py-2 text-right font-mono whitespace-nowrap">
           {money(g.buyBoxPrice)}
           <span className={clsx('block text-[10px] font-sans', g.weHoldBuyBox ? 'text-green-600' : 'text-gray-400')}>{g.weHoldBuyBox ? 'You' : g.buyBoxHolder ?? ''}</span>
+          {g.buyBoxPrice != null && <PrimeTag prime={g.buyBoxPrime} />}
           {g.primeEdgePct != null && (
             <span className="inline-block mt-0.5 px-1 rounded text-[10px] font-sans font-semibold bg-[#00A8E1] text-white"
               title={`Their offer isn't Prime and ours is — we're allowed up to ${g.primeEdgePct}% above it`}>Prime +{g.primeEdgePct}%</span>
@@ -265,9 +296,10 @@ function FeedRows({ g, i, open, up, busy, editValue, onToggle, onEdit, onStrateg
         <td className="px-2 py-2 text-right font-mono whitespace-nowrap">
           {money(g.lowestCompetitor)}
           <span className="block text-[10px] text-gray-400 font-sans">{g.competitorCount} offer{g.competitorCount === 1 ? '' : 's'}</span>
+          {g.lowestCompetitor != null && <PrimeTag prime={g.lowestCompPrime} />}
         </td>
         <td className="px-2 py-2 text-right font-mono whitespace-nowrap">
-          <span className="text-gray-500">{money(g.currentPrice)}</span>
+          <span className="text-gray-500" title={g.weArePrime == null ? 'Our offer type unknown until competitor data is pulled' : g.weArePrime ? 'Our offer is Prime' : 'Our offer is not Prime'}>{money(g.currentPrice)}</span>
           {g.suggestedPrice != null && (
             <>
               <span className="mx-1 text-gray-400">→</span>
@@ -275,6 +307,7 @@ function FeedRows({ g, i, open, up, busy, editValue, onToggle, onEdit, onStrateg
               <span className="block text-[10px] text-gray-400 font-sans">{(g.changePct ?? 0) > 0 ? '+' : ''}{g.changePct?.toFixed(1)}%</span>
             </>
           )}
+          {g.weArePrime != null && <span className="block text-[10px] font-sans text-gray-400">ours: <PrimeTag prime={g.weArePrime} /></span>}
         </td>
         <td className="px-2 py-2 text-right font-mono whitespace-nowrap">
           <span className={marginColor(g.marginCurrent.min)}>{marginSpan(g.marginCurrent)}</span>

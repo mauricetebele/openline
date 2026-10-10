@@ -87,6 +87,9 @@ export interface FeedGroup {
   reason: string
   explanation: string[] // step-by-step plain-English reasoning
   primeEdgePct: number | null // set when our Prime offer is allowed above a non-Prime reference
+  weArePrime: boolean | null // null = our offer not in the fetched offer list
+  buyBoxPrime: boolean | null // Buy Box offer's Prime status (null = unknown)
+  lowestCompPrime: boolean | null
   status: 'SUGGESTION' | 'NO_CHANGE' | 'SNOOZED' | 'COOLDOWN' | 'NO_DATA'
   snoozedUntil: string | null
   cooldownUntil: string | null
@@ -465,6 +468,9 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       speed, competition, rule, action, suggestedPrice: target, changePct,
       marginCurrent, marginSuggested,
       reason, explanation, status, primeEdgePct: primeEdge ? P.primePremiumPct : null,
+      weArePrime: mine ? mine.isPrime : null,
+      buyBoxPrime: weHoldBuyBox ? (mine ? mine.isPrime : null) : (buyBoxPrice != null && refOffer ? refOffer.isPrime : null),
+      lowestCompPrime: lowestCompOffer ? lowestCompOffer.isPrime : null,
       snoozedUntil: snooze?.snoozeUntil?.toISOString() ?? null,
       cooldownUntil: cooldownEnd > now ? new Date(cooldownEnd).toISOString() : null,
       lastRejectedAt: lastRejected?.decidedAt.toISOString() ?? null,

@@ -80,7 +80,7 @@ export interface CompetitivePricingResult { pairs: number; fetched: number; erro
 
 export async function syncCompetitivePricing(
   accountId: string,
-  opts: { budgetMs?: number } = {},
+  opts: { budgetMs?: number; maxAgeMs?: number } = {}, // maxAgeMs: re-pull pairs older than this (default 20 h)
 ): Promise<CompetitivePricingResult> {
   const started = Date.now()
   const budgetMs = opts.budgetMs ?? Infinity
@@ -110,7 +110,7 @@ export async function syncCompetitivePricing(
     _max: { lastFetchedAt: true },
   })
   const lastFetched = new Map(lastRows.map(r => [pairKey(r.asin, r.itemCondition), r._max.lastFetchedAt?.getTime() ?? 0]))
-  const cacheFloor = Date.now() - CACHE_TTL_MS
+  const cacheFloor = Date.now() - (opts.maxAgeMs ?? CACHE_TTL_MS)
   const stale = Array.from(pairs.entries())
     .map(([k, p]) => ({ ...p, last: lastFetched.get(k) ?? 0 }))
     .filter(p => p.last < cacheFloor)
