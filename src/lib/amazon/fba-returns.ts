@@ -121,6 +121,7 @@ export async function syncFbaReturns(
     const detailedDisposition = col(row, headers, 'detailed-disposition', 'detailed disposition') || null
     const fulfillmentCenterId = col(row, headers, 'fulfillment-center-id', 'fulfillment center id', 'fc-id') || null
     const lpn                 = col(row, headers, 'license-plate-number', 'lpn-condition', 'lpn') || null
+    const reason              = col(row, headers, 'reason', 'return-reason', 'return reason') || null
 
     // Upsert using the composite unique key: accountId + orderId + sku
     await prisma.fbaReturn.upsert({
@@ -129,11 +130,11 @@ export async function syncFbaReturns(
       },
       create: {
         accountId, orderId, sku, fnsku, asin, title, quantity,
-        returnDate, status, statusChangeDate, detailedDisposition, fulfillmentCenterId, lpn,
+        returnDate, status, statusChangeDate, detailedDisposition, fulfillmentCenterId, lpn, reason,
       },
       update: {
         fnsku, asin, title, quantity,
-        returnDate, status, statusChangeDate, detailedDisposition, fulfillmentCenterId, lpn,
+        returnDate, status, statusChangeDate, detailedDisposition, fulfillmentCenterId, lpn, reason,
       },
     })
     totalUpserted++

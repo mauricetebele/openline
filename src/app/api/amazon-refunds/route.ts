@@ -60,6 +60,36 @@ export async function GET(req: NextRequest) {
     : []
   const sellerRefundByOrder = new Map(issued.map(i => [i.amazonOrderId, Number(i._sum.amount ?? 0)]))
 
+  // Refund reason, most specific source first: Amazon MFN returns report →
+  // FBA customer returns report → reason chosen when we issued the refund ourselves.
+  // Newest record per order wins (rows are ordered newest first; first set sticks).
+  const [mfnReasons, fbaReasons, issuedReasons] = orderIds.length > 0
+    ? await Promise.all([
+        prisma.mFNReturn.findMany({
+          where: { orderId: { in: orderIds }, returnReason: { not: null } },
+          select: { orderId: true, returnReason: true },
+          orderBy: { returnDate: { sort: 'desc', nulls: 'last' } },
+        }),
+        prisma.fbaReturn.findMany({
+          where: { orderId: { in: orderIds }, reason: { not: null } },
+          select: { orderId: true, reason: true },
+          orderBy: { returnDate: { sort: 'desc', nulls: 'last' } },
+        }),
+        prisma.amazonRefundIssued.findMany({
+          where: { amazonOrderId: { in: orderIds }, feedStatus: { notIn: ['ERROR', 'FATAL', 'CANCELLED'] } },
+          select: { amazonOrderId: true, reason: true },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ])
+    : [[], [], []]
+  const reasonByOrder = new Map<string, { code: string; source: string }>()
+  const addReason = (orderId: string, code: string | null, source: string) => {
+    if (code && !reasonByOrder.has(orderId)) reasonByOrder.set(orderId, { code, source })
+  }
+  for (const m of mfnReasons) addReason(m.orderId, m.returnReason, 'Amazon MFN returns report')
+  for (const f of fbaReasons) addReason(f.orderId, f.reason, 'Amazon FBA customer returns report')
+  for (const i of issuedReasons) addReason(i.amazonOrderId, i.reason, 'Issued from OpenLine')
+
   interface OrderStat { channel: 'MFN' | 'FBA' | null; unitsSold: number; unitsReceived: number }
   const statByOrder = new Map<string, OrderStat>()
   for (const o of orders) {
@@ -76,10 +106,13 @@ export async function GET(req: NextRequest) {
       const stat = r.orderId ? statByOrder.get(r.orderId) : undefined
       const channel = stat?.channel ?? null
       const isMfn = channel === 'MFN'
+      const reason = r.orderId ? reasonByOrder.get(r.orderId) : undefined
       return {
         ...r,
         amount: Number(r.amount),
         buyerRefundAmount: r.buyerRefundAmount != null ? Number(r.buyerRefundAmount) : null,
+        refundReason: reason?.code ?? null,
+        refundReasonSource: reason?.source ?? null,
         channel,
         // MFN only: total of our seller-initiated refunds on this order.
         sellerRefundTotal: isMfn ? (sellerRefundByOrder.get(r.orderId ?? '') ?? 0) : null,

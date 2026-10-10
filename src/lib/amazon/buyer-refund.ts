@@ -78,18 +78,23 @@ export async function fetchBuyerRefundAmount(
  * Not-yet-available events are retried every 6h for 45 days. Capped per run to
  * respect the v0 order-financial-events rate limit (0.5 req/s).
  */
-export async function backfillBuyerRefundAmounts(limit = 40): Promise<{ checked: number; filled: number }> {
-  const now = Date.now()
+export function pendingBuyerRefundWhere(now = Date.now()) {
+  return {
+    buyerRefundAmount: null,
+    orderId: { not: null },
+    accountId: { not: null },
+    OR: [
+      { buyerRefundCheckedAt: null },
+      { buyerRefundCheckedAt: { lt: new Date(now - 6 * 3_600_000) }, postedDate: { gte: new Date(now - 45 * 86_400_000) } },
+    ],
+  }
+}
+
+/** @param budgetMs stop starting new lookups once this much time has elapsed (manual backfill). */
+export async function backfillBuyerRefundAmounts(limit = 40, budgetMs = Infinity): Promise<{ checked: number; filled: number }> {
+  const started = Date.now()
   const rows = await prisma.amazonRefundReview.findMany({
-    where: {
-      buyerRefundAmount: null,
-      orderId: { not: null },
-      accountId: { not: null },
-      OR: [
-        { buyerRefundCheckedAt: null },
-        { buyerRefundCheckedAt: { lt: new Date(now - 6 * 3_600_000) }, postedDate: { gte: new Date(now - 45 * 86_400_000) } },
-      ],
-    },
+    where: pendingBuyerRefundWhere(started),
     orderBy: { postedDate: 'desc' },
     take: limit,
     select: { id: true, accountId: true, orderId: true, postedDate: true, transactionId: true },
@@ -104,9 +109,12 @@ export async function backfillBuyerRefundAmounts(limit = 40): Promise<{ checked:
 
   const clients = new Map<string, SpApiClient>()
   let filled = 0
+  let checked = 0
   for (let i = 0; i < rows.length; i++) {
+    if (Date.now() - started > budgetMs) break
     const r = rows[i]
     if (i > 0) await new Promise(res => setTimeout(res, 2_100)) // 0.5 req/s
+    checked++
     const accountId = r.accountId!
     if (!clients.has(accountId)) clients.set(accountId, new SpApiClient(accountId))
     let amount: number | null = null
@@ -121,5 +129,5 @@ export async function backfillBuyerRefundAmounts(limit = 40): Promise<{ checked:
     })
     if (amount != null) filled++
   }
-  return { checked: rows.length, filled }
+  return { checked, filled }
 }

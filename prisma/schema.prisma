@@ -275,6 +275,7 @@ model FbaReturn {
   detailedDisposition String? // e.g. "SELLABLE", "DAMAGED"
   fulfillmentCenterId String?
   lpn                 String? // License Plate Number
+  reason              String? // customer return reason code, e.g. "UNWANTED_ITEM", "DEFECTIVE"
 
   importedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt

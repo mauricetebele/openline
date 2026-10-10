@@ -19,6 +19,8 @@ interface Refund {
   postedDate: string
   amount: number
   buyerRefundAmount: number | null
+  refundReason: string | null
+  refundReasonSource: string | null
   currency: string
   orderId: string | null
   transactionType: string | null
@@ -40,6 +42,28 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'flagged', label: 'Flagged' },
   { key: 'validated', label: 'Validated' },
 ]
+// Amazon return-reason codes ("CR-DEFECTIVE", "AMZ-PG-BAD-DESC", FBA "UNWANTED_ITEM",
+// our own "CustomerReturn") → readable label. Unknown codes are humanized.
+const REASON_LABELS: Record<string, string> = {
+  'AMZ-PG-BAD-DESC': 'Inaccurate description',
+  'AMZ-PG-APP-TOO-LARGE': 'Too large',
+  'AMZ-PG-APP-TOO-SMALL': 'Too small',
+  SWITCHEROO: 'Wrong item returned',
+  UNAUTHORIZED_PURCHASE: 'Unauthorized purchase',
+  MISSED_ESTIMATED_DELIVERY: 'Arrived late',
+  DAMAGED_BY_FC: 'Damaged by Amazon',
+  CustomerReturn: 'Customer return',
+  GeneralAdjustment: 'General adjustment',
+  CouldNotShip: 'Could not ship',
+}
+function reasonLabel(code: string): string {
+  if (REASON_LABELS[code]) return REASON_LABELS[code]
+  const bare = code.replace(/^(CR|AMZ-PG)-/, '')
+  if (REASON_LABELS[bare]) return REASON_LABELS[bare]
+  const words = bare.replace(/[_-]+/g, ' ').toLowerCase().trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 const money = (n: number, c: string) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${c && c !== 'USD' ? ` ${c}` : ''}`
 
 export default function AmazonRefundsManager() {
@@ -94,6 +118,31 @@ export default function AmazonRefundsManager() {
     } finally { setSyncing(false) }
   }
 
+  // Backfill "Refunded to Buyer" (~4 min per click, rate-limited) + re-pull the
+  // FBA returns report so FBA rows get their Refund Reason. Separate requests so
+  // each gets its own server time budget.
+  const [backfilling, setBackfilling] = useState(false)
+  async function backfill() {
+    setBackfilling(true)
+    const fba = fetch('/api/amazon-refunds/backfill?part=fba', { method: 'POST' })
+      .then(r => r.json())
+      .then(j => {
+        if (j.errors?.length) toast.error(`FBA returns re-pull: ${j.errors[0]}`)
+        else toast.success(`FBA returns re-pulled (${j.upserted} rows) — FBA refund reasons updated`)
+      })
+      .catch(() => toast.error('FBA returns re-pull failed'))
+    const buyer = fetch('/api/amazon-refunds/backfill?part=buyer', { method: 'POST' })
+      .then(r => r.json())
+      .then(j => {
+        if (j.error) throw new Error(j.error)
+        toast.success(`Refunded to Buyer: filled ${j.filled} of ${j.checked} checked · ${j.remaining} remaining${j.remaining > 0 ? ' — click Backfill again' : ''}`)
+      })
+      .catch(e => toast.error(e instanceof Error ? e.message : 'Buyer refund backfill failed'))
+    await Promise.allSettled([fba, buyer])
+    load(tab)
+    setBackfilling(false)
+  }
+
   async function setStatus(r: Refund, status: string) {
     setBusyId(r.id)
     try {
@@ -146,10 +195,17 @@ export default function AmazonRefundsManager() {
           <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2"><DollarSign size={18} className="text-amazon-blue" /> Review Amazon Refunds</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Daily compilation of Amazon refund transactions to review, flag, and validate.</p>
         </div>
-        <button onClick={sync} disabled={syncing}
-          className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-          {syncing ? <><Loader2 size={14} className="animate-spin" /> Syncing…</> : <><RefreshCw size={14} /> Sync</>}
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={backfill} disabled={backfilling || syncing}
+            title="Fill Refunded to Buyer for existing refunds (~4 min per click) and re-pull FBA returns for Refund Reason"
+            className="flex items-center gap-1.5 h-9 px-4 rounded-md border border-amazon-blue text-amazon-blue text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50">
+            {backfilling ? <><Loader2 size={14} className="animate-spin" /> Backfilling… (~4 min)</> : <><Undo2 size={14} className="rotate-180" /> Backfill</>}
+          </button>
+          <button onClick={sync} disabled={syncing}
+            className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            {syncing ? <><Loader2 size={14} className="animate-spin" /> Syncing…</> : <><RefreshCw size={14} /> Sync</>}
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -197,6 +253,7 @@ export default function AmazonRefundsManager() {
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Channel</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap" title="What the refund cost us: refunded sales minus the commission Amazon returned. Excludes sales tax (Amazon collects/remits it).">Net Cost to Us</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap" title="What the buyer got back (product + sales tax + shipping − promos). Matches Amazon's refund notification email.">Refunded to Buyer</th>
+                <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap" title="Return reason from Amazon's MFN / FBA returns reports, or the reason chosen when the refund was issued from OpenLine">Refund Reason</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap" title="Total seller-initiated Amazon refunds issued on this order (MFN only)">Seller Refund</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap" title="Units received back on a return vs units sold (MFN only)">Merch Return</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Type</th>
@@ -257,6 +314,11 @@ export default function AmazonRefundsManager() {
                     {r.buyerRefundAmount != null
                       ? <span className="text-gray-700 dark:text-gray-200">{money(r.buyerRefundAmount, r.currency)}</span>
                       : <span className="text-gray-300 dark:text-gray-600" title="Not available from Amazon yet — fills in on the next sync">—</span>}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {r.refundReason
+                      ? <span className="text-gray-700 dark:text-gray-200" title={`${r.refundReason} · ${r.refundReasonSource ?? ''}`}>{reasonLabel(r.refundReason)}</span>
+                      : <span className="text-gray-300 dark:text-gray-600" title="No return or refund reason found in Amazon's returns reports">—</span>}
                   </td>
                   <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
                     {r.sellerRefundTotal != null && r.sellerRefundTotal > 0
