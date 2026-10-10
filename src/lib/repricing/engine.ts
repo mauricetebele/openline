@@ -59,7 +59,7 @@ const pgKey = (p: string, g: string | null) => `${p}:${g ?? ''}`
 export const groupKeyOf = (accountId: string, asin: string, itemCondition: string) => `${accountId}|${asin}|${itemCondition}`
 
 export interface FeedSku {
-  sku: string; channel: string; price: number | null; qty: number
+  sku: string; grade: string | null; channel: string; price: number | null; qty: number
   units7d: number; units30d: number
   marginCurrent: number | null; marginSuggested: number | null
   mapped: boolean
@@ -145,6 +145,15 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     GROUP BY oi."sellerSku"`
   const velBySku = new Map(vel.map(v => [v.sku, v]))
 
+  // Amazon product title: the listing's own title when the catalog report had one,
+  // else the title on the most recent Amazon order line for that ASIN.
+  const orderTitles = await prisma.$queryRaw<{ asin: string; title: string }[]>`
+    SELECT DISTINCT ON (oi.asin) oi.asin, oi.title
+    FROM order_items oi JOIN orders o ON o.id = oi."orderId"
+    WHERE o."orderSource" = 'amazon' AND oi.title IS NOT NULL AND oi.asin = ANY(${asins}::text[])
+    ORDER BY oi.asin, o."purchaseDate" DESC`
+  const titleByAsin = new Map(orderTitles.map(t => [t.asin, t.title]))
+
   // ── 3. Competition (per ASIN + condition) ──────────────────────────────────
   const offers = await prisma.competitiveOffer.findMany({
     where: { asin: { in: asins } },
@@ -162,7 +171,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
   // ── 4. Margin inputs: msku → product/grade/template, avg costs ─────────────
   const mskus = await prisma.productGradeMarketplaceSku.findMany({
     where: { marketplace: 'amazon', sellerSku: { in: allSkus } },
-    select: { sellerSku: true, productId: true, gradeId: true, calculationTemplateId: true, product: { select: { defaultPackagePresetId: true } } },
+    select: { sellerSku: true, productId: true, gradeId: true, calculationTemplateId: true, grade: { select: { grade: true } }, product: { select: { defaultPackagePresetId: true } } },
   })
   const mskuBySku = new Map(mskus.map(m => [m.sellerSku, m]))
   const productIds = Array.from(new Set(mskus.map(m => m.productId)))
@@ -366,7 +375,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       const v = velBySku.get(r.sku)
       const price = r.price != null ? Number(r.price) : null
       return {
-        sku: r.sku, channel: r.fulfillmentChannel, price, qty: r.quantity,
+        sku: r.sku, grade: mskuBySku.get(r.sku)?.grade?.grade ?? null, channel: r.fulfillmentChannel, price, qty: r.quantity,
         units7d: v?.u7 ?? 0, units30d: v?.u30 ?? 0,
         marginCurrent: skuMargin(r.sku, price), marginSuggested: target != null ? skuMargin(r.sku, target) : null,
         mapped: mskuBySku.has(r.sku),
@@ -461,7 +470,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
 
     out.push({
       key, accountId: g.accountId, asin: g.asin, itemCondition: g.itemCondition,
-      title: g.rows.find(r => r.productTitle)?.productTitle ?? null,
+      title: g.rows.find(r => r.productTitle)?.productTitle ?? titleByAsin.get(g.asin) ?? null,
       strategy, skus, currentPrice, stock, units7d, units30d, daysSinceLastSale, daysOfCover,
       buyBoxPrice, buyBoxHolder, weHoldBuyBox, lowestCompetitor: lowestCompetitor != null ? round2(lowestCompetitor) : null,
       competitorCount: comps.length, offersFetchedAt,

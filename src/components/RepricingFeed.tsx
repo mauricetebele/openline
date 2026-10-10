@@ -13,7 +13,7 @@ type Strategy = 'CONSERVATIVE' | 'STANDARD' | 'AGGRESSIVE'
 type Status = 'SUGGESTION' | 'NO_CHANGE' | 'SNOOZED' | 'COOLDOWN' | 'NO_DATA'
 
 interface FeedSku {
-  sku: string; channel: string; price: number | null; qty: number
+  sku: string; grade: string | null; channel: string; price: number | null; qty: number
   units7d: number; units30d: number
   marginCurrent: number | null; marginSuggested: number | null; mapped: boolean
 }
@@ -204,6 +204,7 @@ export default function RepricingFeed() {
           <thead className="sticky top-0 bg-gray-800 z-10">
             <tr className="text-gray-100">
               <th className="px-2 py-2.5 text-left font-semibold">ASIN / Condition</th>
+              <th className="px-2 py-2.5 text-left font-semibold" title="Every marketplace SKU mapped to this ASIN + condition, with its OpenLine grade">Marketplace SKU / Grade</th>
               <th className="px-2 py-2.5 text-left font-semibold">Strategy</th>
               <th className="px-2 py-2.5 text-left font-semibold">Signals</th>
               <th className="px-2 py-2.5 text-right font-semibold" title="Units sold across all SKUs in the group">Sales 7d / 30d</th>
@@ -218,7 +219,7 @@ export default function RepricingFeed() {
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {visible.length === 0 && !loading && (
-              <tr><td colSpan={11} className="px-3 py-8 text-center text-gray-400">Nothing here right now.</td></tr>
+              <tr><td colSpan={12} className="px-3 py-8 text-center text-gray-400">Nothing here right now.</td></tr>
             )}
             {visible.map((g, i) => {
               const open = expanded.has(g.key)
@@ -255,10 +256,21 @@ function FeedRows({ g, i, open, up, busy, editValue, onToggle, onEdit, onStrateg
             <span>
               <a href={`https://www.amazon.com/dp/${g.asin}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="font-mono text-amazon-blue hover:underline">{g.asin}</a>
               <span className="ml-1.5 text-gray-500">{g.itemCondition}</span>
-              <span className="block text-[10px] text-gray-400 max-w-[220px] truncate" title={g.title ?? ''}>{g.title ?? '—'}</span>
-              <span className="block text-[10px] text-gray-400">{g.skus.length} SKU{g.skus.length === 1 ? '' : 's'}</span>
+              <span className="block mt-0.5 text-[11px] leading-snug text-gray-700 dark:text-gray-300 max-w-[260px] line-clamp-3" title={g.title ?? ''}>{g.title ?? '—'}</span>
             </span>
           </button>
+        </td>
+        <td className="px-2 py-2">
+          <div className="flex flex-col gap-1">
+            {g.skus.map(s => (
+              <span key={s.sku} className="flex items-center gap-1.5 whitespace-nowrap">
+                <span className="font-mono">{s.sku}</span>
+                {s.grade
+                  ? <span className="inline-block px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-[10px] font-semibold">{s.grade}</span>
+                  : <span className="text-[10px] text-amber-600" title={s.mapped ? 'Mapped with no grade' : 'Not mapped to a product'}>{s.mapped ? 'no grade' : 'unmapped'}</span>}
+              </span>
+            ))}
+          </div>
         </td>
         <td className="px-2 py-2">
           <select value={g.strategy} disabled={busy} onChange={e => onStrategy(e.target.value as Strategy)}
@@ -353,10 +365,10 @@ function FeedRows({ g, i, open, up, busy, editValue, onToggle, onEdit, onStrateg
       </tr>
       {open && (
         <tr className="bg-gray-50/60 dark:bg-gray-800/30">
-          <td colSpan={11} className="px-8 py-2">
+          <td colSpan={12} className="px-8 py-2">
             <table className="text-[11px]">
               <thead><tr className="text-gray-500">
-                <th className="pr-6 text-left font-medium">SKU</th><th className="pr-6 text-left font-medium">Channel</th>
+                <th className="pr-6 text-left font-medium">SKU</th><th className="pr-6 text-left font-medium">Grade</th><th className="pr-6 text-left font-medium">Channel</th>
                 <th className="pr-6 text-right font-medium">Price</th><th className="pr-6 text-right font-medium">Qty</th>
                 <th className="pr-6 text-right font-medium">Sold 7d / 30d</th>
                 <th className="pr-6 text-right font-medium">Margin now</th><th className="text-right font-medium">Margin at suggested</th>
@@ -365,6 +377,7 @@ function FeedRows({ g, i, open, up, busy, editValue, onToggle, onEdit, onStrateg
                 {g.skus.map(s => (
                   <tr key={s.sku}>
                     <td className="pr-6 font-mono">{s.sku}{!s.mapped && <span className="ml-1 text-amber-600" title="Not mapped to a product — margin unavailable">(unmapped)</span>}</td>
+                    <td className="pr-6">{s.grade ?? '—'}</td>
                     <td className="pr-6">{s.channel}</td>
                     <td className="pr-6 text-right font-mono">{money(s.price)}</td>
                     <td className="pr-6 text-right font-mono">{s.qty}</td>
