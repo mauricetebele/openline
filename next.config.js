@@ -16,7 +16,9 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   experimental: {
-    serverComponentsExternalPackages: ['@prisma/client', 'firebase-admin', 'xlsx'],
+    // @anthropic-ai/sdk: Next 14.1's server bundling mangles a regex in the SDK
+    // ("Range out of order in character class") — load it from node_modules instead.
+    serverComponentsExternalPackages: ['@prisma/client', 'firebase-admin', 'xlsx', '@anthropic-ai/sdk'],
   },
   webpack: (config) => {
     const path = require('path')
