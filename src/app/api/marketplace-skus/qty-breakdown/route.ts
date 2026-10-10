@@ -4,8 +4,9 @@
  * Returns the quantity breakdown for all mapped MSKUs with syncQty enabled:
  *   - onHand: true on-hand (InventoryItem.qty + active reservations)
  *   - reserved: qty reserved for unshipped orders
- *   - pendingOrders: qty from Amazon Pending MFN orders (no reservation yet)
- *   - available: max(0, onHand - reserved - pendingOrders)
+ *   - pendingOrders / pendingPayment: unprocessed Amazon MFN order qty across the
+ *     whole product+grade group (so Back Market SKUs show it too — the push deducts it)
+ *   - available: max(0, onHand - reserved - pendingOrders - pendingPayment)
  *   - groupSize: how many active-push SKUs share this product+grade
  *   - splitPct: this SKU's effective split percentage
  *   - pushing: qty after split + maxQty cap
@@ -170,13 +171,20 @@ export async function GET() {
     else groups.set(key, [msku])
   }
 
-  // Compute available per group + pending sums per group
-  const groupPendingMap = new Map<string, number>()
+  // Pending Amazon qty per group, split by kind. The push deducts these from the
+  // whole product+grade group, so every SKU in the group (incl. Back Market) shows them.
+  const groupPendingOrdersMap = new Map<string, number>()
+  const groupPendingPaymentMap = new Map<string, number>()
   groups.forEach((group, key) => {
-    const totalPending = group.reduce((sum, m) => {
-      return sum + (m.marketplace === 'amazon' ? (pendingMap.get(m.sellerSku) ?? 0) + (pendingPaymentMap.get(m.sellerSku) ?? 0) : 0)
-    }, 0)
-    groupPendingMap.set(key, totalPending)
+    let orders = 0
+    let payment = 0
+    for (const m of group) {
+      if (m.marketplace !== 'amazon') continue
+      orders += pendingMap.get(m.sellerSku) ?? 0
+      payment += pendingPaymentMap.get(m.sellerSku) ?? 0
+    }
+    groupPendingOrdersMap.set(key, orders)
+    groupPendingPaymentMap.set(key, payment)
   })
 
   // Assemble results with group-aware split
@@ -190,15 +198,11 @@ export async function GET() {
     const wholesaleReserved = wholesaleMap.get(key) ?? 0
     const onHand = availableInInventory + hardReserved
     const reserved = hardReserved + wholesaleReserved
-    const pendingOrders = msku.marketplace === 'amazon' ? (pendingMap.get(msku.sellerSku) ?? 0) : 0
-    const pendingPayment = msku.marketplace === 'amazon' ? (pendingPaymentMap.get(msku.sellerSku) ?? 0) : 0
-
-    // Group-level available: total pending across all group SKUs
-    const groupPending = groupPendingMap.get(key) ?? 0
-    const groupAvailable = Math.max(0, availableInInventory - groupPending - wholesaleReserved)
-
-    // Per-SKU available (for display purposes)
-    const available = Math.max(0, availableInInventory - pendingOrders - pendingPayment - wholesaleReserved)
+    // Group-level Amazon pending (what the push actually deducts), shown on every SKU
+    const pendingOrders = groupPendingOrdersMap.get(key) ?? 0
+    const pendingPayment = groupPendingPaymentMap.get(key) ?? 0
+    const groupAvailable = Math.max(0, availableInInventory - pendingOrders - pendingPayment - wholesaleReserved)
+    const available = groupAvailable
 
     // Which SKU receives the single last-unit buffer allocation:
     //   Last Unit Lean → that SKU; else SEE-SAW → the currently-active side

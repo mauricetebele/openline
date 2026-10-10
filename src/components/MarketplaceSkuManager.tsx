@@ -356,13 +356,13 @@ function QtyBadge({ breakdown }: { breakdown: QtyBreakdown }) {
             )}
             {breakdown.pendingOrders > 0 && (
               <div className="flex justify-between gap-4">
-                <span className="text-gray-300">Pending Orders</span>
+                <span className="text-gray-300">Pending Orders (Amazon)</span>
                 <span className="font-mono text-red-300">-{breakdown.pendingOrders}</span>
               </div>
             )}
             {breakdown.pendingPayment > 0 && (
               <div className="flex justify-between gap-4">
-                <span className="text-gray-300">Pending Payment</span>
+                <span className="text-gray-300">Pending Payment (Amazon)</span>
                 <span className="font-mono text-amber-300">-{breakdown.pendingPayment}</span>
               </div>
             )}
