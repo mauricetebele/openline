@@ -9,6 +9,7 @@
  * Every decision is logged (repricing_decisions).
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
@@ -39,7 +40,8 @@ export async function POST(req: NextRequest) {
   }
 
   const decidedBy = user.name || user.email
-  const snapshot = {
+  // Plain JSON (round-trip) so Prisma's Json input type accepts the nested objects.
+  const snapshot = JSON.parse(JSON.stringify({
     speed: group.speed, competition: group.competition, units7d: group.units7d, units30d: group.units30d,
     daysSinceLastSale: group.daysSinceLastSale, daysOfCover: group.daysOfCover, stock: group.stock,
     buyBoxPrice: group.buyBoxPrice, buyBoxHolder: group.buyBoxHolder, lowestCompetitor: group.lowestCompetitor,
@@ -47,7 +49,7 @@ export async function POST(req: NextRequest) {
     velocityScore: group.velocity,
     daysLive: group.daysLive,
     reason: group.reason,
-  }
+  })) as Prisma.InputJsonObject
   const base = {
     accountId: group.accountId, asin: group.asin, itemCondition: group.itemCondition,
     rule: group.rule, strategy: group.strategy,
