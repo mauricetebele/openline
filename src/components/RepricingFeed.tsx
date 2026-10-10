@@ -487,6 +487,113 @@ function UptimeModal({ g, s, onClose }: { g: FeedGroup; s: ReturnType<typeof upt
   )
 }
 
+// ── Sales history popup ──────────────────────────────────────────────────────
+interface SaleRow {
+  orderId: string; amazonOrderId: string; olmNumber: number | null; date: string; sku: string | null
+  qty: number; unitPrice: number | null; lineTotal: number | null; status: string; amazonStatus: string; channel: string | null
+}
+
+function SalesHistoryButton({ g }: { g: FeedGroup }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button onClick={() => setOpen(true)} title="Recent Amazon orders for every SKU in this ASIN + condition"
+        className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-4 hover:brightness-95 bg-white text-gray-700 border-gray-300 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600">
+        🧾 Sales history
+      </button>
+      {open && <SalesHistoryModal g={g} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+function SalesHistoryModal({ g, onClose }: { g: FeedGroup; onClose: () => void }) {
+  const [days, setDays] = useState(90)
+  const [rows, setRows] = useState<SaleRow[] | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => {
+    setRows(null); setErr(null)
+    const qs = new URLSearchParams({ accountId: g.accountId, asin: g.asin, itemCondition: g.itemCondition, days: String(days) })
+    fetch(`/api/repricing/sales-history?${qs}`)
+      .then(r => r.json().then(j => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => { if (!ok) throw new Error(j.error || 'Failed'); setRows(j.rows) })
+      .catch(e => setErr(e instanceof Error ? e.message : 'Failed'))
+  }, [g.accountId, g.asin, g.itemCondition, days])
+
+  const valid = (rows ?? []).filter(r => r.status !== 'CANCELLED')
+  const units = valid.reduce((a, r) => a + r.qty, 0)
+  const priced = valid.filter(r => r.unitPrice != null)
+  const avg = priced.length ? priced.reduce((a, r) => a + r.unitPrice! * r.qty, 0) / priced.reduce((a, r) => a + r.qty, 0) : null
+  const prices = priced.map(r => r.unitPrice!)
+  const fmtDate = (s: string) => new Date(s).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-3xl max-h-[85vh] flex flex-col rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 px-5 py-3 border-b border-gray-200 dark:border-gray-700">
+          <div className="min-w-0">
+            <h2 className="font-semibold text-gray-900 dark:text-gray-100">🧾 Sales history</h2>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="font-mono font-bold text-amazon-blue">{g.asin}</span>
+              <Pill tone={g.itemCondition === 'New' ? 'violet' : 'amber'}>{g.itemCondition}</Pill>
+              <span className="truncate text-gray-500 max-w-[420px]">{g.title}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {[30, 90, 365].map(d => (
+              <button key={d} onClick={() => setDays(d)}
+                className={clsx('h-7 px-2.5 rounded-full border text-xs font-semibold', days === d ? 'bg-amazon-blue text-white border-amazon-blue' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800')}>
+                {d}d
+              </button>
+            ))}
+            <button onClick={onClose} className="ml-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"><X size={18} /></button>
+          </div>
+        </div>
+        <div className="px-5 py-3 flex flex-wrap gap-2 border-b border-gray-100 dark:border-gray-800">
+          <Stat label="Orders" value={valid.length} />
+          <Stat label="Units" value={units} tone={units ? 'green' : 'gray'} />
+          <Stat label="Avg unit price" value={money(avg)} tone="blue" />
+          <Stat label="Price range" value={prices.length ? `${money(Math.min(...prices))} – ${money(Math.max(...prices))}` : '—'} />
+          <Stat label="Current price" value={money(g.currentPrice)} />
+        </div>
+        <div className="flex-1 overflow-auto px-5 py-3">
+          {err && <p className="text-sm text-red-600">{err}</p>}
+          {!rows && !err && <div className="flex items-center gap-2 text-sm text-gray-400"><Loader2 size={14} className="animate-spin" /> Loading…</div>}
+          {rows && rows.length === 0 && <p className="text-sm text-gray-500">No Amazon orders for this listing in the last {days} days.</p>}
+          {rows && rows.length > 0 && (
+            <table className="w-full text-xs">
+              <thead><tr className="text-[9px] uppercase tracking-wider text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                <th className="py-1.5 pr-3 text-left font-bold">Date</th>
+                <th className="py-1.5 pr-3 text-left font-bold">Order #</th>
+                <th className="py-1.5 pr-3 text-left font-bold">SKU</th>
+                <th className="py-1.5 pr-3 text-right font-bold">Qty</th>
+                <th className="py-1.5 pr-3 text-right font-bold">Unit price</th>
+                <th className="py-1.5 text-left font-bold">Status</th>
+              </tr></thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {rows.map(r => (
+                  <tr key={`${r.orderId}-${r.sku}`} className={clsx(r.status === 'CANCELLED' && 'opacity-50 line-through')}>
+                    <td className="py-1.5 pr-3 whitespace-nowrap text-gray-600 dark:text-gray-300">{fmtDate(r.date)}</td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap">
+                      <a href={`/orders/${r.orderId}`} target="_blank" rel="noreferrer" className="font-mono text-amazon-blue hover:underline">{r.amazonOrderId}</a>
+                      {r.olmNumber && <span className="ml-1 text-[10px] text-gray-400">OLM-{r.olmNumber}</span>}
+                    </td>
+                    <td className="py-1.5 pr-3 font-mono text-[10px] text-gray-600 dark:text-gray-300">{r.sku}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono">{r.qty}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono font-semibold">{money(r.unitPrice)}</td>
+                    <td className="py-1.5">
+                      <Pill tone={r.status === 'CANCELLED' ? 'red' : r.status === 'SHIPPED' ? 'green' : r.status === 'PENDING' ? 'amber' : 'blue'}>{r.status.toLowerCase().replace('_', ' ')}</Pill>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /**
  * VelocityScore™ — units sold per 24 h of Amazon uptime (30-day window), with
  * confidence, target, score at the current price, and Buy Box share.
@@ -652,7 +759,7 @@ function FeedRows({ g, open, up, busy, refreshing, onRefresh, editValue, onToggl
         {/* ── Sales ───────────────────────────────────────────────── */}
         <td className={cell}>
           <VelocityPanel g={g} />
-          <div className="mt-1"><UptimePill g={g} /></div>
+          <div className="mt-1 flex flex-wrap gap-1"><UptimePill g={g} /><SalesHistoryButton g={g} /></div>
           <div className="mt-1 flex gap-1">
             <Stat label="7d sold" value={g.units7d} tone={g.units7d > 0 ? 'green' : 'gray'} title="Units sold in the last 7 days (all SKUs in the group)" />
             <Stat label="30d sold" value={g.units30d} tone={g.units30d > 0 ? 'green' : 'gray'} title="Units sold in the last 30 days (all SKUs in the group)" />
