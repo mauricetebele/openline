@@ -2710,6 +2710,46 @@ model PricingStrategyMsku {
   @@map("pricing_strategy_mskus")
 }
 
+// ─── Repricing suggestion feed (Amazon) ─────────────────────────────────────
+// Decisions are made per ASIN + Amazon ItemCondition group: every SKU mapped to
+// the same ASIN+condition shares velocity and gets the same suggested price.
+
+model RepricingGroupSetting {
+  id            String   @id @default(cuid())
+  accountId     String
+  asin          String
+  itemCondition String // New | Used | Refurbished | Collectible
+  strategy      String   @default("STANDARD") // CONSERVATIVE | STANDARD | AGGRESSIVE
+  updatedAt     DateTime @updatedAt
+
+  @@unique([accountId, asin, itemCondition])
+  @@map("repricing_group_settings")
+}
+
+model RepricingDecision {
+  id             String    @id @default(cuid())
+  accountId      String
+  asin           String
+  itemCondition  String
+  rule           String // speed+competition that fired, e.g. "SLOW+LOSING"
+  strategy       String
+  decision       String // APPROVED | REJECTED
+  currentPrice   Decimal?  @db.Decimal(12, 2)
+  suggestedPrice Decimal?  @db.Decimal(12, 2)
+  finalPrice     Decimal?  @db.Decimal(12, 2) // pushed price (edited or suggested); null when rejected
+  marginCurrent  Decimal?  @db.Decimal(7, 2) // min margin % across the group's SKUs
+  marginFinal    Decimal?  @db.Decimal(7, 2)
+  snapshot       Json? // velocity / stock / competition at decision time
+  pushResults    Json? // [{ sku, ok, error? }]
+  note           String?   @db.Text
+  decidedBy      String?
+  decidedAt      DateTime  @default(now())
+  snoozeUntil    DateTime? // REJECTED: this rule is suppressed for the group until then
+
+  @@index([accountId, asin, itemCondition, decidedAt])
+  @@map("repricing_decisions")
+}
+
 model OliSkuCache {
   sellerSku     String    @id
   asin          String?

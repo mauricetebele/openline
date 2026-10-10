@@ -63,6 +63,7 @@ const NAV: NavItem[] = [
     children: [
       { href: '/products',            label: 'Products',            icon: Boxes },
       { href: '/product-families',    label: 'Product Families',    icon: Boxes },
+      { href: '/repricing',           label: 'Repricing Feed',      icon: TrendingUp },
       { href: '/description-guesser',  label: 'Description Guessing', icon: Sparkles },
       { href: '/po-line-items',       label: 'Backfill Cost Codes', icon: ListTodo },
     ],
