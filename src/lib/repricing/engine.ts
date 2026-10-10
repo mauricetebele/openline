@@ -390,9 +390,10 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     const cooldownEnd = lastApproved ? lastApproved.decidedAt.getTime() + P.cooldownHours * 3_600_000 : 0
     const lastRejected = hist.find(d => d.decision === 'REJECTED' && d.rule === rule)
 
-    // No competition data at all (offers not fetched yet, no fresh Buy Box) →
-    // don't guess "ALONE" and cut prices; wait for the hourly offer refresh.
-    const noData = gOffers.length === 0 && !fresh
+    // No fresh offer list → we don't know who's Prime (incl. us) or who else is
+    // competing; the Buy Box price alone isn't enough to price against. Wait for
+    // the hourly offer refresh / the Refresh button rather than guess.
+    const noData = gOffers.length === 0
     if (noData) target = null
 
     let status: FeedGroup['status'] = noData ? 'NO_DATA' : target == null ? 'NO_CHANGE' : 'SUGGESTION'
@@ -421,7 +422,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     )
     explanation.push(speedWhy)
     if (noData) {
-      explanation.push(`We don't have competitor data for this ${cond} ASIN yet, so there's no suggestion until the hourly competitor refresh pulls it.`)
+      explanation.push(`We don't have fresh competitor offers (including who's Prime) for this ${cond} ASIN yet${buyBoxPrice != null ? ` — only the Buy Box price of ${fmt(buyBoxPrice)}` : ''}, so there's no suggestion until they're pulled. Click Refresh, or wait for the hourly refresh.`)
     } else {
       const holder = buyBoxHolder && buyBoxHolder !== 'Competitor' && buyBoxHolder !== 'You' ? buyBoxHolder : 'A competitor'
       const gapTxt = currentPrice != null && ref != null ? `${fmt(currentPrice - ref)} (${((currentPrice - ref) / ref * 100).toFixed(1)}%)` : ''
