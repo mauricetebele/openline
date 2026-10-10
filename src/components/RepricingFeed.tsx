@@ -130,6 +130,7 @@ export default function RepricingFeed() {
         setGroups(prev => prev.filter(x => x.key !== g.key))
         toast.success(`${g.asin} no longer has active stock — removed from the feed`)
       }
+      for (const n of j.notes ?? []) toast(n)
       for (const w of j.warnings ?? []) toast.error(w)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Refresh failed')

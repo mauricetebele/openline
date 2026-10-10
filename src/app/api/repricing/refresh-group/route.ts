@@ -31,18 +31,32 @@ export async function POST(req: NextRequest) {
   if (!account) return NextResponse.json({ error: 'Account not found' }, { status: 404 })
 
   const warnings: string[] = []
+  const notes: string[] = []
 
-  // 1. Our SKUs in this group — live price; Buy Box once (it's per ASIN).
+  // 1. Our SKUs in this group (same set the feed uses: active, with stock) —
+  //    live price; Buy Box once (it's per ASIN).
   const rows = await prisma.sellerListing.findMany({
-    where: { accountId: b.accountId, asin: b.asin, listingStatus: 'Active' },
+    where: { accountId: b.accountId, asin: b.asin, listingStatus: 'Active', quantity: { gt: 0 } },
     select: { sku: true, condition: true },
   })
   const skus = rows.filter(r => amazonItemCondition(r.condition) === b.itemCondition).map(r => r.sku)
-  for (let i = 0; i < skus.length; i++) {
+  let buyBoxPulled = false
+  for (const sku of skus) {
     try {
-      await fetchLiveListingPrice(b.accountId, skus[i], { includeBuyBox: i === 0 })
+      await fetchLiveListingPrice(b.accountId, sku, { includeBuyBox: !buyBoxPulled })
+      buyBoxPulled = true
     } catch (err) {
-      warnings.push(`Price for ${skus[i]}: ${err instanceof Error ? err.message : String(err)}`)
+      const msg = err instanceof Error ? err.message : String(err)
+      if (/\b404\b|NOT_FOUND/.test(msg)) {
+        // Amazon says this SKU doesn't exist — mirror that so it stops counting as active.
+        await prisma.sellerListing.updateMany({
+          where: { accountId: b.accountId, sku },
+          data: { listingStatus: 'Inactive', quantity: 0 },
+        })
+        notes.push(`${sku} no longer exists on Amazon — marked inactive in OpenLine`)
+      } else {
+        warnings.push(`Price for ${sku}: ${msg}`)
+      }
     }
   }
 
@@ -59,5 +73,5 @@ export async function POST(req: NextRequest) {
   await fillMissingListingTitles(b.accountId, { asin: b.asin, budgetMs: 10_000 }).catch(() => null)
 
   const [group] = await buildRepricingFeed({ accountId: b.accountId, asin: b.asin, itemCondition: b.itemCondition })
-  return NextResponse.json({ group: group ?? null, offers, warnings })
+  return NextResponse.json({ group: group ?? null, offers, warnings, notes })
 }
