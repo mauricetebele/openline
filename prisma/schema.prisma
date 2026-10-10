@@ -2804,7 +2804,11 @@ model AmazonRefundReview {
   refundKey        String?   @unique
   accountId        String?
   postedDate       DateTime
-  amount           Decimal   @db.Decimal(12, 2)
+  amount           Decimal   @db.Decimal(12, 2) // net cost to us (Finances txn total: refunded sales − returned fees)
+  // What the buyer actually got back (principal + tax + shipping − promos), from the
+  // v0 order financial events — matches Amazon's refund notification email.
+  buyerRefundAmount    Decimal?  @db.Decimal(12, 2)
+  buyerRefundCheckedAt DateTime?
   currency         String    @default("USD")
   orderId          String?
   transactionType  String?

@@ -18,6 +18,7 @@ interface Refund {
   transactionId: string
   postedDate: string
   amount: number
+  buyerRefundAmount: number | null
   currency: string
   orderId: string | null
   transactionType: string | null
@@ -194,7 +195,8 @@ export default function AmazonRefundsManager() {
                 {tab === 'validated' && <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Validated</th>}
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Order ID</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Channel</th>
-                <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap">Amount</th>
+                <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap" title="What the refund cost us: refunded sales minus the commission Amazon returned. Excludes sales tax (Amazon collects/remits it).">Net Cost to Us</th>
+                <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap" title="What the buyer got back (product + sales tax + shipping − promos). Matches Amazon's refund notification email.">Refunded to Buyer</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap" title="Total seller-initiated Amazon refunds issued on this order (MFN only)">Seller Refund</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap" title="Units received back on a return vs units sold (MFN only)">Merch Return</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Type</th>
@@ -251,6 +253,11 @@ export default function AmazonRefundsManager() {
                     )}
                   </td>
                   <td className={clsx('px-3 py-2 text-right font-mono font-semibold whitespace-nowrap', r.amount < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400')}>{money(r.amount, r.currency)}</td>
+                  <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
+                    {r.buyerRefundAmount != null
+                      ? <span className="text-gray-700 dark:text-gray-200">{money(r.buyerRefundAmount, r.currency)}</span>
+                      : <span className="text-gray-300 dark:text-gray-600" title="Not available from Amazon yet — fills in on the next sync">—</span>}
+                  </td>
                   <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
                     {r.sellerRefundTotal != null && r.sellerRefundTotal > 0
                       ? <span className="text-gray-700 dark:text-gray-200">{money(r.sellerRefundTotal, r.currency)}</span>

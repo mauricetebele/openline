@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { backfillBuyerRefundAmounts } from './buyer-refund'
 
 /**
  * Review Amazon Refunds starts from the beginning of September 2026 — earlier
@@ -73,6 +74,14 @@ export async function compileAmazonRefunds(): Promise<{ created: number; total: 
 
   if (toCreate.length > 0) {
     await prisma.amazonRefundReview.createMany({ data: toCreate, skipDuplicates: true })
+  }
+
+  // Buyer-facing refund amount (incl. sales tax) for rows missing it — best-effort.
+  try {
+    const b = await backfillBuyerRefundAmounts()
+    if (b.checked) console.log(`[compile-refunds] buyer refund amounts: checked ${b.checked}, filled ${b.filled}`)
+  } catch (err) {
+    console.error('[compile-refunds] buyer refund backfill failed:', err instanceof Error ? err.message : err)
   }
 
   return { created: toCreate.length, total: byRefund.size }

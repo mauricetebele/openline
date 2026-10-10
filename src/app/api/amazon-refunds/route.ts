@@ -79,6 +79,7 @@ export async function GET(req: NextRequest) {
       return {
         ...r,
         amount: Number(r.amount),
+        buyerRefundAmount: r.buyerRefundAmount != null ? Number(r.buyerRefundAmount) : null,
         channel,
         // MFN only: total of our seller-initiated refunds on this order.
         sellerRefundTotal: isMfn ? (sellerRefundByOrder.get(r.orderId ?? '') ?? 0) : null,
