@@ -30,6 +30,7 @@ interface FeedGroup {
   marginSuggested: { min: number | null; max: number | null }
   reason: string; explanation: string[]; status: Status; primeEdgePct: number | null
   weArePrime: boolean | null; buyBoxPrime: boolean | null; lowestCompPrime: boolean | null
+  liveSince: string | null; daysLive: number | null; liveReason: 'listed' | 'restocked' | null; unitsSinceLive: number
   snoozedUntil: string | null; cooldownUntil: string | null
   lastRejectedAt: string | null; lastRejectedBy: string | null
 }
@@ -77,8 +78,8 @@ export function Stat({ label, value, tone = 'gray', sub, title, valueClass }: {
   )
 }
 
-const SPEED_TONE: Record<string, Tone> = { HOT: 'red', HEALTHY: 'green', SLOW: 'amber', STALE: 'sky' }
-const SPEED_LABEL: Record<string, string> = { HOT: '🔥 Hot', HEALTHY: '✅ Healthy', SLOW: '🐢 Slow', STALE: '🧊 Stale' }
+const SPEED_TONE: Record<string, Tone> = { HOT: 'red', HEALTHY: 'green', SLOW: 'amber', STALE: 'sky', NEW: 'teal' }
+const SPEED_LABEL: Record<string, string> = { HOT: '🔥 Hot', HEALTHY: '✅ Healthy', SLOW: '🐢 Slow', STALE: '🧊 Stale', NEW: '🌱 Just listed / restocked' }
 const COMP_TONE: Record<string, Tone> = { WINNING: 'green', LOWEST: 'teal', CLOSE: 'amber', LOSING: 'red', ALONE: 'gray' }
 const COMP_LABEL: Record<string, string> = { WINNING: 'Winning Buy Box', LOWEST: 'Lowest price', CLOSE: 'Close to Buy Box', LOSING: 'Losing Buy Box', ALONE: 'No competition' }
 const marginTone = (n: number | null): Tone => (n == null ? 'gray' : n < 0 ? 'red' : n < 10 ? 'amber' : 'green')
@@ -450,7 +451,12 @@ function FeedRows({ g, open, up, busy, refreshing, onRefresh, editValue, onToggl
             <Stat label="7d sold" value={g.units7d} tone={g.units7d > 0 ? 'green' : 'gray'} title="Units sold in the last 7 days (all SKUs in the group)" />
             <Stat label="30d sold" value={g.units30d} tone={g.units30d > 0 ? 'green' : 'gray'} title="Units sold in the last 30 days (all SKUs in the group)" />
           </div>
-          <div className="mt-1">
+          <div className="mt-1 flex flex-wrap gap-1">
+            {g.daysLive != null && g.daysLive < 30 && (
+              <Pill tone="teal" title={`${g.liveReason === 'listed' ? 'Listed' : 'In stock continuously since'} ${when(g.liveSince)} — sales pace is measured over the live period only (${g.unitsSinceLive} sold since)`}>
+                🌱 {g.liveReason === 'listed' ? 'Listed' : 'Restocked'} {g.daysLive === 0 ? 'today' : `${g.daysLive}d ago`}
+              </Pill>
+            )}
             {g.daysSinceLastSale != null
               ? <Pill tone={g.daysSinceLastSale <= 3 ? 'green' : g.daysSinceLastSale <= 14 ? 'amber' : 'red'}>Last sale {g.daysSinceLastSale === 0 ? 'today' : `${g.daysSinceLastSale}d ago`}</Pill>
               : <Pill tone="red">No sales yet</Pill>}

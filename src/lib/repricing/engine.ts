@@ -18,7 +18,7 @@ import { amazonItemCondition } from '@/lib/amazon/competitive-pricing'
 import { resolveFees, marginAtPrice, type CalcTemplate } from '@/lib/target-margin'
 
 export type Strategy = 'CONSERVATIVE' | 'STANDARD' | 'AGGRESSIVE'
-export type Speed = 'HOT' | 'HEALTHY' | 'SLOW' | 'STALE'
+export type Speed = 'HOT' | 'HEALTHY' | 'SLOW' | 'STALE' | 'NEW'
 export type Competition = 'WINNING' | 'LOWEST' | 'CLOSE' | 'LOSING' | 'ALONE'
 type Action = 'RAISE' | 'PROBE' | 'HOLD' | 'MATCH' | 'PARTWAY' | 'UNDERCUT' | 'LOWER' | 'LOWER2'
 
@@ -73,6 +73,9 @@ const MATRIX: Record<Speed, Record<Competition, Action>> = {
   HEALTHY: { WINNING: 'PROBE',  LOWEST: 'HOLD',  CLOSE: 'MATCH',    LOSING: 'PARTWAY',  ALONE: 'HOLD' },
   SLOW:    { WINNING: 'HOLD',   LOWEST: 'HOLD',  CLOSE: 'UNDERCUT', LOSING: 'MATCH',    ALONE: 'LOWER' },
   STALE:   { WINNING: 'LOWER',  LOWEST: 'LOWER', CLOSE: 'UNDERCUT', LOSING: 'UNDERCUT', ALONE: 'LOWER2' },
+  // Just listed / restocked, no sale yet: don't mark down for lack of sales;
+  // only correct an obvious overprice vs the Buy Box.
+  NEW:     { WINNING: 'HOLD',   LOWEST: 'HOLD',  CLOSE: 'HOLD',     LOSING: 'MATCH',    ALONE: 'HOLD' },
 }
 const DOWN_ONLY: Action[] = ['MATCH', 'PARTWAY', 'UNDERCUT', 'LOWER', 'LOWER2']
 const UP_ONLY: Action[] = ['RAISE', 'PROBE']
@@ -129,6 +132,10 @@ export interface FeedGroup {
   reason: string
   explanation: string[] // step-by-step plain-English reasoning
   primeEdgePct: number | null // set when our Prime offer is allowed above a non-Prime reference
+  liveSince: string | null // when the current stock became sellable / listing first went live
+  daysLive: number | null
+  liveReason: 'listed' | 'restocked' | null
+  unitsSinceLive: number
   weArePrime: boolean | null // null = our offer not in the fetched offer list
   buyBoxPrime: boolean | null // Buy Box offer's Prime status (null = unknown)
   lowestCompPrime: boolean | null
@@ -160,7 +167,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       listingStatus: 'Active', quantity: { gt: 0 }, asin: only ? only.asin : { not: null },
       ...(only ? { accountId: only.accountId } : {}),
     },
-    select: { accountId: true, sku: true, asin: true, condition: true, productTitle: true, price: true, maxPrice: true, quantity: true, fulfillmentChannel: true, buyBoxPrice: true, buyBoxSeller: true, buyBoxSyncedAt: true, lastSyncedAt: true },
+    select: { accountId: true, sku: true, asin: true, condition: true, productTitle: true, price: true, maxPrice: true, quantity: true, fulfillmentChannel: true, buyBoxPrice: true, buyBoxSeller: true, buyBoxSyncedAt: true, lastSyncedAt: true, createdAt: true },
   })
   const listings = rawListings.filter(l => l.lastSyncedAt.getTime() >= (seenSince.get(l.accountId) ?? 0))
   type L = typeof listings[number]
@@ -187,6 +194,12 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     WHERE o."orderSource" = 'amazon' AND o."workflowStatus" <> 'CANCELLED' AND oi."sellerSku" = ANY(${allSkus}::text[])
     GROUP BY oi."sellerSku"`
   const velBySku = new Map(vel.map(v => [v.sku, v]))
+  // Individual sale lines (30 d) — to count sales since a group went live.
+  const saleLines = await prisma.$queryRaw<{ sku: string; at: Date; qty: number }[]>`
+    SELECT oi."sellerSku" AS sku, o."purchaseDate" AS at, oi."quantityOrdered"::int AS qty
+    FROM order_items oi JOIN orders o ON o.id = oi."orderId"
+    WHERE o."orderSource" = 'amazon' AND o."workflowStatus" <> 'CANCELLED'
+      AND oi."sellerSku" = ANY(${allSkus}::text[]) AND o."purchaseDate" >= now() - interval '30 days'`
 
   // Amazon product title: the listing's own title when the catalog report had one,
   // else the title on the most recent Amazon order line for that ASIN.
@@ -240,6 +253,87 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       ORDER BY pol."productId", pol."gradeId", pol."createdAt" DESC`
     for (const r of fbRows) { const k = pgKey(r.productId, r.gradeId); if (!costMap.has(k)) costMap.set(k, { unit: r.u, code: r.c ?? 0 }) }
   }
+  // ── 4b. "Live since": start of the current unbroken in-stock stretch ───────
+  // Rebuilt from unit history per product+grade: each unit is in sellable stock
+  // from when it entered (PO receipt, return, repair back, grade/SKU change,
+  // unreserved, or a move from a non-sellable bin into a finished-goods one)
+  // until it left (sale, FBA/vendor/repair shipment, manual removal, move out of
+  // finished goods). Overlapping stretches are joined (gaps < 1 day ignored), so
+  // a fast seller that never ran out keeps its full history — only a real
+  // sell-out + restock (or a new listing) shortens the window.
+  const stockSince = new Map<string, number>()
+  if (productIds.length) {
+    const WINDOW_DAYS = 60
+    const winStart = now - WINDOW_DAYS * DAY
+    const evRows = await prisma.$queryRaw<{ sid: string; productId: string; gradeId: string | null; inStock: boolean; serialCreated: Date; at: Date | null; kind: string | null }[]>`
+      WITH s AS (
+        SELECT s.id, s."productId", s."gradeId", s."createdAt",
+               (s.status = 'IN_STOCK' AND l."isFinishedGoods" = true) AS "inStock"
+        FROM inventory_serials s JOIN locations l ON l.id = s."locationId"
+        WHERE s."productId" = ANY(${productIds}::text[])
+      ),
+      ev AS (
+        SELECT h."inventorySerialId" AS sid, h."createdAt" AS at,
+          CASE
+            WHEN h."eventType"::text IN ('PO_RECEIPT','MP_RMA_RETURN','FBA_RETURN','WHOLESALE_RMA_RETURN','LEGACY_RMA_RECEIPT',
+                                        'REPAIR_RETURNED','MANUAL_ADD','VOID_REINSTATE','SKU_CONVERSION','GRADE_CHANGE','UNASSIGNED')
+              OR (h."eventType"::text = 'LOCATION_MOVE' AND COALESCE(fl."isFinishedGoods", false) = false AND COALESCE(tl."isFinishedGoods", false) = true)
+              THEN 'IN'
+            WHEN h."eventType"::text IN ('SALE','FBA_SHIPMENT','VENDOR_RMA_SHIPPED','REPAIR_SHIPPED','MANUAL_REMOVE','MANUAL_FBA')
+              OR (h."eventType"::text = 'LOCATION_MOVE' AND COALESCE(fl."isFinishedGoods", false) = true AND COALESCE(tl."isFinishedGoods", false) = false)
+              THEN 'OUT'
+          END AS kind
+        FROM serial_history h
+        JOIN s ON s.id = h."inventorySerialId"
+        LEFT JOIN locations fl ON fl.id = h."fromLocationId"
+        LEFT JOIN locations tl ON tl.id = h."locationId"
+        WHERE h."createdAt" >= ${new Date(winStart)}
+      )
+      SELECT s.id AS sid, s."productId", s."gradeId", s."inStock", s."createdAt" AS "serialCreated", ev.at, ev.kind
+      FROM s LEFT JOIN ev ON ev.sid = s.id AND ev.kind IS NOT NULL
+      WHERE s."inStock" OR ev.sid IS NOT NULL
+      ORDER BY s.id, ev.at`
+
+    // Per serial → in-stock intervals; per product+grade → list of intervals.
+    const intervals = new Map<string, [number, number][]>()
+    const push = (k: string, a: number, b: number) => { if (b > a) intervals.set(k, [...(intervals.get(k) ?? []), [a, b]]) }
+    let i = 0
+    while (i < evRows.length) {
+      const sid = evRows[i].sid
+      const k = pgKey(evRows[i].productId, evRows[i].gradeId)
+      const inStock = evRows[i].inStock
+      const created = new Date(evRows[i].serialCreated).getTime()
+      let open: number | null = null
+      let sawEvent = false
+      for (; i < evRows.length && evRows[i].sid === sid; i++) {
+        const e = evRows[i]
+        if (!e.at || !e.kind) continue
+        const t = new Date(e.at).getTime()
+        if (e.kind === 'IN') open = t
+        else { push(k, open ?? (sawEvent ? t : Math.max(created, winStart)), t); open = null }
+        sawEvent = true
+      }
+      if (inStock) push(k, open ?? (sawEvent ? now : Math.max(created, winStart)), now)
+    }
+
+    // Start of the stretch that's still running now.
+    for (const [k, list] of Array.from(intervals.entries())) {
+      const current = list.filter(([, b]) => b >= now)
+      if (!current.length) continue
+      let start = Math.min(...current.map(([a]) => a))
+      let changed = true
+      while (changed) {
+        changed = false
+        for (const [a, b] of list) {
+          if (a < start && b >= start - DAY) { start = a; changed = true }
+        }
+      }
+      stockSince.set(k, start)
+    }
+  }
+  // Listing first seen — meaningful only for listings created after the initial catalog import.
+  const firstImport = rawListings.reduce((m, l) => Math.min(m, l.createdAt.getTime()), Infinity)
+
   const skuMargin = (sku: string, price: number | null): number | null => {
     if (price == null) return null
     const m = mskuBySku.get(sku)
@@ -281,19 +375,44 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       if (v.last && v.last.getTime() > lastSale) lastSale = v.last.getTime()
     }
     const daysSinceLastSale = lastSale ? Math.floor((now - lastSale) / DAY) : null
-    const daily = 0.6 * (units7d / 7) + 0.4 * (units30d / 30)
+
+    // Live since: latest of (oldest current unit's entry into sellable stock,
+    // listing first seen if created after the initial import). Null = unknown.
+    const stockStarts = g.rows.map(r => { const m = mskuBySku.get(r.sku); return m ? stockSince.get(pgKey(m.productId, m.gradeId)) : undefined })
+      .filter((t): t is number => t != null)
+    const stockStart = stockStarts.length ? Math.min(...stockStarts) : null
+    const listedAt = Math.min(...g.rows.map(r => r.createdAt.getTime()))
+    const listedStart = listedAt > firstImport + 2 * DAY ? listedAt : null
+    const liveSince = stockStart != null || listedStart != null ? Math.max(stockStart ?? 0, listedStart ?? 0) : null
+    const daysLive = liveSince != null ? Math.max(0, Math.floor((now - liveSince) / DAY)) : null
+    const liveReason: 'listed' | 'restocked' | null = liveSince == null ? null : listedStart != null && liveSince === listedStart ? 'listed' : 'restocked'
+    const shortLive = daysLive != null && daysLive < 30
+    const groupSkus = new Set(g.rows.map(r => r.sku))
+    const unitsSinceLive = liveSince != null
+      ? saleLines.filter(s => groupSkus.has(s.sku) && s.at.getTime() >= liveSince).reduce((a, s) => a + s.qty, 0)
+      : units30d
+
+    // Sales pace over the time it was actually live (when that's under 30 days).
+    const pace30 = shortLive ? unitsSinceLive / Math.max(daysLive!, 1) : units30d / 30
+    const daily = shortLive ? pace30 : 0.6 * (units7d / 7) + 0.4 * pace30
     const daysOfCover = daily > 0 ? Math.round(stock / daily) : null
 
-    // Speed
-    const noSale = daysSinceLastSale ?? Infinity
+    // Speed — "no sale" days only count while the group was live.
+    const noSale = daysLive != null ? Math.min(daysSinceLastSale ?? Infinity, daysLive) : (daysSinceLastSale ?? Infinity)
+    const noSaleTxt = daysLive != null && (daysSinceLastSale == null || daysSinceLastSale > daysLive)
+      ? `It hasn't sold in the ${daysLive} days since it was ${liveReason}`
+      : daysSinceLastSale == null ? 'It has no sales on record' : `It hasn't sold in ${daysSinceLastSale} days`
     // (speedWhy = the plain-English test that put it in this bucket)
     const sName = strategy.charAt(0) + strategy.slice(1).toLowerCase()
-    const accelerating = units7d >= 2 && units7d / 7 > 1.5 * (units30d / 30)
+    const accelerating = units7d >= 2 && units7d / 7 > 1.5 * pace30
     let speed: Speed
     let speedWhy: string
-    if (noSale >= P.staleNoSaleDays) {
+    if (daysLive != null && daysLive < P.slowNoSaleDays && unitsSinceLive === 0) {
+      speed = 'NEW'
+      speedWhy = `It was ${liveReason} only ${daysLive === 0 ? 'today' : `${daysLive} day${daysLive === 1 ? '' : 's'} ago`} and hasn't sold yet — too early to judge (${sName} waits ${P.slowNoSaleDays} days before calling a listing slow), so we don't cut the price for lack of sales.`
+    } else if (noSale >= P.staleNoSaleDays) {
       speed = 'STALE'
-      speedWhy = `${daysSinceLastSale == null ? 'It has no sales on record' : `It hasn't sold in ${daysSinceLastSale} days`}, which ${sName} treats as stale (no sale in ${P.staleNoSaleDays}+ days).`
+      speedWhy = `${noSaleTxt}, which ${sName} treats as stale (no sale in ${P.staleNoSaleDays}+ days).`
     } else if (daysOfCover != null && daysOfCover < P.targetCoverDays / 2) {
       speed = 'HOT'
       speedWhy = `At this pace the stock lasts only about ${daysOfCover} days — under half of ${sName}'s ${P.targetCoverDays}-day target — so it's selling hot.`
@@ -302,7 +421,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       speedWhy = `Sales are speeding up: ${units7d} in the last 7 days is well above its 30-day pace, so it's treated as hot.`
     } else if (noSale >= P.slowNoSaleDays) {
       speed = 'SLOW'
-      speedWhy = `It hasn't sold in ${daysSinceLastSale} days, which ${sName} treats as slow (no sale in ${P.slowNoSaleDays}+ days).`
+      speedWhy = `${noSaleTxt}, which ${sName} treats as slow (no sale in ${P.slowNoSaleDays}+ days).`
     } else if (daysOfCover == null || daysOfCover > P.targetCoverDays * 1.5) {
       speed = 'SLOW'
       speedWhy = `At this pace the stock would last ${daysOfCover == null ? 'indefinitely' : `about ${daysOfCover} days`} — well over ${sName}'s ${P.targetCoverDays}-day target — so it's slow.`
@@ -482,6 +601,12 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     explanation.push(
       `${g.rows.length > 1 ? `Across its ${g.rows.length} SKUs (a sale on any of them counts for all, since Amazon picks which one sells)` : 'This SKU'} sold ${units7d} in the last 7 days and ${units30d} in the last 30, with ${stock} in stock.`,
     )
+    if (shortLive && liveSince != null) {
+      const d = new Date(liveSince).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      explanation.push(liveReason === 'listed'
+        ? `It was only listed ${daysLive} day${daysLive === 1 ? '' : 's'} ago (${d}), so its sales pace is measured over those ${Math.max(daysLive!, 1)} day${daysLive === 1 ? '' : 's'}, not 30 (${unitsSinceLive} sold since).`
+        : `It's only had stock continuously since ${d} (${daysLive} day${daysLive === 1 ? '' : 's'}) — before that it was sold out — so its sales pace is measured over that time, not 30 days (${unitsSinceLive} sold since).`)
+    }
     explanation.push(speedWhy)
     if (noData) {
       explanation.push(`We don't have fresh competitor offers (including who's Prime) for this ${cond} ASIN yet${buyBoxPrice != null ? ` — only the Buy Box price of ${fmt(buyBoxPrice)}` : ''}, so there's no suggestion until they're pulled. Click Refresh, or wait for the hourly refresh.`)
@@ -518,7 +643,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       const actionTxt: Record<Action, string> = {
         RAISE: `Since it's selling fast and ${weHoldBuyBox ? 'we hold the Buy Box' : 'nobody is competing'}, there's room to earn more: ${sName} raises the price ${P.raisePct}%.`,
         PROBE: `${competition === 'LOWEST' ? "Since it's selling fast at the lowest price" : 'Since sales are healthy and we hold the Buy Box'}, ${sName} tests a small ${P.raisePct / 2}% increase to see if the market will take it.`,
-        HOLD: holdWhy[rule] ?? 'The rules call for holding the current price.',
+        HOLD: holdWhy[rule] ?? (speed === 'NEW' ? 'Give it time to sell at this price before changing anything — hold.' : 'The rules call for holding the current price.'),
         MATCH: `To win back sales, ${sName} ${primeEdge ? 'moves to the Prime-adjusted target of' : 'matches the Buy Box at'} ${fmt(ref ?? 0)}.`,
         PARTWAY: `${sName} moves halfway toward ${primeEdge ? 'the Prime-adjusted target' : 'the Buy Box'} (${fmt(ref ?? 0)}) to compete without giving up too much margin.`,
         UNDERCUT: `To take the Buy Box and get it moving, ${sName} undercuts ${primeEdge ? 'the Prime-adjusted target of ' : ''}${fmt(ref ?? 0)} by ${fmt(undercutOf(P, ref ?? 0))}.`,
@@ -548,6 +673,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       speed, competition, rule, action, suggestedPrice: target, changePct,
       marginCurrent, marginSuggested,
       reason, explanation, status, primeEdgePct: primeEdge ? P.primePremiumPct : null,
+      liveSince: liveSince != null ? new Date(liveSince).toISOString() : null, daysLive, liveReason, unitsSinceLive,
       weArePrime: mine ? mine.isPrime : null,
       buyBoxPrime: weHoldBuyBox ? (mine ? mine.isPrime : null) : (buyBoxPrice != null && refOffer ? refOffer.isPrime : null),
       lowestCompPrime: lowestCompOffer ? lowestCompOffer.isPrime : null,

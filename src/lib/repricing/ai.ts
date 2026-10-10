@@ -141,9 +141,10 @@ const ANALYSIS_SCHEMA = {
 } as const
 
 const RULES_PRIMER = `How the engine works (per ASIN + Amazon condition group; sales on any SKU in the group count for all):
-- Speed: STALE = no sale in staleNoSaleDays+; HOT = stock lasts < half of targetCoverDays, or 7-day pace > 1.5x the 30-day pace; SLOW = no sale in slowNoSaleDays+, or stock lasts > 1.5x targetCoverDays; else HEALTHY.
+- Live window: each group's "live since" = when its oldest in-stock unit became sellable (receipt, return, repair, grade change…) or when the listing first appeared, whichever is later. No-sale days and sales pace only count that live window (capped at 30 days).
+- Speed: NEW = live for fewer than slowNoSaleDays and no sale since going live (hold; only match if Losing); STALE = no sale in staleNoSaleDays+; HOT = stock lasts < half of targetCoverDays, or 7-day pace > 1.5x the 30-day pace; SLOW = no sale in slowNoSaleDays+, or stock lasts > 1.5x targetCoverDays; else HEALTHY.
 - Competition: WINNING = we hold the Buy Box; LOWEST = we're at/below the reference (Buy Box, else cheapest same-condition competitor) without the Buy Box; CLOSE = within 2% above it; LOSING = more than 2% above; ALONE = no competitor. If our offer is Prime and the reference offer isn't, the reference is raised by primePremiumPct. Competitors below minFeedback are ignored.
-- Action matrix: HOT: WINNING raise, LOWEST probe (+raisePct/2), CLOSE hold, LOSING hold, ALONE raise. HEALTHY: WINNING probe, LOWEST hold, CLOSE match, LOSING halfway, ALONE hold. SLOW: WINNING hold, LOWEST hold, CLOSE undercut, LOSING match, ALONE lower. STALE: WINNING lower, LOWEST lower, CLOSE undercut, LOSING undercut, ALONE lower 2x.
+- Action matrix: NEW: hold everything except LOSING → match. HOT: WINNING raise, LOWEST probe (+raisePct/2), CLOSE hold, LOSING hold, ALONE raise. HEALTHY: WINNING probe, LOWEST hold, CLOSE match, LOSING halfway, ALONE hold. SLOW: WINNING hold, LOWEST hold, CLOSE undercut, LOSING match, ALONE lower. STALE: WINNING lower, LOWEST lower, CLOSE undercut, LOSING undercut, ALONE lower 2x.
 - Raises are capped just under the next competitor; every move is capped at maxDailyPct; after an approval the group waits cooldownHours; a rejection snoozes that rule for 24h. Margins are shown but there is no margin floor.`
 
 function bounds(param: keyof StrategyParams): [number, number] {
