@@ -83,6 +83,20 @@ const SNOOZE_HOURS = 24
 const DAY = 86_400_000
 
 const round2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * Price endings: snap to the nearest X.49 or X.95 (up or down), staying within
+ * [lo, hi] — e.g. an undercut must stay under the competitor. Null if no .49/.95
+ * price fits the bounds.
+ */
+export function prettyPrice(x: number, lo = 0, hi = Infinity): number | null {
+  const base = Math.floor(x)
+  const cands: number[] = []
+  for (let d = base - 1; d <= base + 1; d++) cands.push(round2(d + 0.49), round2(d + 0.95))
+  const ok = cands.filter(c => c > 0 && c >= lo - 1e-9 && c <= hi + 1e-9)
+  if (!ok.length) return null
+  return ok.reduce((best, c) => (Math.abs(c - x) < Math.abs(best - x) ? c : best))
+}
 const pgKey = (p: string, g: string | null) => `${p}:${g ?? ''}`
 export const groupKeyOf = (accountId: string, asin: string, itemCondition: string) => `${accountId}|${asin}|${itemCondition}`
 
@@ -393,8 +407,27 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
           target = Math.min(...ceiling); why += ' (max price)'
           adjustments.push(`It's held to the listing's max price of ${fmt(target)}.`)
         }
-        target = round2(target)
-        if (Math.abs(target - currentPrice) / currentPrice * 100 < MIN_CHANGE_PCT) { target = null; dropped = `the change would be under ${MIN_CHANGE_PCT}% — too small to be worth it` }
+        // Snap to a .49 / .95 ending without crossing the limits this move relies on.
+        let hi = Infinity, lo = 0
+        if (action === 'UNDERCUT' && ref != null) hi = Math.min(hi, ref - 0.01)
+        if ((action === 'MATCH' || action === 'PARTWAY') && ref != null) hi = Math.min(hi, ref)
+        if (target > currentPrice && (weHoldBuyBox || competition === 'LOWEST') && lowestCompetitor != null) {
+          const capBase = weArePrime && lowestCompOffer != null && !lowestCompOffer.isPrime ? premium(lowestCompetitor) : lowestCompetitor
+          hi = Math.min(hi, capBase - undercutOf(P, capBase))
+        }
+        if (ceiling.length) hi = Math.min(hi, ...ceiling)
+        if (DOWN_ONLY.includes(action)) hi = Math.min(hi, currentPrice - 0.01)
+        if (UP_ONLY.includes(action)) lo = currentPrice + 0.01
+        const raw = round2(target)
+        const pretty = prettyPrice(raw, lo, hi)
+        if (pretty == null) {
+          target = null
+          dropped = `no price ending in .49 or .95 fits between ${fmt(lo)} and ${fmt(hi)}`
+        } else {
+          target = pretty
+          if (pretty !== raw) adjustments.push(`Rounded ${pretty > raw ? 'up' : 'down'} from ${fmt(raw)} to ${fmt(pretty)} so the price ends in .49 or .95.`)
+          if (Math.abs(target - currentPrice) / currentPrice * 100 < MIN_CHANGE_PCT) { target = null; dropped = `the change would be under ${MIN_CHANGE_PCT}% — too small to be worth it` }
+        }
       }
     }
     const changePct = target != null && currentPrice ? round2((target - currentPrice) / currentPrice * 100) : null
