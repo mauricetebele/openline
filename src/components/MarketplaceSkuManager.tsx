@@ -1295,6 +1295,25 @@ export default function MarketplaceSkuManager() {
     } finally { setBulkSuspending(false) }
   }
 
+  // Bulk delete the selected mappings (listings stay, just become unmapped).
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  async function bulkDelete() {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    if (!window.confirm(`Delete ${ids.length} marketplace SKU mapping${ids.length === 1 ? '' : 's'}? This cannot be undone.`)) return
+    setBulkDeleting(true)
+    try {
+      const data = await apiPost('/api/marketplace-skus/bulk-delete', { ids })
+      const failed: { sellerSku: string; error: string }[] = data.failed ?? []
+      setSelectedIds(new Set())
+      setToast(`Deleted ${data.deleted} mapping${data.deleted === 1 ? '' : 's'}`)
+      if (failed.length > 0) setErr(`Could not delete ${failed.length}: ${failed.map(f => f.sellerSku).join(', ')}`)
+      loadAll()
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Bulk delete failed')
+    } finally { setBulkDeleting(false) }
+  }
+
   const sameGroupAs = (target: MarketplaceSku) => (s: MarketplaceSku) =>
     s.productId === target.productId && (s.gradeId ?? null) === (target.gradeId ?? null)
 
@@ -1958,6 +1977,19 @@ export default function MarketplaceSkuManager() {
                   className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-white border border-emerald-300 text-emerald-700 text-sm font-medium hover:bg-emerald-50 disabled:opacity-50"
                 >
                   <Check size={14} /> Resume
+                </button>
+              </div>
+
+              {/* Bulk delete mappings */}
+              <div className="flex items-center border-l border-gray-300 pl-3">
+                <button
+                  type="button"
+                  onClick={bulkDelete}
+                  disabled={bulkDeleting || selectedIds.size === 0}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                >
+                  {bulkDeleting ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  Delete selected
                 </button>
               </div>
 
