@@ -44,6 +44,8 @@ export async function POST(req: NextRequest) {
     daysSinceLastSale: group.daysSinceLastSale, daysOfCover: group.daysOfCover, stock: group.stock,
     buyBoxPrice: group.buyBoxPrice, buyBoxHolder: group.buyBoxHolder, lowestCompetitor: group.lowestCompetitor,
     skus: group.skus.map(s => ({ sku: s.sku, price: s.price, qty: s.qty })),
+    velocityScore: group.velocity,
+    daysLive: group.daysLive,
     reason: group.reason,
   }
   const base = {

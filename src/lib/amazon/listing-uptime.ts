@@ -19,6 +19,11 @@ import { fulfillmentQtyFromAttributes } from './listings'
 interface ListingItemLite {
   summaries?: { marketplaceId: string; status?: string[] }[]
   attributes?: Record<string, unknown>
+  offers?: { marketplaceId?: string; price?: { amount?: string | number } }[]
+}
+const amazonItemConditionOf = (c: string | null) => {
+  const s = (c ?? '').toLowerCase()
+  return s.startsWith('used') ? 'Used' : s.startsWith('refurb') || s.startsWith('renewed') ? 'Refurbished' : s.startsWith('collect') ? 'Collectible' : 'New'
 }
 
 export async function checkListingUptime(opts: { budgetMs?: number } = {}): Promise<{ checked: number; wentLive: number; wentDown: number; errors: number; remaining: number }> {
@@ -28,10 +33,26 @@ export async function checkListingUptime(opts: { budgetMs?: number } = {}): Prom
   const mapped = await prisma.productGradeMarketplaceSku.findMany({ where: { marketplace: 'amazon' }, select: { sellerSku: true } })
   const rows = await prisma.sellerListing.findMany({
     where: { OR: [{ listingStatus: 'Active' }, { sku: { in: Array.from(new Set(mapped.map(m => m.sellerSku))) } }] },
-    select: { id: true, accountId: true, sku: true, isLive: true },
+    select: { id: true, accountId: true, sku: true, isLive: true, asin: true, condition: true, price: true, buyBoxSeller: true, buyBoxSyncedAt: true },
     orderBy: [{ uptimeCheckedAt: { sort: 'asc', nulls: 'first' } }],
   })
   if (rows.length === 0) return { checked: 0, wentLive: 0, wentDown: 0, errors: 0, remaining: 0 }
+
+  // Do we hold the Buy Box right now? Fresh (< 2 h) data only: our offer row in
+  // competitive_offers (any condition), else the listing's featured Buy Box (New).
+  const FRESH = Date.now() - 2 * 3_600_000
+  const myOffers = await prisma.competitiveOffer.findMany({
+    where: { isMyOffer: true, lastFetchedAt: { gte: new Date(FRESH) } },
+    select: { asin: true, itemCondition: true, isBuyBoxWinner: true },
+  })
+  const myBb = new Map(myOffers.map(o => [`${o.asin}|${o.itemCondition}`, o.isBuyBoxWinner]))
+  const holdsBuyBoxOf = (r: (typeof rows)[number]): boolean | null => {
+    const ic = amazonItemConditionOf(r.condition)
+    const fromOffers = r.asin ? myBb.get(`${r.asin}|${ic}`) : undefined
+    if (fromOffers != null) return fromOffers
+    if (ic === 'New' && r.buyBoxSyncedAt && r.buyBoxSyncedAt.getTime() >= FRESH) return r.buyBoxSeller === 'You'
+    return null
+  }
 
   const accounts = new Map<string, { sellerId: string; marketplaceId: string; client: SpApiClient } | null>()
   const getAccount = async (id: string) => {
@@ -51,14 +72,18 @@ export async function checkListingUptime(opts: { budgetMs?: number } = {}): Prom
       let live = false
       let reason = 'NOT_BUYABLE'
       let qty: number | null = null
+      let price: number | null = null
       try {
         const item = await acc.client.get<ListingItemLite>(
           `/listings/2021-08-01/items/${acc.sellerId}/${encodeURIComponent(r.sku)}`,
-          { marketplaceIds: acc.marketplaceId, includedData: 'summaries,attributes' },
+          { marketplaceIds: acc.marketplaceId, includedData: 'summaries,attributes,offers' },
         )
         const summary = item.summaries?.find(s => s.marketplaceId === acc.marketplaceId) ?? item.summaries?.[0]
         const buyable = summary?.status?.includes('BUYABLE') ?? false
         qty = fulfillmentQtyFromAttributes(item.attributes)
+        const offer = item.offers?.find(o => o.marketplaceId === acc.marketplaceId) ?? item.offers?.[0]
+        const amt = offer?.price?.amount != null ? Number(offer.price.amount) : NaN
+        price = Number.isFinite(amt) && amt > 0 ? amt : null
         live = buyable && (qty == null || qty > 0)
         reason = !buyable ? 'NOT_BUYABLE' : live ? 'BUYABLE' : 'NO_QTY'
       } catch (err) {
@@ -68,14 +93,23 @@ export async function checkListingUptime(opts: { budgetMs?: number } = {}): Prom
       }
       checked++
       const now = new Date()
+      const prevPrice = r.price != null ? Number(r.price) : null
+      const priceChanged = price != null && prevPrice != null && Math.abs(price - prevPrice) >= 0.005
       await prisma.sellerListing.update({
         where: { id: r.id },
         data: {
           isLive: live, uptimeCheckedAt: now,
           listingStatus: live ? 'Active' : 'Inactive',
           ...(qty != null ? { quantity: qty } : {}),
+          ...(price != null ? { price } : {}),
+          ...(priceChanged ? { priceChangedAt: now } : {}),
         },
       })
+      if (live) {
+        await prisma.listingUptimeSample.create({
+          data: { accountId: r.accountId, sku: r.sku, at: now, price, holdsBuyBox: holdsBuyBoxOf(r) },
+        })
+      }
       if (r.isLive !== live) {
         await prisma.listingUptimeEvent.create({ data: { accountId: r.accountId, sku: r.sku, at: now, live, reason } })
         if (r.isLive != null) { if (live) wentLive++; else wentDown++ }
@@ -84,6 +118,24 @@ export async function checkListingUptime(opts: { budgetMs?: number } = {}): Prom
   }
   await Promise.all([worker(), worker()])
   return { checked, wentLive, wentDown, errors, remaining: Math.max(0, rows.length - i) }
+}
+
+/** Buy Box share samples per SKU since `since`: live checks where held / known. */
+export async function loadBuyBoxSamples(skus: string[], since: Date): Promise<Map<string, { held: number; known: number }>> {
+  const out = new Map<string, { held: number; known: number }>()
+  if (!skus.length) return out
+  const rows = await prisma.listingUptimeSample.groupBy({
+    by: ['sku', 'holdsBuyBox'],
+    where: { sku: { in: skus }, at: { gte: since }, holdsBuyBox: { not: null } },
+    _count: { _all: true },
+  })
+  for (const r of rows) {
+    const cur = out.get(r.sku) ?? { held: 0, known: 0 }
+    cur.known += r._count._all
+    if (r.holdsBuyBox) cur.held += r._count._all
+    out.set(r.sku, cur)
+  }
+  return out
 }
 
 /**

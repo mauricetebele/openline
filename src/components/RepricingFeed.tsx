@@ -31,6 +31,12 @@ interface FeedGroup {
   reason: string; explanation: string[]; status: Status; primeEdgePct: number | null
   weArePrime: boolean | null; buyBoxPrime: boolean | null; lowestCompPrime: boolean | null
   liveSince: string | null; daysLive: number | null; liveReason: 'listed' | 'restocked' | 'amazon' | null; unitsSinceLive: number
+  velocity: {
+    score: number | null; raw: number | null; units: number; liveDays: number; estimatedPct: number
+    confidence: 'low' | 'medium' | 'high'; baseline: number | null; target: number | null
+    atPrice: { score: number | null; units: number; liveDays: number; since: string } | null
+    buyBoxShare: number | null; buyBoxChecks: number
+  }
   snoozedUntil: string | null; cooldownUntil: string | null
   lastRejectedAt: string | null; lastRejectedBy: string | null
 }
@@ -322,6 +328,36 @@ export default function RepricingFeed() {
   )
 }
 
+/**
+ * VelocityScore™ — units sold per 24 h of Amazon uptime (30-day window), with
+ * confidence, target, score at the current price, and Buy Box share.
+ */
+function VelocityPanel({ g }: { g: FeedGroup }) {
+  const v = g.velocity
+  const f2 = (n: number | null) => (n == null ? '—' : n.toFixed(2))
+  const vsTone: Tone = v.score == null || v.target == null ? 'violet'
+    : v.score >= v.target * 1.2 ? 'green' : v.score >= v.target * 0.8 ? 'teal' : 'amber'
+  const confTone: Tone = v.confidence === 'high' ? 'green' : v.confidence === 'medium' ? 'amber' : 'gray'
+  return (
+    <div className={clsx('rounded-md border px-2 py-1 min-w-[150px]', TONE[vsTone].box)}
+      title={`VelocityScore™ = units sold per 24 h live on Amazon (last 30 days)\n${v.units} units over ${v.liveDays} live days (raw ${f2(v.raw)}/day)${v.estimatedPct ? `\n${v.estimatedPct}% of live time estimated from stock history` : ''}${v.confidence === 'low' && v.baseline != null ? `\nLow data: blended with typical ${g.itemCondition} listing (${f2(v.baseline)}/day)` : ''}`}>
+      <div className="text-[9px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 leading-3">VelocityScore™</div>
+      <div className="flex items-baseline gap-1">
+        <span className={clsx('font-mono text-[15px] font-bold leading-5 tabular-nums', TONE[vsTone].text)}>{f2(v.score)}</span>
+        <span className="text-[10px] text-gray-500">/ day live</span>
+      </div>
+      <div className="text-[10px] text-gray-500 leading-4">{v.units} sold · {v.liveDays} live days</div>
+      <div className="mt-0.5 flex flex-wrap gap-1">
+        <Pill tone={confTone}>{v.confidence} confidence</Pill>
+        {v.target != null && <Pill tone="gray" title="Target = units in stock ÷ the strategy's days-to-sell target">Target {f2(v.target)}</Pill>}
+        {v.atPrice && <Pill tone="blue" title={`Since the last price change (${new Date(v.atPrice.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}): ${v.atPrice.units} sold over ${v.atPrice.liveDays} live days`}>@ price {f2(v.atPrice.score)} ({v.atPrice.liveDays}d)</Pill>}
+        {v.buyBoxShare != null && <Pill tone={v.buyBoxShare >= 70 ? 'green' : v.buyBoxShare >= 30 ? 'amber' : 'red'} title={`Held the Buy Box in ${v.buyBoxShare}% of ${v.buyBoxChecks} live checks`}>Buy Box {v.buyBoxShare}%</Pill>}
+        {v.estimatedPct > 0 && <Pill tone="gray" title="Share of live time estimated from stock history (Amazon uptime tracking started Oct 10, 2026)">est {v.estimatedPct}%</Pill>}
+      </div>
+    </div>
+  )
+}
+
 /** Approve / Reject confirmation with an optional "why" — Claude reads it and learns from it. */
 function DecisionDialog({ g, action, price, onCancel, onConfirm }: {
   g: FeedGroup; action: 'approve' | 'reject'; price: number | null
@@ -447,7 +483,8 @@ function FeedRows({ g, open, up, busy, refreshing, onRefresh, editValue, onToggl
 
         {/* ── Sales ───────────────────────────────────────────────── */}
         <td className={cell}>
-          <div className="flex gap-1">
+          <VelocityPanel g={g} />
+          <div className="mt-1 flex gap-1">
             <Stat label="7d sold" value={g.units7d} tone={g.units7d > 0 ? 'green' : 'gray'} title="Units sold in the last 7 days (all SKUs in the group)" />
             <Stat label="30d sold" value={g.units30d} tone={g.units30d > 0 ? 'green' : 'gray'} title="Units sold in the last 30 days (all SKUs in the group)" />
           </div>

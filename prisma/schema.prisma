@@ -448,6 +448,7 @@ model SellerListing {
   // Amazon uptime check (cron/listing-uptime): live = BUYABLE with available qty > 0.
   isLive          Boolean?
   uptimeCheckedAt DateTime?
+  priceChangedAt  DateTime? // last price change (our push or seen on Amazon) — VelocityScore at current price
 
   @@unique([accountId, sku])
   @@index([accountId])
@@ -2797,6 +2798,20 @@ model ListingUptimeEvent {
 
   @@index([accountId, sku, at])
   @@map("listing_uptime_events")
+}
+
+// One row per uptime check of a LIVE SKU: price + whether we held the Buy Box
+// at that moment (null = unknown). Feeds VelocityScore Buy Box share.
+model ListingUptimeSample {
+  id          String   @id @default(cuid())
+  accountId   String
+  sku         String
+  at          DateTime @default(now())
+  price       Decimal? @db.Decimal(12, 2)
+  holdsBuyBox Boolean?
+
+  @@index([sku, at])
+  @@map("listing_uptime_samples")
 }
 
 model OliSkuCache {

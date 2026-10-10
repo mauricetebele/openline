@@ -776,10 +776,10 @@ export async function updateListingPrice(
 
   console.log(`[updateListingPrice] SKU=${sku} price=${newPrice} status=${patchResult.status} submissionId=${patchResult.submissionId}`)
 
-  // Mirror new price in DB immediately.
+  // Mirror new price in DB immediately (priceChangedAt drives VelocityScore @ current price).
   await prisma.sellerListing.updateMany({
     where: { accountId, sku },
-    data: { price: newPrice, updatedAt: new Date() },
+    data: { price: newPrice, priceChangedAt: new Date(), updatedAt: new Date() },
   })
 }
 

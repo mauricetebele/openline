@@ -16,7 +16,7 @@
 import { prisma } from '@/lib/prisma'
 import { amazonItemCondition } from '@/lib/amazon/competitive-pricing'
 import { resolveFees, marginAtPrice, type CalcTemplate } from '@/lib/target-margin'
-import { loadUptime } from '@/lib/amazon/listing-uptime'
+import { loadUptime, loadBuyBoxSamples } from '@/lib/amazon/listing-uptime'
 
 export type Strategy = 'CONSERVATIVE' | 'STANDARD' | 'AGGRESSIVE'
 export type Speed = 'HOT' | 'HEALTHY' | 'SLOW' | 'STALE' | 'NEW'
@@ -88,6 +88,46 @@ const DAY = 86_400_000
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
+/** Start of the stretch still running at `now` (intervals joined across gaps < `gap`). */
+function currentRunStart(ivs: [number, number][], now: number, gap: number): number | null {
+  const cur = ivs.filter(([, b]) => b >= now - 60_000)
+  if (!cur.length) return null
+  let start = Math.min(...cur.map(([a]) => a))
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const [a, b] of ivs) if (a < start && b >= start - gap) { start = a; changed = true }
+  }
+  return start
+}
+
+/** Total ms of [a, b] covered by the union of intervals. */
+function coveredMs(ivs: [number, number][], a: number, b: number): number {
+  if (b <= a || !ivs.length) return 0
+  const clipped = ivs.map(([x, y]) => [Math.max(x, a), Math.min(y, b)] as [number, number]).filter(([x, y]) => y > x).sort((p, q) => p[0] - q[0])
+  let total = 0, curA = -Infinity, curB = -Infinity
+  for (const [x, y] of clipped) {
+    if (x > curB) { if (curB > curA) total += curB - curA; curA = x; curB = y }
+    else curB = Math.max(curB, y)
+  }
+  if (curB > curA) total += curB - curA
+  return total
+}
+
+export interface VelocityScore {
+  score: number | null // adjusted units per 24 h live (blended with the baseline)
+  raw: number | null // units ÷ live days, unadjusted
+  units: number
+  liveDays: number
+  estimatedPct: number // share of live time estimated from stock history (no Amazon tracking yet)
+  confidence: 'low' | 'medium' | 'high'
+  baseline: number | null // prior used for the adjustment (median of similar listings)
+  target: number | null // stock ÷ strategy target days
+  atPrice: { score: number | null; units: number; liveDays: number; since: string } | null
+  buyBoxShare: number | null // % of live checks where we held the Buy Box
+  buyBoxChecks: number
+}
+
 /**
  * Price endings: snap to the nearest X.49 or X.95 (up or down), staying within
  * [lo, hi] — e.g. an undercut must stay under the competitor. Null if no .49/.95
@@ -137,6 +177,7 @@ export interface FeedGroup {
   daysLive: number | null
   liveReason: 'listed' | 'restocked' | 'amazon' | null // 'amazon' = observed via Amazon uptime tracking
   unitsSinceLive: number
+  velocity: VelocityScore
   weArePrime: boolean | null // null = our offer not in the fetched offer list
   buyBoxPrime: boolean | null // Buy Box offer's Prime status (null = unknown)
   lowestCompPrime: boolean | null
@@ -168,7 +209,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       listingStatus: 'Active', quantity: { gt: 0 }, asin: only ? only.asin : { not: null },
       ...(only ? { accountId: only.accountId } : {}),
     },
-    select: { accountId: true, sku: true, asin: true, condition: true, productTitle: true, price: true, maxPrice: true, quantity: true, fulfillmentChannel: true, buyBoxPrice: true, buyBoxSeller: true, buyBoxSyncedAt: true, lastSyncedAt: true, createdAt: true },
+    select: { accountId: true, sku: true, asin: true, condition: true, productTitle: true, price: true, maxPrice: true, quantity: true, fulfillmentChannel: true, buyBoxPrice: true, buyBoxSeller: true, buyBoxSyncedAt: true, lastSyncedAt: true, createdAt: true, priceChangedAt: true },
   })
   const listings = rawListings.filter(l => l.lastSyncedAt.getTime() >= (seenSince.get(l.accountId) ?? 0))
   type L = typeof listings[number]
@@ -263,6 +304,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
   // a fast seller that never ran out keeps its full history — only a real
   // sell-out + restock (or a new listing) shortens the window.
   const stockSince = new Map<string, number>()
+  const stockIntervals = new Map<string, [number, number][]>() // per product+grade, last 60 d (VelocityScore estimate)
   if (productIds.length) {
     const WINDOW_DAYS = 60
     const winStart = now - WINDOW_DAYS * DAY
@@ -296,7 +338,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       ORDER BY s.id, ev.at`
 
     // Per serial → in-stock intervals; per product+grade → list of intervals.
-    const intervals = new Map<string, [number, number][]>()
+    const intervals = stockIntervals
     const push = (k: string, a: number, b: number) => { if (b > a) intervals.set(k, [...(intervals.get(k) ?? []), [a, b]]) }
     let i = 0
     while (i < evRows.length) {
@@ -336,6 +378,43 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
   const firstImport = rawListings.reduce((m, l) => Math.min(m, l.createdAt.getTime()), Infinity)
   // Amazon listing uptime (cron/listing-uptime transitions) per SKU.
   const uptime = await loadUptime(allSkus, now)
+  const VS_WINDOW = 30 * DAY
+  const vsFrom = now - VS_WINDOW
+  const bbSamples = await loadBuyBoxSamples(allSkus, new Date(vsFrom))
+
+  // ── VelocityScore™: units sold per 24 h of live time on Amazon ─────────────
+  // Live time = real Amazon uptime (BUYABLE + qty) since tracking began for the
+  // group, plus — for the part of the 30-day window before tracking — the
+  // in-stock timeline as an estimate. Pooled across the group's SKUs.
+  type G = typeof groups extends Map<string, infer V> ? V : never
+  const velocityOf = (g: G, from: number) => {
+    const ups = g.rows.map(r => uptime.get(r.sku)).filter((u): u is NonNullable<typeof u> => !!u)
+    const trackedSince = ups.length ? Math.min(...ups.map(u => u.trackedSince)) : null
+    const split = trackedSince != null ? Math.max(from, Math.min(trackedSince, now)) : now
+    const realMs = coveredMs(ups.flatMap(u => u.intervals), split, now)
+    // Estimate before tracking: union of the group's product+grade in-stock stretches;
+    // no serial history → assume live since the listing appeared.
+    const pgs = Array.from(new Set(g.rows.map(r => { const m = mskuBySku.get(r.sku); return m ? pgKey(m.productId, m.gradeId) : null }).filter((k): k is string => !!k)))
+    const est = pgs.flatMap(k => stockIntervals.get(k) ?? [])
+    const listed = Math.min(...g.rows.map(r => r.createdAt.getTime()))
+    const estIvs: [number, number][] = est.length ? est : [[Math.max(from, listed), now]]
+    const estMs = coveredMs(estIvs, from, split)
+    const skus = new Set(g.rows.map(r => r.sku))
+    const units = saleLines.filter(s => skus.has(s.sku) && s.at.getTime() >= from).reduce((a, s) => a + s.qty, 0)
+    const liveDays = (realMs + estMs) / DAY
+    return { units, liveDays, estDays: estMs / DAY, raw: liveDays > 0 ? units / liveDays : null }
+  }
+  // Baseline (prior) per Amazon condition: median raw score of groups with ≥ 7 live days.
+  const priorByCond = new Map<string, number>()
+  {
+    const byCond = new Map<string, number[]>()
+    for (const g of Array.from(groups.values())) {
+      const v = velocityOf(g, vsFrom)
+      if (v.raw != null && v.liveDays >= 7) byCond.set(g.itemCondition, [...(byCond.get(g.itemCondition) ?? []), v.raw])
+    }
+    for (const [c, xs] of Array.from(byCond.entries())) { xs.sort((a, b) => a - b); priorByCond.set(c, xs[Math.floor(xs.length / 2)]) }
+  }
+  const PRIOR_DAYS = 3
 
   const skuMargin = (sku: string, price: number | null): number | null => {
     if (price == null) return null
@@ -381,9 +460,12 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
 
     // Live since: latest of (oldest current unit's entry into sellable stock,
     // listing first seen if created after the initial import). Null = unknown.
-    const stockStarts = g.rows.map(r => { const m = mskuBySku.get(r.sku); return m ? stockSince.get(pgKey(m.productId, m.gradeId)) : undefined })
-      .filter((t): t is number => t != null)
-    const stockStart = stockStarts.length ? Math.min(...stockStarts) : null
+    // Group-level: the group has stock whenever ANY of its product+grades does, so
+    // join all their in-stock stretches before finding the current one.
+    const groupPgs = Array.from(new Set(g.rows.map(r => { const m = mskuBySku.get(r.sku); return m ? pgKey(m.productId, m.gradeId) : null }).filter((k): k is string => !!k)))
+    const stockStart = groupPgs.some(k => stockSince.has(k))
+      ? currentRunStart(groupPgs.flatMap(k => stockIntervals.get(k) ?? []), now, DAY)
+      : null
     const listedAt = Math.min(...g.rows.map(r => r.createdAt.getTime()))
     const listedStart = listedAt > firstImport + 2 * DAY ? listedAt : null
     const estimate = stockStart != null || listedStart != null ? Math.max(stockStart ?? 0, listedStart ?? 0) : null
@@ -424,6 +506,26 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     const pace30 = shortLive ? unitsSinceLive / Math.max(daysLive!, 1) : units30d / 30
     const daily = shortLive ? pace30 : 0.6 * (units7d / 7) + 0.4 * pace30
     const daysOfCover = daily > 0 ? Math.round(stock / daily) : null
+
+    // VelocityScore™ (display; step 2 will price toward the target)
+    const v30 = velocityOf(g, vsFrom)
+    const baseline = priorByCond.get(g.itemCondition) ?? null
+    const vsScore = v30.liveDays + (baseline != null ? PRIOR_DAYS : 0) > 0
+      ? (v30.units + (baseline ?? 0) * (baseline != null ? PRIOR_DAYS : 0)) / (v30.liveDays + (baseline != null ? PRIOR_DAYS : 0))
+      : null
+    const vsConfidence: VelocityScore['confidence'] = v30.liveDays >= 14 && v30.units >= 5 ? 'high' : v30.liveDays >= 5 || v30.units >= 3 ? 'medium' : 'low'
+    const priceSince = Math.max(0, ...g.rows.map(r => r.priceChangedAt?.getTime() ?? 0))
+    const vAt = priceSince > vsFrom ? velocityOf(g, priceSince) : null
+    const bb = g.rows.reduce((acc, r) => { const s = bbSamples.get(r.sku); return s ? { held: acc.held + s.held, known: acc.known + s.known } : acc }, { held: 0, known: 0 })
+    const r2 = (n: number | null) => (n == null ? null : Math.round(n * 100) / 100)
+    const velocity: VelocityScore = {
+      score: r2(vsScore), raw: r2(v30.raw), units: v30.units, liveDays: Math.round(v30.liveDays * 10) / 10,
+      estimatedPct: v30.liveDays > 0 ? Math.round(v30.estDays / v30.liveDays * 100) : 0,
+      confidence: vsConfidence, baseline: r2(baseline),
+      target: stock > 0 ? r2(stock / P.targetCoverDays) : null,
+      atPrice: vAt ? { score: r2(vAt.raw), units: vAt.units, liveDays: Math.round(vAt.liveDays * 10) / 10, since: new Date(priceSince).toISOString() } : null,
+      buyBoxShare: bb.known ? Math.round(bb.held / bb.known * 100) : null, buyBoxChecks: bb.known,
+    }
 
     // Speed — "no sale" days only count while the group was live.
     const noSale = daysLive != null ? Math.min(daysSinceLastSale ?? Infinity, daysLive) : (daysSinceLastSale ?? Infinity)
@@ -638,6 +740,17 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
         : `It's only had stock continuously since ${d} (${daysLive} day${daysLive === 1 ? '' : 's'}) — before that it was sold out — so its sales pace is measured over that time, not 30 days (${unitsSinceLive} sold since).`)
     }
     explanation.push(speedWhy)
+    {
+      const v = velocity
+      const fmtN = (n: number | null) => (n == null ? '—' : n.toFixed(2))
+      let line = `VelocityScore™ ${fmtN(v.score)} units per day of uptime: ${v.units} sold over ${v.liveDays} live day${v.liveDays === 1 ? '' : 's'} in the last 30`
+      line += v.estimatedPct > 0 ? ` (${v.estimatedPct}% of that uptime estimated from stock history until Amazon tracking builds up)` : ' (all measured from Amazon uptime)'
+      line += `; confidence ${v.confidence}${v.confidence === 'low' && v.baseline != null ? ` — blended with the typical ${g.itemCondition} listing (${fmtN(v.baseline)}/day) until there's more data` : ''}.`
+      if (v.target != null) line += ` ${sName}'s target is ${fmtN(v.target)}/day (sell the ${stock} in stock in ${P.targetCoverDays} days).`
+      if (v.atPrice) line += ` At the current price (since ${new Date(v.atPrice.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}): ${fmtN(v.atPrice.score)}/day over ${v.atPrice.liveDays} live day${v.atPrice.liveDays === 1 ? '' : 's'}.`
+      if (v.buyBoxShare != null) line += ` We held the Buy Box in ${v.buyBoxShare}% of live checks (${v.buyBoxChecks}).`
+      explanation.push(line)
+    }
     if (noData) {
       explanation.push(`We don't have fresh competitor offers (including who's Prime) for this ${cond} ASIN yet${buyBoxPrice != null ? ` — only the Buy Box price of ${fmt(buyBoxPrice)}` : ''}, so there's no suggestion until they're pulled. Click Refresh, or wait for the hourly refresh.`)
     } else {
@@ -703,7 +816,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       speed, competition, rule, action, suggestedPrice: target, changePct,
       marginCurrent, marginSuggested,
       reason, explanation, status, primeEdgePct: primeEdge ? P.primePremiumPct : null,
-      liveSince: liveSince != null ? new Date(liveSince).toISOString() : null, daysLive, liveReason, unitsSinceLive,
+      liveSince: liveSince != null ? new Date(liveSince).toISOString() : null, daysLive, liveReason, unitsSinceLive, velocity,
       weArePrime: mine ? mine.isPrime : null,
       buyBoxPrime: weHoldBuyBox ? (mine ? mine.isPrime : null) : (buyBoxPrice != null && refOffer ? refOffer.isPrime : null),
       lowestCompPrime: lowestCompOffer ? lowestCompOffer.isPrime : null,
