@@ -9,13 +9,13 @@ import { SpApiClient } from './sp-api'
 
 export async function fillMissingListingTitles(
   accountId: string,
-  opts: { budgetMs?: number; max?: number } = {},
+  opts: { budgetMs?: number; max?: number; asin?: string } = {},
 ): Promise<{ missing: number; filled: number; errors: number }> {
   const started = Date.now()
   const budgetMs = opts.budgetMs ?? 60_000
 
   const rows = await prisma.sellerListing.findMany({
-    where: { accountId, listingStatus: 'Active', asin: { not: null } },
+    where: { accountId, listingStatus: 'Active', asin: opts.asin ?? { not: null } },
     select: { asin: true, productTitle: true },
   })
   const titled = new Set(rows.filter(r => r.productTitle).map(r => r.asin!))

@@ -76,6 +76,75 @@ interface GetItemOffersResponse {
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
+/**
+ * Pull + store all offers for ONE ASIN + ItemCondition (price, shipping, Prime,
+ * Buy Box winner, feedback — ours included). Returns the offer count, or null if
+ * Amazon returned no usable payload. Used by the bulk sync and the Repricing
+ * Feed's per-row refresh.
+ */
+export async function pullOffersForPair(
+  client: SpApiClient,
+  account: { id: string; marketplaceId: string; sellerId: string },
+  asin: string,
+  itemCondition: string,
+): Promise<number | null> {
+  const accountId = account.id
+  const response = await client.get<GetItemOffersResponse>(
+    `/products/pricing/v0/items/${asin}/offers`,
+    { MarketplaceId: account.marketplaceId, ItemCondition: itemCondition, CustomerType: 'Consumer' },
+  )
+  const payload = response?.payload
+  if (!payload || payload.status === 'Failed') return null
+
+  // One row per seller + fulfillment type: when a seller (incl. us, across several
+  // SKUs) has multiple offers, keep their Prime one, then the cheapest.
+  const offers = [...(payload.Offers ?? [])].sort((a, b) =>
+    Number(b.PrimeInformation?.IsPrime ?? false) - Number(a.PrimeInformation?.IsPrime ?? false)
+    || (a.LandedPrice?.Amount ?? 0) - (b.LandedPrice?.Amount ?? 0))
+
+  await prisma.competitiveOffer.deleteMany({ where: { accountId, asin, itemCondition } })
+  if (offers.length > 0) {
+    await prisma.competitiveOffer.createMany({
+      skipDuplicates: true,
+      data: offers.map((o) => {
+        const listingPrice = o.ListingPrice?.Amount ?? 0
+        const shippingPrice = o.Shipping?.Amount ?? 0
+        const landedPrice = o.LandedPrice?.Amount ?? listingPrice + shippingPrice
+        const sid = o.SellerId ?? 'unknown'
+        return {
+          accountId,
+          asin,
+          sellerId: sid,
+          // MyOffer from the API is unreliable — match by seller ID directly
+          isMyOffer: o.MyOffer === true || sid === account.sellerId,
+          fulfillmentType: o.IsFulfilledByAmazon ? 'FBA' : 'MFN',
+          listingPrice,
+          shippingPrice,
+          landedPrice,
+          isPrime: o.PrimeInformation?.IsPrime ?? false,
+          isBuyBoxWinner: o.IsBuyBoxWinner ?? false,
+          condition: o.SubCondition ?? 'new',
+          itemCondition,
+          feedbackRating: o.SellerFeedbackRating?.SellerPositiveFeedbackRating ?? null,
+          feedbackCount: o.SellerFeedbackRating?.FeedbackCount ?? null,
+          lastFetchedAt: new Date(),
+        }
+      }),
+    })
+
+    // Resolve seller names for any IDs not yet cached — fire-and-forget
+    const sellerIds = offers
+      .map((o) => o.SellerId)
+      .filter((id): id is string => Boolean(id) && id !== 'unknown')
+    if (sellerIds.length > 0) {
+      resolveSellerNames(sellerIds, account.marketplaceId).catch((err) => {
+        console.error('[CompetitivePricing] seller name resolution error:', err instanceof Error ? err.message : err)
+      })
+    }
+  }
+  return offers.length
+}
+
 export interface CompetitivePricingResult { pairs: number; fetched: number; errors: number; remainingStale: number }
 
 export async function syncCompetitivePricing(
@@ -130,64 +199,8 @@ export async function syncCompetitivePricing(
     const { asin, itemCondition } = stale[i]
 
     try {
-      const response = await client.get<GetItemOffersResponse>(
-        `/products/pricing/v0/items/${asin}/offers`,
-        {
-          MarketplaceId: account.marketplaceId,
-          ItemCondition: itemCondition,
-          CustomerType: 'Consumer',
-        },
-      )
-
-      const payload = response?.payload
-      if (!payload || payload.status === 'Failed') continue
-
-      const offers = payload.Offers ?? []
-
-      // Replace this pair's stale data
-      await prisma.competitiveOffer.deleteMany({ where: { accountId, asin, itemCondition } })
-
-      if (offers.length > 0) {
-        await prisma.competitiveOffer.createMany({
-          skipDuplicates: true,
-          data: offers.map((o) => {
-            const listingPrice = o.ListingPrice?.Amount ?? 0
-            const shippingPrice = o.Shipping?.Amount ?? 0
-            const landedPrice = o.LandedPrice?.Amount ?? listingPrice + shippingPrice
-
-            const sid = o.SellerId ?? 'unknown'
-            return {
-              accountId,
-              asin,
-              sellerId: sid,
-              // MyOffer from the API is unreliable — match by seller ID directly
-              isMyOffer: o.MyOffer === true || sid === account.sellerId,
-              fulfillmentType: o.IsFulfilledByAmazon ? 'FBA' : 'MFN',
-              listingPrice,
-              shippingPrice,
-              landedPrice,
-              isPrime: o.PrimeInformation?.IsPrime ?? false,
-              isBuyBoxWinner: o.IsBuyBoxWinner ?? false,
-              condition: o.SubCondition ?? 'new',
-              itemCondition,
-              feedbackRating: o.SellerFeedbackRating?.SellerPositiveFeedbackRating ?? null,
-              feedbackCount: o.SellerFeedbackRating?.FeedbackCount ?? null,
-              lastFetchedAt: new Date(),
-            }
-          }),
-        })
-
-        // Resolve seller names for any IDs not yet cached — fire-and-forget
-        const sellerIds = offers
-          .map((o) => o.SellerId)
-          .filter((id): id is string => Boolean(id) && id !== 'unknown')
-        if (sellerIds.length > 0) {
-          resolveSellerNames(sellerIds, account.marketplaceId).catch((err) => {
-            console.error('[CompetitivePricing] seller name resolution error:', err instanceof Error ? err.message : err)
-          })
-        }
-      }
-
+      const n = await pullOffersForPair(client, account, asin, itemCondition)
+      if (n == null) continue
       fetched++
     } catch (err: unknown) {
       errors++

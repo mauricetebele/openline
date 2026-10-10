@@ -110,6 +110,34 @@ export default function RepricingFeed() {
     await load()
   }
 
+  // Per-row ↻: live re-pull of this listing's offers (Prime, pricing, Buy Box),
+  // our SKUs' prices and title — then swap in the recomputed row.
+  const [rowRefreshing, setRowRefreshing] = useState<Set<string>>(new Set())
+  async function refreshRow(g: FeedGroup) {
+    setRowRefreshing(prev => new Set(prev).add(g.key))
+    try {
+      const res = await fetch('/api/repricing/refresh-group', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: g.accountId, asin: g.asin, itemCondition: g.itemCondition }),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j.error || 'Refresh failed')
+      if (j.group) {
+        setGroups(prev => prev.map(x => (x.key === g.key ? j.group : x)))
+        const ng: FeedGroup = j.group
+        toast.success(`${g.asin} updated — ${j.offers ?? 0} offer${j.offers === 1 ? '' : 's'} · Buy Box ${money(ng.buyBoxPrice)}${ng.buyBoxPrime == null ? '' : ng.buyBoxPrime ? ' (Prime)' : ' (Non-Prime)'}`)
+      } else {
+        setGroups(prev => prev.filter(x => x.key !== g.key))
+        toast.success(`${g.asin} no longer has active stock — removed from the feed`)
+      }
+      for (const w of j.warnings ?? []) toast.error(w)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Refresh failed')
+    } finally {
+      setRowRefreshing(prev => { const n = new Set(prev); n.delete(g.key); return n })
+    }
+  }
+
   async function setStrategy(g: FeedGroup, strategy: Strategy) {
     setBusy(g.key)
     try {
@@ -227,6 +255,7 @@ export default function RepricingFeed() {
               const up = (g.changePct ?? 0) > 0
               return (
                 <FeedRows key={g.key} g={g} i={i} open={open} up={up} busy={busy === g.key}
+                  refreshing={rowRefreshing.has(g.key)} onRefresh={() => refreshRow(g)}
                   editValue={editing[g.key]}
                   onToggle={() => setExpanded(prev => { const n = new Set(prev); if (n.has(g.key)) n.delete(g.key); else n.add(g.key); return n })}
                   onEdit={v => setEditing(prev => ({ ...prev, [g.key]: v }))}
@@ -242,8 +271,9 @@ export default function RepricingFeed() {
   )
 }
 
-function FeedRows({ g, i, open, up, busy, editValue, onToggle, onEdit, onStrategy, onApprove, onReject }: {
+function FeedRows({ g, i, open, up, busy, refreshing, onRefresh, editValue, onToggle, onEdit, onStrategy, onApprove, onReject }: {
   g: FeedGroup; i: number; open: boolean; up: boolean; busy: boolean; editValue: string | undefined
+  refreshing: boolean; onRefresh: () => void
   onToggle: () => void; onEdit: (v: string) => void; onStrategy: (s: Strategy) => void
   onApprove: () => void; onReject: () => void
 }) {
@@ -257,6 +287,13 @@ function FeedRows({ g, i, open, up, busy, editValue, onToggle, onEdit, onStrateg
             <span>
               <a href={`https://www.amazon.com/dp/${g.asin}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="font-mono text-amazon-blue hover:underline">{g.asin}</a>
               <span className="ml-1.5 text-gray-500">{g.itemCondition}</span>
+              <span role="button" tabIndex={0}
+                onClick={e => { e.stopPropagation(); if (!refreshing) onRefresh() }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); if (!refreshing) onRefresh() } }}
+                title={`Refresh this listing now — all competitor offers (price, Prime / non-Prime, Buy Box) and our prices${g.offersFetchedAt ? ` · offers last pulled ${when(g.offersFetchedAt)}` : ' · offers never pulled'}`}
+                className={clsx('ml-1.5 inline-flex align-middle text-gray-400 hover:text-amazon-blue', refreshing && 'pointer-events-none')}>
+                <RefreshCw size={12} className={clsx(refreshing && 'animate-spin text-amazon-blue')} />
+              </span>
               <span className="block mt-0.5 text-[11px] leading-snug text-gray-700 dark:text-gray-300 max-w-[260px] line-clamp-3" title={g.title ?? ''}>{g.title ?? '—'}</span>
             </span>
           </button>
