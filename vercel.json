@@ -13,6 +13,7 @@
     { "path": "/api/cron/sync-mfn-returns", "schedule": "0 6 * * *" },
     { "path": "/api/cron/sync-transactions", "schedule": "50 */6 * * *" },
     { "path": "/api/cron/review-amazon-refunds", "schedule": "0 5 * * *" },
-    { "path": "/api/cron/sync-competitive-offers", "schedule": "40 * * * *" }
+    { "path": "/api/cron/sync-competitive-offers", "schedule": "40 * * * *" },
+    { "path": "/api/cron/listing-uptime", "schedule": "15,45 * * * *" }
   ]
 }

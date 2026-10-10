@@ -800,7 +800,7 @@ function shippingGroupFromAttributes(
 }
 
 /** Total fulfillable quantity from a listing's fulfillment_availability attribute. */
-function fulfillmentQtyFromAttributes(attrs: Record<string, unknown> | undefined): number | null {
+export function fulfillmentQtyFromAttributes(attrs: Record<string, unknown> | undefined): number | null {
   const fa = attrs?.['fulfillment_availability']
   if (!Array.isArray(fa)) return null
   let total = 0

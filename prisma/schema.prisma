@@ -445,6 +445,10 @@ model SellerListing {
   buyBoxSeller   String? // winning seller name ("You" when we hold it)
   buyBoxSyncedAt DateTime?
 
+  // Amazon uptime check (cron/listing-uptime): live = BUYABLE with available qty > 0.
+  isLive          Boolean?
+  uptimeCheckedAt DateTime?
+
   @@unique([accountId, sku])
   @@index([accountId])
   @@index([shippingTemplate])
@@ -2778,6 +2782,21 @@ model RepricingStrategyParam {
 
   @@unique([strategy, param])
   @@map("repricing_strategy_params")
+}
+
+// Amazon listing up/down transitions (one row per change, plus the first
+// observation of each SKU, which marks when tracking began). Reconstructs real
+// listing uptime for the repricing feed's live window.
+model ListingUptimeEvent {
+  id        String   @id @default(cuid())
+  accountId String
+  sku       String
+  at        DateTime @default(now())
+  live      Boolean
+  reason    String? // BUYABLE | NOT_BUYABLE | NO_QTY | NOT_FOUND
+
+  @@index([accountId, sku, at])
+  @@map("listing_uptime_events")
 }
 
 model OliSkuCache {

@@ -16,6 +16,7 @@
 import { prisma } from '@/lib/prisma'
 import { amazonItemCondition } from '@/lib/amazon/competitive-pricing'
 import { resolveFees, marginAtPrice, type CalcTemplate } from '@/lib/target-margin'
+import { loadUptime } from '@/lib/amazon/listing-uptime'
 
 export type Strategy = 'CONSERVATIVE' | 'STANDARD' | 'AGGRESSIVE'
 export type Speed = 'HOT' | 'HEALTHY' | 'SLOW' | 'STALE' | 'NEW'
@@ -134,7 +135,7 @@ export interface FeedGroup {
   primeEdgePct: number | null // set when our Prime offer is allowed above a non-Prime reference
   liveSince: string | null // when the current stock became sellable / listing first went live
   daysLive: number | null
-  liveReason: 'listed' | 'restocked' | null
+  liveReason: 'listed' | 'restocked' | 'amazon' | null // 'amazon' = observed via Amazon uptime tracking
   unitsSinceLive: number
   weArePrime: boolean | null // null = our offer not in the fetched offer list
   buyBoxPrime: boolean | null // Buy Box offer's Prime status (null = unknown)
@@ -333,6 +334,8 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
   }
   // Listing first seen — meaningful only for listings created after the initial catalog import.
   const firstImport = rawListings.reduce((m, l) => Math.min(m, l.createdAt.getTime()), Infinity)
+  // Amazon listing uptime (cron/listing-uptime transitions) per SKU.
+  const uptime = await loadUptime(allSkus, now)
 
   const skuMargin = (sku: string, price: number | null): number | null => {
     if (price == null) return null
@@ -383,9 +386,34 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     const stockStart = stockStarts.length ? Math.min(...stockStarts) : null
     const listedAt = Math.min(...g.rows.map(r => r.createdAt.getTime()))
     const listedStart = listedAt > firstImport + 2 * DAY ? listedAt : null
-    const liveSince = stockStart != null || listedStart != null ? Math.max(stockStart ?? 0, listedStart ?? 0) : null
+    const estimate = stockStart != null || listedStart != null ? Math.max(stockStart ?? 0, listedStart ?? 0) : null
+
+    // Amazon uptime (source of truth): start of the current unbroken stretch in
+    // which ANY SKU in the group was live (BUYABLE + qty) — gaps < 2 h ignored.
+    // Only used when we actually saw it come up (after tracking began);
+    // otherwise fall back to the inventory/listing estimate.
+    let amazonStart: number | null = null
+    const ups = g.rows.map(r => uptime.get(r.sku)).filter((u): u is NonNullable<typeof u> => !!u)
+    if (ups.length) {
+      const trackedSince = Math.min(...ups.map(u => u.trackedSince))
+      const ivs = ups.flatMap(u => u.intervals)
+      const cur = ivs.filter(([, b]) => b >= now - 60_000)
+      if (cur.length) {
+        let start = Math.min(...cur.map(([a]) => a))
+        let changed = true
+        while (changed) {
+          changed = false
+          for (const [a, b] of ivs) if (a < start && b >= start - 2 * 3_600_000) { start = a; changed = true }
+        }
+        if (start > trackedSince + 60_000) amazonStart = start
+      }
+    }
+    const liveSince = amazonStart ?? estimate
     const daysLive = liveSince != null ? Math.max(0, Math.floor((now - liveSince) / DAY)) : null
-    const liveReason: 'listed' | 'restocked' | null = liveSince == null ? null : listedStart != null && liveSince === listedStart ? 'listed' : 'restocked'
+    const liveReason: 'listed' | 'restocked' | 'amazon' | null = liveSince == null ? null
+      : amazonStart != null ? 'amazon'
+      : listedStart != null && liveSince === listedStart ? 'listed' : 'restocked'
+    const liveVerb = liveReason === 'amazon' ? 'went live on Amazon' : liveReason === 'listed' ? 'was listed' : 'was restocked'
     const shortLive = daysLive != null && daysLive < 30
     const groupSkus = new Set(g.rows.map(r => r.sku))
     const unitsSinceLive = liveSince != null
@@ -400,7 +428,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     // Speed — "no sale" days only count while the group was live.
     const noSale = daysLive != null ? Math.min(daysSinceLastSale ?? Infinity, daysLive) : (daysSinceLastSale ?? Infinity)
     const noSaleTxt = daysLive != null && (daysSinceLastSale == null || daysSinceLastSale > daysLive)
-      ? `It hasn't sold in the ${daysLive} days since it was ${liveReason}`
+      ? `It hasn't sold in the ${daysLive} days since it ${liveVerb}`
       : daysSinceLastSale == null ? 'It has no sales on record' : `It hasn't sold in ${daysSinceLastSale} days`
     // (speedWhy = the plain-English test that put it in this bucket)
     const sName = strategy.charAt(0) + strategy.slice(1).toLowerCase()
@@ -409,7 +437,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     let speedWhy: string
     if (daysLive != null && daysLive < P.slowNoSaleDays && unitsSinceLive === 0) {
       speed = 'NEW'
-      speedWhy = `It was ${liveReason} only ${daysLive === 0 ? 'today' : `${daysLive} day${daysLive === 1 ? '' : 's'} ago`} and hasn't sold yet — too early to judge (${sName} waits ${P.slowNoSaleDays} days before calling a listing slow), so we don't cut the price for lack of sales.`
+      speedWhy = `It ${liveVerb} only ${daysLive === 0 ? 'today' : `${daysLive} day${daysLive === 1 ? '' : 's'} ago`} and hasn't sold yet — too early to judge (${sName} waits ${P.slowNoSaleDays} days before calling a listing slow), so we don't cut the price for lack of sales.`
     } else if (noSale >= P.staleNoSaleDays) {
       speed = 'STALE'
       speedWhy = `${noSaleTxt}, which ${sName} treats as stale (no sale in ${P.staleNoSaleDays}+ days).`
@@ -603,7 +631,9 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     )
     if (shortLive && liveSince != null) {
       const d = new Date(liveSince).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      explanation.push(liveReason === 'listed'
+      explanation.push(liveReason === 'amazon'
+        ? `Amazon shows it has only been live (buyable with stock) since ${d} (${daysLive} day${daysLive === 1 ? '' : 's'}) — before that the listing was down (closed, suspended, suppressed or sold out) — so its sales pace is measured over that time, not 30 days (${unitsSinceLive} sold since).`
+        : liveReason === 'listed'
         ? `It was only listed ${daysLive} day${daysLive === 1 ? '' : 's'} ago (${d}), so its sales pace is measured over those ${Math.max(daysLive!, 1)} day${daysLive === 1 ? '' : 's'}, not 30 (${unitsSinceLive} sold since).`
         : `It's only had stock continuously since ${d} (${daysLive} day${daysLive === 1 ? '' : 's'}) — before that it was sold out — so its sales pace is measured over that time, not 30 days (${unitsSinceLive} sold since).`)
     }

@@ -30,7 +30,7 @@ interface FeedGroup {
   marginSuggested: { min: number | null; max: number | null }
   reason: string; explanation: string[]; status: Status; primeEdgePct: number | null
   weArePrime: boolean | null; buyBoxPrime: boolean | null; lowestCompPrime: boolean | null
-  liveSince: string | null; daysLive: number | null; liveReason: 'listed' | 'restocked' | null; unitsSinceLive: number
+  liveSince: string | null; daysLive: number | null; liveReason: 'listed' | 'restocked' | 'amazon' | null; unitsSinceLive: number
   snoozedUntil: string | null; cooldownUntil: string | null
   lastRejectedAt: string | null; lastRejectedBy: string | null
 }
@@ -453,8 +453,8 @@ function FeedRows({ g, open, up, busy, refreshing, onRefresh, editValue, onToggl
           </div>
           <div className="mt-1 flex flex-wrap gap-1">
             {g.daysLive != null && g.daysLive < 30 && (
-              <Pill tone="teal" title={`${g.liveReason === 'listed' ? 'Listed' : 'In stock continuously since'} ${when(g.liveSince)} — sales pace is measured over the live period only (${g.unitsSinceLive} sold since)`}>
-                🌱 {g.liveReason === 'listed' ? 'Listed' : 'Restocked'} {g.daysLive === 0 ? 'today' : `${g.daysLive}d ago`}
+              <Pill tone="teal" title={`${g.liveReason === 'amazon' ? 'Live on Amazon (buyable with stock) since' : g.liveReason === 'listed' ? 'Listed' : 'In stock continuously since'} ${when(g.liveSince)} — sales pace is measured over the live period only (${g.unitsSinceLive} sold since)${g.liveReason === 'amazon' ? ' · from Amazon uptime tracking' : ' · estimated from stock history'}`}>
+                🌱 {g.liveReason === 'amazon' ? 'Live' : g.liveReason === 'listed' ? 'Listed' : 'Restocked'} {g.daysLive === 0 ? 'today' : `${g.daysLive}d ago`}
               </Pill>
             )}
             {g.daysSinceLastSale != null
