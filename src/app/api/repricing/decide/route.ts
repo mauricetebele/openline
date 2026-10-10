@@ -55,8 +55,8 @@ export async function POST(req: NextRequest) {
 
   if (b.action === 'reject') {
     const snoozeUntil = new Date(Date.now() + REJECT_SNOOZE_MS)
-    await prisma.repricingDecision.create({ data: { ...base, decision: 'REJECTED', snoozeUntil } })
-    return NextResponse.json({ ok: true, decision: 'REJECTED', snoozeUntil })
+    const rec = await prisma.repricingDecision.create({ data: { ...base, decision: 'REJECTED', snoozeUntil } })
+    return NextResponse.json({ ok: true, decision: 'REJECTED', snoozeUntil, decisionId: rec.id, hasNote: !!base.note })
   }
 
   const finalPrice = typeof b.price === 'number' && b.price > 0 ? Math.round(b.price * 100) / 100 : group.suggestedPrice
@@ -75,9 +75,9 @@ export async function POST(req: NextRequest) {
   const finalMargins = group.skus.map(s => s.marginSuggested).filter((m): m is number => m != null)
   const marginFinal = finalPrice === group.suggestedPrice && finalMargins.length ? Math.min(...finalMargins) : null
 
-  await prisma.repricingDecision.create({
+  const rec = await prisma.repricingDecision.create({
     data: { ...base, decision: 'APPROVED', finalPrice, marginFinal, pushResults },
   })
   const failed = pushResults.filter(r => !r.ok)
-  return NextResponse.json({ ok: failed.length === 0, decision: 'APPROVED', finalPrice, pushResults })
+  return NextResponse.json({ ok: failed.length === 0, decision: 'APPROVED', finalPrice, pushResults, decisionId: rec.id, hasNote: !!base.note })
 }

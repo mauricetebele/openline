@@ -2741,13 +2741,43 @@ model RepricingDecision {
   marginFinal    Decimal?  @db.Decimal(7, 2)
   snapshot       Json? // velocity / stock / competition at decision time
   pushResults    Json? // [{ sku, ok, error? }]
-  note           String?   @db.Text
+  note           String?   @db.Text // the user's optional "why" comment
+  aiReply        String?   @db.Text // Claude's short read-back of the comment
   decidedBy      String?
   decidedAt      DateTime  @default(now())
   snoozeUntil    DateTime? // REJECTED: this rule is suppressed for the group until then
 
   @@index([accountId, asin, itemCondition, decidedAt])
   @@map("repricing_decisions")
+}
+
+// One "Analyze our feedback" run: Claude's learnings from the decision log plus
+// proposed strategy-parameter changes (each applied only on explicit approval).
+model RepricingLearning {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  createdBy         String?
+  model             String
+  decisionsAnalyzed Int
+  summary           String   @db.Text
+  learnings         Json // [{ title, detail, evidence, confidence }]
+  proposals         Json // [{ id, strategy, param, currentValue, proposedValue, rationale, status, decidedBy?, decidedAt? }]
+
+  @@map("repricing_learnings")
+}
+
+// Overrides for the code defaults in lib/repricing/engine.ts STRATEGIES.
+model RepricingStrategyParam {
+  id         String   @id @default(cuid())
+  strategy   String // CONSERVATIVE | STANDARD | AGGRESSIVE
+  param      String // raisePct | lowerPct | undercutPct | undercutMin | maxDailyPct | …
+  value      Decimal  @db.Decimal(12, 4)
+  source     String? // "learning:<id>" or "manual"
+  updatedBy  String?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([strategy, param])
+  @@map("repricing_strategy_params")
 }
 
 model OliSkuCache {

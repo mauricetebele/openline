@@ -22,9 +22,9 @@ export type Speed = 'HOT' | 'HEALTHY' | 'SLOW' | 'STALE'
 export type Competition = 'WINNING' | 'LOWEST' | 'CLOSE' | 'LOSING' | 'ALONE'
 type Action = 'RAISE' | 'PROBE' | 'HOLD' | 'MATCH' | 'PARTWAY' | 'UNDERCUT' | 'LOWER' | 'LOWER2'
 
-interface StrategyParams {
+export interface StrategyParams {
   raisePct: number; lowerPct: number
-  undercut: (ref: number) => number // dollars below the reference price
+  undercutPct: number; undercutMin: number // undercut = max(undercutMin $, ref × undercutPct %)
   maxDailyPct: number
   slowNoSaleDays: number; staleNoSaleDays: number
   targetCoverDays: number
@@ -33,10 +33,38 @@ interface StrategyParams {
   primePremiumPct: number // ours is Prime, theirs isn't → we may sit this % above them
 }
 
+// Code defaults; rows in repricing_strategy_params override individual values
+// (set by applying an AI-insight proposal). See loadStrategies().
 export const STRATEGIES: Record<Strategy, StrategyParams> = {
-  CONSERVATIVE: { raisePct: 2, lowerPct: 1, undercut: () => 0.01, maxDailyPct: 3, slowNoSaleDays: 14, staleNoSaleDays: 28, targetCoverDays: 45, cooldownHours: 72, minFeedback: 95, primePremiumPct: 5 },
-  STANDARD:     { raisePct: 3, lowerPct: 2, undercut: (r) => Math.max(0.5, r * 0.005), maxDailyPct: 6, slowNoSaleDays: 10, staleNoSaleDays: 21, targetCoverDays: 30, cooldownHours: 48, minFeedback: 90, primePremiumPct: 3 },
-  AGGRESSIVE:   { raisePct: 4, lowerPct: 4, undercut: (r) => r * 0.015, maxDailyPct: 12, slowNoSaleDays: 5, staleNoSaleDays: 14, targetCoverDays: 14, cooldownHours: 24, minFeedback: 0, primePremiumPct: 1.5 },
+  CONSERVATIVE: { raisePct: 2, lowerPct: 1, undercutPct: 0, undercutMin: 0.01, maxDailyPct: 3, slowNoSaleDays: 14, staleNoSaleDays: 28, targetCoverDays: 45, cooldownHours: 72, minFeedback: 95, primePremiumPct: 5 },
+  STANDARD:     { raisePct: 3, lowerPct: 2, undercutPct: 0.5, undercutMin: 0.5, maxDailyPct: 6, slowNoSaleDays: 10, staleNoSaleDays: 21, targetCoverDays: 30, cooldownHours: 48, minFeedback: 90, primePremiumPct: 3 },
+  AGGRESSIVE:   { raisePct: 4, lowerPct: 4, undercutPct: 1.5, undercutMin: 0, maxDailyPct: 12, slowNoSaleDays: 5, staleNoSaleDays: 14, targetCoverDays: 14, cooldownHours: 24, minFeedback: 0, primePremiumPct: 1.5 },
+}
+export const STRATEGY_PARAM_KEYS = Object.keys(STRATEGIES.STANDARD) as (keyof StrategyParams)[]
+export const PARAM_DESCRIPTIONS: Record<keyof StrategyParams, string> = {
+  raisePct: 'Raise step % when selling fast / holding the Buy Box',
+  lowerPct: 'Lower step % for stale or uncontested items',
+  undercutPct: 'Undercut below the Buy Box, % of its price',
+  undercutMin: 'Minimum undercut in dollars',
+  maxDailyPct: 'Max price change per step, %',
+  slowNoSaleDays: 'No sale for this many days = Slow',
+  staleNoSaleDays: 'No sale for this many days = Stale',
+  targetCoverDays: 'Target days of stock at the current sales pace',
+  cooldownHours: 'Wait after an approved change before suggesting again, hours',
+  minFeedback: 'Ignore competitors below this positive-feedback %',
+  primePremiumPct: 'Allowed % above a non-Prime Buy Box when our offer is Prime',
+}
+const undercutOf = (P: StrategyParams, ref: number) => Math.max(P.undercutMin, ref * P.undercutPct / 100)
+
+/** Code defaults merged with DB overrides. */
+export async function loadStrategies(): Promise<Record<Strategy, StrategyParams>> {
+  const rows = await prisma.repricingStrategyParam.findMany()
+  const out = JSON.parse(JSON.stringify(STRATEGIES)) as Record<Strategy, StrategyParams>
+  for (const r of rows) {
+    const s = r.strategy as Strategy
+    if (out[s] && (STRATEGY_PARAM_KEYS as string[]).includes(r.param)) out[s][r.param as keyof StrategyParams] = Number(r.value)
+  }
+  return out
 }
 
 // LOWEST = we're the cheapest same-condition offer but don't hold the Buy Box.
@@ -102,6 +130,7 @@ function fmt(n: number) { return `$${n.toFixed(2)}` }
 /** Build the feed. `only` limits it to one group (used when approving). */
 export async function buildRepricingFeed(only?: { accountId: string; asin: string; itemCondition: string }): Promise<FeedGroup[]> {
   const now = Date.now()
+  const strategies = await loadStrategies()
 
   // ── 1. Active Amazon listings with stock → groups ──────────────────────────
   // The catalog sync upserts but never deactivates listings Amazon has removed,
@@ -225,7 +254,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
   const out: FeedGroup[] = []
   for (const [key, g] of Array.from(groups.entries())) {
     const strategy: Strategy = strategyByGroup.get(key) ?? 'STANDARD'
-    const P = STRATEGIES[strategy]
+    const P = strategies[strategy]
 
     const prices = g.rows.map(r => (r.price != null ? Number(r.price) : null)).filter((p): p is number => p != null && p > 0)
     const currentPrice = prices.length ? Math.min(...prices) : null
@@ -330,7 +359,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
         case 'LOWER2': target = currentPrice * (1 - (2 * P.lowerPct) / 100); why = `lower ${2 * P.lowerPct}%`; break
         case 'MATCH': if (ref != null) { target = ref; why = `match Buy Box ${fmt(ref)}` } break
         case 'PARTWAY': if (ref != null) { target = currentPrice - (currentPrice - ref) / 2; why = `halfway to Buy Box ${fmt(ref)}` } break
-        case 'UNDERCUT': if (ref != null) { target = ref - P.undercut(ref); why = `undercut Buy Box ${fmt(ref)}` } break
+        case 'UNDERCUT': if (ref != null) { target = ref - undercutOf(P, ref); why = `undercut Buy Box ${fmt(ref)}` } break
         case 'HOLD': break
       }
       // Competitive moves only ever lower; raises only ever raise.
@@ -341,7 +370,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
         // Next seller non-Prime while we're Prime → the cap gets the Prime premium too.
         const capPrime = weArePrime && lowestCompOffer != null && !lowestCompOffer.isPrime
         const capBase = capPrime ? premium(lowestCompetitor) : lowestCompetitor
-        const cap = capBase - P.undercut(capBase)
+        const cap = capBase - undercutOf(P, capBase)
         if (cap <= currentPrice) {
           target = null
           dropped = `there's no room to raise — the next-cheapest seller is at ${fmt(lowestCompetitor)}${capPrime ? ` (non-Prime; ${P.primePremiumPct}% allowance included)` : ''}`
@@ -459,7 +488,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
         HOLD: holdWhy[rule] ?? 'The rules call for holding the current price.',
         MATCH: `To win back sales, ${sName} ${primeEdge ? 'moves to the Prime-adjusted target of' : 'matches the Buy Box at'} ${fmt(ref ?? 0)}.`,
         PARTWAY: `${sName} moves halfway toward ${primeEdge ? 'the Prime-adjusted target' : 'the Buy Box'} (${fmt(ref ?? 0)}) to compete without giving up too much margin.`,
-        UNDERCUT: `To take the Buy Box and get it moving, ${sName} undercuts ${primeEdge ? 'the Prime-adjusted target of ' : ''}${fmt(ref ?? 0)} by ${fmt(P.undercut(ref ?? 0))}.`,
+        UNDERCUT: `To take the Buy Box and get it moving, ${sName} undercuts ${primeEdge ? 'the Prime-adjusted target of ' : ''}${fmt(ref ?? 0)} by ${fmt(undercutOf(P, ref ?? 0))}.`,
         LOWER: `To get it moving, ${sName} lowers the price ${P.lowerPct}%.`,
         LOWER2: `With no competition and no sales, ${sName} lowers the price ${2 * P.lowerPct}% to find demand.`,
       }

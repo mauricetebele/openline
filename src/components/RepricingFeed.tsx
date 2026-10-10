@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { TrendingUp, RefreshCw, Loader2, Check, X, Pencil, ChevronRight, ChevronDown } from 'lucide-react'
+import { TrendingUp, RefreshCw, Loader2, Check, X, Pencil, ChevronRight, ChevronDown, Sparkles } from 'lucide-react'
 
 type Strategy = 'CONSERVATIVE' | 'STANDARD' | 'AGGRESSIVE'
 type Status = 'SUGGESTION' | 'NO_CHANGE' | 'SNOOZED' | 'COOLDOWN' | 'NO_DATA'
@@ -42,7 +42,7 @@ const marginColor = (n: number | null) => (n == null ? 'text-gray-400' : n < 0 ?
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '')
 
 // ── Visual building blocks ──────────────────────────────────────────────────
-type Tone = 'gray' | 'blue' | 'green' | 'red' | 'amber' | 'sky' | 'teal' | 'violet' | 'prime'
+export type Tone = 'gray' | 'blue' | 'green' | 'red' | 'amber' | 'sky' | 'teal' | 'violet' | 'prime'
 const TONE: Record<Tone, { pill: string; box: string; text: string }> = {
   gray:   { pill: 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-white/5 dark:text-gray-300 dark:border-gray-600', box: 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900', text: 'text-gray-900 dark:text-gray-100' },
   blue:   { pill: 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700', box: 'border-blue-200 bg-blue-50/40 dark:border-blue-800 dark:bg-blue-900/10', text: 'text-blue-700 dark:text-blue-300' },
@@ -56,7 +56,7 @@ const TONE: Record<Tone, { pill: string; box: string; text: string }> = {
 }
 
 /** Small rounded pill with a coloured border. */
-function Pill({ tone = 'gray', children, title, mono }: { tone?: Tone; children: React.ReactNode; title?: string; mono?: boolean }) {
+export function Pill({ tone = 'gray', children, title, mono }: { tone?: Tone; children: React.ReactNode; title?: string; mono?: boolean }) {
   return (
     <span title={title} className={clsx('inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-4', mono && 'font-mono', TONE[tone].pill)}>
       {children}
@@ -65,7 +65,7 @@ function Pill({ tone = 'gray', children, title, mono }: { tone?: Tone; children:
 }
 
 /** Labeled number box: tiny caption on top, the value big and bold below. */
-function Stat({ label, value, tone = 'gray', sub, title, valueClass }: {
+export function Stat({ label, value, tone = 'gray', sub, title, valueClass }: {
   label: string; value: React.ReactNode; tone?: Tone; sub?: React.ReactNode; title?: string; valueClass?: string
 }) {
   return (
@@ -187,27 +187,30 @@ export default function RepricingFeed() {
     } finally { setBusy(null) }
   }
 
-  async function decide(g: FeedGroup, action: 'approve' | 'reject') {
-    let price: number | undefined
-    let note: string | undefined
+  // Approve / Reject open a dialog with an optional "why" comment; Claude reads it
+  // back (toast) and the comment feeds the AI Insights page.
+  const [dialog, setDialog] = useState<{ g: FeedGroup; action: 'approve' | 'reject'; price: number | null } | null>(null)
+  function decide(g: FeedGroup, action: 'approve' | 'reject') {
+    let price: number | null = null
     if (action === 'approve') {
       const edited = editing[g.key]
       if (edited != null && edited.trim() !== '') {
         price = parseFloat(edited)
         if (!(price > 0)) { toast.error('Enter a valid price'); return }
       }
-      const p = price ?? g.suggestedPrice
-      if (!window.confirm(`Push ${money(p ?? null)} to ${g.skus.length} SKU${g.skus.length === 1 ? '' : 's'} on Amazon for ${g.asin} (${g.itemCondition})?`)) return
-    } else {
-      const n = window.prompt('Reject this suggestion — optional note (the rule is snoozed for 24 hours):', '')
-      if (n === null) return
-      note = n
     }
+    setDialog({ g, action, price })
+  }
+
+  async function submitDecision(note: string) {
+    if (!dialog) return
+    const { g, action, price } = dialog
+    setDialog(null)
     setBusy(g.key)
     try {
       const res = await fetch('/api/repricing/decide', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: g.accountId, asin: g.asin, itemCondition: g.itemCondition, action, price, note }),
+        body: JSON.stringify({ accountId: g.accountId, asin: g.asin, itemCondition: g.itemCondition, action, price: price ?? undefined, note: note.trim() || undefined }),
       })
       const j = await res.json()
       if (!res.ok) throw new Error(j.error || 'Failed')
@@ -219,6 +222,13 @@ export default function RepricingFeed() {
       }
       setEditing(prev => { const n = { ...prev }; delete n[g.key]; return n })
       await load()
+      // Claude's read-back of the comment (non-blocking)
+      if (j.hasNote && j.decisionId) {
+        fetch('/api/repricing/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decisionId: j.decisionId }) })
+          .then(r => r.json())
+          .then(a => { if (a.reply) toast(`🤖 ${a.reply}`, { duration: 15000 }); else if (a.error) toast.error(`AI reply: ${a.error}`) })
+          .catch(() => {})
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed')
     } finally { setBusy(null) }
@@ -243,6 +253,11 @@ export default function RepricingFeed() {
             {noData > 0 && <span className="ml-1 text-amber-600">{noData} group{noData === 1 ? '' : 's'} waiting for competitor data.</span>}
           </p>
         </div>
+        <div className="flex items-center gap-2">
+        <a href="/repricing/insights"
+          className="flex items-center gap-1.5 h-9 px-4 rounded-md border border-violet-300 text-violet-700 dark:text-violet-300 dark:border-violet-700 text-sm font-medium hover:bg-violet-50 dark:hover:bg-violet-900/20">
+          <Sparkles size={14} /> AI Insights
+        </a>
         <button onClick={refresh} disabled={loading || pulling}
           title="Pull fresh competitor offers (price + Prime / non-Prime) from Amazon, then rebuild the feed. Can take up to ~4 minutes."
           className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-amazon-blue text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
@@ -250,6 +265,7 @@ export default function RepricingFeed() {
             : loading ? <><Loader2 size={14} className="animate-spin" /> Loading…</>
             : <><RefreshCw size={14} /> Refresh</>}
         </button>
+        </div>
       </div>
 
       <div className="px-6 pt-3 flex gap-2 shrink-0">
@@ -299,6 +315,56 @@ export default function RepricingFeed() {
             })}
           </tbody>
         </table>
+      </div>
+      {dialog && <DecisionDialog {...dialog} onCancel={() => setDialog(null)} onConfirm={submitDecision} />}
+    </div>
+  )
+}
+
+/** Approve / Reject confirmation with an optional "why" — Claude reads it and learns from it. */
+function DecisionDialog({ g, action, price, onCancel, onConfirm }: {
+  g: FeedGroup; action: 'approve' | 'reject'; price: number | null
+  onCancel: () => void; onConfirm: (note: string) => void
+}) {
+  const [note, setNote] = useState('')
+  const approve = action === 'approve'
+  const pushPrice = price ?? g.suggestedPrice
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
+      <div className="w-full max-w-lg rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
+        <div className={clsx('px-5 py-3 rounded-t-xl border-b', approve ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800' : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800')}>
+          <h2 className={clsx('font-semibold', approve ? 'text-green-800 dark:text-green-300' : 'text-red-700 dark:text-red-300')}>
+            {approve ? 'Approve & push price' : 'Reject suggestion'}
+          </h2>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="font-mono font-bold text-amazon-blue">{g.asin}</span>
+            <Pill tone={g.itemCondition === 'New' ? 'violet' : 'amber'}>{g.itemCondition}</Pill>
+            <Pill tone="gray">{money(g.currentPrice)} → {money(approve ? pushPrice : g.suggestedPrice)}</Pill>
+            <Pill tone="gray">{g.skus.length} SKU{g.skus.length === 1 ? '' : 's'}</Pill>
+          </div>
+        </div>
+        <div className="px-5 py-4 space-y-3 text-sm">
+          <p className="text-gray-600 dark:text-gray-300">
+            {approve
+              ? <>This pushes <b>{money(pushPrice)}</b> to every SKU in this group on Amazon{price != null ? ' (your edited price)' : ''}.</>
+              : <>Nothing is pushed. This rule ({g.rule}) is snoozed for this listing for 24 hours.</>}
+          </p>
+          <label className="block">
+            <span className="flex items-center gap-1 text-xs font-semibold text-gray-700 dark:text-gray-200">
+              <Sparkles size={12} className="text-violet-500" /> Why? <span className="font-normal text-gray-400">(optional — the AI learns from this)</span>
+            </span>
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} autoFocus
+              placeholder={approve ? 'e.g. Good call — this model sells fast at this price' : "e.g. Don't undercut below 10% margin on Used MacBooks"}
+              className="mt-1 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
+          </label>
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700">
+          <button onClick={onCancel} className="h-8 px-3 rounded-full border border-gray-300 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+          <button onClick={() => onConfirm(note)}
+            className={clsx('h-8 px-4 rounded-full text-sm font-semibold text-white', approve ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700')}>
+            {approve ? `Approve & push ${money(pushPrice)}` : 'Reject'}
+          </button>
+        </div>
       </div>
     </div>
   )
