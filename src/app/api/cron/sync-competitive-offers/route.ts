@@ -9,6 +9,7 @@ export const maxDuration = 300
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncCompetitivePricing } from '@/lib/amazon/competitive-pricing'
+import { fillMissingListingTitles } from '@/lib/amazon/listing-titles'
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
@@ -24,7 +25,8 @@ export async function GET(req: NextRequest) {
     const remaining = 240_000 - (Date.now() - started)
     if (remaining <= 0) break
     try {
-      results.push({ accountId: a.id, ...(await syncCompetitivePricing(a.id, { budgetMs: remaining })) })
+      const titles = await fillMissingListingTitles(a.id, { budgetMs: 30_000 }).catch(() => null)
+      results.push({ accountId: a.id, titles, ...(await syncCompetitivePricing(a.id, { budgetMs: Math.max(0, 240_000 - (Date.now() - started)) })) })
     } catch (err) {
       results.push({ accountId: a.id, error: err instanceof Error ? err.message : String(err) })
     }

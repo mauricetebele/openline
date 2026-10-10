@@ -102,6 +102,7 @@ export default function RepricingFeed() {
       if (!res.ok) throw new Error(j.error || 'Competitor pull failed')
       if (j.remainingStale > 0) toast.success(`Pulled competitor offers for ${j.fetched} ASIN+condition pairs · ${j.remainingStale} still to go — click Refresh again`)
       else toast.success(j.fetched > 0 ? `Pulled competitor offers for ${j.fetched} ASIN+condition pairs — all up to date` : 'Competitor data already up to date (< 1 h old)')
+      if (j.titlesFilled > 0) toast.success(`Pulled ${j.titlesFilled} missing Amazon product title${j.titlesFilled === 1 ? '' : 's'}`)
       if (j.errors > 0) toast.error(`${j.errors} offer request(s) failed — they'll retry on the next refresh`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Competitor pull failed')

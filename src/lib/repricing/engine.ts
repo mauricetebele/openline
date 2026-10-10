@@ -436,6 +436,14 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
         : competition === 'LOSING' ? `${refWho}; we're ${gapTxt} above ${primeEdge ? 'that' : 'it'}, so we're losing sales on price.`
         : `No other seller has a ${cond} offer on this ASIN right now.`,
       )
+      // Offer-type comparison when the Prime allowance did NOT apply (so it's clear why).
+      if (!primeEdge && refOffer && mine) {
+        explanation.push(
+          !mine.isPrime && !refOffer.isPrime ? "Neither our offer nor theirs is Prime, so there's no Prime allowance — it's a straight price comparison."
+          : !mine.isPrime && refOffer.isPrime ? "Their offer is Prime and ours isn't, so there's no Prime allowance (if this listing should be Prime, check its shipping template)."
+          : 'Both offers are Prime, so it\'s a straight price comparison.',
+        )
+      }
       const holdWhy: Partial<Record<string, string>> = {
         'HOT+CLOSE': "It's selling fast even without the Buy Box, so there's no reason to cut the price — hold.",
         'HOT+LOSING': "It's selling fast even without the Buy Box, so there's no reason to cut the price — hold.",
