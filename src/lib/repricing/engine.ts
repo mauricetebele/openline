@@ -37,8 +37,8 @@ export interface StrategyParams {
 // Code defaults; rows in repricing_strategy_params override individual values
 // (set by applying an AI-insight proposal). See loadStrategies().
 export const STRATEGIES: Record<Strategy, StrategyParams> = {
-  CONSERVATIVE: { raisePct: 2, lowerPct: 1, undercutPct: 0, undercutMin: 0.01, maxDailyPct: 3, slowNoSaleDays: 14, staleNoSaleDays: 28, targetCoverDays: 45, cooldownHours: 72, minFeedback: 95, primePremiumPct: 5 },
-  STANDARD:     { raisePct: 3, lowerPct: 2, undercutPct: 0.5, undercutMin: 0.5, maxDailyPct: 6, slowNoSaleDays: 10, staleNoSaleDays: 21, targetCoverDays: 30, cooldownHours: 48, minFeedback: 90, primePremiumPct: 3 },
+  CONSERVATIVE: { raisePct: 2, lowerPct: 1, undercutPct: 0, undercutMin: 0.01, maxDailyPct: 3, slowNoSaleDays: 14, staleNoSaleDays: 28, targetCoverDays: 45, cooldownHours: 72, minFeedback: 85, primePremiumPct: 5 },
+  STANDARD:     { raisePct: 3, lowerPct: 2, undercutPct: 0.5, undercutMin: 0.5, maxDailyPct: 6, slowNoSaleDays: 10, staleNoSaleDays: 21, targetCoverDays: 30, cooldownHours: 48, minFeedback: 75, primePremiumPct: 3 },
   AGGRESSIVE:   { raisePct: 4, lowerPct: 4, undercutPct: 1.5, undercutMin: 0, maxDailyPct: 12, slowNoSaleDays: 5, staleNoSaleDays: 14, targetCoverDays: 14, cooldownHours: 24, minFeedback: 0, primePremiumPct: 1.5 },
 }
 export const STRATEGY_PARAM_KEYS = Object.keys(STRATEGIES.STANDARD) as (keyof StrategyParams)[]
@@ -99,6 +99,24 @@ function currentRunStart(ivs: [number, number][], now: number, gap: number): num
     for (const [a, b] of ivs) if (a < start && b >= start - gap) { start = a; changed = true }
   }
   return start
+}
+
+// Used sub-condition ranking (higher = better). Amazon offers report SubCondition
+// as mint / very_good / good / acceptable; our listings say "Used - Like New" etc.
+const SUB_RANK: Record<string, number> = { mint: 4, like_new: 4, very_good: 3, good: 2, acceptable: 1, poor: 0 }
+const SUB_LABEL: Record<number, string> = { 4: 'Like New', 3: 'Very Good', 2: 'Good', 1: 'Acceptable', 0: 'Poor' }
+function offerSubRank(sub: string | null | undefined): number | null {
+  const k = (sub ?? '').toLowerCase().replace(/[\s-]+/g, '_')
+  return k in SUB_RANK ? SUB_RANK[k] : null
+}
+function listingSubRank(cond: string | null | undefined): number | null {
+  const c = (cond ?? '').toLowerCase()
+  if (!c.startsWith('used') && !c.startsWith('refurb') && !c.startsWith('renewed')) return null
+  if (c.includes('like new') || c.includes('mint')) return 4
+  if (c.includes('very good')) return 3
+  if (c.includes('good')) return 2
+  if (c.includes('acceptable')) return 1
+  return null
 }
 
 /** Union of intervals clipped to [a, b], merged and sorted. */
@@ -178,6 +196,7 @@ export interface FeedGroup {
   daysOfCover: number | null
   buyBoxPrice: number | null; buyBoxHolder: string | null; weHoldBuyBox: boolean
   lowestCompetitor: number | null; competitorCount: number
+  competitorsIgnored: { condition: number; feedback: number; minSubCondition: string | null; minFeedback: number }
   offersFetchedAt: string | null
   speed: Speed; competition: Competition; rule: string
   action: Action
@@ -270,7 +289,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
   // ── 3. Competition (per ASIN + condition) ──────────────────────────────────
   const offers = await prisma.competitiveOffer.findMany({
     where: { asin: { in: asins } },
-    select: { accountId: true, asin: true, itemCondition: true, isMyOffer: true, landedPrice: true, shippingPrice: true, isBuyBoxWinner: true, isPrime: true, feedbackRating: true, lastFetchedAt: true },
+    select: { accountId: true, asin: true, itemCondition: true, isMyOffer: true, landedPrice: true, shippingPrice: true, isBuyBoxWinner: true, isPrime: true, feedbackRating: true, lastFetchedAt: true, condition: true },
   })
   const offersByGroup = new Map<string, typeof offers>()
   for (const o of offers) {
@@ -588,7 +607,18 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
     const gOffers = offersByGroup.get(key) ?? []
     const mine = gOffers.find(o => o.isMyOffer)
     const ourShipping = mine ? Number(mine.shippingPrice) : 0
-    const comps = gOffers.filter(o => !o.isMyOffer && (o.feedbackRating == null || Number(o.feedbackRating) >= P.minFeedback))
+    // Competitors that count: (Used/Renewed) same-or-better sub-condition than our
+    // lowest-graded SKU in the group, and feedback at/above the strategy cutoff.
+    const ranks = g.itemCondition === 'New' ? [] : g.rows.map(r => listingSubRank(r.condition)).filter((x): x is number => x != null)
+    const minRank = ranks.length ? Math.min(...ranks) : null
+    let ignoredCondition = 0, ignoredFeedback = 0
+    const comps = gOffers.filter(o => {
+      if (o.isMyOffer) return false
+      const r = offerSubRank(o.condition)
+      if (minRank != null && r != null && r < minRank) { ignoredCondition++; return false }
+      if (o.feedbackRating != null && Number(o.feedbackRating) < P.minFeedback) { ignoredFeedback++; return false }
+      return true
+    })
     const lowestCompOffer = comps.length ? comps.reduce((a, b) => (Number(b.landedPrice) < Number(a.landedPrice) ? b : a)) : null
     const lowestCompetitor = lowestCompOffer ? Number(lowestCompOffer.landedPrice) - ourShipping : null
     const weArePrime = mine?.isPrime === true
@@ -761,7 +791,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       explanation.push(liveReason === 'amazon'
         ? `Amazon shows it has only been live (buyable with stock) since ${d} (${daysLive} day${daysLive === 1 ? '' : 's'}) — before that the listing was down (closed, suspended, suppressed or sold out) — so its sales pace is measured over that time, not 30 days (${unitsSinceLive} sold since).`
         : liveReason === 'listed'
-        ? `It was only listed ${daysLive} day${daysLive === 1 ? '' : 's'} ago (${d}), so its sales pace is measured over those ${Math.max(daysLive!, 1)} day${daysLive === 1 ? '' : 's'}, not 30 (${unitsSinceLive} sold since).`
+        ? `It was only listed ${daysLive} day${daysLive === 1 ? '' : 's'} ago (${d}), so its sales pace is measured over ${Math.max(daysLive!, 1) === 1 ? 'that 1 day' : `those ${daysLive} days`}, not 30 (${unitsSinceLive} sold since).`
         : `It's only had stock continuously since ${d} (${daysLive} day${daysLive === 1 ? '' : 's'}) — before that it was sold out — so its sales pace is measured over that time, not 30 days (${unitsSinceLive} sold since).`)
     }
     explanation.push(speedWhy)
@@ -787,11 +817,19 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
         competition === 'WINNING' ? `We currently hold the Buy Box at ${fmt(currentPrice ?? 0)}.${lowestCompetitor != null ? ` The next-cheapest ${cond} seller is at ${fmt(lowestCompetitor)}.` : ' No other seller is competing on price.'}`
         : competition === 'LOWEST' ? (primeEdge
             ? `${refWho}. At ${fmt(currentPrice ?? 0)} we're within that Prime allowance, so price isn't what's holding us back.`
-            : `We're already the cheapest ${cond} offer at ${fmt(currentPrice ?? 0)} (next is ${fmt(ref!)}), but we don't hold the Buy Box — so price isn't what's holding us back.`)
+            : lowestCompetitor != null && currentPrice != null && lowestCompetitor < currentPrice
+              ? `We're priced under the Buy Box (${fmt(ref!)}) but don't hold it — and a comparable ${cond} offer is even cheaper at ${fmt(lowestCompetitor)}. The Buy Box is going to a higher-priced seller, so Amazon is choosing on more than price (seller metrics, Prime, fulfilment).`
+              : `We're already the cheapest ${cond} offer at ${fmt(currentPrice ?? 0)} (next is ${fmt(ref!)}), but we don't hold the Buy Box — so price isn't what's holding us back.`)
         : competition === 'CLOSE' ? `${refWho}; we're only ${gapTxt} above ${primeEdge ? 'that' : 'it'}, so we're close.`
         : competition === 'LOSING' ? `${refWho}; we're ${gapTxt} above ${primeEdge ? 'that' : 'it'}, so we're losing sales on price.`
         : `No other seller has a ${cond} offer on this ASIN right now.`,
       )
+      if (ignoredCondition + ignoredFeedback > 0) {
+        const bits: string[] = []
+        if (ignoredCondition) bits.push(`${ignoredCondition} in a lower condition than our ${minRank != null ? SUB_LABEL[minRank] : ''} (not a fair price comparison)`)
+        if (ignoredFeedback) bits.push(`${ignoredFeedback} from sellers below ${sName}'s ${P.minFeedback}% feedback cutoff`)
+        explanation.push(`Compared against ${comps.length} competing offer${comps.length === 1 ? '' : 's'}; ignored ${bits.join(' and ')}.`)
+      }
       // Offer-type comparison when the Prime allowance did NOT apply (so it's clear why).
       if (!primeEdge && refOffer && mine) {
         explanation.push(
@@ -838,6 +876,7 @@ export async function buildRepricingFeed(only?: { accountId: string; asin: strin
       strategy, skus, currentPrice, stock, units7d, units30d, daysSinceLastSale, daysOfCover,
       buyBoxPrice, buyBoxHolder, weHoldBuyBox, lowestCompetitor: lowestCompetitor != null ? round2(lowestCompetitor) : null,
       competitorCount: comps.length, offersFetchedAt,
+      competitorsIgnored: { condition: ignoredCondition, feedback: ignoredFeedback, minSubCondition: minRank != null ? SUB_LABEL[minRank] : null, minFeedback: P.minFeedback },
       speed, competition, rule, action, suggestedPrice: target, changePct,
       marginCurrent, marginSuggested,
       reason, explanation, status, primeEdgePct: primeEdge ? P.primePremiumPct : null,

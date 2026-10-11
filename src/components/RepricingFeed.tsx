@@ -25,6 +25,7 @@ interface FeedGroup {
   daysSinceLastSale: number | null; daysOfCover: number | null
   buyBoxPrice: number | null; buyBoxHolder: string | null; weHoldBuyBox: boolean
   lowestCompetitor: number | null; competitorCount: number; offersFetchedAt: string | null
+  competitorsIgnored: { condition: number; feedback: number; minSubCondition: string | null; minFeedback: number }
   speed: string; competition: string; rule: string
   suggestedPrice: number | null; changePct: number | null
   marginCurrent: { min: number | null; max: number | null }
@@ -801,6 +802,14 @@ function FeedRows({ g, open, up, busy, refreshing, onRefresh, editValue, onToggl
               value={money(g.lowestCompetitor)}
               sub={<>
                 <Pill tone="gray">{g.competitorCount} offer{g.competitorCount === 1 ? '' : 's'}</Pill>
+                {g.competitorsIgnored.condition + g.competitorsIgnored.feedback > 0 && (
+                  <Pill tone="amber" title={[
+                    g.competitorsIgnored.condition ? `${g.competitorsIgnored.condition} in a lower condition than our ${g.competitorsIgnored.minSubCondition ?? ''}` : '',
+                    g.competitorsIgnored.feedback ? `${g.competitorsIgnored.feedback} below the ${g.competitorsIgnored.minFeedback}% feedback cutoff` : '',
+                  ].filter(Boolean).join('\n')}>
+                    {g.competitorsIgnored.condition + g.competitorsIgnored.feedback} ignored
+                  </Pill>
+                )}
                 {g.lowestCompetitor != null && <PrimeTag prime={g.lowestCompPrime} />}
               </>} />
           </div>
