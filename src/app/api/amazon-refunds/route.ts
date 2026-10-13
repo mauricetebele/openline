@@ -1,8 +1,10 @@
 /**
- * GET /api/amazon-refunds?tab=not_reviewed|flagged|validated
- * Returns the refund-review rows for a tab plus per-tab counts.
+ * GET /api/amazon-refunds?tab=not_reviewed|flagged|validated[&q=<order # or $ amount>]
+ * Returns the refund-review rows for a tab (or, with q, matches across all tabs)
+ * plus per-tab counts.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 
@@ -14,16 +16,33 @@ const TAB_STATUS: Record<string, string> = {
   validated: 'VALIDATED',
 }
 
+// Search by Order # (partial match) or dollar amount. An amount like "$1,234.50"
+// or "-45.99" matches Net Cost to Us or Refunded to Buyer, ignoring sign.
+function searchWhere(q: string): Prisma.AmazonRefundReviewWhereInput {
+  const or: Prisma.AmazonRefundReviewWhereInput[] = [
+    { orderId: { contains: q, mode: 'insensitive' } },
+  ]
+  const num = q.replace(/[$,\s]/g, '')
+  if (/^-?(\d+\.?\d*|\.\d+)$/.test(num)) {
+    const abs = Math.abs(Number(num))
+    const vals = [abs, -abs]
+    or.push({ amount: { in: vals } }, { buyerRefundAmount: { in: vals } })
+  }
+  return { OR: or }
+}
+
 export async function GET(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const tab = req.nextUrl.searchParams.get('tab')?.toLowerCase() ?? 'not_reviewed'
   const status = TAB_STATUS[tab] ?? 'NOT_REVIEWED'
+  const q = req.nextUrl.searchParams.get('q')?.trim() ?? ''
 
   const [rows, counts] = await Promise.all([
     prisma.amazonRefundReview.findMany({
-      where: { status },
+      // A search spans every tab; otherwise just this tab's status.
+      where: q ? searchWhere(q) : { status },
       // Validated tab: most-recently-validated first. Other tabs: newest posted.
       orderBy: status === 'VALIDATED'
         ? [{ validatedAt: { sort: 'desc', nulls: 'last' } }, { postedDate: 'desc' }]

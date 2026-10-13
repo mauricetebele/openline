@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import { clsx } from 'clsx'
-import { Flag, CheckCircle2, RefreshCw, Loader2, DollarSign, Undo2, Copy } from 'lucide-react'
+import { Flag, CheckCircle2, RefreshCw, Loader2, DollarSign, Undo2, Copy, Search, X } from 'lucide-react'
 
 // Small Amazon "a" mark for the FBA-returns shortcut.
 function AmazonIcon({ size = 14 }: { size?: number }) {
@@ -64,6 +64,12 @@ function reasonLabel(code: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
+const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  NOT_REVIEWED: { label: 'Not Reviewed', cls: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300' },
+  FLAGGED: { label: 'Flagged', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' },
+  VALIDATED: { label: 'Validated', cls: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+}
+
 const money = (n: number, c: string) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${c && c !== 'USD' ? ` ${c}` : ''}`
 
 export default function AmazonRefundsManager() {
@@ -78,11 +84,20 @@ export default function AmazonRefundsManager() {
   // Row whose Order ID was opened in a new tab — stays highlighted until the
   // user clicks away, so it's clear which row they were working on.
   const [activeRowId, setActiveRowId] = useState<string | null>(null)
+  // Order # or dollar amount. A search spans all three tabs.
+  const [search, setSearch] = useState('')
+  const [query, setQuery] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 300)
+    return () => clearTimeout(t)
+  }, [search])
+  const searching = query !== ''
+  const clearSearch = () => { setSearch(''); setQuery('') }
 
-  const load = useCallback(async (t: Tab) => {
+  const load = useCallback(async (t: Tab, q: string) => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/amazon-refunds?tab=${t}`)
+      const res = await fetch(`/api/amazon-refunds?tab=${t}${q ? `&q=${encodeURIComponent(q)}` : ''}`)
       const j = await res.json()
       setRows(j.rows ?? [])
       setCounts(j.counts ?? { notReviewed: 0, flagged: 0, validated: 0 })
@@ -92,7 +107,7 @@ export default function AmazonRefundsManager() {
     } catch { /* ignore */ } finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load(tab) }, [load, tab])
+  useEffect(() => { load(tab, query) }, [load, tab, query])
 
   // Clear the highlight when the user clicks anywhere outside the active row.
   useEffect(() => {
@@ -112,7 +127,7 @@ export default function AmazonRefundsManager() {
       const j = await res.json()
       if (!res.ok) throw new Error(j.error || 'Sync failed')
       toast.success(`Synced — ${j.created} new refund${j.created !== 1 ? 's' : ''} compiled`)
-      load(tab)
+      load(tab, query)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Sync failed')
     } finally { setSyncing(false) }
@@ -139,7 +154,7 @@ export default function AmazonRefundsManager() {
       })
       .catch(e => toast.error(e instanceof Error ? e.message : 'Buyer refund backfill failed'))
     await Promise.allSettled([fba, buyer])
-    load(tab)
+    load(tab, query)
     setBackfilling(false)
   }
 
@@ -151,8 +166,9 @@ export default function AmazonRefundsManager() {
         body: JSON.stringify({ status }),
       })
       if (!res.ok) throw new Error()
-      // Row leaves the current tab.
-      setRows(prev => prev.filter(x => x.id !== r.id))
+      // Row leaves the current tab — or, in search results, stays with its new status.
+      if (searching) setRows(prev => prev.map(x => x.id === r.id ? { ...x, status } : x))
+      else setRows(prev => prev.filter(x => x.id !== r.id))
       setCounts(prev => {
         const c = { ...prev }
         if (r.status === 'NOT_REVIEWED') c.notReviewed--
@@ -213,16 +229,34 @@ export default function AmazonRefundsManager() {
         {TABS.map(t => {
           const n = t.key === 'not_reviewed' ? counts.notReviewed : t.key === 'flagged' ? counts.flagged : counts.validated
           return (
-            <button key={t.key} onClick={() => setTab(t.key)}
+            <button key={t.key} onClick={() => { setTab(t.key); clearSearch() }}
               className={clsx('px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5',
-                tab === t.key ? 'border-amazon-blue text-amazon-blue' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200')}>
+                tab === t.key && !searching ? 'border-amazon-blue text-amazon-blue' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200')}>
               {t.label}
-              <span className={clsx('text-[10px] font-semibold px-1.5 py-0.5 rounded-full', tab === t.key ? 'bg-amazon-blue text-white' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300')}>{n}</span>
+              <span className={clsx('text-[10px] font-semibold px-1.5 py-0.5 rounded-full', tab === t.key && !searching ? 'bg-amazon-blue text-white' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300')}>{n}</span>
             </button>
           )
         })}
+        {/* Search */}
+        <div className="ml-auto self-center pb-1 relative">
+          <Search size={13} className="absolute left-2 top-[calc(50%-2px)] -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') clearSearch() }}
+            placeholder="Search Order # or $ amount…"
+            title="Paste an Amazon Order # or a dollar amount (matches Net Cost to Us or Refunded to Buyer). Searches all tabs."
+            className="w-60 h-7 pl-7 pr-7 text-xs border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+          />
+          {search && (
+            <button onClick={clearSearch} title="Clear search"
+              className="absolute right-2 top-[calc(50%-2px)] -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+              <X size={13} />
+            </button>
+          )}
+        </div>
         {/* Channel filter */}
-        <div className="ml-auto flex items-center gap-1.5 self-center pb-1">
+        <div className="ml-3 flex items-center gap-1.5 self-center pb-1">
           <span className="text-[10px] uppercase tracking-wider text-gray-400 mr-0.5">Channel</span>
           {(['all', 'FBA', 'MFN'] as const).map(c => (
             <button key={c} onClick={() => setChannelFilter(c)}
@@ -241,14 +275,15 @@ export default function AmazonRefundsManager() {
         ) : visibleRows.length === 0 ? (
           <div className="py-20 text-center">
             <CheckCircle2 size={36} className="mx-auto text-green-400 mb-3" />
-            <p className="text-sm font-medium text-gray-400">{channelFilter !== 'all' ? `No ${channelFilter} refunds in this tab.` : tab === 'not_reviewed' ? 'Nothing left to review.' : tab === 'flagged' ? 'No flagged refunds.' : 'No validated refunds yet.'}</p>
+            <p className="text-sm font-medium text-gray-400">{searching ? `No refunds match "${query}"${channelFilter !== 'all' ? ` in ${channelFilter}` : ''}.` : channelFilter !== 'all' ? `No ${channelFilter} refunds in this tab.` : tab === 'not_reviewed' ? 'Nothing left to review.' : tab === 'flagged' ? 'No flagged refunds.' : 'No validated refunds yet.'}</p>
           </div>
         ) : (
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-gray-800 z-10">
               <tr>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Posted</th>
-                {tab === 'validated' && <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Validated</th>}
+                {searching && <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Status</th>}
+                {(tab === 'validated' || searching) && <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Validated</th>}
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Order ID</th>
                 <th className="px-3 py-2.5 text-left font-semibold text-gray-100 whitespace-nowrap">Channel</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-gray-100 whitespace-nowrap" title="What the refund cost us: refunded sales minus the commission Amazon returned. Excludes sales tax (Amazon collects/remits it).">Net Cost to Us</th>
@@ -269,7 +304,12 @@ export default function AmazonRefundsManager() {
                     ? 'bg-amber-100 dark:bg-amber-900/30 ring-2 ring-inset ring-amber-400'
                     : i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50')}>
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(r.postedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
-                  {tab === 'validated' && (
+                  {searching && (
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <span className={clsx('inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold', STATUS_BADGE[r.status]?.cls)}>{STATUS_BADGE[r.status]?.label ?? r.status}</span>
+                    </td>
+                  )}
+                  {(tab === 'validated' || searching) && (
                     <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
                       {r.validatedAt ? (
                         <div className="flex flex-col leading-tight">
