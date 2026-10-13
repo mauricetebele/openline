@@ -40,17 +40,30 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = {}
   // Match on serial number OR TRG ID (kept in an AND entry so it never collides
   // with the vendor OR below). Single term → partial match; multiple → exact.
+  // A term entered as "TRG-XXXXX" is an explicit TRG lookup: strip the "TRG-"
+  // prefix and match the remainder against TRG IDs only.
+  const TRG_PREFIX = /^trg-/i
   const andClauses: Record<string, unknown>[] = []
   if (requested.length === 1) {
-    andClauses.push({ OR: [
-      { serialNumber: { contains: requested[0], mode: 'insensitive' } },
-      { trgId: { contains: requested[0], mode: 'insensitive' } },
-    ] })
+    const term = requested[0]
+    if (TRG_PREFIX.test(term)) {
+      andClauses.push({ trgId: { contains: term.replace(TRG_PREFIX, ''), mode: 'insensitive' } })
+    } else {
+      andClauses.push({ OR: [
+        { serialNumber: { contains: term, mode: 'insensitive' } },
+        { trgId: { contains: term, mode: 'insensitive' } },
+      ] })
+    }
   } else if (requested.length > 1) {
-    andClauses.push({ OR: [
-      { serialNumber: { in: requested, mode: 'insensitive' } },
-      { trgId: { in: requested, mode: 'insensitive' } },
-    ] })
+    const orAll = requested.flatMap(term =>
+      TRG_PREFIX.test(term)
+        ? [{ trgId: { equals: term.replace(TRG_PREFIX, ''), mode: 'insensitive' } }]
+        : [
+            { serialNumber: { equals: term, mode: 'insensitive' } },
+            { trgId: { equals: term, mode: 'insensitive' } },
+          ],
+    )
+    andClauses.push({ OR: orAll })
   }
   if (andClauses.length) where.AND = andClauses
   if (locationId) where.locationId = locationId
@@ -125,7 +138,12 @@ export async function GET(req: NextRequest) {
   }
   // For partial (single-serial) search, don't report "not found" — results are contains-matches
   const notFound = requested.length > 1
-    ? requested.filter(s => !foundSerials.has(s.toLowerCase()))
+    ? requested.filter(s => {
+        const lower = s.toLowerCase()
+        // A "TRG-XXXXX" term matches the stored TRG ID "XXXXX".
+        const stripped = lower.replace(/^trg-/, '')
+        return !foundSerials.has(lower) && !foundSerials.has(stripped)
+      })
     : []
 
   // Look up VRMA associations for all found serials
