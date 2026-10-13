@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Plus, Search, Pencil, Trash2, X, AlertCircle, Package, Upload, Download, CheckCircle2, RotateCcw, Archive } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -503,6 +503,26 @@ function ProductPanel({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+/** Clickable, sortable column header. */
+function SortHeader<T extends string>({ label, col, sortCol, sortDir, onSort, className }: {
+  label: string
+  col: T
+  sortCol: T
+  sortDir: 'asc' | 'desc'
+  onSort: (col: T) => void
+  className?: string
+}) {
+  const active = sortCol === col
+  return (
+    <th className={clsx('px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide', className)}>
+      <button type="button" onClick={() => onSort(col)} className="inline-flex items-center gap-1 hover:text-gray-800 uppercase">
+        {label}
+        <span className={clsx('text-[9px]', active ? 'text-gray-700' : 'text-gray-300')}>{active ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
+      </button>
+    </th>
+  )
+}
+
 export default function ProductsManager() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -517,6 +537,8 @@ export default function ProductsManager() {
   const [purgeConfirm, setPurgeConfirm] = useState<string | null>(null)
   // Bulk selection + preset assignment
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [sortCol, setSortCol] = useState<'sku' | 'description' | 'isSerializable' | 'pkgPreset' | 'createdAt' | 'archivedAt'>('sku')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [bulkPresetId, setBulkPresetId] = useState('')
   const [bulkPresets, setBulkPresets] = useState<PackagePresetOption[]>([])
   const [bulkApplying, setBulkApplying] = useState(false)
@@ -591,6 +613,33 @@ export default function ProductsManager() {
     const t = setTimeout(load, search ? 300 : 0)
     return () => clearTimeout(t)
   }, [load, search])
+
+  // Client-side column sorting (products load as a full list).
+  function toggleSort(col: typeof sortCol) {
+    if (sortCol === col) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  const sortedProducts = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    const val = (p: Product): string | number => {
+      switch (sortCol) {
+        case 'description':    return p.description ?? ''
+        case 'isSerializable': return p.isSerializable ? 1 : 0
+        case 'pkgPreset':      return p.defaultPackagePreset?.name ?? ''
+        case 'createdAt':      return p.createdAt ?? ''
+        case 'archivedAt':     return p.archivedAt ?? ''
+        default:               return p.sku ?? ''
+      }
+    }
+    return [...products].sort((a, b) => {
+      const av = val(a), bv = val(b)
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' }) * dir
+      }
+      return (av < bv ? -1 : av > bv ? 1 : 0) * dir
+    })
+  }, [products, sortCol, sortDir])
 
   async function handleDelete(id: string) {
     setDeletingId(id)
@@ -762,15 +811,15 @@ export default function ProductsManager() {
           <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Description</th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Serialization</th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Archived On</th>
+                <SortHeader label="SKU" col="sku" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Description" col="description" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Serialization" col="isSerializable" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Archived On" col="archivedAt" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
                 <th className="px-2 py-1.5 w-32" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {products.map((product) => (
+              {sortedProducts.map((product) => (
                 <tr key={product.id} className="hover:bg-gray-50 group">
                   <td className="px-2 py-1 font-mono text-xs font-semibold text-gray-600 whitespace-nowrap">{product.sku}</td>
                   <td className="px-2 py-1 text-gray-600">{product.description}</td>
@@ -845,16 +894,16 @@ export default function ProductsManager() {
                   <input type="checkbox" checked={products.length > 0 && selectedIds.size === products.length} onChange={toggleSelectAll}
                     className="h-3.5 w-3.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
                 </th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Description</th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Serialization</th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Pkg Preset</th>
-                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Created</th>
+                <SortHeader label="SKU" col="sku" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Description" col="description" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Serialization" col="isSerializable" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Pkg Preset" col="pkgPreset" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Created" col="createdAt" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
                 <th className="px-2 py-1.5 w-16" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {products.map((product) => (
+              {sortedProducts.map((product) => (
                 <tr key={product.id} className={clsx('hover:bg-gray-50 group', selectedIds.has(product.id) && 'bg-teal-50/50')}>
                   <td className="px-2 py-1">
                     <input type="checkbox" checked={selectedIds.has(product.id)} onChange={() => toggleSelect(product.id)}
