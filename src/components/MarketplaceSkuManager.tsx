@@ -732,6 +732,9 @@ export default function MarketplaceSkuManager() {
   const [refreshingPriceId, setRefreshingPriceId] = useState<string | null>(null)
   const [refreshingAllPrices, setRefreshingAllPrices] = useState(false)
   const [priceProgress, setPriceProgress] = useState<{ done: number; total: number } | null>(null)
+  // Bulk refresh of price + buy box for the currently filtered mappings (both marketplaces).
+  const [refreshingFiltered, setRefreshingFiltered] = useState(false)
+  const [filteredProgress, setFilteredProgress] = useState<{ done: number; total: number } | null>(null)
   const priceInputRef = useRef<HTMLInputElement>(null)
 
   const accountIdFor = (s: MarketplaceSku): string | null => s.accountId ?? activeAccountId
@@ -989,6 +992,66 @@ export default function MarketplaceSkuManager() {
     setToast(failed > 0
       ? `Pricing refreshed — ${targets.length - failed} updated, ${failed} failed`
       : `Pricing refreshed for ${targets.length} Amazon SKU${targets.length === 1 ? '' : 's'}`)
+  }
+
+  // Bulk: refresh live price AND buy box info for the CURRENTLY FILTERED mappings
+  // across both marketplaces. Amazon → /listings/refresh-price (buyBox: true);
+  // Back Market → /marketplace-skus/backmarket-refresh-price. Runs a bounded
+  // client-side pool and updates each row as results arrive.
+  async function refreshFilteredPricing() {
+    const targets = filteredSkus
+    if (targets.length === 0) { setToast('No mappings in the current filter to refresh'); return }
+    setRefreshingFiltered(true)
+    setErr('')
+    let done = 0
+    let failed = 0
+    setFilteredProgress({ done: 0, total: targets.length })
+    let idx = 0
+    const CONCURRENCY = 5
+    const worker = async () => {
+      while (idx < targets.length) {
+        const s = targets[idx++]
+        try {
+          let accountId: string | undefined
+          if (s.marketplace === 'amazon') {
+            accountId = accountIdFor(s) ?? undefined
+            if (!accountId) throw new Error('No Amazon account resolved')
+          }
+          const res = s.marketplace === 'backmarket'
+            ? await apiPost('/api/marketplace-skus/backmarket-refresh-price', { sellerSku: s.sellerSku })
+            : await apiPost('/api/listings/refresh-price', { accountId, sku: s.sellerSku, buyBox: true })
+          const price = res.price != null ? String(res.price) : null
+          setSkus(prev => prev.map(x => (x.id === s.id
+            ? {
+                ...x,
+                price,
+                listingStatus: res.listingStatus ?? x.listingStatus,
+                ...(s.marketplace === 'amazon'
+                  ? {
+                      asin: res.asin ?? x.asin,
+                      itemCondition: res.condition ?? x.itemCondition,
+                      buyBoxPrice: res.buyBoxPrice != null ? String(res.buyBoxPrice) : x.buyBoxPrice,
+                      buyBoxSeller: res.buyBoxSeller ?? x.buyBoxSeller,
+                    }
+                  : {
+                      backboxWon: res.backboxWon ?? x.backboxWon,
+                      backboxPrice: res.backboxPrice != null ? String(res.backboxPrice) : x.backboxPrice,
+                    }),
+              }
+            : x)))
+        } catch {
+          failed++
+        }
+        done++
+        setFilteredProgress({ done, total: targets.length })
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, worker))
+    setRefreshingFiltered(false)
+    setFilteredProgress(null)
+    setToast(failed > 0
+      ? `Refreshed ${targets.length - failed} of ${targets.length} mapping${targets.length === 1 ? '' : 's'} — ${failed} failed`
+      : `Refreshed price & buy box for ${targets.length} mapping${targets.length === 1 ? '' : 's'}`)
   }
 
   // Add form state
@@ -1675,6 +1738,18 @@ export default function MarketplaceSkuManager() {
             {refreshingAllPrices && priceProgress
               ? `Pricing… ${priceProgress.done}/${priceProgress.total}`
               : 'Get Pricing'}
+          </button>
+          <button
+            type="button"
+            onClick={refreshFilteredPricing}
+            disabled={refreshingFiltered || filteredSkus.length === 0}
+            title="Refresh live price and buy box info (Amazon & Back Market) for every mapping in the current filter"
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-amazon-blue text-amazon-blue text-xs font-medium hover:bg-amazon-blue/5 disabled:opacity-50 whitespace-nowrap"
+          >
+            <RefreshCw size={13} className={clsx(refreshingFiltered && 'animate-spin')} />
+            {refreshingFiltered && filteredProgress
+              ? `Refreshing… ${filteredProgress.done}/${filteredProgress.total}`
+              : `Refresh Filtered${filteredSkus.length ? ` (${filteredSkus.length})` : ''}`}
           </button>
           <button
             type="button"
