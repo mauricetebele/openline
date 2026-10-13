@@ -3,8 +3,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { X, CheckCircle2, AlertCircle, Loader2, Search, Printer } from 'lucide-react'
 import SickwCheckButton from './SickwCheckButton'
 import { getFmiService } from '@/lib/sickw/fmi'
-import JsBarcode from 'jsbarcode'
 import { jsPDF } from 'jspdf'
+import { drawSerialLabel } from '@/lib/print-serial-labels'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -239,7 +239,7 @@ export default function ReceiveRemovalItemModal({
     setReceiving(false)
   }
 
-  function printSerialLabel() {
+  async function printSerialLabel() {
     if (!receiptData) return
 
     // Label size: DYMO 30334 = 2.25" x 1.25"
@@ -247,57 +247,11 @@ export default function ReceiveRemovalItemModal({
     const H = 1.25 * 72 // points
     const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: [H, W] })
 
-    const margin = 4
-    const maxTextW = W - margin * 2
-
-    // SKU line (bold) — shrink font to fit
-    doc.setFont('helvetica', 'bold')
-    let skuSize = 10
-    doc.setFontSize(skuSize)
-    while (skuSize > 5 && doc.getTextWidth(receiptData.sku) > maxTextW) {
-      skuSize -= 0.5
-      doc.setFontSize(skuSize)
-    }
-    doc.text(receiptData.sku, margin, 12)
-
-    // Grade line (bold, only if exists)
-    let yAfterGrade = 12
-    if (receiptData.grade) {
-      yAfterGrade = 22
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(9)
-      doc.text(receiptData.grade, margin, yAfterGrade)
-    }
-
-    // Barcode — render at 4x resolution for crisp PDF output
-    const scale = 4
-    const canvas = document.createElement('canvas')
-    JsBarcode(canvas, receiptData.serialNumber, {
-      format: 'CODE128',
-      width: 2 * scale,
-      height: 40 * scale,
-      displayValue: false,
-      margin: 0,
+    await drawSerialLabel(doc, {
+      serialNumber: receiptData.serialNumber,
+      sku: receiptData.sku,
+      grade: receiptData.grade,
     })
-    const barcodeY = yAfterGrade + 6
-    const barcodeImg = canvas.toDataURL('image/png')
-    const barcodeW = W - margin * 2
-    const barcodeH = 42
-    doc.addImage(barcodeImg, 'PNG', margin, barcodeY, barcodeW, barcodeH)
-
-    // Serial number text below barcode
-    doc.setFont('courier', 'normal')
-    doc.setFontSize(8)
-    doc.text(receiptData.serialNumber, W / 2, barcodeY + barcodeH + 8, { align: 'center' })
-
-    // Timestamp
-    const timestamp = new Date().toLocaleString('en-US', {
-      month: '2-digit', day: '2-digit', year: '2-digit',
-      hour: 'numeric', minute: '2-digit', hour12: true,
-    })
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(6)
-    doc.text(timestamp, W - margin, H - 4, { align: 'right' })
 
     // Open print dialog
     const pdfBlob = doc.output('blob')

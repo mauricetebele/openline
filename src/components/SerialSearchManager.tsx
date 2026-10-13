@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Search, Download, AlertCircle, X, Pencil, Check, NotebookPen, MapPin, Copy, Archive, Warehouse, LocateFixed, Building2, Tag, FileText, CircleDot, Printer, Star, ArrowRightLeft, Undo2 } from 'lucide-react'
 import { jsPDF } from 'jspdf'
-import JsBarcode from 'jsbarcode'
+import { drawSerialLabel } from '@/lib/print-serial-labels'
 import { clsx } from 'clsx'
 import GradeBadge from '@/components/GradeBadge'
 import SerialFmiChecker from '@/components/SerialFmiChecker'
@@ -446,68 +446,20 @@ export default function SerialSearchManager() {
     }
   }
 
-  function printBulkLabels() {
+  async function printBulkLabels() {
     const selected = sortedFound.filter(r => selectedIds.has(r.id))
     if (selected.length === 0) return
 
     const W = 2.25 * 72 // label width in points
     const H = 1.25 * 72 // label height in points
     const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: [H, W] })
-    const margin = 4
-    const maxTextW = W - margin * 2
-    const timestamp = new Date().toLocaleString('en-US', {
-      month: '2-digit', day: '2-digit', year: '2-digit',
-      hour: 'numeric', minute: '2-digit', hour12: true,
-    })
 
-    selected.forEach((r, idx) => {
+    for (let idx = 0; idx < selected.length; idx++) {
       if (idx > 0) doc.addPage([H, W], 'landscape')
-
-      // SKU line (bold, auto-shrink to fit)
-      doc.setFont('helvetica', 'bold')
-      let skuSize = 10
-      doc.setFontSize(skuSize)
-      while (skuSize > 5 && doc.getTextWidth(r.sku) > maxTextW) {
-        skuSize -= 0.5
-        doc.setFontSize(skuSize)
-      }
-      doc.text(r.sku, margin, 12)
-
-      // Grade line (bold, only if exists)
-      let yAfterGrade = 12
-      if (r.grade) {
-        yAfterGrade = 22
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(9)
-        doc.text(r.grade, margin, yAfterGrade)
-      }
-
-      // Barcode — 4x resolution for crisp output
-      const scale = 4
-      const canvas = document.createElement('canvas')
-      JsBarcode(canvas, r.serialNumber, {
-        format: 'CODE128',
-        width: 2 * scale,
-        height: 40 * scale,
-        displayValue: false,
-        margin: 0,
-      })
-      const barcodeY = yAfterGrade + 6
-      const barcodeImg = canvas.toDataURL('image/png')
-      const barcodeW = W - margin * 2
-      const barcodeH = 42
-      doc.addImage(barcodeImg, 'PNG', margin, barcodeY, barcodeW, barcodeH)
-
-      // Serial number (vector text)
-      doc.setFont('courier', 'normal')
-      doc.setFontSize(8)
-      doc.text(r.serialNumber, W / 2, barcodeY + barcodeH + 8, { align: 'center' })
-
-      // Timestamp
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(6)
-      doc.text(timestamp, W - margin, H - 4, { align: 'right' })
-    })
+      const r = selected[idx]
+      // Shared renderer (adds the TRG QR when a TRG ID is present).
+      await drawSerialLabel(doc, { serialNumber: r.serialNumber, sku: r.sku, grade: r.grade, trgId: r.trgId })
+    }
 
     const pdfBlob = doc.output('blob')
     const url = URL.createObjectURL(pdfBlob)

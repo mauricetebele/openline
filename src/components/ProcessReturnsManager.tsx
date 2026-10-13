@@ -425,11 +425,11 @@ export default function ProcessReturnsManager() {
       })
       const j = await res.json()
       if (!res.ok) throw new Error(j.error || 'Failed to look up serials')
-      const labels: { serialNumber: string; sku: string | null; grade: string | null; found: boolean; inStock: boolean }[] = j.labels ?? []
+      const labels: { serialNumber: string; sku: string | null; grade: string | null; trgId: string | null; found: boolean; inStock: boolean }[] = j.labels ?? []
       const inStock = labels.filter(l => l.inStock)
       const skipped = serialNumbers.length - inStock.length
       if (inStock.length === 0) { toast.error('None of the selected serials are in stock — nothing to print'); return }
-      const via = await printSerialLabels(inStock.map(l => ({ serialNumber: l.serialNumber, sku: l.sku, grade: l.grade })))
+      const via = await printSerialLabels(inStock.map(l => ({ serialNumber: l.serialNumber, sku: l.sku, grade: l.grade, trgId: l.trgId })))
       const skippedMsg = skipped > 0 ? ` · ${skipped} skipped (not in stock)` : ''
       toast.success(`${via === 'printer' ? 'Sent' : 'Printing'} ${inStock.length} label${inStock.length > 1 ? 's' : ''}${via === 'printer' ? ' to printer' : ''}${skippedMsg}`)
       setSelectedIds(new Set())

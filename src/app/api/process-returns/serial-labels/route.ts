@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
     select: {
       serialNumber: true,
       status: true,
+      trgId: true,
       product: { select: { sku: true } },
       grade: { select: { grade: true } },
     },
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
       serialNumber: hit?.serialNumber ?? sn,
       sku: hit?.product?.sku ?? null,
       grade: hit?.grade?.grade ?? null,
+      trgId: hit?.trgId ?? null,
       found: !!hit,
       inStock: hit?.status === 'IN_STOCK',
     }

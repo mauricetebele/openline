@@ -2,9 +2,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { AlertCircle, X, Package, Hash, Clock, ShoppingCart, Search, ArrowRightLeft, Tag, Printer, Unlock } from 'lucide-react'
 // Hash is already imported above and reused for the TRG ID badge.
-import JsBarcode from 'jsbarcode'
 import GradeBadge from '@/components/GradeBadge'
 import { jsPDF } from 'jspdf'
+import { drawSerialLabel } from '@/lib/print-serial-labels'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function printLabel() {
+  async function printLabel() {
     if (!result) return
 
     // Label size: DYMO 30334 = 2.25" x 1.25"
@@ -100,57 +100,13 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
     const H = 1.25 * 72  // points
     const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: [H, W] })
 
-    const margin = 4
-    const maxTextW = W - margin * 2
-
-    // SKU line (bold) — shrink font to fit
-    doc.setFont('helvetica', 'bold')
-    let skuSize = 10
-    while (skuSize > 5 && doc.getTextWidth(result.product.sku) > maxTextW) {
-      skuSize -= 0.5
-      doc.setFontSize(skuSize)
-    }
-    doc.setFontSize(skuSize)
-    doc.text(result.product.sku, margin, 12)
-
-    // Grade line (bold, only if exists)
-    let yAfterGrade = 12
-    if (result.grade) {
-      yAfterGrade = 22
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(9)
-      doc.text(result.grade.grade, margin, yAfterGrade)
-    }
-
-    // Barcode — render at 4x resolution for crisp PDF output
-    const scale = 4
-    const canvas = document.createElement('canvas')
-    JsBarcode(canvas, result.serialNumber, {
-      format: 'CODE128',
-      width: 2 * scale,
-      height: 40 * scale,
-      displayValue: false,
-      margin: 0,
+    // Shared renderer (adds the TRG QR when a TRG ID is present).
+    await drawSerialLabel(doc, {
+      serialNumber: result.serialNumber,
+      sku: result.product.sku,
+      grade: result.grade?.grade ?? null,
+      trgId: result.trgId,
     })
-    const barcodeY = yAfterGrade + 6
-    const barcodeImg = canvas.toDataURL('image/png')
-    const barcodeW = W - margin * 2
-    const barcodeH = 42
-    doc.addImage(barcodeImg, 'PNG', margin, barcodeY, barcodeW, barcodeH)
-
-    // Serial number text below barcode (rendered as vector text, not bitmap)
-    doc.setFont('courier', 'normal')
-    doc.setFontSize(8)
-    doc.text(result.serialNumber, W / 2, barcodeY + barcodeH + 8, { align: 'center' })
-
-    // Timestamp (small, right-aligned at bottom)
-    const timestamp = new Date().toLocaleString('en-US', {
-      month: '2-digit', day: '2-digit', year: '2-digit',
-      hour: 'numeric', minute: '2-digit', hour12: true,
-    })
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(6)
-    doc.text(timestamp, W - margin, H - 4, { align: 'right' })
 
     // Open print dialog
     const pdfBlob = doc.output('blob')
