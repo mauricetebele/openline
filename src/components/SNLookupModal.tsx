@@ -4,6 +4,7 @@ import { AlertCircle, X, Package, Hash, Clock, ShoppingCart, Search, ArrowRightL
 // Hash is already imported above and reused for the TRG ID badge.
 import GradeBadge from '@/components/GradeBadge'
 import { jsPDF } from 'jspdf'
+import QRCode from 'qrcode'
 import { drawSerialLabel } from '@/lib/print-serial-labels'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -81,8 +82,20 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
   const [err,      setErr]      = useState('')
 
   const inputRef = useRef<HTMLInputElement>(null)
+  // Rendered TRG ID QR for the label preview (mirrors the printed label).
+  const [trgQr, setTrgQr] = useState<string | null>(null)
 
   useEffect(() => { inputRef.current?.focus() }, [])
+
+  useEffect(() => {
+    const trg = result?.trgId?.trim()
+    if (!trg) { setTrgQr(null); return }
+    let cancelled = false
+    QRCode.toDataURL(trg, { margin: 0, width: 120 })
+      .then(url => { if (!cancelled) setTrgQr(url) })
+      .catch(() => { if (!cancelled) setTrgQr(null) })
+    return () => { cancelled = true }
+  }, [result?.trgId])
 
   // Auto-search if initialQuery provided
   useEffect(() => {
@@ -561,13 +574,24 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                 {result.grade && (
                   <p className="text-[9px] font-bold text-gray-700 leading-tight mt-0.5">{result.grade.grade}</p>
                 )}
-                <div className="mt-1.5 h-9 w-full rounded-sm overflow-hidden bg-white flex items-center justify-center"
-                  style={{
-                    backgroundImage: `repeating-linear-gradient(90deg, #000 0px, #000 1px, transparent 1px, transparent 3px, #000 3px, #000 5px, transparent 5px, transparent 6px, #000 6px, #000 7px, transparent 7px, transparent 10px)`,
-                    backgroundSize: '10px 100%',
-                  }}
-                />
-                <p className="text-[9px] font-mono text-gray-700 text-center mt-0.5 tracking-wider">{result.serialNumber}</p>
+                <div className="mt-1.5 flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="h-9 w-full rounded-sm overflow-hidden bg-white flex items-center justify-center"
+                      style={{
+                        backgroundImage: `repeating-linear-gradient(90deg, #000 0px, #000 1px, transparent 1px, transparent 3px, #000 3px, #000 5px, transparent 5px, transparent 6px, #000 6px, #000 7px, transparent 7px, transparent 10px)`,
+                        backgroundSize: '10px 100%',
+                      }}
+                    />
+                    <p className="text-[9px] font-mono text-gray-700 text-center mt-0.5 tracking-wider truncate">{result.serialNumber}</p>
+                  </div>
+                  {result.trgId && (
+                    <div className="flex flex-col items-center shrink-0" style={{ width: 50 }}>
+                      <span className="text-[6px] font-bold text-gray-700 leading-none">TRG</span>
+                      {trgQr && <img src={trgQr} alt="TRG ID QR" style={{ width: 44, height: 44 }} className="mt-0.5" />}
+                      <span className="text-[7px] font-mono text-gray-700 leading-tight text-center break-all mt-0.5">{result.trgId}</span>
+                    </div>
+                  )}
+                </div>
                 <p className="text-[7px] text-gray-400 text-right mt-1">
                   {new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true })}
                 </p>

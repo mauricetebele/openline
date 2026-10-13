@@ -38,13 +38,21 @@ export async function GET(req: NextRequest) {
 
   // Build where clause: serial search, filter search, or both
   const where: Record<string, unknown> = {}
+  // Match on serial number OR TRG ID (kept in an AND entry so it never collides
+  // with the vendor OR below). Single term → partial match; multiple → exact.
+  const andClauses: Record<string, unknown>[] = []
   if (requested.length === 1) {
-    // Single serial — use partial match
-    where.serialNumber = { contains: requested[0], mode: 'insensitive' }
+    andClauses.push({ OR: [
+      { serialNumber: { contains: requested[0], mode: 'insensitive' } },
+      { trgId: { contains: requested[0], mode: 'insensitive' } },
+    ] })
   } else if (requested.length > 1) {
-    // Multiple serials — use exact match (bulk lookup)
-    where.serialNumber = { in: requested, mode: 'insensitive' }
+    andClauses.push({ OR: [
+      { serialNumber: { in: requested, mode: 'insensitive' } },
+      { trgId: { in: requested, mode: 'insensitive' } },
+    ] })
   }
+  if (andClauses.length) where.AND = andClauses
   if (locationId) where.locationId = locationId
   else if (warehouseId) where.location = { warehouseId }
   if (status === 'IN_STOCK') where.status = 'IN_STOCK'
@@ -109,7 +117,12 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  const foundSerials = new Set(records.map(r => r.serialNumber.toLowerCase()))
+  // A requested term counts as "found" if it matched a serial number OR a TRG ID.
+  const foundSerials = new Set<string>()
+  for (const r of records) {
+    foundSerials.add(r.serialNumber.toLowerCase())
+    if (r.trgId) foundSerials.add(r.trgId.toLowerCase())
+  }
   // For partial (single-serial) search, don't report "not found" — results are contains-matches
   const notFound = requested.length > 1
     ? requested.filter(s => !foundSerials.has(s.toLowerCase()))
