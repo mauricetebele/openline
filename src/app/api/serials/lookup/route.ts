@@ -46,10 +46,29 @@ export async function GET(req: NextRequest) {
   const sn = req.nextUrl.searchParams.get('sn')?.trim()
   if (!sn) return NextResponse.json({ error: 'Serial number is required' }, { status: 400 })
 
+  // A query entered as "TRG-XXXXX" is an explicit TRG ID lookup: strip the
+  // "TRG-" prefix and match only against stored TRG IDs. Otherwise match on
+  // serial number OR TRG ID.
+  const TRG_PREFIX = /^trg-/i
+  const isTrg = TRG_PREFIX.test(sn)
+  const term = isTrg ? sn.replace(TRG_PREFIX, '') : sn
+  const exactWhere = isTrg
+    ? { trgId: { equals: term, mode: 'insensitive' as const } }
+    : { OR: [
+        { serialNumber: { equals: term, mode: 'insensitive' as const } },
+        { trgId: { equals: term, mode: 'insensitive' as const } },
+      ] }
+  const partialWhere = isTrg
+    ? { trgId: { contains: term, mode: 'insensitive' as const } }
+    : { OR: [
+        { serialNumber: { contains: term, mode: 'insensitive' as const } },
+        { trgId: { contains: term, mode: 'insensitive' as const } },
+      ] }
+
   try {
     // Check for exact match first, then fall back to partial (contains)
     const serial = await prisma.inventorySerial.findFirst({
-      where: { serialNumber: { equals: sn, mode: 'insensitive' } },
+      where: exactWhere,
       select: { id: true },
     })
 
@@ -59,7 +78,7 @@ export async function GET(req: NextRequest) {
 
     // Partial match — return list of matching serials (no history, lightweight)
     const matches = await prisma.inventorySerial.findMany({
-      where: { serialNumber: { contains: sn, mode: 'insensitive' } },
+      where: partialWhere,
       take: 50,
       orderBy: { serialNumber: 'asc' },
       include: {
