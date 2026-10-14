@@ -1,7 +1,7 @@
 'use client'
 import { createPortal } from 'react-dom'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2, DollarSign, Eraser, Ban } from 'lucide-react'
+import { Plus, Search, Trash2, X, AlertCircle, Tags, RefreshCw, Link2, Unlink, Upload, Package, Check, Loader2, DollarSign, Eraser, Ban, Download } from 'lucide-react'
 import { clsx } from 'clsx'
 import { resolveFees, computeTargetPrice, breakdownAtPrice, marginAtPrice, type CalcTemplate, type TemplateFees } from '@/lib/target-margin'
 import CalculationTemplateManager from './CalculationTemplateManager'
@@ -1054,6 +1054,54 @@ export default function MarketplaceSkuManager() {
       : `Refreshed price & buy box for ${targets.length} mapping${targets.length === 1 ? '' : 's'}`)
   }
 
+  // Export the currently filtered mappings to CSV — one row per mapping, all
+  // the key columns flattened (including live qty breakdown when loaded).
+  function exportFilteredCsv() {
+    const rows = filteredSkus
+    if (rows.length === 0) { setToast('No mappings in the current filter to export'); return }
+    const headers = [
+      'Marketplace', 'Seller SKU', 'Product SKU', 'Description', 'Grade', 'ASIN', 'FNSKU',
+      'Condition', 'Fulfillment Channel', 'Listing Status', 'Suspended', 'Sync Qty', 'Default SKU', 'Max Qty',
+      'Current Price', 'Min Price', 'Max Price',
+      'Buy Box Price', 'Buy Box Seller', 'Back Box Won', 'Back Box Price', 'Back Box Price To Win',
+      'Target Margin %', 'Shipping Template', 'SeeSaw', 'SeeSaw Active', 'Simultaneous List', 'BM Listing ID',
+      'On Hand', 'Ready For Sale', 'Reserved', 'Pending Orders', 'Pending Payment', 'Available', 'Pushing', 'Avg Unit Cost',
+      'Created At',
+    ]
+    const mpLabel = (m: string) => (m === 'backmarket' ? 'Back Market' : m === 'amazon' ? 'Amazon' : m)
+    const yn = (b: boolean | null | undefined) => (b == null ? '' : b ? 'Yes' : 'No')
+    const esc = (v: unknown) => {
+      if (v == null) return ''
+      const s = String(v)
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const lines = [headers.join(',')]
+    for (const s of rows) {
+      const q = qtyMap[s.id]
+      lines.push([
+        mpLabel(s.marketplace), s.sellerSku, s.product?.sku ?? '', s.product?.description ?? '', s.grade?.grade ?? '',
+        s.asin ?? '', s.fnsku ?? '',
+        s.itemCondition ?? '', s.fulfillmentChannel ?? '', s.listingStatus ?? '', yn(s.suspended), yn(s.syncQty), yn(s.isDefaultSku), s.maxQty ?? '',
+        s.price ?? '', s.minPrice ?? '', s.maxPrice ?? '',
+        s.buyBoxPrice ?? '', s.buyBoxSeller ?? '', yn(s.backboxWon), s.backboxPrice ?? '', s.backboxPriceToWin ?? '',
+        s.targetMarginPct ?? '', s.shippingTemplate ?? '', yn(s.seeSaw), yn(s.seeSawActive), yn(s.simulList), s.bmListingId ?? '',
+        q?.onHand ?? '', q?.readyForSale ?? '', q?.reserved ?? '', q?.pendingOrders ?? '', q?.pendingPayment ?? '', q?.available ?? '', q?.pushing ?? '', q?.avgUnitCost ?? '',
+        s.createdAt ? new Date(s.createdAt).toLocaleString('en-US') : '',
+      ].map(esc).join(','))
+    }
+    const csv = '﻿' + lines.join('\r\n') // BOM so Excel reads UTF-8
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const d = new Date()
+    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `marketplace-skus-${stamp}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    setToast(`Exported ${rows.length} mapping${rows.length === 1 ? '' : 's'}`)
+  }
+
   // Add form state
   const [showForm, setShowForm] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<ProductSearchResult | null>(null)
@@ -1750,6 +1798,16 @@ export default function MarketplaceSkuManager() {
             {refreshingFiltered && filteredProgress
               ? `Refreshing… ${filteredProgress.done}/${filteredProgress.total}`
               : `Refresh Filtered${filteredSkus.length ? ` (${filteredSkus.length})` : ''}`}
+          </button>
+          <button
+            type="button"
+            onClick={exportFilteredCsv}
+            disabled={filteredSkus.length === 0}
+            title="Export the current filtered view to CSV — one row per mapping"
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
+          >
+            <Download size={13} className="text-gray-500" />
+            {`Export${filteredSkus.length ? ` (${filteredSkus.length})` : ''}`}
           </button>
           <button
             type="button"
