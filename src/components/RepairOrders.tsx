@@ -526,21 +526,64 @@ function ReceiveModal({ orderId, items, preselected, locs, onClose, onDone }: {
   onClose: () => void
   onDone: () => void
 }) {
-  // Receive the selected rows if any were checked, else every not-yet-received unit.
-  const targets = useMemo(() => {
-    const unreceived = items.filter(i => !i.receivedAt)
-    const pick = preselected.size > 0 ? unreceived.filter(i => preselected.has(i.id)) : unreceived
-    return pick
-  }, [items, preselected])
+  // Units still awaiting receipt (a repair order can be received in batches).
+  const unreceived = useMemo(() => items.filter(i => !i.receivedAt), [items])
+
+  // The batch being received now. Seeded from any pre-checked rows; otherwise the
+  // user pastes serials (vendor sent a partial shipment back) to build it.
+  const [batch, setBatch] = useState<Set<string>>(
+    () => new Set(Array.from(preselected).filter(id => unreceived.some(u => u.id === id))),
+  )
+  const targets = useMemo(() => unreceived.filter(i => batch.has(i.id)), [unreceived, batch])
+
+  // Paste-serials box → add matching unreceived units to the batch.
+  const [paste, setPaste] = useState('')
+  const [pasteMsg, setPasteMsg] = useState<string | null>(null)
+
+  function loadPasted() {
+    const wanted = paste.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean)
+    if (wanted.length === 0) return
+    const unreceivedBySn = new Map(unreceived.map(i => [i.serialNumber.toUpperCase(), i.id]))
+    const receivedSns = new Set(items.filter(i => i.receivedAt).map(i => i.serialNumber.toUpperCase()))
+    const add = new Set(batch)
+    let matched = 0
+    const notFound: string[] = []
+    const already: string[] = []
+    const seen = new Set<string>()
+    for (const w of wanted) {
+      const key = w.toUpperCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      const id = unreceivedBySn.get(key)
+      if (id) { if (!add.has(id)) matched++; add.add(id) }
+      else if (receivedSns.has(key)) already.push(w)
+      else notFound.push(w)
+    }
+    setBatch(add)
+    setPaste('')
+    const parts = [`Added ${matched} unit${matched === 1 ? '' : 's'}`]
+    if (already.length) parts.push(`${already.length} already received`)
+    if (notFound.length) parts.push(`${notFound.length} not on this order: ${notFound.slice(0, 8).join(', ')}${notFound.length > 8 ? '…' : ''}`)
+    setPasteMsg(parts.join(' · '))
+  }
+  const addAllRemaining = () => setBatch(new Set(unreceived.map(i => i.id)))
+  const clearBatch = () => { setBatch(new Set()); setPaste(''); setPasteMsg(null) }
+  const removeFromBatch = (id: string) => setBatch(prev => { const n = new Set(prev); n.delete(id); return n })
 
   const [locationId, setLocationId] = useState('')
   const [busy, setBusy] = useState(false)
   // Per-item form: default REPAIRED (most units get serviced), cost prefilled.
-  const [form, setForm] = useState<Record<string, { status: 'REPAIRED' | 'REFUSED'; cost: string; note: string }>>(() => {
-    const f: Record<string, { status: 'REPAIRED' | 'REFUSED'; cost: string; note: string }> = {}
-    for (const it of targets) f[it.id] = { status: 'REPAIRED', cost: it.repairCost != null ? String(it.repairCost) : '', note: '' }
-    return f
-  })
+  const [form, setForm] = useState<Record<string, { status: 'REPAIRED' | 'REFUSED'; cost: string; note: string }>>({})
+  // Ensure every batched unit has a form entry (without clobbering existing edits).
+  useEffect(() => {
+    setForm(prev => {
+      const next = { ...prev }
+      for (const it of targets) {
+        if (!next[it.id]) next[it.id] = { status: 'REPAIRED', cost: it.repairCost != null ? String(it.repairCost) : '', note: '' }
+      }
+      return next
+    })
+  }, [targets])
   const setItem = (id: string, patch: Partial<{ status: 'REPAIRED' | 'REFUSED'; cost: string; note: string }>) =>
     setForm(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }))
 
@@ -553,12 +596,15 @@ function ReceiveModal({ orderId, items, preselected, locs, onClose, onDone }: {
     try {
       const payload = {
         locationId,
-        items: targets.map(t => ({
-          itemId: t.id,
-          status: form[t.id].status,
-          repairSummary: form[t.id].note.trim() || undefined,
-          repairCost: form[t.id].status === 'REPAIRED' && form[t.id].cost !== '' ? Number(form[t.id].cost) : undefined,
-        })),
+        items: targets.map(t => {
+          const f = form[t.id] ?? { status: 'REPAIRED' as const, cost: '', note: '' }
+          return {
+            itemId: t.id,
+            status: f.status,
+            repairSummary: f.note.trim() || undefined,
+            repairCost: f.status === 'REPAIRED' && f.cost !== '' ? Number(f.cost) : undefined,
+          }
+        }),
       }
       const r = await api(`/api/repair-orders/${orderId}/receive`, 'POST', payload)
       toast.success(`Received ${r.received} unit${r.received !== 1 ? 's' : ''} into ${r.locationName}${r.allReceived ? ' — order completed' : ''}`)
@@ -589,9 +635,31 @@ function ReceiveModal({ orderId, items, preselected, locs, onClose, onDone }: {
           </div>
         </div>
 
+        {/* Paste the serials the vendor sent back in this batch (partial shipments
+            are received separately — remaining units stay on the order). */}
+        <div className="px-4 py-3 border-b dark:border-gray-700 space-y-2">
+          <label className="block text-[11px] font-medium text-gray-500">Paste the serials in this shipment (one per line / comma-separated)</label>
+          <div className="flex items-start gap-2">
+            <textarea rows={2} value={paste} onChange={e => setPaste(e.target.value)} placeholder="Serial numbers received in this batch…" className={clsx(inputCls, 'flex-1 font-mono text-xs')} />
+            <div className="flex flex-col gap-1.5">
+              <button onClick={loadPasted} disabled={!paste.trim()} className="h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium disabled:opacity-50 whitespace-nowrap">Load serials</button>
+              <button onClick={addAllRemaining} disabled={unreceived.length === 0} className="h-7 px-3 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-[11px] disabled:opacity-50 whitespace-nowrap">Add all remaining ({unreceived.length})</button>
+            </div>
+          </div>
+          {pasteMsg && <p className="text-[11px] text-gray-500">{pasteMsg}</p>}
+          <div className="text-[11px] text-gray-400">
+            {targets.length} in this batch · {unreceived.length} awaiting receipt
+            {targets.length > 0 && <button onClick={clearBatch} className="ml-2 text-gray-500 hover:text-red-600 underline">clear</button>}
+          </div>
+        </div>
+
         <div className="overflow-auto flex-1">
           {targets.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-gray-400">All units on this order are already received.</div>
+            <div className="px-4 py-8 text-center text-sm text-gray-400">
+              {unreceived.length === 0
+                ? 'All units on this order are already received.'
+                : 'Paste the serials in this shipment above to build this receiving batch.'}
+            </div>
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-gray-50 dark:bg-gray-800 text-gray-500 text-xs sticky top-0">
@@ -601,11 +669,12 @@ function ReceiveModal({ orderId, items, preselected, locs, onClose, onDone }: {
                   <th className="text-left px-3 py-2 w-44">Outcome</th>
                   <th className="text-right px-3 py-2 w-24">Cost ($)</th>
                   <th className="text-left px-3 py-2">Reason / notes</th>
+                  <th className="w-8" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {targets.map(it => {
-                  const f = form[it.id]
+                  const f = form[it.id] ?? { status: 'REPAIRED' as const, cost: it.repairCost != null ? String(it.repairCost) : '', note: '' }
                   return (
                     <tr key={it.id}>
                       <td className="px-3 py-1.5">
@@ -626,6 +695,9 @@ function ReceiveModal({ orderId, items, preselected, locs, onClose, onDone }: {
                       </td>
                       <td className="px-3 py-1.5">
                         <input value={f.note} onChange={e => setItem(it.id, { note: e.target.value })} placeholder={f.status === 'REFUSED' ? 'Why refused?' : 'Optional'} className={clsx(inputCls, 'w-full')} />
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        <button onClick={() => removeFromBatch(it.id)} title="Remove from this batch" className="text-gray-300 hover:text-red-500"><X size={14} /></button>
                       </td>
                     </tr>
                   )
