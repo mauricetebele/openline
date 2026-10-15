@@ -420,7 +420,10 @@ model SellerListing {
   shippingTemplate String? // display name (from catalog report or resolved from group id)
   shippingTemplateGroupId String? // Amazon merchant_shipping_group id (UUID) from the live pull
   listingStatus    String?
-  quantity         Int           @default(0)
+  quantity         Int           @default(0) // FBA: fulfillable (available) qty; MFN: listed qty
+  // FBA-only breakdown from the SP-API inventory summary (null for MFN).
+  fbaReservedQty   Int?          // reservedQuantity.totalReservedQuantity
+  fbaTransferQty   Int?          // reservedQuantity.pendingTransshipmentQuantity (FC → FC transfer)
   price            Decimal?      @db.Decimal(12, 2)
   lastSyncedAt     DateTime      @default(now())
   createdAt        DateTime      @default(now())

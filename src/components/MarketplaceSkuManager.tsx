@@ -54,6 +54,10 @@ interface MarketplaceSku {
   backboxWon: boolean | null
   backboxPrice: string | null
   backboxPriceToWin: string | null
+  // FBA inventory from Amazon (null unless FBA)
+  fbaAvailableQty: number | null
+  fbaReservedQty: number | null
+  fbaTransferQty: number | null
 }
 
 interface MarketplaceListing {
@@ -2555,9 +2559,26 @@ export default function MarketplaceSkuManager() {
                         ) : null}
                       </div>
                     </td>
-                    {/* Qty: sync toggle · max · ready-for-sale · pushing */}
+                    {/* Qty: FBA → Amazon inventory (available/FC-transfer/reserved); else sync·max·RFS·push */}
                     <td className="align-top">
                       <div className="flex flex-col gap-1 min-w-[128px]">
+                        {s.fulfillmentChannel === 'FBA' ? (
+                          <>
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                              <span className="text-gray-400 uppercase tracking-wide" title="FBA fulfillable (available) quantity from Amazon">Avail</span>
+                              <span className="font-mono text-xs text-gray-700">{s.fbaAvailableQty ?? <span className="text-gray-300">—</span>}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                              <span className="text-gray-400 uppercase tracking-wide" title="Units in transfer between Amazon fulfillment centers (pending transshipment)">FC Xfer</span>
+                              <span className="font-mono text-xs text-gray-700">{s.fbaTransferQty ?? <span className="text-gray-300">—</span>}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                              <span className="text-gray-400 uppercase tracking-wide" title="Total reserved by Amazon (customer orders, FC transfers, FC processing)">Rsvd</span>
+                              <span className="font-mono text-xs text-gray-700">{s.fbaReservedQty ?? <span className="text-gray-300">—</span>}</span>
+                            </div>
+                          </>
+                        ) : (
+                        <>
                         <div className="flex items-center justify-between gap-2 text-[10px]">
                           <span className="text-gray-400 uppercase tracking-wide">Sync</span>
                           {s.fulfillmentChannel === 'FBA' ? (
@@ -2653,6 +2674,8 @@ export default function MarketplaceSkuManager() {
                             <span className="text-xs text-gray-300">—</span>
                           )}
                         </div>
+                        </>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-2">

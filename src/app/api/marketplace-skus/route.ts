@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     const sellerListings = amazonSkus.length > 0
       ? await prisma.sellerListing.findMany({
           where: { sku: { in: amazonSkus } },
-          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true, listingStatus: true, shippingTemplate: true, shippingTemplateGroupId: true, buyBoxPrice: true, buyBoxSeller: true },
+          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true, listingStatus: true, shippingTemplate: true, shippingTemplateGroupId: true, buyBoxPrice: true, buyBoxSeller: true, quantity: true, fbaReservedQty: true, fbaTransferQty: true },
           distinct: ['sku'],
         })
       : []
@@ -48,6 +48,10 @@ export async function GET(req: NextRequest) {
     const minPriceMap = new Map(sellerListings.map(l => [l.sku, l.minPrice != null ? l.minPrice.toString() : null]))
     const maxPriceMap = new Map(sellerListings.map(l => [l.sku, l.maxPrice != null ? l.maxPrice.toString() : null]))
     const statusMap = new Map(sellerListings.map(l => [l.sku, l.listingStatus ?? null]))
+    // FBA inventory breakdown (available = quantity; reserved/transfer from SP-API summary).
+    const fbaAvailMap = new Map(sellerListings.map(l => [l.sku, l.quantity ?? null]))
+    const fbaReservedMap = new Map(sellerListings.map(l => [l.sku, l.fbaReservedQty ?? null]))
+    const fbaTransferMap = new Map(sellerListings.map(l => [l.sku, l.fbaTransferQty ?? null]))
 
     // Resolve shipping-template display names. Listings missing the name (not in the
     // stale catalog report) still have the group id from the live pull; map it to a
@@ -126,6 +130,10 @@ export async function GET(req: NextRequest) {
       backboxWon: s.marketplace === 'backmarket' ? (backboxWonMap.get(s.sellerSku) ?? null) : null,
       backboxPrice: s.marketplace === 'backmarket' ? (backboxPriceMap.get(s.sellerSku) ?? null) : null,
       backboxPriceToWin: s.marketplace === 'backmarket' ? (backboxPriceToWinMap.get(s.sellerSku) ?? null) : null,
+      // FBA inventory from Amazon (null unless this is an FBA SKU).
+      fbaAvailableQty: (fcMap.get(s.id) ?? slFcMap.get(s.sellerSku)) === 'FBA' ? (fbaAvailMap.get(s.sellerSku) ?? null) : null,
+      fbaReservedQty: (fcMap.get(s.id) ?? slFcMap.get(s.sellerSku)) === 'FBA' ? (fbaReservedMap.get(s.sellerSku) ?? null) : null,
+      fbaTransferQty: (fcMap.get(s.id) ?? slFcMap.get(s.sellerSku)) === 'FBA' ? (fbaTransferMap.get(s.sellerSku) ?? null) : null,
     }))
 
     return NextResponse.json({ data: enriched, shippingTemplates })
