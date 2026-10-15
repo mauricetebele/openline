@@ -702,6 +702,7 @@ export default function MarketplaceSkuManager() {
   const [err, setErr] = useState('')
   const [toast, setToast] = useState('')
   const [tab, setTab] = useState<TabKey>('all')
+  const [fbaOnly, setFbaOnly] = useState(false) // Amazon sub-filter: FBA SKUs only
   const [viewMode, setViewMode] = useState<ViewMode>('mapped')
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [filterText, setFilterText] = useState('')
@@ -1180,7 +1181,7 @@ export default function MarketplaceSkuManager() {
   useEffect(() => { loadAll() }, [loadAll])
 
   // Reset synced listings page when filters change
-  useEffect(() => { setSyncPage(1); setMainPage(1) }, [tab, filterText, viewMode, statusFilter, gradeFilter])
+  useEffect(() => { setSyncPage(1); setMainPage(1) }, [tab, fbaOnly, filterText, viewMode, statusFilter, gradeFilter])
 
   // Load global grades on mount
   useEffect(() => {
@@ -1561,6 +1562,8 @@ export default function MarketplaceSkuManager() {
   // inputs change, not on every unrelated render/toggle).
   const filteredSkus = useMemo(() => skus.filter(s => {
     if (tab !== 'all' && s.marketplace !== tab) return false
+    // Amazon sub-filter: FBA SKUs only.
+    if (tab === 'amazon' && fbaOnly && s.fulfillmentChannel !== 'FBA') return false
     if (gradeFilter === 'none') { if (s.gradeId != null) return false }
     else if (gradeFilter !== 'all') { if (s.gradeId !== gradeFilter) return false }
     if (statusFilter !== 'all') {
@@ -1604,7 +1607,7 @@ export default function MarketplaceSkuManager() {
     if (syncQtySort === 'enabled') return (b.syncQty ? 1 : 0) - (a.syncQty ? 1 : 0)
     if (syncQtySort === 'disabled') return (a.syncQty ? 1 : 0) - (b.syncQty ? 1 : 0)
     return 0
-  }), [skus, tab, gradeFilter, statusFilter, suspendedFilter, filterText, parentSkuSort, readyForSaleSort, createdSort, syncQtySort, qtyMap])
+  }), [skus, tab, fbaOnly, gradeFilter, statusFilter, suspendedFilter, filterText, parentSkuSort, readyForSaleSort, createdSort, syncQtySort, qtyMap])
 
   // O(1) per-row group position lookup, precomputed once — avoids an O(n) filter
   // inside every row's render (which made the list O(n²) to draw).
@@ -1984,6 +1987,23 @@ export default function MarketplaceSkuManager() {
               )}
             </button>
           ))}
+          {/* Amazon sub-filter — FBA availability is Amazon-managed. */}
+          {tab === 'amazon' && (
+            <button
+              type="button"
+              onClick={() => setFbaOnly(v => !v)}
+              title="Show only FBA (Amazon-fulfilled) SKUs"
+              className={clsx(
+                'ml-2 self-center inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
+                fbaOnly ? 'bg-blue-100 text-blue-700 border-blue-300' : 'border-gray-300 text-gray-500 hover:text-gray-700 hover:bg-gray-50',
+              )}
+            >
+              FBA Only
+              <span className={clsx('text-[10px] px-1 rounded-full', fbaOnly ? 'bg-blue-200 text-blue-800' : 'bg-gray-100 text-gray-500')}>
+                {skus.filter(s => s.marketplace === 'amazon' && s.fulfillmentChannel === 'FBA').length}
+              </span>
+            </button>
+          )}
         </div>
 
         <div className="flex-1" />
