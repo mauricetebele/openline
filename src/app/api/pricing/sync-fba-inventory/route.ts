@@ -10,6 +10,10 @@ import { getAuthUser } from '@/lib/get-auth-user'
 import { syncFbaInventory } from '@/lib/amazon/fba-inventory'
 import { requireAdmin, requireActiveAccount } from '@/lib/auth-helpers'
 
+// A full FBA inventory sync paginates the SP-API (500ms/page) and updates many
+// listings, so give it room beyond the default serverless limit.
+export const maxDuration = 300
+
 export async function POST(req: NextRequest) {
   try {
     const user = await getAuthUser()
