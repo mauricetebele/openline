@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { AlertCircle, X, Package, Hash, Clock, ShoppingCart, Search, ArrowRightLeft, Tag, Printer, Unlock } from 'lucide-react'
+import { AlertCircle, X, Package, Hash, Clock, ShoppingCart, Search, ArrowRightLeft, Tag, Printer, Unlock, StickyNote, Pencil, Loader2 } from 'lucide-react'
 // Hash is already imported above and reused for the TRG ID badge.
 import GradeBadge from '@/components/GradeBadge'
 import { jsPDF } from 'jspdf'
@@ -32,6 +32,7 @@ interface LookupSerial {
   unitCost:     number | null
   unlockCode:   string | null
   trgId:        string | null
+  note:         string | null
   product:      { description: string; sku: string }
   grade:        { id: string; grade: string } | null
   location:     { name: string; warehouse: { name: string } }
@@ -84,6 +85,10 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
   const inputRef = useRef<HTMLInputElement>(null)
   // Rendered TRG ID QR for the label preview (mirrors the printed label).
   const [trgQr, setTrgQr] = useState<string | null>(null)
+  // Inline serial-note editing.
+  const [editingNote, setEditingNote] = useState(false)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
 
   useEffect(() => { inputRef.current?.focus() }, [])
 
@@ -129,6 +134,26 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
       printWindow.onload = () => {
         printWindow.print()
       }
+    }
+  }
+
+  async function saveNote() {
+    if (!result) return
+    setSavingNote(true)
+    try {
+      const res = await fetch('/api/serial-search/note', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: result.id, note: noteDraft }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? 'Failed to save note')
+      setEditingNote(false)
+      // Re-fetch so the updated note + the new NOTE_ADDED history event show.
+      await handleSearch(result.serialNumber)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to save note')
+    } finally {
+      setSavingNote(false)
     }
   }
 
@@ -325,6 +350,42 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                     <Tag size={12} className="text-emerald-500" />
                     {result.unitCost != null ? `$${result.unitCost.toFixed(2)}` : '—'}
                   </span>
+                </div>
+
+                {/* Serial note — editable; each change is logged to history. */}
+                <div className="pl-0.5 pt-1">
+                  {editingNote ? (
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[11px] font-semibold text-gray-500 flex items-center gap-1"><StickyNote size={12} className="text-amber-500" /> Note</label>
+                      <textarea
+                        value={noteDraft}
+                        onChange={e => setNoteDraft(e.target.value)}
+                        rows={2}
+                        autoFocus
+                        placeholder="Add a note for this serial…"
+                        className="w-full text-sm rounded-md border border-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+                      />
+                      <div className="flex items-center gap-2">
+                        <button onClick={saveNote} disabled={savingNote} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium disabled:opacity-50">
+                          {savingNote && <Loader2 size={12} className="animate-spin" />} Save
+                        </button>
+                        <button onClick={() => setEditingNote(false)} disabled={savingNote} className="h-7 px-3 rounded-md border border-gray-300 text-gray-600 text-xs">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setNoteDraft(result.note ?? ''); setEditingNote(true) }}
+                      title="Click to edit note"
+                      className="inline-flex items-start gap-1.5 text-left bg-amber-50 text-amber-800 border border-amber-200 text-sm px-2.5 py-1 rounded-lg hover:bg-amber-100 max-w-full"
+                    >
+                      <StickyNote size={12} className="text-amber-500 mt-0.5 shrink-0" />
+                      <span className="font-semibold shrink-0">Note:</span>
+                      <span className="whitespace-pre-wrap break-words">
+                        {result.note ?? <span className="italic font-normal text-amber-500/70">none — click to add</span>}
+                      </span>
+                      <Pencil size={11} className="text-amber-400 mt-0.5 shrink-0" />
+                    </button>
+                  )}
                 </div>
               </div>
 
