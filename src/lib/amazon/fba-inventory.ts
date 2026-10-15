@@ -44,6 +44,44 @@ interface InventorySummariesResponse {
   }
 }
 
+// ─── Single-SKU fetch (ad-hoc, e.g. the per-row refresh button) ────────────────
+
+/**
+ * Pull the live FBA inventory breakdown for ONE seller SKU and persist it onto
+ * the matching FBA SellerListing. Returns the figures (or null if unavailable).
+ */
+export async function fetchFbaInventoryForSku(
+  accountId: string,
+  sku: string,
+): Promise<{ available: number; reserved: number; transfer: number } | null> {
+  const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
+  const client = new SpApiClient(accountId)
+
+  const response = await client.get<InventorySummariesResponse>('/fba/inventory/v1/summaries', {
+    granularityType: 'Marketplace',
+    granularityId: account.marketplaceId,
+    marketplaceIds: account.marketplaceId,
+    details: 'true',
+    sellerSkus: sku,
+  })
+
+  const item = (response?.payload?.inventorySummaries ?? []).find(
+    s => (s.sellerSku ?? '').toUpperCase() === sku.toUpperCase(),
+  ) ?? response?.payload?.inventorySummaries?.[0]
+  if (!item) return null
+
+  const available = item.inventoryDetails?.fulfillableQuantity ?? item.totalQuantity ?? 0
+  const reserved = item.inventoryDetails?.reservedQuantity?.totalReservedQuantity ?? 0
+  const transfer = item.inventoryDetails?.reservedQuantity?.pendingTransshipmentQuantity ?? 0
+
+  await prisma.sellerListing.updateMany({
+    where: { accountId, sku, fulfillmentChannel: 'FBA' },
+    data: { quantity: available, fbaReservedQty: reserved, fbaTransferQty: transfer },
+  })
+
+  return { available, reserved, transfer }
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export async function syncFbaInventory(accountId: string): Promise<{ updated: number; total: number }> {

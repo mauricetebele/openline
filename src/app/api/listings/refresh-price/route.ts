@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { fetchLiveListingPrice } from '@/lib/amazon/listings'
+import { fetchFbaInventoryForSku } from '@/lib/amazon/fba-inventory'
 import { getAuthUser } from '@/lib/get-auth-user'
 
 const bodySchema = z.object({
@@ -50,7 +51,26 @@ export async function POST(req: NextRequest) {
     const includeBuyBox = parsed.data.buyBox !== false
     const { asin, price, listingStatus, condition, buyBoxPrice, buyBoxSeller } =
       await fetchLiveListingPrice(accountId, sku, { includeBuyBox })
-    return NextResponse.json({ sku, asin, price, listingStatus, condition, buyBoxPrice, buyBoxSeller })
+
+    // For FBA listings, also refresh the Amazon-managed inventory breakdown
+    // (available / FC-transfer / reserved) ad-hoc for this SKU.
+    let fbaAvailableQty: number | null = null
+    let fbaTransferQty: number | null = null
+    let fbaReservedQty: number | null = null
+    const sl = await prisma.sellerListing.findFirst({
+      where: { accountId, sku },
+      select: { fulfillmentChannel: true },
+    })
+    if (sl?.fulfillmentChannel === 'FBA') {
+      try {
+        const inv = await fetchFbaInventoryForSku(accountId, sku)
+        if (inv) { fbaAvailableQty = inv.available; fbaTransferQty = inv.transfer; fbaReservedQty = inv.reserved }
+      } catch (e) {
+        console.error('[refresh-price] FBA inventory fetch failed:', e instanceof Error ? e.message : e)
+      }
+    }
+
+    return NextResponse.json({ sku, asin, price, listingStatus, condition, buyBoxPrice, buyBoxSeller, fbaAvailableQty, fbaTransferQty, fbaReservedQty })
   } catch (err) {
     console.error('[refresh-price]', err)
     return NextResponse.json(

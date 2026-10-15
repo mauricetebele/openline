@@ -944,6 +944,9 @@ export default function MarketplaceSkuManager() {
                   itemCondition: res.condition ?? x.itemCondition,
                   buyBoxPrice: res.buyBoxPrice != null ? String(res.buyBoxPrice) : x.buyBoxPrice,
                   buyBoxSeller: res.buyBoxSeller ?? x.buyBoxSeller,
+                  fbaAvailableQty: res.fbaAvailableQty != null ? res.fbaAvailableQty : x.fbaAvailableQty,
+                  fbaTransferQty: res.fbaTransferQty != null ? res.fbaTransferQty : x.fbaTransferQty,
+                  fbaReservedQty: res.fbaReservedQty != null ? res.fbaReservedQty : x.fbaReservedQty,
                 }
               : {
                   backboxWon: res.backboxWon ?? x.backboxWon,
@@ -2350,7 +2353,9 @@ export default function MarketplaceSkuManager() {
                               onClick={() => refreshPrice(s)}
                               disabled={refreshingPriceId === s.id}
                               className="text-gray-400 hover:text-amazon-blue p-0.5 disabled:opacity-50"
-                              title={`Pull the current live price from ${s.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'}`}
+                              title={s.fulfillmentChannel === 'FBA'
+                                ? 'Pull live price + FBA inventory (available / FC transfer / reserved) from Amazon'
+                                : `Pull the current live price from ${s.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'}`}
                             >
                               <RefreshCw size={12} className={clsx(refreshingPriceId === s.id && 'animate-spin')} />
                             </button>
