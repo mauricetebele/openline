@@ -81,6 +81,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // FBA availability is governed by Amazon's warehouses, so an FBA SKU never
+    // takes part in the last-unit strategy. The MSKU's seeSaw defaults to true,
+    // so force the strategy flags off for FBA (covers new + existing rows).
+    if (fulfillmentChannel === 'FBA') {
+      await prisma.productGradeMarketplaceSku.updateMany({
+        where: { sellerSku: sku, marketplace: 'amazon', accountId },
+        data: { seeSaw: false, seeSawActive: false, seeSawFlippedAt: null, simulList: false, isDefaultSku: false },
+      }).catch(() => {})
+    }
+
     // For FBA listings, fetch FNSKU and update records (non-blocking)
     if (fulfillmentChannel === 'FBA') {
       try {
