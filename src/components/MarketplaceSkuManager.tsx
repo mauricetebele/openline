@@ -839,8 +839,12 @@ export default function MarketplaceSkuManager() {
   const [bulkCalcTemplate, setBulkCalcTemplate] = useState('')
   const [assigningCalc, setAssigningCalc] = useState(false)
 
+  // A listing is FBA if Amazon reports the channel as FBA OR it carries an FNSKU
+  // (only FBA listings have one) — the channel field can lag, so FNSKU is a
+  // reliable fallback.
+  const isFba = (s: MarketplaceSku) => s.fulfillmentChannel === 'FBA' || !!s.fnsku
   // Only FBM/MFN Amazon listings have a merchant shipping template.
-  const isTemplateRow = (s: MarketplaceSku) => s.marketplace === 'amazon' && s.fulfillmentChannel !== 'FBA'
+  const isTemplateRow = (s: MarketplaceSku) => s.marketplace === 'amazon' && !isFba(s)
   const toggleIdSelected = (id: string) => setSelectedIds(prev => {
     const next = new Set(prev)
     if (next.has(id)) next.delete(id)
@@ -1088,14 +1092,14 @@ export default function MarketplaceSkuManager() {
       const q = qtyMap[s.id]
       // FBA availability is Amazon-managed, so the last-unit strategy / qty-lean
       // flags don't apply to FBA SKUs.
-      const fba = s.fulfillmentChannel === 'FBA'
+      const fba = isFba(s)
       lines.push([
         mpLabel(s.marketplace), s.sellerSku, s.product?.sku ?? '', s.product?.description ?? '', s.grade?.grade ?? '',
         s.asin ?? '', s.fnsku ?? '',
         s.itemCondition ?? '', s.fulfillmentChannel ?? '', s.listingStatus ?? '', yn(s.suspended), fba ? '' : yn(s.syncQty), fba ? '' : yn(s.isDefaultSku), s.maxQty ?? '',
         s.price ?? '', s.minPrice ?? '', s.maxPrice ?? '',
         s.buyBoxPrice ?? '', s.buyBoxSeller ?? '', yn(s.backboxWon), s.backboxPrice ?? '', s.backboxPriceToWin ?? '',
-        s.targetMarginPct ?? '', s.shippingTemplate ?? '', fba ? '' : yn(s.seeSaw), fba ? '' : yn(s.seeSawActive), fba ? '' : yn(s.simulList), s.bmListingId ?? '',
+        s.targetMarginPct ?? '', fba ? '' : (s.shippingTemplate ?? ''), fba ? '' : yn(s.seeSaw), fba ? '' : yn(s.seeSawActive), fba ? '' : yn(s.simulList), s.bmListingId ?? '',
         q?.onHand ?? '', q?.readyForSale ?? '', q?.reserved ?? '', q?.pendingOrders ?? '', q?.pendingPayment ?? '', q?.available ?? '', q?.pushing ?? '', q?.avgUnitCost ?? '',
         s.createdAt ? new Date(s.createdAt).toLocaleString('en-US') : '',
       ].map(esc).join(','))
@@ -1506,7 +1510,7 @@ export default function MarketplaceSkuManager() {
     const counts = new Map<string, number>()
     for (const s of skus) {
       if (!s.syncQty) continue
-      if (s.fulfillmentChannel === 'FBA') continue // FBA isn't a last-unit-strategy participant
+      if (isFba(s)) continue // FBA isn't a last-unit-strategy participant
       const key = `${s.productId}::${s.gradeId ?? 'null'}`
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
@@ -1517,7 +1521,7 @@ export default function MarketplaceSkuManager() {
   // FBA availability is governed by Amazon's warehouses, so FBA SKUs never take
   // part in the last-unit strategy (SEE-SAW / Last Unit Lean / SIMUL-LIST).
   const showStrategyToggles = (s: MarketplaceSku) =>
-    s.fulfillmentChannel !== 'FBA' &&
+    !isFba(s) &&
     multiListingGroups.has(`${s.productId}::${s.gradeId ?? 'null'}`)
 
   async function handlePushQty() {
@@ -1570,7 +1574,7 @@ export default function MarketplaceSkuManager() {
   const filteredSkus = useMemo(() => skus.filter(s => {
     if (tab !== 'all' && s.marketplace !== tab) return false
     // Amazon sub-filter: FBA SKUs only.
-    if (tab === 'amazon' && fbaOnly && s.fulfillmentChannel !== 'FBA') return false
+    if (tab === 'amazon' && fbaOnly && !isFba(s)) return false
     if (gradeFilter === 'none') { if (s.gradeId != null) return false }
     else if (gradeFilter !== 'all') { if (s.gradeId !== gradeFilter) return false }
     if (statusFilter !== 'all') {
@@ -2007,7 +2011,7 @@ export default function MarketplaceSkuManager() {
             >
               FBA Only
               <span className={clsx('text-[10px] px-1 rounded-full', fbaOnly ? 'bg-blue-200 text-blue-800' : 'bg-gray-100 text-gray-500')}>
-                {skus.filter(s => s.marketplace === 'amazon' && s.fulfillmentChannel === 'FBA').length}
+                {skus.filter(s => s.marketplace === 'amazon' && isFba(s)).length}
               </span>
             </button>
           )}
@@ -2243,7 +2247,7 @@ export default function MarketplaceSkuManager() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {pagedSkus.map(s => (
-                  <tr key={s.id} className={clsx('group align-top transition-colors', s.fulfillmentChannel === 'FBA' ? 'bg-blue-50/60 hover:bg-blue-100/70' : 'odd:bg-white even:bg-gray-50/50 hover:bg-amazon-blue/5')}>
+                  <tr key={s.id} className={clsx('group align-top transition-colors', isFba(s) ? 'bg-blue-50/60 hover:bg-blue-100/70' : 'odd:bg-white even:bg-gray-50/50 hover:bg-amazon-blue/5')}>
                     <td className="px-2 py-2 text-center">
                       <input
                         type="checkbox"
@@ -2264,7 +2268,7 @@ export default function MarketplaceSkuManager() {
                             ? <a href={`https://www.amazon.com/dp/${s.asin}`} target="_blank" rel="noopener noreferrer" className="text-amazon-blue hover:underline">{s.asin}</a>
                             : (s.bmListingId ?? '—')}
                         </span>
-                        {(s.fnsku || (s.marketplace === 'amazon' && s.accountId && s.fulfillmentChannel === 'FBA')) && (
+                        {(s.fnsku || (s.marketplace === 'amazon' && s.accountId && isFba(s))) && (
                           <span className="font-mono text-[10px] text-gray-400">
                             {s.fnsku ? s.fnsku : (
                               <button
@@ -2297,7 +2301,7 @@ export default function MarketplaceSkuManager() {
                           )}>
                             {s.marketplace === 'backmarket' ? 'Back Market' : s.marketplace}
                           </span>
-                          {s.fulfillmentChannel === 'FBA' && (
+                          {isFba(s) && (
                             <span className="inline-flex items-center rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700">FBA</span>
                           )}
                         </div>
@@ -2353,7 +2357,7 @@ export default function MarketplaceSkuManager() {
                               onClick={() => refreshPrice(s)}
                               disabled={refreshingPriceId === s.id}
                               className="text-gray-400 hover:text-amazon-blue p-0.5 disabled:opacity-50"
-                              title={s.fulfillmentChannel === 'FBA'
+                              title={isFba(s)
                                 ? 'Pull live price + FBA inventory (available / FC transfer / reserved) from Amazon'
                                 : `Pull the current live price from ${s.marketplace === 'backmarket' ? 'Back Market' : 'Amazon'}`}
                             >
@@ -2567,7 +2571,7 @@ export default function MarketplaceSkuManager() {
                     {/* Qty: FBA → Amazon inventory (available/FC-transfer/reserved); else sync·max·RFS·push */}
                     <td className="align-top">
                       <div className="flex flex-col gap-1 min-w-[128px]">
-                        {s.fulfillmentChannel === 'FBA' ? (
+                        {isFba(s) ? (
                           <>
                             <div className="flex items-center justify-between gap-2 text-[10px]">
                               <span className="text-gray-400 uppercase tracking-wide" title="FBA fulfillable (available) quantity from Amazon">Avail</span>
@@ -2586,7 +2590,7 @@ export default function MarketplaceSkuManager() {
                         <>
                         <div className="flex items-center justify-between gap-2 text-[10px]">
                           <span className="text-gray-400 uppercase tracking-wide">Sync</span>
-                          {s.fulfillmentChannel === 'FBA' ? (
+                          {isFba(s) ? (
                             <span className="text-[10px] text-gray-400" title="FBA inventory is managed by Amazon">N/A</span>
                           ) : (
                           <button
@@ -2609,7 +2613,7 @@ export default function MarketplaceSkuManager() {
                         </div>
                         <div className="flex items-center justify-between gap-2 text-[10px]">
                           <span className="text-gray-400 uppercase tracking-wide">Max</span>
-                          {s.fulfillmentChannel === 'FBA' ? (
+                          {isFba(s) ? (
                             <span className="text-[10px] text-gray-400">—</span>
                           ) : (
                           <input
@@ -2649,7 +2653,7 @@ export default function MarketplaceSkuManager() {
                         </div>
                         <div className="flex items-center justify-between gap-2 text-[10px]">
                           <span className="text-gray-400 uppercase tracking-wide">Push</span>
-                          {s.fulfillmentChannel === 'FBA' ? (
+                          {isFba(s) ? (
                             <span className="text-[10px] text-gray-400">—</span>
                           ) : s.suspended ? (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600"><Ban size={10} /> 0 · Suspended</span>
