@@ -1644,7 +1644,8 @@ export default function BulkListingCreator() {
                       {isBM && <th className="px-3 py-2">Condition</th>}
                       {!isBM && <th className="px-3 py-2">Price</th>}
                       <th className="px-3 py-2 w-16">Status</th>
-                      <th className="px-3 py-2 w-20" title="Enable marketplace qty sync / push for the created listing">Sync Qty</th>
+                      {/* FBA availability is governed by Amazon's warehouses — no local qty sync. */}
+                      {fulfillment !== 'FBA' && <th className="px-3 py-2 w-20" title="Enable marketplace qty sync / push for the created listing">Sync Qty</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -1675,27 +1676,29 @@ export default function BulkListingCreator() {
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2">
-                          {row.status === 'success' ? (
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={!!syncOn[row.marketplaceSku]}
-                              disabled={syncBusy === row.marketplaceSku}
-                              onClick={() => toggleSync(row.marketplaceSku)}
-                              title={syncOn[row.marketplaceSku] ? 'Qty sync ON — quantity pushes to the marketplace' : 'Enable qty sync / push for this listing'}
-                              className={clsx(
-                                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1',
-                                syncOn[row.marketplaceSku] ? 'bg-teal-500' : 'bg-gray-200 hover:bg-gray-300',
-                                syncBusy === row.marketplaceSku && 'opacity-50',
-                              )}
-                            >
-                              <span className={clsx('inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform', syncOn[row.marketplaceSku] ? 'translate-x-4' : 'translate-x-0.5')} />
-                            </button>
-                          ) : (
-                            <span className="text-xs text-gray-300">—</span>
-                          )}
-                        </td>
+                        {fulfillment !== 'FBA' && (
+                          <td className="px-3 py-2">
+                            {row.status === 'success' ? (
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={!!syncOn[row.marketplaceSku]}
+                                disabled={syncBusy === row.marketplaceSku}
+                                onClick={() => toggleSync(row.marketplaceSku)}
+                                title={syncOn[row.marketplaceSku] ? 'Qty sync ON — quantity pushes to the marketplace' : 'Enable qty sync / push for this listing'}
+                                className={clsx(
+                                  'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1',
+                                  syncOn[row.marketplaceSku] ? 'bg-teal-500' : 'bg-gray-200 hover:bg-gray-300',
+                                  syncBusy === row.marketplaceSku && 'opacity-50',
+                                )}
+                              >
+                                <span className={clsx('inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform', syncOn[row.marketplaceSku] ? 'translate-x-4' : 'translate-x-0.5')} />
+                              </button>
+                            ) : (
+                              <span className="text-xs text-gray-300">—</span>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

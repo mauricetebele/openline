@@ -1078,13 +1078,16 @@ export default function MarketplaceSkuManager() {
     const lines = [headers.join(',')]
     for (const s of rows) {
       const q = qtyMap[s.id]
+      // FBA availability is Amazon-managed, so the last-unit strategy / qty-lean
+      // flags don't apply to FBA SKUs.
+      const fba = s.fulfillmentChannel === 'FBA'
       lines.push([
         mpLabel(s.marketplace), s.sellerSku, s.product?.sku ?? '', s.product?.description ?? '', s.grade?.grade ?? '',
         s.asin ?? '', s.fnsku ?? '',
-        s.itemCondition ?? '', s.fulfillmentChannel ?? '', s.listingStatus ?? '', yn(s.suspended), yn(s.syncQty), yn(s.isDefaultSku), s.maxQty ?? '',
+        s.itemCondition ?? '', s.fulfillmentChannel ?? '', s.listingStatus ?? '', yn(s.suspended), fba ? '' : yn(s.syncQty), fba ? '' : yn(s.isDefaultSku), s.maxQty ?? '',
         s.price ?? '', s.minPrice ?? '', s.maxPrice ?? '',
         s.buyBoxPrice ?? '', s.buyBoxSeller ?? '', yn(s.backboxWon), s.backboxPrice ?? '', s.backboxPriceToWin ?? '',
-        s.targetMarginPct ?? '', s.shippingTemplate ?? '', yn(s.seeSaw), yn(s.seeSawActive), yn(s.simulList), s.bmListingId ?? '',
+        s.targetMarginPct ?? '', s.shippingTemplate ?? '', fba ? '' : yn(s.seeSaw), fba ? '' : yn(s.seeSawActive), fba ? '' : yn(s.simulList), s.bmListingId ?? '',
         q?.onHand ?? '', q?.readyForSale ?? '', q?.reserved ?? '', q?.pendingOrders ?? '', q?.pendingPayment ?? '', q?.available ?? '', q?.pushing ?? '', q?.avgUnitCost ?? '',
         s.createdAt ? new Date(s.createdAt).toLocaleString('en-US') : '',
       ].map(esc).join(','))
@@ -1495,6 +1498,7 @@ export default function MarketplaceSkuManager() {
     const counts = new Map<string, number>()
     for (const s of skus) {
       if (!s.syncQty) continue
+      if (s.fulfillmentChannel === 'FBA') continue // FBA isn't a last-unit-strategy participant
       const key = `${s.productId}::${s.gradeId ?? 'null'}`
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
@@ -1502,7 +1506,10 @@ export default function MarketplaceSkuManager() {
     counts.forEach((n, key) => { if (n > 1) multi.add(key) })
     return multi
   }, [skus])
+  // FBA availability is governed by Amazon's warehouses, so FBA SKUs never take
+  // part in the last-unit strategy (SEE-SAW / Last Unit Lean / SIMUL-LIST).
   const showStrategyToggles = (s: MarketplaceSku) =>
+    s.fulfillmentChannel !== 'FBA' &&
     multiListingGroups.has(`${s.productId}::${s.gradeId ?? 'null'}`)
 
   async function handlePushQty() {
