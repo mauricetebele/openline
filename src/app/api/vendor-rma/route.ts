@@ -65,7 +65,10 @@ export async function GET(req: NextRequest) {
       if (item.serials.length > 0) {
         const costs = item.serials.map(s => liveCostMap.get(s.serialNumber)).filter((c): c is number => c != null)
         const liveUnitCost = costs.length > 0 ? costs.reduce((a, b) => a + b, 0) / costs.length : null
-        return { ...item, unitCost: liveUnitCost != null ? String(liveUnitCost) : item.unitCost }
+        // Prefer the snapshot taken at RMA creation (cost when returned); live PO
+        // cost is a fallback only when there's no snapshot. A cheaper re-receipt
+        // of a returned serial must not retroactively lower the RMA value.
+        return { ...item, unitCost: item.unitCost ?? (liveUnitCost != null ? String(liveUnitCost) : null) }
       }
       return item
     }),

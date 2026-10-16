@@ -89,7 +89,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         description: item.product.description,
         serialNumber: s.serialNumber,
         quantity: 1,
-        cost: info?.unitCost ?? (item.unitCost != null ? Number(item.unitCost) : null),
+        // Cost at time of return (snapshot); live PO cost only as a fallback so a
+        // cheaper re-receipt of a returned serial can't lower the declared value.
+        cost: item.unitCost != null ? Number(item.unitCost) : (info?.unitCost ?? null),
         dateReceived: info?.dateReceived ? new Date(info.dateReceived).toISOString() : null,
         poNumber: info?.poNumber ?? null,
         note: info?.note ?? '',

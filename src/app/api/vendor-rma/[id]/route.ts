@@ -67,7 +67,11 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       return {
         ...item,
         serials: enrichedSerials,
-        unitCost: liveUnitCost != null ? String(liveUnitCost) : item.unitCost,
+        // Value a returned unit at its cost WHEN RETURNED (the snapshot taken at
+        // RMA creation). Live PO cost is only a fallback for legacy RMAs with no
+        // snapshot — otherwise a cheaper re-receipt of the same serial AFTER the
+        // return would wrongly lower the RMA's value.
+        unitCost: item.unitCost ?? (liveUnitCost != null ? String(liveUnitCost) : null),
       }
     }
     return item
