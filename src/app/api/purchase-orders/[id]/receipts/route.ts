@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+
+// Receiving a large PO (many lines/serials) runs a sizable transaction; give the
+// function and the transaction room so it doesn't time out mid-write.
+export const maxDuration = 300
 
 export async function GET(
   _req: NextRequest,
@@ -241,38 +246,38 @@ export async function POST(
           })
         }
 
-        // Batch create genuinely new serials
-        if (newSerials.length > 0) {
-          await tx.inventorySerial.createMany({
-            data: newSerials.map(sn => ({
-              serialNumber:  sn,
-              productId:     line.productId,
-              locationId:    line.locationId,
-              gradeId:       line.gradeId || null,
-              receiptLineId: receiptLine.id,
-              vendorId:      po.vendorId,
-              status:        'IN_STOCK' as const,
+        // Batch create genuinely new serials. Assign ids up front so we can
+        // write their history rows without an extra per-line read (which, on a
+        // PO with many lines, is what pushed the transaction past its timeout).
+        const newSerialRows = newSerials.map(sn => ({
+          id:            randomUUID(),
+          serialNumber:  sn,
+          productId:     line.productId,
+          locationId:    line.locationId,
+          gradeId:       line.gradeId || null,
+          receiptLineId: receiptLine.id,
+          vendorId:      po.vendorId,
+          status:        'IN_STOCK' as const,
+        }))
+        if (newSerialRows.length > 0) {
+          await tx.inventorySerial.createMany({ data: newSerialRows })
+        }
+
+        // History for every serial on this line (reactivated + newly created) —
+        // all now live at line.locationId.
+        const historyIds = [...reactivateIds, ...newSerialRows.map(r => r.id)]
+        if (historyIds.length > 0) {
+          await tx.serialHistory.createMany({
+            data: historyIds.map(id => ({
+              inventorySerialId: id,
+              eventType:         'PO_RECEIPT' as const,
+              receiptId:         newReceipt.id,
+              purchaseOrderId:   params.id,
+              locationId:        line.locationId,
+              userId:            user.dbId,
             })),
           })
         }
-
-        // Fetch all serials for this receipt line to get their IDs for history
-        const allSerials = await tx.inventorySerial.findMany({
-          where: { receiptLineId: receiptLine.id },
-          select: { id: true, locationId: true },
-        })
-
-        // Batch create history entries
-        await tx.serialHistory.createMany({
-          data: allSerials.map(s => ({
-            inventorySerialId: s.id,
-            eventType:         'PO_RECEIPT',
-            receiptId:         newReceipt.id,
-            purchaseOrderId:   params.id,
-            locationId:        s.locationId,
-            userId:            user.dbId,
-          })),
-        })
       }
 
       // 3. Upsert inventory quantities per product+location+grade
@@ -330,7 +335,7 @@ export async function POST(
           },
         },
       })
-    }, { timeout: 30000 })
+    }, { timeout: 120000, maxWait: 20000 })
 
     return NextResponse.json(receipt, { status: 201 })
   } catch (err) {
