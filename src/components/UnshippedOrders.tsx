@@ -5114,6 +5114,42 @@ function BatchHistoryModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  // Printable labels for a (closed) batch, fetched on demand and cached per batch.
+  const [labelCache, setLabelCache] = useState<Record<string, { orderId: string; labelData: string; labelFormat: string }[]>>({})
+  const [busyBatch, setBusyBatch] = useState<string | null>(null)
+
+  const fetchBatchLabels = async (batchId: string) => {
+    if (labelCache[batchId]) return labelCache[batchId]
+    const r = await fetch(`/api/orders/label-batch/${batchId}/labels`)
+    const d = await r.json()
+    if (!r.ok) throw new Error(d.error ?? 'Failed to load labels')
+    const labels = (d.labels ?? []) as { orderId: string; labelData: string; labelFormat: string }[]
+    setLabelCache(prev => ({ ...prev, [batchId]: labels }))
+    return labels
+  }
+
+  async function downloadAllLabels(batchId: string) {
+    setBusyBatch(batchId); setError(null)
+    try {
+      const labels = await fetchBatchLabels(batchId)
+      if (labels.length === 0) { setError('No completed labels in this batch to download'); return }
+      for (const l of labels) downloadLabelData(l.labelData, l.labelFormat, `label-${l.orderId}`)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load labels') }
+    finally { setBusyBatch(null) }
+  }
+
+  function openLabelBlob(labelData: string, labelFormat: string) {
+    const bytes = Uint8Array.from(atob(labelData), c => c.charCodeAt(0))
+    const mime = labelFormat === 'pdf' ? 'application/pdf' : labelFormat === 'zpl' ? 'application/octet-stream' : 'image/png'
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime }))
+    window.open(url, '_blank')
+  }
+
+  async function toggleExpand(batchId: string) {
+    const next = expandedId === batchId ? null : batchId
+    setExpandedId(next)
+    if (next && !labelCache[batchId]) { try { await fetchBatchLabels(batchId) } catch { /* surfaced via download */ } }
+  }
 
   useEffect(() => {
     fetch('/api/orders/label-batch')
@@ -5189,11 +5225,25 @@ function BatchHistoryModal({ onClose }: { onClose: () => void }) {
                     </span>
                   )}
 
+                  {/* View/print labels for this (closed) batch */}
+                  {batch.completed > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => downloadAllLabels(batch.id)}
+                      disabled={busyBatch === batch.id}
+                      className={`${batch.completedAt ? '' : 'ml-auto'} shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50`}
+                      title="Download every label in this batch"
+                    >
+                      {busyBatch === batch.id ? <RefreshCcw size={10} className="animate-spin" /> : <Download size={10} />}
+                      Labels
+                    </button>
+                  )}
+
                   {/* Expand toggle */}
                   <button
                     type="button"
-                    onClick={() => setExpandedId(isExpanded ? null : batch.id)}
-                    className="ml-auto shrink-0 p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                    onClick={() => toggleExpand(batch.id)}
+                    className={`${(!batch.completedAt && batch.completed === 0) ? 'ml-auto' : ''} shrink-0 p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100`}
                     title={isExpanded ? 'Collapse' : 'Show orders'}
                   >
                     {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
@@ -5219,6 +5269,19 @@ function BatchHistoryModal({ onClose }: { onClose: () => void }) {
                         {item.error && (
                           <span className="text-red-500 truncate" title={item.error}>— {item.error}</span>
                         )}
+                        {item.status === 'COMPLETED' && (() => {
+                          const l = labelCache[batch.id]?.find(x => x.orderId === item.orderId)
+                          return l ? (
+                            <button
+                              type="button"
+                              onClick={() => openLabelBlob(l.labelData, l.labelFormat)}
+                              className="ml-auto shrink-0 inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800"
+                              title="Open this label"
+                            >
+                              <Eye size={12} /> Label
+                            </button>
+                          ) : null
+                        })()}
                       </div>
                     ))}
                   </div>
