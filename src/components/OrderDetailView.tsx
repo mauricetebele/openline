@@ -119,6 +119,43 @@ function Section({ title, icon, children, check }: {
   )
 }
 
+/** Ad-hoc FMI/iCloud check: type any IMEI or serial and run it, even when the
+ *  order has no serial recorded in our system. Reuses SickwCheckButton (which
+ *  auto-loads prior checks for the serial and runs a fresh check on demand). */
+function ManualFmiCheck({ deviceHint }: { deviceHint: string }) {
+  const [input, setInput] = useState('')
+  const [serial, setSerial] = useState<string | null>(null)
+  const valid = /^[A-Za-z0-9]{8,15}$/.test(input.trim())
+  const submit = () => { if (valid) setSerial(input.trim().toUpperCase()) }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') submit() }}
+          placeholder="Enter IMEI or serial…"
+          className="flex-1 h-8 rounded border border-gray-300 dark:border-white/10 dark:bg-white/5 px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+        />
+        <button
+          onClick={submit}
+          disabled={!valid}
+          className="inline-flex items-center gap-1 h-8 px-3 rounded bg-amazon-blue text-white text-xs font-medium disabled:opacity-40 hover:bg-amazon-blue/90"
+        >
+          <Smartphone size={12} /> Check
+        </button>
+      </div>
+      {input && !valid && <p className="text-[10px] text-amber-600">Serial/IMEI must be 8–15 letters or digits.</p>}
+      {serial && (
+        <div className="flex items-center gap-2 text-xs pt-0.5">
+          <span className="font-mono text-gray-600 dark:text-gray-300">{serial}</span>
+          <SickwCheckButton key={serial} serial={serial} deviceHint={deviceHint} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function KV({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex justify-between text-xs py-1">
@@ -905,6 +942,17 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                   </tbody>
                 </table>
               </div>
+            </Section>
+          )}
+
+          {/* Ad-hoc FMI check for shipped orders — works even when no serial is
+              recorded, and supplements the per-serial checks above. */}
+          {order.workflowStatus === 'SHIPPED' && (
+            <Section title="FMI Check" icon={<Smartphone size={12} />}>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">
+                Run an iCloud / Find My check on any IMEI or serial from this shipped order.
+              </p>
+              <ManualFmiCheck deviceHint={order.items.map(i => `${i.sellerSku ?? ''} ${i.title ?? ''}`).join(' ')} />
             </Section>
           )}
 
