@@ -492,6 +492,7 @@ export async function POST(req: NextRequest) {
 
   // ── Amazon SP-API MerchantFulfillment (Amazon Buy Shipping rates incl. UPS) ──
   let amazonServices: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[] | undefined
+  let amazonServicesRejected: { code: string; name: string; carrierCode: string; carrierName: string; rejectionReason: string }[] | undefined
   if (isAmazonOrder && body.amazonOrderId) {
     try {
       const order = await prisma.order.findFirst({
@@ -536,11 +537,19 @@ export async function POST(req: NextRequest) {
           },
         }
         const resp = await spClient.post('/mfn/v0/eligibleShippingServices', mfnPayload)
-        const payload = (resp as Record<string, unknown>)?.payload as { ShippingServiceList?: Array<{
-          ShippingServiceId: string; ShippingServiceName: string
-          CarrierName: string; Rate?: { Amount?: number; CurrencyCode?: string }
-          LatestEstimatedDeliveryDate?: string; EarliestEstimatedDeliveryDate?: string
-        }> } | undefined
+        const payload = (resp as Record<string, unknown>)?.payload as {
+          ShippingServiceList?: Array<{
+            ShippingServiceId: string; ShippingServiceName: string
+            CarrierName: string; Rate?: { Amount?: number; CurrencyCode?: string }
+            LatestEstimatedDeliveryDate?: string; EarliestEstimatedDeliveryDate?: string
+          }>
+          // Services Amazon excluded — most commonly because they miss the order's
+          // deliver-by promise. Surfaced behind the "show all methods" override.
+          RejectedShippingServiceList?: Array<{
+            ShippingServiceId: string; ShippingServiceName: string; CarrierName: string
+            RejectionReasons?: Array<{ RejectionReasonCode?: string; RejectionReasonMessage?: string }>
+          }>
+        } | undefined
         const services = payload?.ShippingServiceList ?? []
         if (services.length > 0) {
           amazonServices = services.map(s => ({
@@ -553,6 +562,19 @@ export async function POST(req: NextRequest) {
           }))
           console.log('[rate-shop] SP-API MFN: %d services', amazonServices.length)
         }
+        const rejected = payload?.RejectedShippingServiceList ?? []
+        if (rejected.length > 0) {
+          amazonServicesRejected = rejected.map(s => ({
+            code: s.ShippingServiceId,
+            name: s.ShippingServiceName,
+            carrierCode: s.CarrierName,
+            carrierName: s.CarrierName,
+            rejectionReason: s.RejectionReasons?.map(r => r.RejectionReasonMessage).filter(Boolean).join('; ')
+              || s.RejectionReasons?.map(r => r.RejectionReasonCode).filter(Boolean).join('; ')
+              || 'Does not meet the deliver-by date',
+          }))
+          console.log('[rate-shop] SP-API MFN: %d rejected services', amazonServicesRejected.length)
+        }
       }
     } catch (err) {
       // Secondary, redundant source — the primary Amazon Buy Shipping rates come
@@ -563,5 +585,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ rates: allRates, errors: rateErrors, amazonServices, fedexDebug })
+  return NextResponse.json({ rates: allRates, errors: rateErrors, amazonServices, amazonServicesRejected, fedexDebug })
 }

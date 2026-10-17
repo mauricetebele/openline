@@ -3767,6 +3767,10 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
 
   const [rates, setRates]               = useState<SSRate[] | null>(null)
   const [amazonServices, setAmazonServices] = useState<{ code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[] | null>(null)
+  // Amazon Buy Shipping methods Amazon excluded (usually for missing the deliver-by
+  // date). Hidden unless the "show all methods" override is on.
+  const [amazonServicesRejected, setAmazonServicesRejected] = useState<{ code: string; name: string; carrierCode: string; carrierName: string; rejectionReason: string }[] | null>(null)
+  const [showAllAmazon, setShowAllAmazon] = useState(false)
   const [loadingRates, setLoadingRates] = useState(false)
   const [ratesErr, setRatesErr]         = useState<string | null>(null)
   const [fedexDebug, setFedexDebug]     = useState<{ credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } | null>(null)
@@ -3847,10 +3851,10 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
   async function getRates() {
     const shipTo = effectiveShipTo
     if (!shipTo || !fromZip) return
-    setLoadingRates(true); setRatesErr(null); setRates(null); setAmazonServices(null); setPurchased(null); setJwtStatus(null); setFedexDebug(null)
+    setLoadingRates(true); setRatesErr(null); setRates(null); setAmazonServices(null); setAmazonServicesRejected(null); setPurchased(null); setJwtStatus(null); setFedexDebug(null)
     try {
       const selectedWh = warehouses.find(w => String(w.warehouseId) === selectedWhId)
-      const data = await apiPost<{ rates: SSRate[]; errors?: string[]; jwtExpired?: boolean; amazonServices?: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[]; fedexDebug?: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } }>(
+      const data = await apiPost<{ rates: SSRate[]; errors?: string[]; jwtExpired?: boolean; amazonServices?: { code: string; name: string; carrierCode: string; carrierName: string; shipmentCost?: number; latestDeliveryDate?: string }[]; amazonServicesRejected?: { code: string; name: string; carrierCode: string; carrierName: string; rejectionReason: string }[]; fedexDebug?: { credentialsFound: boolean; requestParams?: unknown; rateCount?: number; oneRatePackaging?: string; oneRateCount?: number; error?: string } }>(
         '/api/shipstation/rate-shop', {
           warehouseId: selectedWh?.warehouseId, orderId: (!orderless && lookup.status === 'found') ? lookup.ssOrderId : undefined,
           fromPostalCode: fromZip, fromCity: selectedWh?.originAddress.city,
@@ -3875,6 +3879,7 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
       setRates(Array.isArray(data.rates) ? data.rates : [])
       if (data.fedexDebug) setFedexDebug(data.fedexDebug)
       if (data.amazonServices?.length) setAmazonServices(data.amazonServices)
+      if (data.amazonServicesRejected?.length) setAmazonServicesRejected(data.amazonServicesRejected)
       if (data.jwtExpired) setJwtStatus('expired')
       else if (data.errors?.some(e => e.toLowerCase().includes('session token'))) setJwtStatus('missing')
       if (data.errors?.length) {
@@ -4365,15 +4370,26 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
             </section>
           )}
 
-          {amazonServices && amazonServices.length > 0 && (() => {
-            const shown = [...amazonServices].sort((a, b) => (a.shipmentCost ?? 999) - (b.shipmentCost ?? 999))
-            if (shown.length === 0) return null
+          {((amazonServices?.length ?? 0) > 0 || (amazonServicesRejected?.length ?? 0) > 0) && (() => {
+            const shown = [...(amazonServices ?? [])].sort((a, b) => (a.shipmentCost ?? 999) - (b.shipmentCost ?? 999))
+            const rejected = amazonServicesRejected ?? []
             return (
             <section className="space-y-2">
-              <div>
-                <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Amazon Buy Shipping — {shown.length} service{shown.length !== 1 ? 's' : ''}</h3>
-                <p className="text-[10px] text-gray-400 mt-0.5">Amazon discounted &amp; seller-protected rates.</p>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Amazon Buy Shipping — {shown.length} service{shown.length !== 1 ? 's' : ''}</h3>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Amazon discounted &amp; seller-protected rates.</p>
+                </div>
+                {rejected.length > 0 && (
+                  <label className="flex items-center gap-1.5 text-[10px] font-medium text-gray-500 cursor-pointer shrink-0 whitespace-nowrap" title="Also show methods Amazon excluded for missing the deliver-by date">
+                    <input type="checkbox" checked={showAllAmazon} onChange={e => setShowAllAmazon(e.target.checked)} className="rounded border-gray-300 text-[#FF9900] focus:ring-[#FF9900]" />
+                    Show all ({rejected.length} past deliver-by)
+                  </label>
+                )}
               </div>
+              {shown.length === 0 && !showAllAmazon && (
+                <p className="text-[11px] text-gray-400 italic">No methods meet the deliver-by date — tick “Show all” to see {rejected.length} later option{rejected.length !== 1 ? 's' : ''}.</p>
+              )}
               {shown.map((svc, idx) => {
                 const key = `${svc.carrierCode}-${svc.code}`, isBuying = purchasing === key
                 return (
@@ -4391,6 +4407,29 @@ function LabelPanel({ order, ssAccount, onClose, onLabelSaved }: LabelPanelProps
                       {svc.shipmentCost !== undefined ? <span className="text-sm font-bold text-gray-900">${svc.shipmentCost.toFixed(2)}</span> : <span className="text-xs text-gray-400 italic">Price at purchase</span>}
                       <button onClick={() => buyLabel({ serviceName: svc.name, serviceCode: svc.code, carrierCode: svc.carrierCode, carrierName: svc.carrierName, shipmentCost: svc.shipmentCost ?? 0, otherCost: 0, transitDays: null, deliveryDate: null })} disabled={!!purchasing}
                         className={clsx('flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold transition-colors', purchasing ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-[#FF9900] text-white hover:bg-orange-500')}>
+                        {isBuying ? <RefreshCcw size={11} className="animate-spin" /> : <Download size={11} />}{isBuying ? 'Buying…' : 'Buy'}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* Override: methods Amazon excluded for missing the deliver-by date. */}
+              {showAllAmazon && rejected.map((svc, idx) => {
+                const key = `${svc.carrierCode}-${svc.code}`, isBuying = purchasing === key
+                return (
+                  <div key={`rej-${key}-${idx}`} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-amber-300 bg-amber-50/50">
+                    <div className="min-w-0 flex items-center gap-2.5">
+                      <CarrierLogo carrierCode={svc.carrierName} size={14} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{svc.name}</p>
+                        <p className="text-[11px] text-amber-700 mt-0.5 truncate" title={svc.rejectionReason}>Past deliver-by · {svc.rejectionReason}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs text-gray-400 italic">Price at purchase</span>
+                      <button onClick={() => buyLabel({ serviceName: svc.name, serviceCode: svc.code, carrierCode: svc.carrierCode, carrierName: svc.carrierName, shipmentCost: 0, otherCost: 0, transitDays: null, deliveryDate: null })} disabled={!!purchasing}
+                        className={clsx('flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold transition-colors', purchasing ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-amber-500 text-white hover:bg-amber-600')}>
                         {isBuying ? <RefreshCcw size={11} className="animate-spin" /> : <Download size={11} />}{isBuying ? 'Buying…' : 'Buy'}
                       </button>
                     </div>
