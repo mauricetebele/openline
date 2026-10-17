@@ -55,7 +55,6 @@ export async function POST(req: NextRequest) {
   const rules = await prisma.shippingRule.findMany({
     where: { active: true, orderSource: 'backmarket' },
     orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
-    include: { packagePreset: true },
   })
   if (rules.length === 0) return NextResponse.json({ error: 'No active Back Market shipping rules defined' }, { status: 400 })
 
@@ -160,7 +159,7 @@ export async function POST(req: NextRequest) {
 
       const rateCache = new Map<string, SSRate[]>()
       for (const rule of rules) {
-        if (rule.presetEnabled && order.appliedPackagePresetId !== rule.packagePresetId) continue
+        if (rule.presetEnabled && !(order.appliedPackagePresetId && rule.packagePresetIds.includes(order.appliedPackagePresetId))) continue
         const conf = rule.thenConfirmation ?? 'none'
         // Use the rule's linked UPS account so UPS Direct quotes its negotiated rates.
         const upsCredId = rule.thenCarrierType === 'ups_direct' ? (rule.thenUpsCredentialId ?? null) : null

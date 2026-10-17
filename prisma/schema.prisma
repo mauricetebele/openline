@@ -933,7 +933,6 @@ model PackagePreset {
   products Product[] @relation("ProductDefaultPackagePreset")
   orders   Order[]
   calcTemplateCosts CalculationTemplatePackageCost[]
-  shippingRules ShippingRule[] @relation("ShippingRulePreset")
 
   @@map("package_presets")
 }
@@ -951,10 +950,9 @@ model ShippingRule {
   // Scope — currently Back Market orders.
   orderSource String @default("backmarket")
 
-  // IF: the order's applied package preset equals this one.
-  presetEnabled   Boolean @default(false)
-  packagePresetId String?
-  packagePreset   PackagePreset? @relation("ShippingRulePreset", fields: [packagePresetId], references: [id], onDelete: SetNull)
+  // IF: the order's applied package preset is one of these (X or Y or Z).
+  presetEnabled    Boolean  @default(false)
+  packagePresetIds String[] @default([])
 
   // IF: UPS Ground transit. When enabled, passes only if (UPS Ground business-day
   // transit <= transitMaxDays) matches transitWithin (true = within, false = beyond).

@@ -11,8 +11,7 @@ interface Options { presets: Preset[]; shipstationCarriers: SsCarrier[]; fedexSe
 
 interface Rule {
   id: string; name: string; priority: number; active: boolean
-  presetEnabled: boolean; packagePresetId: string | null
-  packagePreset?: { id: string; name: string } | null
+  presetEnabled: boolean; packagePresetIds: string[]
   transitEnabled: boolean; transitMaxDays: number | null; transitWithin: boolean
   valueEnabled: boolean; valueOperator: string | null; valueAmount: string | number | null
   thenCarrierType: string; thenCarrierCode: string | null; thenServiceCode: string; thenServiceName: string | null; thenUpsCredentialId: string | null; thenConfirmation: string | null
@@ -25,7 +24,7 @@ const OP_LABEL: Record<string, string> = { gt: 'greater than', lt: 'less than', 
 
 function emptyDraft(): Draft {
   return {
-    name: '', priority: 0, active: true, presetEnabled: false, packagePresetId: null,
+    name: '', priority: 0, active: true, presetEnabled: false, packagePresetIds: [],
     transitEnabled: true, transitMaxDays: 2, transitWithin: true,
     valueEnabled: false, valueOperator: 'gt', valueAmount: null,
     thenCarrierType: 'shipstation', thenCarrierCode: null, thenServiceCode: '', thenServiceName: null, thenUpsCredentialId: null, thenConfirmation: null,
@@ -108,7 +107,7 @@ export default function ShippingRulesManager() {
               </div>
               <div className="text-xs text-gray-600 mt-1 space-y-0.5">
                 <div><span className="text-gray-400 font-medium">IF</span> {[
-                  r.presetEnabled ? `package preset = ${r.packagePreset?.name ?? '—'}` : null,
+                  r.presetEnabled ? `package preset = ${r.packagePresetIds.map(id => opts?.presets.find(p => p.id === id)?.name ?? '—').join(' or ') || '—'}` : null,
                   r.transitEnabled ? `UPS Ground transit ${r.transitWithin ? '≤' : '>'} ${r.transitMaxDays} business day${r.transitMaxDays === 1 ? '' : 's'}` : null,
                   r.valueEnabled ? `order value ${OP_LABEL[r.valueOperator ?? '']} $${Number(r.valueAmount ?? 0).toFixed(2)}` : null,
                 ].filter(Boolean).join('  AND  ')}</div>
@@ -153,13 +152,25 @@ function RuleEditor({ draft, setDraft, opts, onSave, onCancel, saving }: {
           {/* Conditions */}
           <div className="rounded-lg border border-gray-200 p-3 space-y-3">
             <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Conditions (all must pass)</p>
-            <div className="flex items-center gap-2 flex-wrap text-sm">
-              <input type="checkbox" checked={draft.presetEnabled} onChange={e => up({ presetEnabled: e.target.checked })} />
-              <span className="text-gray-700">Package preset =</span>
-              <select value={draft.packagePresetId ?? ''} disabled={!draft.presetEnabled} onChange={e => up({ packagePresetId: e.target.value || null })} className={fieldCls}>
-                <option value="">Select preset…</option>
-                {opts.presets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+            <div className="text-sm">
+              <label className="flex items-center gap-2 mb-1.5">
+                <input type="checkbox" checked={draft.presetEnabled} onChange={e => up({ presetEnabled: e.target.checked })} />
+                <span className="text-gray-700">Package preset is any of</span>
+              </label>
+              <div className={clsx('flex flex-wrap gap-1.5 pl-6', !draft.presetEnabled && 'opacity-40 pointer-events-none')}>
+                {opts.presets.map(p => {
+                  const on = draft.packagePresetIds.includes(p.id)
+                  return (
+                    <button key={p.id} type="button"
+                      onClick={() => up({ packagePresetIds: on ? draft.packagePresetIds.filter(x => x !== p.id) : [...draft.packagePresetIds, p.id] })}
+                      className={clsx('px-2 py-0.5 rounded-full text-xs border transition-colors',
+                        on ? 'bg-amazon-blue text-white border-amazon-blue' : 'bg-white text-gray-600 border-gray-300 hover:border-amazon-blue')}>
+                      {p.name}
+                    </button>
+                  )
+                })}
+                {opts.presets.length === 0 && <span className="text-xs text-gray-400">No package presets defined</span>}
+              </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap text-sm">
               <input type="checkbox" checked={draft.transitEnabled} onChange={e => up({ transitEnabled: e.target.checked })} />

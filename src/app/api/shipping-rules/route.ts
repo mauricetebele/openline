@@ -18,14 +18,13 @@ export async function GET() {
 
   const rules = await prisma.shippingRule.findMany({
     orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
-    include: { packagePreset: { select: { id: true, name: true } } },
   })
   return NextResponse.json({ rules })
 }
 
 interface RuleBody {
   name?: string; priority?: number; active?: boolean
-  presetEnabled?: boolean; packagePresetId?: string | null
+  presetEnabled?: boolean; packagePresetIds?: string[]
   transitEnabled?: boolean; transitMaxDays?: number | null; transitWithin?: boolean
   valueEnabled?: boolean; valueOperator?: string | null; valueAmount?: number | null
   thenCarrierType?: string; thenCarrierCode?: string | null; thenServiceCode?: string
@@ -42,7 +41,7 @@ export function validateRule(b: RuleBody): string | null {
     if (b.valueAmount == null || isNaN(Number(b.valueAmount))) return 'An order-value amount is required'
   }
   if (b.transitEnabled && (b.transitMaxDays == null || b.transitMaxDays < 0)) return 'A valid transit day count is required'
-  if (b.presetEnabled && !b.packagePresetId) return 'Select a package preset for the preset condition'
+  if (b.presetEnabled && (!b.packagePresetIds || b.packagePresetIds.length === 0)) return 'Select at least one package preset for the preset condition'
   if (!b.transitEnabled && !b.valueEnabled && !b.presetEnabled) return 'Enable at least one condition (preset, transit, or order value)'
   return null
 }
@@ -53,7 +52,7 @@ export function ruleData(b: RuleBody) {
     priority: b.priority ?? 0,
     active: b.active ?? true,
     presetEnabled: !!b.presetEnabled,
-    packagePresetId: b.presetEnabled ? (b.packagePresetId || null) : null,
+    packagePresetIds: b.presetEnabled ? (b.packagePresetIds ?? []) : [],
     transitEnabled: !!b.transitEnabled,
     transitMaxDays: b.transitEnabled ? Number(b.transitMaxDays) : null,
     transitWithin: b.transitWithin ?? true,
