@@ -280,7 +280,7 @@ function ListView({
   // Received counts per FBA shipment: { [fbaId]: { [confirmationId]: { received, shipped } } }
   const [receivedMap, setReceivedMap] = useState<Record<string, ReceivedCounts>>({})
   // Shipment-level reconciliation: received + Lost_Inbound reimbursements vs shipped.
-  const [reconMap, setReconMap] = useState<Record<string, { totalReceived: number; totalShipped: number; reimbursed: number; reconciled: number; closed: boolean }>>({})
+  const [reconMap, setReconMap] = useState<Record<string, { totalReceived: number; totalShipped: number; reimbursed: number; reconciled: number; closed: boolean; amazonStatus: string | null }>>({})
   const fetchedIds = useRef(new Set<string>())
   const [showBulkSync, setShowBulkSync] = useState(false)
 
@@ -303,6 +303,7 @@ function ListView({
               reimbursed: d.reimbursed ?? 0,
               reconciled: d.reconciled ?? (d.totalReceived ?? 0),
               closed: d.closed ?? false,
+              amazonStatus: d.amazonStatus ?? null,
             } }))
           }
         })
@@ -374,6 +375,7 @@ function ListView({
                 <th className="text-center px-3 py-1.5 font-semibold">SKU Count</th>
                 <th className="text-right px-3 py-1.5 font-semibold">Total Qty</th>
                 <th className="text-left px-3 py-1.5 font-semibold">Status</th>
+                <th className="text-left px-3 py-1.5 font-semibold">Amazon Status</th>
                 <th className="text-left px-3 py-1.5 font-semibold">Created</th>
                 <th className="w-8"></th>
               </tr>
@@ -439,6 +441,18 @@ function ListView({
                   <td className="px-3 py-1.5 text-center text-gray-600">{s._count?.items ?? s.items.length}</td>
                   <td className="px-3 py-1.5 text-right text-gray-600">{s.items.reduce((sum, i) => sum + i.quantity, 0)}</td>
                   <td className="px-3 py-1.5"><StatusBadge status={s.status} /></td>
+                  <td className="px-3 py-1.5">
+                    {(() => {
+                      const st = reconMap[s.id]?.amazonStatus
+                      if (!st) return <span className="text-gray-300">—</span>
+                      const cls = st === 'CLOSED' ? 'bg-green-100 text-green-700'
+                        : st.includes('RECEIV') || st === 'CHECKED_IN' ? 'bg-blue-100 text-blue-700'
+                        : st.includes('TRANSIT') || st === 'SHIPPED' || st === 'DELIVERED' ? 'bg-amber-100 text-amber-800'
+                        : st === 'CANCELLED' || st === 'DELETED' || st === 'ERROR' ? 'bg-red-100 text-red-700'
+                        : 'bg-gray-100 text-gray-600'
+                      return <span className={clsx('inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide', cls)}>{st}</span>
+                    })()}
+                  </td>
                   <td className="px-3 py-1.5 text-gray-500">{new Date(s.createdAt).toLocaleDateString()}</td>
                   <td className="px-3 py-1.5">
                     {s.status !== 'SHIPPED' && (

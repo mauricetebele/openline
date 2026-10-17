@@ -124,11 +124,14 @@ export async function GET(
   // A shortage is only final once Amazon has CLOSED the shipment(s); while a
   // shipment is still WORKING/IN_TRANSIT/RECEIVING, received < shipped is normal.
   let closed = false
+  let amazonStatus: string | null = null
   try {
     const statuses = await getShipmentStatusV0(shipment.accountId, shipment.account.marketplaceId, confirmationIds)
-    const vals = confirmationIds.map(cid => statuses[cid])
+    const vals = confirmationIds.map(cid => statuses[cid]).filter(Boolean)
     closed = vals.length > 0 && vals.every(v => v === 'CLOSED')
+    const distinct = Array.from(new Set(vals))
+    amazonStatus = distinct.length === 0 ? null : distinct.length === 1 ? distinct[0] : distinct.join(' / ')
   } catch { /* unknown → treat as not closed (don't flag shortage) */ }
 
-  return NextResponse.json({ byShipment, totalReceived, totalShipped, reimbursed: totalReimbursed, reconciled, closed })
+  return NextResponse.json({ byShipment, totalReceived, totalShipped, reimbursed: totalReimbursed, reconciled, closed, amazonStatus })
 }
