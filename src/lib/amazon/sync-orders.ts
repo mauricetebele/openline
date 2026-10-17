@@ -323,7 +323,17 @@ export async function syncUnshippedOrders(
 
     if (syncAfn) {
       if (isIncremental) {
-        const lastUpdatedAfter = new Date(lastSuccessfulSync.completedAt!.getTime() - 5 * 60 * 1000).toISOString()
+        // The FBA cron runs every 12h, but `lastSuccessfulSync` is the last
+        // COMPLETED sync of ANY trigger — dominated by the 10-minute MFN cron —
+        // so completedAt is usually only minutes old. Using that directly made
+        // the AFN window ~10 minutes and silently dropped almost every new FBA
+        // order. Floor the look-back to at least 4 days so the 12h cron always
+        // overlaps comfortably (and survives a missed run); FBA volume is low so
+        // the modest re-fetch is cheap.
+        const AFN_MIN_LOOKBACK_MS = 4 * 24 * 60 * 60 * 1000
+        const base = lastSuccessfulSync.completedAt!.getTime() - 5 * 60 * 1000
+        const lastUpdatedAfter = new Date(Math.min(base, Date.now() - AFN_MIN_LOOKBACK_MS)).toISOString()
+        console.log(`[SyncOrders] Incremental AFN sync — LastUpdatedAfter=${lastUpdatedAfter}`)
         do {
           const params: Record<string, string> = {
             MarketplaceIds:      account.marketplaceId,
