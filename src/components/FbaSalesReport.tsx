@@ -211,7 +211,7 @@ export default function FbaSalesReport() {
     { key: 'amazonOrderId', label: 'Order ID', align: 'left' },
     { key: 'olmNumber', label: 'OLM #', align: 'left' },
     { key: 'orderDate', label: 'Date', align: 'left' },
-    { key: 'sellerSku', label: 'SKU', align: 'left' },
+    { key: 'sellerSku', label: 'Seller SKU + Grade', align: 'left' },
     { key: 'salePrice', label: 'Sale Price', align: 'right' },
     { key: 'cogs', label: 'COGS', align: 'right' },
     { key: 'costCode', label: 'Cost Code', align: 'right' },
@@ -477,7 +477,10 @@ export default function FbaSalesReport() {
                       {r.olmNumber ? `OLM-${r.olmNumber}` : '—'}
                     </td>
                     <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400">{formatDate(r.orderDate)}</td>
-                    <td className="px-3 py-1.5 font-mono text-[11px]">{r.sellerSku}</td>
+                    <td className="px-3 py-1.5 font-mono text-[11px] whitespace-nowrap">
+                      {r.sellerSku}
+                      {r.grade && <span className="ml-1.5 inline-block rounded bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300 px-1 py-0.5 text-[9px] font-semibold">{r.grade}</span>}
+                    </td>
                     <td className="px-3 py-1.5 text-right font-medium">{fmt.format(r.salePrice)}</td>
                     <td className="px-3 py-1.5 text-right">{fmt.format(r.cogs)}</td>
                     <td className="px-3 py-1.5 text-right">{fmt.format(r.costCode)}</td>
