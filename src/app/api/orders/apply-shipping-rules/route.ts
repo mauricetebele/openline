@@ -91,11 +91,12 @@ export async function POST(req: NextRequest) {
   if (!warehouse) return NextResponse.json({ error: 'No ShipStation warehouse found for the origin address' }, { status: 400 })
 
   // Rate-shop one order with a given package preset (reuses the shared route).
-  async function rateShop(order: typeof orders[number], preset: NonNullable<typeof orders[number]['appliedPackagePreset']>, confirmation: string): Promise<SSRate[]> {
+  async function rateShop(order: typeof orders[number], preset: NonNullable<typeof orders[number]['appliedPackagePreset']>, confirmation: string, upsCredentialId: string | null): Promise<SSRate[]> {
     const payload = {
       amazonOrderId: order.amazonOrderId,
       orderSource: 'backmarket',
       orderId: undefined as string | undefined,
+      ...(upsCredentialId ? { upsCredentialId } : {}),
       warehouseId: warehouse!.warehouseId,
       fromName: warehouse!.name,
       fromPhone: warehouse!.phone ?? undefined,
@@ -161,8 +162,11 @@ export async function POST(req: NextRequest) {
       for (const rule of rules) {
         if (rule.presetEnabled && order.appliedPackagePresetId !== rule.packagePresetId) continue
         const conf = rule.thenConfirmation ?? 'none'
-        let rates = rateCache.get(conf)
-        if (!rates) { rates = await rateShop(order, quotePreset, conf); rateCache.set(conf, rates) }
+        // Use the rule's linked UPS account so UPS Direct quotes its negotiated rates.
+        const upsCredId = rule.thenCarrierType === 'ups_direct' ? (rule.thenUpsCredentialId ?? null) : null
+        const cacheKey = `${conf}::${upsCredId ?? ''}`
+        let rates = rateCache.get(cacheKey)
+        if (!rates) { rates = await rateShop(order, quotePreset, conf, upsCredId); rateCache.set(cacheKey, rates) }
 
         let pass = true
         if (rule.transitEnabled) {
