@@ -7,7 +7,7 @@ interface Preset { id: string; name: string }
 interface SsCarrier { carrierCode: string; carrierName: string; services: { code: string; name: string }[] }
 interface Svc { code: string; name: string }
 interface UpsAcct { id: string; nickname: string; isDefault: boolean }
-interface Options { presets: Preset[]; shipstationCarriers: SsCarrier[]; fedexServices: Svc[]; upsServices: Svc[]; upsAccounts: UpsAcct[] }
+interface Options { presets: Preset[]; shipstationCarriers: SsCarrier[]; fedexServices: Svc[]; fedexOneRatePackaging: Svc[]; upsServices: Svc[]; upsAccounts: UpsAcct[] }
 
 interface Rule {
   id: string; name: string; priority: number; active: boolean
@@ -15,6 +15,7 @@ interface Rule {
   transitEnabled: boolean; transitMaxDays: number | null; transitWithin: boolean
   valueEnabled: boolean; valueOperator: string | null; valueAmount: string | number | null
   thenCarrierType: string; thenCarrierCode: string | null; thenServiceCode: string; thenServiceName: string | null; thenUpsCredentialId: string | null; thenConfirmation: string | null
+  thenFedexOneRate: boolean; thenFedexPackaging: string | null; thenFedexPackagingMap: Record<string, string> | null
 }
 
 type Draft = Omit<Rule, 'id' | 'packagePreset'> & { id?: string }
@@ -28,6 +29,7 @@ function emptyDraft(): Draft {
     transitEnabled: true, transitMaxDays: 2, transitWithin: true,
     valueEnabled: false, valueOperator: 'gt', valueAmount: null,
     thenCarrierType: 'shipstation', thenCarrierCode: null, thenServiceCode: '', thenServiceName: null, thenUpsCredentialId: null, thenConfirmation: null,
+    thenFedexOneRate: false, thenFedexPackaging: null, thenFedexPackagingMap: null,
   }
 }
 
@@ -74,7 +76,7 @@ export default function ShippingRulesManager() {
 
   const describeThen = (r: Rule | Draft) => {
     if (r.thenCarrierType === 'ups_direct') return `UPS (linked) · ${opts?.upsServices.find(s => s.code === r.thenServiceCode)?.name ?? r.thenServiceCode}`
-    if (r.thenCarrierType === 'fedex_direct') return `FedEx (linked) · ${opts?.fedexServices.find(s => s.code === r.thenServiceCode)?.name ?? r.thenServiceCode}`
+    if (r.thenCarrierType === 'fedex_direct') return `FedEx (linked) · ${opts?.fedexServices.find(s => s.code === r.thenServiceCode)?.name ?? r.thenServiceCode}${r.thenFedexOneRate ? ' (One Rate)' : ''}`
     const carrier = opts?.shipstationCarriers.find(c => c.carrierCode === r.thenCarrierCode)
     return `${carrier?.carrierName ?? 'ShipStation'} · ${r.thenServiceName ?? r.thenServiceCode}`
   }
@@ -239,6 +241,44 @@ function RuleEditor({ draft, setDraft, opts, onSave, onCancel, saving }: {
                 </>
               )}
             </div>
+
+            {draft.thenCarrierType === 'fedex_direct' && (
+              <div className="space-y-2">
+                <label className="flex items-center gap-1.5 text-sm text-gray-700">
+                  <input type="checkbox" checked={draft.thenFedexOneRate} onChange={e => up({ thenFedexOneRate: e.target.checked })} />
+                  FedEx One Rate (flat rate)
+                </label>
+                {draft.thenFedexOneRate && (
+                  draft.presetEnabled && draft.packagePresetIds.length > 1 ? (
+                    <div className="pl-6 space-y-1.5">
+                      <p className="text-[11px] text-gray-400">Map each selected package preset to a FedEx One Rate packaging:</p>
+                      {draft.packagePresetIds.map(pid => {
+                        const name = opts.presets.find(p => p.id === pid)?.name ?? pid
+                        const map = draft.thenFedexPackagingMap ?? {}
+                        return (
+                          <div key={pid} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 w-32 truncate" title={name}>{name}</span>
+                            <span className="text-gray-300">→</span>
+                            <select value={map[pid] ?? ''} onChange={e => up({ thenFedexPackagingMap: { ...map, [pid]: e.target.value } })} className={fieldCls}>
+                              <option value="">Packaging…</option>
+                              {opts.fedexOneRatePackaging.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                            </select>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="pl-6">
+                      <select value={draft.thenFedexPackaging ?? ''} onChange={e => up({ thenFedexPackaging: e.target.value || null })} className={fieldCls}>
+                        <option value="">One Rate packaging…</option>
+                        {opts.fedexOneRatePackaging.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                      </select>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+
             <label className="text-xs font-medium text-gray-500 flex items-center gap-2">Signature
               <select value={draft.thenConfirmation ?? 'none'} onChange={e => up({ thenConfirmation: e.target.value === 'none' ? null : e.target.value })} className={fieldCls}>
                 {Object.entries(CONFIRMATION_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}

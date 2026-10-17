@@ -25,6 +25,17 @@ const FEDEX_SERVICES = [
   { code: 'FIRST_OVERNIGHT', name: 'FedEx First Overnight' },
 ]
 
+// FedEx One Rate packaging options (One Rate is a flat rate by FedEx box/envelope).
+const FEDEX_ONERATE_PACKAGING = [
+  { code: 'FEDEX_ENVELOPE', name: 'FedEx Envelope' },
+  { code: 'FEDEX_PAK', name: 'FedEx Pak' },
+  { code: 'FEDEX_SMALL_BOX', name: 'FedEx Small Box' },
+  { code: 'FEDEX_MEDIUM_BOX', name: 'FedEx Medium Box' },
+  { code: 'FEDEX_LARGE_BOX', name: 'FedEx Large Box' },
+  { code: 'FEDEX_EXTRA_LARGE_BOX', name: 'FedEx Extra Large Box' },
+  { code: 'FEDEX_TUBE', name: 'FedEx Tube' },
+]
+
 export async function GET() {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -64,6 +75,7 @@ export async function GET() {
     presets,
     shipstationCarriers,
     fedexServices: FEDEX_SERVICES,
+    fedexOneRatePackaging: FEDEX_ONERATE_PACKAGING,
     upsServices: UPS_SERVICES.map(s => ({ code: s.code, name: s.label })),
     upsAccounts: upsCreds,
   })

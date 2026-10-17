@@ -90,12 +90,13 @@ export async function POST(req: NextRequest) {
   if (!warehouse) return NextResponse.json({ error: 'No ShipStation warehouse found for the origin address' }, { status: 400 })
 
   // Rate-shop one order with a given package preset (reuses the shared route).
-  async function rateShop(order: typeof orders[number], preset: NonNullable<typeof orders[number]['appliedPackagePreset']>, confirmation: string, upsCredentialId: string | null): Promise<SSRate[]> {
+  async function rateShop(order: typeof orders[number], preset: NonNullable<typeof orders[number]['appliedPackagePreset']>, confirmation: string, upsCredentialId: string | null, fedexPackaging: string | null): Promise<SSRate[]> {
     const payload = {
       amazonOrderId: order.amazonOrderId,
       orderSource: 'backmarket',
       orderId: undefined as string | undefined,
       ...(upsCredentialId ? { upsCredentialId } : {}),
+      ...(fedexPackaging ? { fedexPackaging } : {}),
       warehouseId: warehouse!.warehouseId,
       fromName: warehouse!.name,
       fromPhone: warehouse!.phone ?? undefined,
@@ -135,7 +136,9 @@ export async function POST(req: NextRequest) {
       return rates.find(r => r.carrierCode === 'ups_direct' && r.serviceCode === rule.thenServiceCode) ?? null
     }
     if (rule.thenCarrierType === 'fedex_direct') {
-      return rates.find(r => r.carrierCode === 'fedex_direct' && r.serviceCode === rule.thenServiceCode) ?? null
+      const wantOneRate = rule.thenFedexOneRate
+      return rates.find(r => r.carrierCode === 'fedex_direct' && r.serviceCode === rule.thenServiceCode
+        && (wantOneRate ? /one rate/i.test(r.serviceName) : !/one rate/i.test(r.serviceName))) ?? null
     }
     // shipstation — match by service code, then loosen to carrier + service name.
     return rates.find(r => r.carrierCode !== 'ups_direct' && r.carrierCode !== 'fedex_direct' && r.serviceCode.toLowerCase() === svc)
@@ -163,9 +166,15 @@ export async function POST(req: NextRequest) {
         const conf = rule.thenConfirmation ?? 'none'
         // Use the rule's linked UPS account so UPS Direct quotes its negotiated rates.
         const upsCredId = rule.thenCarrierType === 'ups_direct' ? (rule.thenUpsCredentialId ?? null) : null
-        const cacheKey = `${conf}::${upsCredId ?? ''}`
+        // FedEx One Rate packaging for THIS order — per-preset map wins, else the single value.
+        let fedexPkg: string | null = null
+        if (rule.thenCarrierType === 'fedex_direct' && rule.thenFedexOneRate) {
+          const map = (rule.thenFedexPackagingMap as Record<string, string> | null) ?? null
+          fedexPkg = (order.appliedPackagePresetId && map?.[order.appliedPackagePresetId]) || rule.thenFedexPackaging || null
+        }
+        const cacheKey = `${conf}::${upsCredId ?? ''}::${fedexPkg ?? ''}`
         let rates = rateCache.get(cacheKey)
-        if (!rates) { rates = await rateShop(order, quotePreset, conf, upsCredId); rateCache.set(cacheKey, rates) }
+        if (!rates) { rates = await rateShop(order, quotePreset, conf, upsCredId, fedexPkg); rateCache.set(cacheKey, rates) }
 
         let pass = true
         if (rule.transitEnabled) {
@@ -205,6 +214,8 @@ export async function POST(req: NextRequest) {
             presetRateCheckedAt: new Date(),
             presetRateUpsCredentialId: rule.thenCarrierType === 'ups_direct' ? rule.thenUpsCredentialId : null,
             presetRateConfirmation: rule.thenConfirmation ?? null,
+            presetRateFedexOneRate: rule.thenCarrierType === 'fedex_direct' ? rule.thenFedexOneRate : null,
+            presetRateFedexPackaging: fedexPkg,
           },
         })
         return { ...base, applied: true, ruleName: rule.name, rateAmount: amount, rateCarrier: rate.carrierCode, rateService: rate.serviceName, rateId: rate.rate_id ?? null }

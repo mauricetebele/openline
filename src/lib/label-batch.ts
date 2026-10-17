@@ -231,7 +231,12 @@ export async function runLabelBatch(batchId: string): Promise<void> {
         const fedexDimUnits: 'IN' | 'CM' =
           preset.dimUnit === 'centimeters' ? 'CM' : 'IN'
 
-        const isFedExPackaging = preset.packageCode ? FEDEX_PACKAGING_TYPES.has(preset.packageCode) : false
+        // One Rate: a shipping rule's choice (persisted on the order) wins; else
+        // derive it from the preset's FedEx packaging code.
+        const ruleOneRatePkg = order.presetRateFedexOneRate ? order.presetRateFedexPackaging : null
+        const presetOneRatePkg = preset.packageCode && FEDEX_PACKAGING_TYPES.has(preset.packageCode) ? preset.packageCode : null
+        const oneRatePackaging = ruleOneRatePkg ?? presetOneRatePkg
+        const isFedExPackaging = !!oneRatePackaging
 
         const shipParams: FedExShipmentParams = {
           shipFrom: {
@@ -258,7 +263,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
             : { length: 1, width: 1, height: 1, units: 'IN' },
           serviceType: preset.serviceCode,
           shipDate: order.presetShipDate ?? new Date().toISOString().slice(0, 10),
-          ...(isFedExPackaging ? { packagingType: preset.packageCode!, oneRate: true } : {}),
+          ...(isFedExPackaging ? { packagingType: oneRatePackaging!, oneRate: true } : {}),
         }
 
         const label = await createShipment(fedexCreds, shipParams, batch.isTest)

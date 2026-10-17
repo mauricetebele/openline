@@ -29,6 +29,7 @@ interface RuleBody {
   valueEnabled?: boolean; valueOperator?: string | null; valueAmount?: number | null
   thenCarrierType?: string; thenCarrierCode?: string | null; thenServiceCode?: string
   thenServiceName?: string | null; thenUpsCredentialId?: string | null; thenConfirmation?: string | null
+  thenFedexOneRate?: boolean; thenFedexPackaging?: string | null; thenFedexPackagingMap?: Record<string, string> | null
 }
 
 export function validateRule(b: RuleBody): string | null {
@@ -42,6 +43,16 @@ export function validateRule(b: RuleBody): string | null {
   }
   if (b.transitEnabled && (b.transitMaxDays == null || b.transitMaxDays < 0)) return 'A valid transit day count is required'
   if (b.presetEnabled && (!b.packagePresetIds || b.packagePresetIds.length === 0)) return 'Select at least one package preset for the preset condition'
+  if (b.thenCarrierType === 'fedex_direct' && b.thenFedexOneRate) {
+    const presets = b.presetEnabled ? (b.packagePresetIds ?? []) : []
+    if (presets.length > 1) {
+      const map = b.thenFedexPackagingMap ?? {}
+      const missing = presets.filter(id => !map[id])
+      if (missing.length > 0) return 'Map each selected package preset to a FedEx One Rate packaging type'
+    } else if (!b.thenFedexPackaging) {
+      return 'Select a FedEx One Rate packaging type'
+    }
+  }
   if (!b.transitEnabled && !b.valueEnabled && !b.presetEnabled) return 'Enable at least one condition (preset, transit, or order value)'
   return null
 }
@@ -65,6 +76,9 @@ export function ruleData(b: RuleBody) {
     thenServiceName: b.thenServiceName?.trim() || null,
     thenUpsCredentialId: b.thenCarrierType === 'ups_direct' ? (b.thenUpsCredentialId || null) : null,
     thenConfirmation: b.thenConfirmation && b.thenConfirmation !== 'none' ? b.thenConfirmation : null,
+    thenFedexOneRate: b.thenCarrierType === 'fedex_direct' ? !!b.thenFedexOneRate : false,
+    thenFedexPackaging: b.thenCarrierType === 'fedex_direct' && b.thenFedexOneRate ? (b.thenFedexPackaging || null) : null,
+    thenFedexPackagingMap: b.thenCarrierType === 'fedex_direct' && b.thenFedexOneRate ? (b.thenFedexPackagingMap ?? undefined) : undefined,
   }
 }
 

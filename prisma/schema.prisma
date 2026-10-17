@@ -610,6 +610,8 @@ model Order {
   presetRateCheckedAt       DateTime?
   presetRateUpsCredentialId String?
   presetRateConfirmation    String? // signature requirement from a shipping rule ('signature' | 'adult_signature' | 'delivery' | null)
+  presetRateFedexOneRate    Boolean? // FedEx One Rate chosen by a shipping rule
+  presetRateFedexPackaging  String?  // resolved One Rate packaging for this order
   presetShipDate            String?
   appliedPresetId           String?
   appliedPreset             ShippingPreset?             @relation(fields: [appliedPresetId], references: [id], onDelete: SetNull)
@@ -972,6 +974,9 @@ model ShippingRule {
   thenServiceName     String?
   thenUpsCredentialId String? // when ups_direct uses a specific linked UPS account
   thenConfirmation    String? // null/'none' | 'delivery' | 'signature' | 'adult_signature'
+  thenFedexOneRate    Boolean @default(false) // FedEx flat-rate (One Rate) pricing
+  thenFedexPackaging  String? // One Rate packaging when 0-1 preset selected, e.g. 'FEDEX_PAK'
+  thenFedexPackagingMap Json?  // { [packagePresetId]: 'FEDEX_PAK' } when >1 preset — map each box to a One Rate packaging
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
