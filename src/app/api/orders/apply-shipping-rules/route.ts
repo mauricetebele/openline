@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   const cookie = req.headers.get('cookie') ?? ''
 
   // Rate-shop one order with a given package preset (reuses the shared route).
-  async function rateShop(order: typeof orders[number], preset: NonNullable<typeof rules[number]['packagePreset']>): Promise<SSRate[]> {
+  async function rateShop(order: typeof orders[number], preset: NonNullable<typeof rules[number]['packagePreset']>, confirmation: string): Promise<SSRate[]> {
     const payload = {
       amazonOrderId: order.amazonOrderId,
       orderSource: 'backmarket',
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
       residential: true,
       weight: { value: preset.weightValue, units: preset.weightUnit },
       dimensions: { units: preset.dimUnit, length: preset.dimLength ?? 0, width: preset.dimWidth ?? 0, height: preset.dimHeight ?? 0 },
-      confirmation: preset.confirmation ?? 'none',
+      confirmation: confirmation || preset.confirmation || 'none',
       ...(preset.packageCode ? { packageCode: preset.packageCode } : {}),
       shipDate,
       orderItems: order.items.map(i => ({ orderItemId: i.orderItemId, title: i.title, quantity: i.quantityOrdered })),
@@ -124,9 +124,10 @@ export async function POST(req: NextRequest) {
       for (const rule of rules) {
         const preset = rule.packagePreset ?? defaultPreset
         if (!preset) { continue }
-        const cacheKey = preset.id
+        const conf = rule.thenConfirmation ?? 'none'
+        const cacheKey = `${preset.id}::${conf}`
         let rates = rateCache.get(cacheKey)
-        if (!rates) { rates = await rateShop(order, preset); rateCache.set(cacheKey, rates) }
+        if (!rates) { rates = await rateShop(order, preset, conf); rateCache.set(cacheKey, rates) }
 
         // Evaluate conditions (AND).
         let pass = true
@@ -169,6 +170,7 @@ export async function POST(req: NextRequest) {
             presetRateError: null,
             presetRateCheckedAt: new Date(),
             presetRateUpsCredentialId: rule.thenCarrierType === 'ups_direct' ? rule.thenUpsCredentialId : null,
+            presetRateConfirmation: rule.thenConfirmation ?? null,
             ...(rule.packagePresetId ? { appliedPackagePresetId: rule.packagePresetId } : {}),
           },
         })

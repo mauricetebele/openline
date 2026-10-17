@@ -192,7 +192,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
           dimUnit:          upsDimUnit,
           description:      'Outbound Shipment',
           referenceNumber:  order.amazonOrderId,
-          confirmation:     (preset.confirmation as UpsLabelRequest['confirmation']) ?? undefined,
+          confirmation:     ((order.presetRateConfirmation ?? preset.confirmation) as UpsLabelRequest['confirmation']) ?? undefined,
         }
 
         const upsResult = await generateOutboundLabel(upsReq, preset.upsCredentialId ?? order.presetRateUpsCredentialId ?? undefined)
@@ -319,7 +319,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
           carrierCode:  v1Carrier,
           serviceCode:  preset.serviceCode,
           packageCode:  preset.packageCode ?? undefined,
-          confirmation: (preset.confirmation as SSLabelPayload['confirmation']) ?? undefined,
+          confirmation: ((order.presetRateConfirmation ?? preset.confirmation) as SSLabelPayload['confirmation']) ?? undefined,
           shipDate:     order.presetShipDate ?? new Date().toISOString().slice(0, 10),
           weight: {
             value: preset.weightValue,

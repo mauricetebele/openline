@@ -14,7 +14,7 @@ interface Rule {
   packagePreset?: { id: string; name: string } | null
   transitEnabled: boolean; transitMaxDays: number | null; transitWithin: boolean
   valueEnabled: boolean; valueOperator: string | null; valueAmount: string | number | null
-  thenCarrierType: string; thenCarrierCode: string | null; thenServiceCode: string; thenServiceName: string | null; thenUpsCredentialId: string | null
+  thenCarrierType: string; thenCarrierCode: string | null; thenServiceCode: string; thenServiceName: string | null; thenUpsCredentialId: string | null; thenConfirmation: string | null
 }
 
 type Draft = Omit<Rule, 'id' | 'packagePreset'> & { id?: string }
@@ -27,9 +27,11 @@ function emptyDraft(): Draft {
     name: '', priority: 0, active: true, packagePresetId: null,
     transitEnabled: true, transitMaxDays: 2, transitWithin: true,
     valueEnabled: false, valueOperator: 'gt', valueAmount: null,
-    thenCarrierType: 'shipstation', thenCarrierCode: null, thenServiceCode: '', thenServiceName: null, thenUpsCredentialId: null,
+    thenCarrierType: 'shipstation', thenCarrierCode: null, thenServiceCode: '', thenServiceName: null, thenUpsCredentialId: null, thenConfirmation: null,
   }
 }
+
+const CONFIRMATION_LABEL: Record<string, string> = { none: 'No signature', delivery: 'Delivery confirmation', signature: 'Signature required', adult_signature: 'Adult signature required' }
 
 export default function ShippingRulesManager() {
   const [rules, setRules] = useState<Rule[]>([])
@@ -111,7 +113,7 @@ export default function ShippingRulesManager() {
                   r.transitEnabled ? `UPS Ground transit ${r.transitWithin ? '≤' : '>'} ${r.transitMaxDays} business day${r.transitMaxDays === 1 ? '' : 's'}` : null,
                   r.valueEnabled ? `order value ${OP_LABEL[r.valueOperator ?? '']} $${Number(r.valueAmount ?? 0).toFixed(2)}` : null,
                 ].filter(Boolean).join('  AND  ')}</div>
-                <div><span className="text-gray-400 font-medium">THEN</span> ship via <span className="font-medium text-gray-800">{describeThen(r)}</span></div>
+                <div><span className="text-gray-400 font-medium">THEN</span> ship via <span className="font-medium text-gray-800">{describeThen(r)}</span>{r.thenConfirmation && <span className="ml-1.5 text-[10px] bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded">✍ {CONFIRMATION_LABEL[r.thenConfirmation] ?? r.thenConfirmation}</span>}</div>
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -232,6 +234,11 @@ function RuleEditor({ draft, setDraft, opts, onSave, onCancel, saving }: {
                 </>
               )}
             </div>
+            <label className="text-xs font-medium text-gray-500 flex items-center gap-2">Signature
+              <select value={draft.thenConfirmation ?? 'none'} onChange={e => up({ thenConfirmation: e.target.value === 'none' ? null : e.target.value })} className={fieldCls}>
+                {Object.entries(CONFIRMATION_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </label>
           </div>
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-200">

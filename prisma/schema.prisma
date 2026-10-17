@@ -609,6 +609,7 @@ model Order {
   presetRateError           String?
   presetRateCheckedAt       DateTime?
   presetRateUpsCredentialId String?
+  presetRateConfirmation    String? // signature requirement from a shipping rule ('signature' | 'adult_signature' | 'delivery' | null)
   presetShipDate            String?
   appliedPresetId           String?
   appliedPreset             ShippingPreset?             @relation(fields: [appliedPresetId], references: [id], onDelete: SetNull)
@@ -970,6 +971,7 @@ model ShippingRule {
   thenServiceCode     String
   thenServiceName     String?
   thenUpsCredentialId String? // when ups_direct uses a specific linked UPS account
+  thenConfirmation    String? // null/'none' | 'delivery' | 'signature' | 'adult_signature'
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -28,7 +28,7 @@ interface RuleBody {
   transitEnabled?: boolean; transitMaxDays?: number | null; transitWithin?: boolean
   valueEnabled?: boolean; valueOperator?: string | null; valueAmount?: number | null
   thenCarrierType?: string; thenCarrierCode?: string | null; thenServiceCode?: string
-  thenServiceName?: string | null; thenUpsCredentialId?: string | null
+  thenServiceName?: string | null; thenUpsCredentialId?: string | null; thenConfirmation?: string | null
 }
 
 export function validateRule(b: RuleBody): string | null {
@@ -62,6 +62,7 @@ export function ruleData(b: RuleBody) {
     thenServiceCode: b.thenServiceCode!.trim(),
     thenServiceName: b.thenServiceName?.trim() || null,
     thenUpsCredentialId: b.thenCarrierType === 'ups_direct' ? (b.thenUpsCredentialId || null) : null,
+    thenConfirmation: b.thenConfirmation && b.thenConfirmation !== 'none' ? b.thenConfirmation : null,
   }
 }
 
