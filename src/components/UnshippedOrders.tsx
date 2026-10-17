@@ -17,6 +17,7 @@ import { confirmReprint } from '@/lib/confirm-reprint'
 import PickListModal from '@/components/PickListModal'
 import ShipByItemModal from '@/components/ShipByItemModal'
 import WholesaleShippingLabelModal from '@/components/WholesaleShippingLabelModal'
+import SickwCheckButton from '@/components/SickwCheckButton'
 
 // ─── Scanner confirmation tone (Web Audio API) ──────────────────────────────
 let _audioCtx: AudioContext | null = null
@@ -3480,6 +3481,7 @@ function OrderDetailModal({
                           <th className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide w-8">#</th>
                           <th className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Serial Number</th>
                           <th className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
+                          <th className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">FMI Check</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -3490,6 +3492,7 @@ function OrderDetailModal({
                               <td className="px-4 py-2 text-gray-400 tabular-nums">{idx + 1}</td>
                               <td className="px-4 py-2 font-mono font-semibold text-gray-900">{sa.inventorySerial.serialNumber}</td>
                               <td className="px-4 py-2 font-mono text-gray-600">{item?.internalSku ?? item?.sellerSku ?? '—'}{item?.mappedGradeName && <span className="block mt-0.5"><GradeBadge grade={item.mappedGradeName} size="xs" /></span>}</td>
+                              <td className="px-4 py-2"><SickwCheckButton serial={sa.inventorySerial.serialNumber} compact deviceHint={`${item?.internalSku ?? item?.sellerSku ?? ''} ${item?.title ?? ''}`} /></td>
                             </tr>
                           )
                         })}
@@ -3515,6 +3518,7 @@ function OrderDetailModal({
                           <th className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide w-8">#</th>
                           <th className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Serial / IMEI</th>
                           <th className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
+                          <th className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">FMI Check</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -3528,6 +3532,7 @@ function OrderDetailModal({
                                   <td className="px-4 py-2 text-gray-400 tabular-nums">{counter}</td>
                                   <td className="px-4 py-2 font-mono font-semibold text-gray-900">{serial}</td>
                                   <td className="px-4 py-2 font-mono text-gray-600">{item.internalSku ?? item.sellerSku ?? '—'}</td>
+                                  <td className="px-4 py-2"><SickwCheckButton serial={serial} compact deviceHint={`${item.internalSku ?? item.sellerSku ?? ''} ${item.title ?? ''}`} /></td>
                                 </tr>
                               )
                             })
