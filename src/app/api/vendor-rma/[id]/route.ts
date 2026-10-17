@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { computeVrmaItemValue } from '@/lib/vrma-value'
 
 export const dynamic = 'force-dynamic'
 
@@ -72,9 +73,10 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
         // snapshot — otherwise a cheaper re-receipt of the same serial AFTER the
         // return would wrongly lower the RMA's value.
         unitCost: item.unitCost ?? (liveUnitCost != null ? String(liveUnitCost) : null),
+        value: computeVrmaItemValue(item.unitCost != null ? Number(item.unitCost) : null, item.quantity, costs, enrichedSerials.length),
       }
     }
-    return item
+    return { ...item, value: computeVrmaItemValue(item.unitCost != null ? Number(item.unitCost) : null, item.quantity, [], 0) }
   })
 
   return NextResponse.json({ ...rma, items: enrichedItems })

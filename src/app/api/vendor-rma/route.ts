@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { computeVrmaItemValue } from '@/lib/vrma-value'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,9 +69,13 @@ export async function GET(req: NextRequest) {
         // Prefer the snapshot taken at RMA creation (cost when returned); live PO
         // cost is a fallback only when there's no snapshot. A cheaper re-receipt
         // of a returned serial must not retroactively lower the RMA value.
-        return { ...item, unitCost: item.unitCost ?? (liveUnitCost != null ? String(liveUnitCost) : null) }
+        return {
+          ...item,
+          unitCost: item.unitCost ?? (liveUnitCost != null ? String(liveUnitCost) : null),
+          value: computeVrmaItemValue(item.unitCost != null ? Number(item.unitCost) : null, item.quantity, costs, item.serials.length),
+        }
       }
-      return item
+      return { ...item, value: computeVrmaItemValue(item.unitCost != null ? Number(item.unitCost) : null, item.quantity, [], 0) }
     }),
   }))
 

@@ -14,7 +14,7 @@ type RMAStatus = 'AWAITING_VENDOR_APPROVAL' | 'APPROVED_TO_RETURN' | 'SHIPPED_AW
 
 interface VendorRMASerial { id: string; serialNumber: string; scannedOutAt: string | null }
 interface VendorRMAItem {
-  id: string; productId: string; quantity: number; unitCost: string | null; notes: string | null
+  id: string; productId: string; quantity: number; unitCost: string | null; value?: number | null; notes: string | null
   product: { id: string; sku: string; description: string; isSerializable: boolean }
   serials: VendorRMASerial[]
 }
@@ -652,7 +652,9 @@ function ItemRow({ item, onRemove, onAddSerial, onRemoveSerial, readonly }: {
         </td>
         <td className="px-3 py-2.5 text-sm text-center text-gray-700">{item.quantity}</td>
         <td className="px-3 py-2.5 text-xs text-gray-700">
-          {item.unitCost ? `$${(parseFloat(item.unitCost) * item.quantity).toFixed(2)}` : '—'}
+          {item.value != null
+            ? `$${item.value.toFixed(2)}`
+            : item.unitCost ? `$${(parseFloat(item.unitCost) * item.quantity).toFixed(2)}` : '—'}
         </td>
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-1 justify-end">
@@ -1859,7 +1861,7 @@ export default function VendorRMAManager() {
             ) : rmas.map(rma => {
               const totalSerials = rma.items.reduce((sum, i) => sum + i.serials.length, 0)
               const scannedCount = rma.items.reduce((sum, i) => sum + i.serials.filter(s => s.scannedOutAt).length, 0)
-              const totalCost = rma.items.reduce((sum, i) => sum + (i.unitCost ? parseFloat(i.unitCost) * i.quantity : 0), 0)
+              const totalCost = rma.items.reduce((sum, i) => sum + (i.value != null ? i.value : (i.unitCost ? parseFloat(i.unitCost) * i.quantity : 0)), 0)
               return (
                 <tr
                   key={rma.id}
