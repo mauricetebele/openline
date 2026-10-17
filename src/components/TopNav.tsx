@@ -33,6 +33,7 @@ const NAV: NavItem[] = [
     icon: Package,
     children: [
       { href: '/unshipped-orders',    label: 'Order Fulfillment', icon: Package },
+      { href: '/shipping-rules',      label: 'BM Shipping Rules', icon: Settings },
       { href: '/fba-shipments',       label: 'FBA Shipments',     icon: Truck },
       { href: '/lost-inbound-reimbursements', label: 'Lost Inbound Reimb.', icon: AlertCircle },
       { href: '/removal-shipments',   label: 'FBA Removals',      icon: PackageMinus },

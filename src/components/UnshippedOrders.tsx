@@ -5953,6 +5953,7 @@ export default function UnshippedOrders() {
   const [filterDueToday, setFilterDueToday]                     = useState(false)
   // Rate shop using applied presets
   const [rateShoppingApplied, setRateShoppingApplied]         = useState(false)
+  const [applyingBmRules, setApplyingBmRules]                 = useState(false)
   const [rateShopAppliedIds, setRateShopAppliedIds]           = useState<Set<string>>(new Set())
   const [rateShopAppliedResult, setRateShopAppliedResult]     = useState<{ applied: number; total: number; skipped: number; errors: { orderId: string; amazonOrderId: string; error: string }[] } | null>(null)
   const [selectedPresetId, setSelectedPresetId] = useState('')
@@ -7052,6 +7053,30 @@ export default function UnshippedOrders() {
     }
   }
 
+  // Back Market shipping logic — evaluate if/then rulesets on the selected BM
+  // orders and set each matching order's carrier/service + rate (then you buy).
+  async function applyBmRules() {
+    const ids = Array.from(selectedOrderIds)
+    if (ids.length === 0) return
+    setApplyingBmRules(true)
+    const toastId = toast.loading('Applying BM shipping rules…')
+    try {
+      const res = await fetch('/api/orders/apply-shipping-rules', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderIds: ids }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error ?? 'Failed')
+      const skipped = (d.results ?? []).filter((r: { applied: boolean }) => !r.applied).length
+      toast.success(`${d.applied}/${d.total} rated · ${skipped} skipped (no rule matched)`, { id: toastId })
+      setFetchKey(k => k + 1)
+      setSelectedOrderIds(new Set())
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to apply rules', { id: toastId })
+    } finally {
+      setApplyingBmRules(false)
+    }
+  }
+
   function orderTotal(order: Order) {
     if (order.orderTotal) return fmt(order.orderTotal, order.currency)
     let sum = 0
@@ -7701,6 +7726,14 @@ export default function UnshippedOrders() {
             <button onClick={() => setShowPackagePresetModal(true)} title="Manage package presets"
               className="h-7 w-7 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:border-teal-500 hover:text-teal-600 transition-colors">
               <Settings size={11} />
+            </button>
+            <button
+              onClick={applyBmRules}
+              disabled={applyingBmRules || selectedOrderIds.size === 0}
+              title="Apply Back Market shipping rulesets (if/then) to the selected BM orders"
+              className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
+                applyingBmRules || selectedOrderIds.size === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-fuchsia-600 text-white hover:bg-fuchsia-700')}>
+              {applyingBmRules ? <RefreshCcw size={11} className="animate-spin" /> : <Truck size={11} />} Apply BM Rules
             </button>
           </div>
 

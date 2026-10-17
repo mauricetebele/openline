@@ -932,8 +932,50 @@ model PackagePreset {
   products Product[] @relation("ProductDefaultPackagePreset")
   orders   Order[]
   calcTemplateCosts CalculationTemplatePackageCost[]
+  shippingRules ShippingRule[] @relation("ShippingRulePreset")
 
   @@map("package_presets")
+}
+
+// ─── Back Market shipping logic (if/then rulesets) ────────────────────────────
+// A ruleset of AND'd conditions ("ifs") that, when ALL pass for an order, selects
+// a shipping method ("then") during the rules-driven rate shop. Each ruleset maps
+// to a package preset (the box used for the rate quote). Evaluated by priority
+// (lowest first); the first fully-matching rule wins for an order.
+model ShippingRule {
+  id       String  @id @default(cuid())
+  name     String
+  priority Int     @default(0)
+  active   Boolean @default(true)
+  // Scope — currently Back Market orders.
+  orderSource String @default("backmarket")
+
+  packagePresetId String?
+  packagePreset   PackagePreset? @relation("ShippingRulePreset", fields: [packagePresetId], references: [id], onDelete: SetNull)
+
+  // IF: UPS Ground transit. When enabled, passes only if (UPS Ground business-day
+  // transit <= transitMaxDays) matches transitWithin (true = within, false = beyond).
+  transitEnabled Boolean @default(false)
+  transitMaxDays Int?    @default(2)
+  transitWithin  Boolean @default(true)
+
+  // IF: order value. When enabled, passes if orderTotal <op> valueAmount.
+  valueEnabled  Boolean  @default(false)
+  valueOperator String?  // 'gt' | 'lt' | 'gte' | 'lte'
+  valueAmount   Decimal? @db.Decimal(12, 2)
+
+  // THEN: the shipping method to use.
+  thenCarrierType     String  // 'shipstation' | 'fedex_direct' | 'ups_direct'
+  thenCarrierCode     String? // ShipStation carrier code (when thenCarrierType = 'shipstation')
+  thenServiceCode     String
+  thenServiceName     String?
+  thenUpsCredentialId String? // when ups_direct uses a specific linked UPS account
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, priority])
+  @@map("shipping_rules")
 }
 
 // ─── Calculation Templates (target-margin pricing) ────────────────────────────
