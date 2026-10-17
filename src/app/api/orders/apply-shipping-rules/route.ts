@@ -19,6 +19,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { requireAdmin } from '@/lib/auth-helpers'
+import { decrypt } from '@/lib/crypto'
+import { ShipStationClient } from '@/lib/shipstation/client'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -67,12 +69,41 @@ export async function POST(req: NextRequest) {
   const origin = req.nextUrl.origin
   const cookie = req.headers.get('cookie') ?? ''
 
+  // Resolve the origin warehouse — rate-shop quotes UPS/FedEx direct from the
+  // from-address, and V2 ShipStation from the warehouse_id, so both are required.
+  let warehouse: { warehouseId: number; name: string; phone: string | null; address1: string; city: string; state: string; postal: string; country: string } | null = null
+  try {
+    const ssAcct = await prisma.shipStationAccount.findFirst({
+      where: { isActive: true }, orderBy: { createdAt: 'asc' },
+      select: { apiKeyEnc: true, apiSecretEnc: true, v2ApiKeyEnc: true },
+    })
+    if (ssAcct) {
+      const ssClient = new ShipStationClient(decrypt(ssAcct.apiKeyEnc), ssAcct.apiSecretEnc ? decrypt(ssAcct.apiSecretEnc) : '', ssAcct.v2ApiKeyEnc ? decrypt(ssAcct.v2ApiKeyEnc) : null)
+      const whs = await ssClient.getWarehouses().catch(() => [])
+      const wh = whs.find(w => w.warehouseName.toUpperCase().includes('MERIDIAN')) ?? whs.find(w => w.isDefault) ?? whs[0]
+      if (wh) warehouse = {
+        warehouseId: wh.warehouseId, name: wh.originAddress.name, phone: wh.originAddress.phone ?? null,
+        address1: wh.originAddress.street1, city: wh.originAddress.city, state: wh.originAddress.state,
+        postal: wh.originAddress.postalCode, country: wh.originAddress.country ?? 'US',
+      }
+    }
+  } catch { /* leave null — rate-shop will error per order with a clear message */ }
+  if (!warehouse) return NextResponse.json({ error: 'No ShipStation warehouse found for the origin address' }, { status: 400 })
+
   // Rate-shop one order with a given package preset (reuses the shared route).
   async function rateShop(order: typeof orders[number], preset: NonNullable<typeof orders[number]['appliedPackagePreset']>, confirmation: string): Promise<SSRate[]> {
     const payload = {
       amazonOrderId: order.amazonOrderId,
       orderSource: 'backmarket',
       orderId: undefined as string | undefined,
+      warehouseId: warehouse!.warehouseId,
+      fromName: warehouse!.name,
+      fromPhone: warehouse!.phone ?? undefined,
+      fromAddress1: warehouse!.address1,
+      fromCity: warehouse!.city,
+      fromState: warehouse!.state,
+      fromPostalCode: warehouse!.postal,
+      fromCountry: warehouse!.country,
       toName: order.shipToName ?? undefined,
       toAddress1: order.shipToAddress1 ?? '',
       toAddress2: order.shipToAddress2 ?? undefined,
