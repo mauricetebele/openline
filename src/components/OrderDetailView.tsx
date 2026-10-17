@@ -3,7 +3,7 @@ import { useState, useEffect, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Package, MapPin, Truck, Hash, FileText, Printer,
-  CheckCircle2, AlertCircle, AlertTriangle, Loader2, RotateCcw, Landmark, Smartphone, ChevronRight, Download,
+  CheckCircle2, AlertCircle, AlertTriangle, Loader2, RotateCcw, Landmark, Smartphone, ChevronRight, Download, ExternalLink,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { generateOrderInvoicePDF } from '@/lib/generate-order-invoice'
@@ -604,7 +604,19 @@ export default function OrderDetailView({ orderId }: { orderId: string }) {
                 OLM-{order.olmNumber}
               </span>
             )}
-            <span className="text-sm font-mono text-gray-500">{order.amazonOrderId}</span>
+            {order.orderSource === 'amazon' ? (
+              <a
+                href={`https://sellercentral.amazon.com/orders-v3/order/${order.amazonOrderId}`}
+                target="_blank" rel="noopener noreferrer"
+                title="Open in Amazon Seller Central"
+                className="inline-flex items-center gap-1 text-sm font-mono text-amazon-blue hover:underline"
+              >
+                {order.amazonOrderId}
+                <ExternalLink size={12} className="shrink-0" />
+              </a>
+            ) : (
+              <span className="text-sm font-mono text-gray-500">{order.amazonOrderId}</span>
+            )}
             <span className={clsx('text-[10px] px-1.5 py-0.5 rounded font-medium capitalize', SOURCE_COLOR[order.orderSource] ?? 'bg-gray-100 text-gray-600')}>
               {order.orderSource}
             </span>
