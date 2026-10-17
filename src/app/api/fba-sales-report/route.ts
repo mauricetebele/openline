@@ -186,6 +186,10 @@ export async function GET(req: NextRequest) {
   const productNameMap = new Map<string, string>()
   for (const p of allProducts) productNameMap.set(p.id, p.description)
 
+  // productId → internal SKU (the SKU the marketplace seller SKU maps to).
+  const productSkuMap = new Map<string, string>()
+  for (const p of allProducts) productSkuMap.set(p.id, p.sku)
+
   const gradeNameMap = new Map<string, string>()
   for (const g of allGrades) gradeNameMap.set(g.id, g.grade)
 
@@ -237,6 +241,7 @@ export async function GET(req: NextRequest) {
     amazonOrderId: string
     orderDate: string
     sellerSku: string
+    internalSku: string
     productName: string
     grade: string
     quantity: number
@@ -268,6 +273,7 @@ export async function GET(req: NextRequest) {
 
       const mapping = skuMap.get(sku)
       const productName = mapping ? (productNameMap.get(mapping.productId) ?? sku) : sku
+      const internalSku = mapping ? (productSkuMap.get(mapping.productId) ?? sku) : sku
       const grade = mapping?.gradeId ? (gradeNameMap.get(mapping.gradeId) ?? '') : ''
 
       const salePrice = Number(item.itemPrice)
@@ -299,6 +305,7 @@ export async function GET(req: NextRequest) {
         amazonOrderId: order.amazonOrderId,
         orderDate: (order.shippedAt ?? order.purchaseDate).toISOString(),
         sellerSku: sku,
+        internalSku,
         productName,
         grade,
         quantity: item.quantityOrdered,
@@ -423,6 +430,7 @@ export async function GET(req: NextRequest) {
   if (search) {
     orderRows = orderRows.filter(r =>
       r.sellerSku.toLowerCase().includes(search) ||
+      r.internalSku.toLowerCase().includes(search) ||
       r.productName.toLowerCase().includes(search) ||
       r.amazonOrderId.toLowerCase().includes(search) ||
       (r.olmNumber != null && `olm-${r.olmNumber}`.includes(search))
