@@ -61,14 +61,14 @@ export async function POST(req: NextRequest) {
 
   const orders = await prisma.order.findMany({
     where: { id: { in: orderIds }, orderSource: 'backmarket' },
-    include: { items: true },
+    include: { items: true, appliedPackagePreset: true },
   })
 
   const origin = req.nextUrl.origin
   const cookie = req.headers.get('cookie') ?? ''
 
   // Rate-shop one order with a given package preset (reuses the shared route).
-  async function rateShop(order: typeof orders[number], preset: NonNullable<typeof rules[number]['packagePreset']>, confirmation: string): Promise<SSRate[]> {
+  async function rateShop(order: typeof orders[number], preset: NonNullable<typeof orders[number]['appliedPackagePreset']>, confirmation: string): Promise<SSRate[]> {
     const payload = {
       amazonOrderId: order.amazonOrderId,
       orderSource: 'backmarket',
@@ -118,16 +118,22 @@ export async function POST(req: NextRequest) {
 
   for (const order of orders) {
     try {
+      // The rate quote uses the ORDER's own applied package preset for dims.
+      const quotePreset = order.appliedPackagePreset ?? defaultPreset
+      if (!quotePreset) {
+        results.push({ orderId: order.id, olmNumber: order.olmNumber, amazonOrderId: order.amazonOrderId, applied: false, reason: 'No package preset applied to this order' })
+        continue
+      }
       const rateCache = new Map<string, SSRate[]>()
       let matched = false
 
       for (const rule of rules) {
-        const preset = rule.packagePreset ?? defaultPreset
-        if (!preset) { continue }
+        // IF: order's applied package preset equals the rule's preset.
+        if (rule.presetEnabled && order.appliedPackagePresetId !== rule.packagePresetId) continue
+
         const conf = rule.thenConfirmation ?? 'none'
-        const cacheKey = `${preset.id}::${conf}`
-        let rates = rateCache.get(cacheKey)
-        if (!rates) { rates = await rateShop(order, preset, conf); rateCache.set(cacheKey, rates) }
+        let rates = rateCache.get(conf)
+        if (!rates) { rates = await rateShop(order, quotePreset, conf); rateCache.set(conf, rates) }
 
         // Evaluate conditions (AND).
         let pass = true
@@ -171,7 +177,6 @@ export async function POST(req: NextRequest) {
             presetRateCheckedAt: new Date(),
             presetRateUpsCredentialId: rule.thenCarrierType === 'ups_direct' ? rule.thenUpsCredentialId : null,
             presetRateConfirmation: rule.thenConfirmation ?? null,
-            ...(rule.packagePresetId ? { appliedPackagePresetId: rule.packagePresetId } : {}),
           },
         })
         results.push({ orderId: order.id, olmNumber: order.olmNumber, amazonOrderId: order.amazonOrderId, applied: true, ruleName: rule.name, carrier: rate.carrierName ?? rate.carrierCode, service: rate.serviceName, amount: rate.shipmentCost + rate.otherCost })

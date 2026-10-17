@@ -24,7 +24,8 @@ export async function GET() {
 }
 
 interface RuleBody {
-  name?: string; priority?: number; active?: boolean; packagePresetId?: string | null
+  name?: string; priority?: number; active?: boolean
+  presetEnabled?: boolean; packagePresetId?: string | null
   transitEnabled?: boolean; transitMaxDays?: number | null; transitWithin?: boolean
   valueEnabled?: boolean; valueOperator?: string | null; valueAmount?: number | null
   thenCarrierType?: string; thenCarrierCode?: string | null; thenServiceCode?: string
@@ -41,7 +42,8 @@ export function validateRule(b: RuleBody): string | null {
     if (b.valueAmount == null || isNaN(Number(b.valueAmount))) return 'An order-value amount is required'
   }
   if (b.transitEnabled && (b.transitMaxDays == null || b.transitMaxDays < 0)) return 'A valid transit day count is required'
-  if (!b.transitEnabled && !b.valueEnabled) return 'Enable at least one condition (transit or order value)'
+  if (b.presetEnabled && !b.packagePresetId) return 'Select a package preset for the preset condition'
+  if (!b.transitEnabled && !b.valueEnabled && !b.presetEnabled) return 'Enable at least one condition (preset, transit, or order value)'
   return null
 }
 
@@ -50,7 +52,8 @@ export function ruleData(b: RuleBody) {
     name: b.name!.trim(),
     priority: b.priority ?? 0,
     active: b.active ?? true,
-    packagePresetId: b.packagePresetId || null,
+    presetEnabled: !!b.presetEnabled,
+    packagePresetId: b.presetEnabled ? (b.packagePresetId || null) : null,
     transitEnabled: !!b.transitEnabled,
     transitMaxDays: b.transitEnabled ? Number(b.transitMaxDays) : null,
     transitWithin: b.transitWithin ?? true,

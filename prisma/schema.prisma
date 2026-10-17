@@ -940,8 +940,8 @@ model PackagePreset {
 
 // ─── Back Market shipping logic (if/then rulesets) ────────────────────────────
 // A ruleset of AND'd conditions ("ifs") that, when ALL pass for an order, selects
-// a shipping method ("then") during the rules-driven rate shop. Each ruleset maps
-// to a package preset (the box used for the rate quote). Evaluated by priority
+// a shipping method ("then") during the rules-driven rate shop. The rate quote
+// uses the ORDER's own applied package preset for dims. Evaluated by priority
 // (lowest first); the first fully-matching rule wins for an order.
 model ShippingRule {
   id       String  @id @default(cuid())
@@ -951,6 +951,8 @@ model ShippingRule {
   // Scope — currently Back Market orders.
   orderSource String @default("backmarket")
 
+  // IF: the order's applied package preset equals this one.
+  presetEnabled   Boolean @default(false)
   packagePresetId String?
   packagePreset   PackagePreset? @relation("ShippingRulePreset", fields: [packagePresetId], references: [id], onDelete: SetNull)
 

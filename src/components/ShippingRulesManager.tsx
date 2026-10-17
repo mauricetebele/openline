@@ -10,7 +10,8 @@ interface UpsAcct { id: string; nickname: string; isDefault: boolean }
 interface Options { presets: Preset[]; shipstationCarriers: SsCarrier[]; fedexServices: Svc[]; upsServices: Svc[]; upsAccounts: UpsAcct[] }
 
 interface Rule {
-  id: string; name: string; priority: number; active: boolean; packagePresetId: string | null
+  id: string; name: string; priority: number; active: boolean
+  presetEnabled: boolean; packagePresetId: string | null
   packagePreset?: { id: string; name: string } | null
   transitEnabled: boolean; transitMaxDays: number | null; transitWithin: boolean
   valueEnabled: boolean; valueOperator: string | null; valueAmount: string | number | null
@@ -24,7 +25,7 @@ const OP_LABEL: Record<string, string> = { gt: 'greater than', lt: 'less than', 
 
 function emptyDraft(): Draft {
   return {
-    name: '', priority: 0, active: true, packagePresetId: null,
+    name: '', priority: 0, active: true, presetEnabled: false, packagePresetId: null,
     transitEnabled: true, transitMaxDays: 2, transitWithin: true,
     valueEnabled: false, valueOperator: 'gt', valueAmount: null,
     thenCarrierType: 'shipstation', thenCarrierCode: null, thenServiceCode: '', thenServiceName: null, thenUpsCredentialId: null, thenConfirmation: null,
@@ -106,10 +107,10 @@ export default function ShippingRulesManager() {
                 <span className="text-sm font-semibold text-gray-900">{r.name}</span>
                 <span className="text-[10px] font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">priority {r.priority}</span>
                 {!r.active && <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded">inactive</span>}
-                {r.packagePreset && <span className="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">📦 {r.packagePreset.name}</span>}
               </div>
               <div className="text-xs text-gray-600 mt-1 space-y-0.5">
                 <div><span className="text-gray-400 font-medium">IF</span> {[
+                  r.presetEnabled ? `package preset = ${r.packagePreset?.name ?? '—'}` : null,
                   r.transitEnabled ? `UPS Ground transit ${r.transitWithin ? '≤' : '>'} ${r.transitMaxDays} business day${r.transitMaxDays === 1 ? '' : 's'}` : null,
                   r.valueEnabled ? `order value ${OP_LABEL[r.valueOperator ?? '']} $${Number(r.valueAmount ?? 0).toFixed(2)}` : null,
                 ].filter(Boolean).join('  AND  ')}</div>
@@ -154,19 +155,19 @@ function RuleEditor({ draft, setDraft, opts, onSave, onCancel, saving }: {
               <input type="number" value={draft.priority} onChange={e => up({ priority: parseInt(e.target.value) || 0 })} className={clsx(fieldCls, 'w-full mt-1')} />
             </label>
           </div>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-1.5 text-sm text-gray-700"><input type="checkbox" checked={draft.active} onChange={e => up({ active: e.target.checked })} /> Active</label>
-            <label className="text-xs font-medium text-gray-500 flex items-center gap-2">Package preset
-              <select value={draft.packagePresetId ?? ''} onChange={e => up({ packagePresetId: e.target.value || null })} className={fieldCls}>
-                <option value="">Default preset</option>
-                {opts.presets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </label>
-          </div>
+          <label className="flex items-center gap-1.5 text-sm text-gray-700"><input type="checkbox" checked={draft.active} onChange={e => up({ active: e.target.checked })} /> Active</label>
 
           {/* Conditions */}
           <div className="rounded-lg border border-gray-200 p-3 space-y-3">
             <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Conditions (all must pass)</p>
+            <div className="flex items-center gap-2 flex-wrap text-sm">
+              <input type="checkbox" checked={draft.presetEnabled} onChange={e => up({ presetEnabled: e.target.checked })} />
+              <span className="text-gray-700">Package preset =</span>
+              <select value={draft.packagePresetId ?? ''} disabled={!draft.presetEnabled} onChange={e => up({ packagePresetId: e.target.value || null })} className={fieldCls}>
+                <option value="">Select preset…</option>
+                {opts.presets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
             <div className="flex items-center gap-2 flex-wrap text-sm">
               <input type="checkbox" checked={draft.transitEnabled} onChange={e => up({ transitEnabled: e.target.checked })} />
               <span className="text-gray-700">UPS Ground transit is</span>
