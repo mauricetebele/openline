@@ -7055,25 +7055,60 @@ export default function UnshippedOrders() {
 
   // Back Market shipping logic — evaluate if/then rulesets on the selected BM
   // orders and set each matching order's carrier/service + rate (then you buy).
+  // Streams per-order results so the grid shows each rating as it lands.
   async function applyBmRules() {
     const ids = Array.from(selectedOrderIds)
     if (ids.length === 0) return
     setApplyingBmRules(true)
-    const toastId = toast.loading('Applying BM shipping rules…')
+    setRateShopAppliedIds(new Set(ids))
+    const toastId = toast.loading(`Applying BM shipping rules… (0/${ids.length})`)
+    let applied = 0, skipped = 0, done = 0
     try {
       const res = await fetch('/api/orders/apply-shipping-rules', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderIds: ids }),
       })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error ?? 'Failed')
-      const skipped = (d.results ?? []).filter((r: { applied: boolean }) => !r.applied).length
-      toast.success(`${d.applied}/${d.total} rated · ${skipped} skipped (no rule matched)`, { id: toastId })
-      setFetchKey(k => k + 1)
+      if (!res.ok || res.headers.get('content-type')?.includes('application/json')) {
+        throw new Error((await res.json().catch(() => ({}))).error ?? `${res.status}`)
+      }
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done: streamDone, value } = await reader.read()
+        if (streamDone) break
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+        for (const part of parts) {
+          const line = part.trim()
+          if (!line.startsWith('data: ')) continue
+          let ev: { type: string; orderId?: string; applied?: boolean; rateAmount?: number | null; rateCarrier?: string | null; rateService?: string | null; rateId?: string | null; error?: string | null; total?: number }
+          try { ev = JSON.parse(line.slice(6)) } catch { continue }
+          if (ev.type === 'rate' && ev.orderId) {
+            done++
+            if (ev.applied) applied++; else skipped++
+            setOrders(prev => prev.map(o => o.id !== ev.orderId ? o : {
+              ...o,
+              presetRateAmount: ev.rateAmount != null ? String(ev.rateAmount) : null,
+              presetRateCarrier: ev.rateCarrier ?? null,
+              presetRateService: ev.rateService ?? null,
+              presetRateId: ev.rateId ?? null,
+              presetRateError: ev.applied ? null : (ev.error ?? null),
+              presetRateCheckedAt: new Date().toISOString(),
+            }))
+            setRateShopAppliedIds(prev => { const n = new Set(prev); n.delete(ev.orderId!); return n })
+            toast.loading(`Applying BM shipping rules… (${done}/${ids.length})`, { id: toastId })
+          }
+          if (ev.type === 'error') throw new Error(ev.error ?? 'Failed')
+        }
+      }
+      toast.success(`${applied}/${ids.length} rated · ${skipped} skipped (no rule matched)`, { id: toastId })
       setSelectedOrderIds(new Set())
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to apply rules', { id: toastId })
     } finally {
       setApplyingBmRules(false)
+      setRateShopAppliedIds(new Set())
     }
   }
 
@@ -7733,7 +7768,9 @@ export default function UnshippedOrders() {
               title="Apply Back Market shipping rulesets (if/then) to the selected BM orders"
               className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
                 applyingBmRules || selectedOrderIds.size === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-fuchsia-600 text-white hover:bg-fuchsia-700')}>
-              {applyingBmRules ? <RefreshCcw size={11} className="animate-spin" /> : <Truck size={11} />} Apply BM Rules
+              {applyingBmRules
+                ? <><RefreshCcw size={11} className="animate-spin" /> {rateShopAppliedIds.size > 0 ? `${rateShopAppliedIds.size} left` : 'Rating…'}</>
+                : <><Truck size={11} /> Apply BM Rules{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>}
             </button>
           </div>
 

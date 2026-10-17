@@ -114,28 +114,25 @@ export async function POST(req: NextRequest) {
       ?? null
   }
 
-  const results: { orderId: string; olmNumber: number | null; amazonOrderId: string; applied: boolean; ruleName?: string; carrier?: string; service?: string; amount?: number; reason?: string }[] = []
+  interface RateEvent {
+    type: 'rate'; orderId: string; olmNumber: number | null; amazonOrderId: string; applied: boolean
+    ruleName?: string; rateAmount?: number | null; rateCarrier?: string | null; rateService?: string | null; rateId?: string | null; error?: string | null
+  }
 
-  for (const order of orders) {
+  // Evaluate the rulesets for one order, apply the first full match, return an event.
+  async function processOrder(order: typeof orders[number]): Promise<RateEvent> {
+    const base = { type: 'rate' as const, orderId: order.id, olmNumber: order.olmNumber, amazonOrderId: order.amazonOrderId }
     try {
-      // The rate quote uses the ORDER's own applied package preset for dims.
       const quotePreset = order.appliedPackagePreset ?? defaultPreset
-      if (!quotePreset) {
-        results.push({ orderId: order.id, olmNumber: order.olmNumber, amazonOrderId: order.amazonOrderId, applied: false, reason: 'No package preset applied to this order' })
-        continue
-      }
+      if (!quotePreset) return { ...base, applied: false, error: 'No package preset applied to this order' }
+
       const rateCache = new Map<string, SSRate[]>()
-      let matched = false
-
       for (const rule of rules) {
-        // IF: order's applied package preset equals the rule's preset.
         if (rule.presetEnabled && order.appliedPackagePresetId !== rule.packagePresetId) continue
-
         const conf = rule.thenConfirmation ?? 'none'
         let rates = rateCache.get(conf)
         if (!rates) { rates = await rateShop(order, quotePreset, conf); rateCache.set(conf, rates) }
 
-        // Evaluate conditions (AND).
         let pass = true
         if (rule.transitEnabled) {
           const ground = rates.find(isUpsGround)
@@ -159,19 +156,16 @@ export async function POST(req: NextRequest) {
         }
         if (!pass) continue
 
-        // All ifs yes → apply this rule's then-method.
         const rate = matchThen(rates, rule)
-        if (!rate) {
-          results.push({ orderId: order.id, olmNumber: order.olmNumber, amazonOrderId: order.amazonOrderId, applied: false, ruleName: rule.name, reason: `Rule matched but "${rule.thenServiceName ?? rule.thenServiceCode}" was not available for this order` })
-          matched = true
-          break
-        }
+        if (!rate) return { ...base, applied: false, ruleName: rule.name, error: `Rule "${rule.name}" matched but ${rule.thenServiceName ?? rule.thenServiceCode} was not available` }
+
+        const amount = rate.shipmentCost + rate.otherCost
         await prisma.order.update({
           where: { id: order.id },
           data: {
-            presetRateAmount: rate.shipmentCost + rate.otherCost,
+            presetRateAmount: amount,
             presetRateCarrier: rate.carrierCode,
-            presetRateService: rate.serviceCode,
+            presetRateService: rate.serviceName,
             presetRateId: rate.rate_id ?? null,
             presetRateError: null,
             presetRateCheckedAt: new Date(),
@@ -179,19 +173,43 @@ export async function POST(req: NextRequest) {
             presetRateConfirmation: rule.thenConfirmation ?? null,
           },
         })
-        results.push({ orderId: order.id, olmNumber: order.olmNumber, amazonOrderId: order.amazonOrderId, applied: true, ruleName: rule.name, carrier: rate.carrierName ?? rate.carrierCode, service: rate.serviceName, amount: rate.shipmentCost + rate.otherCost })
-        matched = true
-        break
+        return { ...base, applied: true, ruleName: rule.name, rateAmount: amount, rateCarrier: rate.carrierCode, rateService: rate.serviceName, rateId: rate.rate_id ?? null }
       }
-
-      if (!matched) {
-        results.push({ orderId: order.id, olmNumber: order.olmNumber, amazonOrderId: order.amazonOrderId, applied: false, reason: 'No rule matched (conditions not all met)' })
-      }
+      return { ...base, applied: false, error: 'No rule matched (conditions not all met)' }
     } catch (e) {
-      results.push({ orderId: order.id, olmNumber: order.olmNumber, amazonOrderId: order.amazonOrderId, applied: false, reason: e instanceof Error ? e.message : 'Error' })
+      return { ...base, applied: false, error: e instanceof Error ? e.message : 'Error' }
     }
   }
 
-  const applied = results.filter(r => r.applied).length
-  return NextResponse.json({ applied, total: results.length, results })
+  // Stream per-order results so the grid shows each rating as it lands.
+  const encoder = new TextEncoder()
+  const CONCURRENCY = 4
+  let applied = 0
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (d: object) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(d)}\n\n`))
+      const queue = [...orders]
+      const worker = async () => {
+        for (;;) {
+          const order = queue.shift()
+          if (!order) return
+          const ev = await processOrder(order)
+          if (ev.applied) applied++
+          send(ev)
+        }
+      }
+      try {
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, orders.length) }, worker))
+        send({ type: 'done', applied, total: orders.length })
+      } catch (e) {
+        send({ type: 'error', error: e instanceof Error ? e.message : 'Failed' })
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive' },
+  })
 }
