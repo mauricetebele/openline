@@ -279,6 +279,8 @@ function ListView({
 }) {
   // Received counts per FBA shipment: { [fbaId]: { [confirmationId]: { received, shipped } } }
   const [receivedMap, setReceivedMap] = useState<Record<string, ReceivedCounts>>({})
+  // Shipment-level reconciliation: received + Lost_Inbound reimbursements vs shipped.
+  const [reconMap, setReconMap] = useState<Record<string, { totalReceived: number; totalShipped: number; reimbursed: number; reconciled: number }>>({})
   const fetchedIds = useRef(new Set<string>())
   const [showBulkSync, setShowBulkSync] = useState(false)
 
@@ -295,6 +297,12 @@ function ListView({
         .then(d => {
           if (d.byShipment) {
             setReceivedMap(prev => ({ ...prev, [s.id]: d.byShipment }))
+            setReconMap(prev => ({ ...prev, [s.id]: {
+              totalReceived: d.totalReceived ?? 0,
+              totalShipped: d.totalShipped ?? 0,
+              reimbursed: d.reimbursed ?? 0,
+              reconciled: d.reconciled ?? (d.totalReceived ?? 0),
+            } }))
           }
         })
         .catch(() => {})
@@ -387,18 +395,36 @@ function ListView({
                         }
                       } catch { /* ignore */ }
                       const counts = receivedMap[s.id]
+                      const recon = reconMap[s.id]
+                      // True shortage is net of Lost_Inbound reimbursements.
+                      const netShort = recon ? recon.totalShipped - recon.reconciled : 0
                       if (ids.length > 0) {
                         return (
                           <div className="flex flex-col gap-0.5">
                             {ids.map((id, i) => {
                               const c = counts?.[id]
+                              // Colour the raw received/shipped neutral once the shipment is
+                              // reconciled whole, so only genuine shortages read amber.
+                              const perShort = c ? c.received < c.shipped : false
+                              const color = !perShort ? 'text-green-600' : (recon && netShort <= 0 ? 'text-gray-400' : 'text-amber-600')
                               return (
                                 <span key={i} className="whitespace-nowrap">
                                   {id}
-                                  {c && <span className={clsx('ml-1.5 text-[10px] font-semibold', c.received >= c.shipped ? 'text-green-600' : 'text-amber-600')}>({c.received}/{c.shipped})</span>}
+                                  {c && <span className={clsx('ml-1.5 text-[10px] font-semibold', color)}>({c.received}/{c.shipped})</span>}
                                 </span>
                               )
                             })}
+                            {recon && recon.totalShipped > 0 && (recon.totalReceived < recon.totalShipped) && (
+                              netShort > 0 ? (
+                                <span className="whitespace-nowrap text-[10px] font-semibold text-red-600" title="Units still short after Lost_Inbound reimbursements — check Seller Central">
+                                  ⚠ short {netShort} of {recon.totalShipped} (after reimbursements)
+                                </span>
+                              ) : (
+                                <span className="whitespace-nowrap text-[10px] font-medium text-green-600" title={`${recon.reimbursed} unit(s) reimbursed as Lost_Inbound — reconciled whole`}>
+                                  ✓ reconciled ({recon.totalReceived} rcv + {recon.reimbursed} reimb / {recon.totalShipped})
+                                </span>
+                              )
+                            )}
                           </div>
                         )
                       }
