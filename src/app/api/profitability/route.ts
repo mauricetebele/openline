@@ -29,6 +29,10 @@ export async function GET(req: NextRequest) {
   const pageSize = Math.min(500, Math.max(1, parseInt(searchParams.get('pageSize') ?? '50', 10)))
   const view = searchParams.get('view') ?? 'order'     // 'order' | 'lineItem'
   const search = searchParams.get('search')?.trim().toLowerCase() || ''
+  // Channel filter: all | amazon | backmarket | wholesale (FBA has its own report).
+  const channel = searchParams.get('channel') ?? 'all'
+  const includeMarketplace = channel === 'all' || channel === 'amazon' || channel === 'backmarket'
+  const includeWholesale = channel === 'all' || channel === 'wholesale'
 
   if (!startDate || !endDate) {
     return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 })
@@ -164,6 +168,8 @@ export async function GET(req: NextRequest) {
   const marketplaceWhere = {
     workflowStatus: 'SHIPPED' as const,
     fulfillmentChannel: { not: 'AFN' },
+    // Channel filter narrows to a single marketplace source when requested.
+    ...(channel === 'amazon' || channel === 'backmarket' ? { orderSource: channel } : {}),
     // Exclude only genuine replacement orders (isReplacement === true). BackMarket
     // orders store isReplacement as NULL, and Prisma's `{ not: true }` compiles to
     // `<> true`, which drops NULL rows in SQL three-valued logic — that was hiding
@@ -177,7 +183,7 @@ export async function GET(req: NextRequest) {
     ],
   }
 
-  const [marketplaceOrders, marketplaceCount] = await Promise.all([
+  const [marketplaceOrders, marketplaceCount] = includeMarketplace ? await Promise.all([
     prisma.order.findMany({
       where: marketplaceWhere,
       include: {
@@ -188,7 +194,7 @@ export async function GET(req: NextRequest) {
       orderBy: { purchaseDate: 'desc' },
     }),
     prisma.order.count({ where: marketplaceWhere }),
-  ])
+  ]) : [[], 0] as const
 
   // ── Wholesale orders (SHIPPED) ─────────────────────────────────────────
   const wholesaleWhere = {
@@ -199,7 +205,7 @@ export async function GET(req: NextRequest) {
     ],
   }
 
-  const [wholesaleOrders, wholesaleCount] = await Promise.all([
+  const [wholesaleOrders, wholesaleCount] = includeWholesale ? await Promise.all([
     prisma.salesOrder.findMany({
       where: wholesaleWhere,
       include: {
@@ -230,7 +236,7 @@ export async function GET(req: NextRequest) {
       orderBy: { orderDate: 'desc' },
     }),
     prisma.salesOrder.count({ where: wholesaleWhere }),
-  ])
+  ]) : [[], 0] as const
 
   // ── Build unified rows ─────────────────────────────────────────────────
   type ProfitRow = {

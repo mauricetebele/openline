@@ -355,6 +355,7 @@ export default function ProfitabilityReport() {
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [pageSize, setPageSize] = useState(500)
   const [viewMode, setViewMode] = useState<ViewMode>('order')
+  const [channel, setChannel] = useState<'all' | 'amazon' | 'backmarket' | 'wholesale'>('all')
   const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -432,6 +433,7 @@ export default function ProfitabilityReport() {
       const params = new URLSearchParams({
         startDate, endDate, page: String(page), pageSize: String(pageSize), view: viewMode,
       })
+      if (channel !== 'all') params.set('channel', channel)
       if (searchQuery) params.set('search', searchQuery)
       const res = await fetch(`/api/profitability?${params}`)
       if (!res.ok) throw new Error('Failed')
@@ -444,7 +446,7 @@ export default function ProfitabilityReport() {
     } finally {
       setLoading(false)
     }
-  }, [startDate, endDate, page, pageSize, viewMode, searchQuery])
+  }, [startDate, endDate, page, pageSize, viewMode, channel, searchQuery])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -598,6 +600,19 @@ export default function ProfitabilityReport() {
             Line Item View
           </button>
         </div>
+
+        {/* Channel filter */}
+        <select
+          value={channel}
+          onChange={e => { setChannel(e.target.value as typeof channel); setPage(1) }}
+          title="Filter by sales channel"
+          className="ml-2 px-2 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-medium"
+        >
+          <option value="all">All Channels</option>
+          <option value="amazon">Amazon (MFN)</option>
+          <option value="backmarket">Back Market</option>
+          <option value="wholesale">Wholesale</option>
+        </select>
 
         {viewMode === 'order' && selectedIds.size > 0 && (
           <button
