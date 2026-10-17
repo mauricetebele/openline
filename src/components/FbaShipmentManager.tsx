@@ -1185,16 +1185,34 @@ function WizardView({
     setBoxes(prev => [...prev, { ...prev[idx], items: prev[idx].items.map(i => ({ ...i })) }])
   }
 
-  if (loading) return <div className="flex-1 flex items-center justify-center text-sm text-gray-400"><Loader2 size={16} className="animate-spin mr-2" /> Loading...</div>
-  if (!shipment) return <div className="flex-1 flex items-center justify-center text-sm text-red-500">Shipment not found</div>
+  // Back-to-list control — rendered in every state (incl. loading / not-found)
+  // so there's always a way back without refreshing the page.
+  const backButton = (
+    <button type="button" onClick={onBack} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+      <ArrowLeft size={14} /> Back to list
+    </button>
+  )
+
+  if (loading) return (
+    <div className="flex-1 overflow-auto px-6 py-4 max-w-4xl">
+      <div className="mb-4">{backButton}</div>
+      <div className="flex items-center justify-center text-sm text-gray-400 py-20"><Loader2 size={16} className="animate-spin mr-2" /> Loading...</div>
+    </div>
+  )
+  if (!shipment) return (
+    <div className="flex-1 overflow-auto px-6 py-4 max-w-4xl">
+      <div className="mb-4">{backButton}</div>
+      <div className="flex items-center justify-center text-sm text-red-500 py-20">Shipment not found</div>
+    </div>
+  )
 
   const isTerminal = shipment.status === 'SHIPPED' || shipment.status === 'CANCELLED'
 
   return (
     <div className="flex-1 overflow-auto px-6 py-4 max-w-4xl">
-      <button type="button" onClick={onBack} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4">
-        <ArrowLeft size={14} /> Back to list
-      </button>
+      <div className="sticky top-0 z-10 -mx-6 px-6 py-2 mb-2 bg-white/95 backdrop-blur border-b border-gray-100">
+        {backButton}
+      </div>
 
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
