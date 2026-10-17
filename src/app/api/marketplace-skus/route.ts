@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     const sellerListings = amazonSkus.length > 0
       ? await prisma.sellerListing.findMany({
           where: { sku: { in: amazonSkus } },
-          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true, listingStatus: true, shippingTemplate: true, shippingTemplateGroupId: true, buyBoxPrice: true, buyBoxSeller: true, quantity: true, fbaReservedQty: true, fbaTransferQty: true },
+          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true, listingStatus: true, shippingTemplate: true, shippingTemplateGroupId: true, buyBoxPrice: true, buyBoxSeller: true, quantity: true, fbaReservedQty: true, fbaTransferQty: true, fbaInboundQty: true },
           distinct: ['sku'],
         })
       : []
@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
     const fbaAvailMap = new Map(sellerListings.map(l => [l.sku, l.quantity ?? null]))
     const fbaReservedMap = new Map(sellerListings.map(l => [l.sku, l.fbaReservedQty ?? null]))
     const fbaTransferMap = new Map(sellerListings.map(l => [l.sku, l.fbaTransferQty ?? null]))
+    const fbaInboundMap = new Map(sellerListings.map(l => [l.sku, l.fbaInboundQty ?? null]))
 
     // Resolve shipping-template display names. Listings missing the name (not in the
     // stale catalog report) still have the group id from the live pull; map it to a
@@ -134,6 +135,7 @@ export async function GET(req: NextRequest) {
       fbaAvailableQty: (fcMap.get(s.id) ?? slFcMap.get(s.sellerSku)) === 'FBA' ? (fbaAvailMap.get(s.sellerSku) ?? null) : null,
       fbaReservedQty: (fcMap.get(s.id) ?? slFcMap.get(s.sellerSku)) === 'FBA' ? (fbaReservedMap.get(s.sellerSku) ?? null) : null,
       fbaTransferQty: (fcMap.get(s.id) ?? slFcMap.get(s.sellerSku)) === 'FBA' ? (fbaTransferMap.get(s.sellerSku) ?? null) : null,
+      fbaInboundQty: (fcMap.get(s.id) ?? slFcMap.get(s.sellerSku)) === 'FBA' ? (fbaInboundMap.get(s.sellerSku) ?? null) : null,
     }))
 
     return NextResponse.json({ data: enriched, shippingTemplates })

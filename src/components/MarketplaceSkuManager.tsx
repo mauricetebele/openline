@@ -58,6 +58,7 @@ interface MarketplaceSku {
   fbaAvailableQty: number | null
   fbaReservedQty: number | null
   fbaTransferQty: number | null
+  fbaInboundQty: number | null
 }
 
 interface MarketplaceListing {
@@ -951,6 +952,7 @@ export default function MarketplaceSkuManager() {
                   fbaAvailableQty: res.fbaAvailableQty != null ? res.fbaAvailableQty : x.fbaAvailableQty,
                   fbaTransferQty: res.fbaTransferQty != null ? res.fbaTransferQty : x.fbaTransferQty,
                   fbaReservedQty: res.fbaReservedQty != null ? res.fbaReservedQty : x.fbaReservedQty,
+                  fbaInboundQty: res.fbaInboundQty != null ? res.fbaInboundQty : x.fbaInboundQty,
                 }
               : {
                   backboxWon: res.backboxWon ?? x.backboxWon,
@@ -2585,6 +2587,22 @@ export default function MarketplaceSkuManager() {
                               <span className="text-gray-400 uppercase tracking-wide" title="Total reserved by Amazon (customer orders, FC transfers, FC processing)">Rsvd</span>
                               <span className="font-mono text-xs text-gray-700">{s.fbaReservedQty ?? <span className="text-gray-300">—</span>}</span>
                             </div>
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                              <span className="text-gray-400 uppercase tracking-wide" title="Units inbound to Amazon (working + shipped + receiving)">Inbound</span>
+                              <span className="font-mono text-xs text-gray-700">{s.fbaInboundQty ?? <span className="text-gray-300">—</span>}</span>
+                            </div>
+                            {(() => {
+                              // Total = Avail + FC Xfer + Rsvd + Inbound. Show "—" only when
+                              // every component is null (nothing synced yet); otherwise treat null parts as 0.
+                              const parts = [s.fbaAvailableQty, s.fbaTransferQty, s.fbaReservedQty, s.fbaInboundQty]
+                              const total = parts.some(p => p != null) ? parts.reduce((sum: number, p) => sum + (p ?? 0), 0) : null
+                              return (
+                                <div className="flex items-center justify-between gap-2 text-[10px] border-t border-gray-200 mt-0.5 pt-0.5">
+                                  <span className="text-gray-500 font-semibold uppercase tracking-wide" title="Total = Available + FC Transfer + Reserved + Inbound">Total</span>
+                                  <span className="font-mono text-xs font-semibold text-gray-900">{total ?? <span className="text-gray-300">—</span>}</span>
+                                </div>
+                              )
+                            })()}
                           </>
                         ) : (
                         <>

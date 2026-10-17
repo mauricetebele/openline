@@ -424,6 +424,7 @@ model SellerListing {
   // FBA-only breakdown from the SP-API inventory summary (null for MFN).
   fbaReservedQty   Int?          // reservedQuantity.totalReservedQuantity
   fbaTransferQty   Int?          // reservedQuantity.pendingTransshipmentQuantity (FC → FC transfer)
+  fbaInboundQty    Int?          // inboundWorking + inboundShipped + inboundReceiving (en route to Amazon)
   price            Decimal?      @db.Decimal(12, 2)
   lastSyncedAt     DateTime      @default(now())
   createdAt        DateTime      @default(now())

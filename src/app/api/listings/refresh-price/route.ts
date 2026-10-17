@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
     let fbaAvailableQty: number | null = null
     let fbaTransferQty: number | null = null
     let fbaReservedQty: number | null = null
+    let fbaInboundQty: number | null = null
     const sl = await prisma.sellerListing.findFirst({
       where: { accountId, sku },
       select: { fulfillmentChannel: true },
@@ -64,13 +65,13 @@ export async function POST(req: NextRequest) {
     if (sl?.fulfillmentChannel === 'FBA') {
       try {
         const inv = await fetchFbaInventoryForSku(accountId, sku)
-        if (inv) { fbaAvailableQty = inv.available; fbaTransferQty = inv.transfer; fbaReservedQty = inv.reserved }
+        if (inv) { fbaAvailableQty = inv.available; fbaTransferQty = inv.transfer; fbaReservedQty = inv.reserved; fbaInboundQty = inv.inbound }
       } catch (e) {
         console.error('[refresh-price] FBA inventory fetch failed:', e instanceof Error ? e.message : e)
       }
     }
 
-    return NextResponse.json({ sku, asin, price, listingStatus, condition, buyBoxPrice, buyBoxSeller, fbaAvailableQty, fbaTransferQty, fbaReservedQty })
+    return NextResponse.json({ sku, asin, price, listingStatus, condition, buyBoxPrice, buyBoxSeller, fbaAvailableQty, fbaTransferQty, fbaReservedQty, fbaInboundQty })
   } catch (err) {
     console.error('[refresh-price]', err)
     return NextResponse.json(

@@ -27,6 +27,9 @@ interface InventorySummary {
   asin?: string
   inventoryDetails?: {
     fulfillableQuantity?: number
+    inboundWorkingQuantity?: number    // being prepped by seller, not yet shipped to Amazon
+    inboundShippedQuantity?: number    // shipped to Amazon, not yet received
+    inboundReceivingQuantity?: number  // at an FC, being received/checked in
     reservedQuantity?: {
       totalReservedQuantity?: number
       pendingCustomerOrderQuantity?: number
@@ -53,7 +56,7 @@ interface InventorySummariesResponse {
 export async function fetchFbaInventoryForSku(
   accountId: string,
   sku: string,
-): Promise<{ available: number; reserved: number; transfer: number } | null> {
+): Promise<{ available: number; reserved: number; transfer: number; inbound: number } | null> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
 
@@ -70,16 +73,18 @@ export async function fetchFbaInventoryForSku(
   ) ?? response?.payload?.inventorySummaries?.[0]
   if (!item) return null
 
-  const available = item.inventoryDetails?.fulfillableQuantity ?? item.totalQuantity ?? 0
-  const reserved = item.inventoryDetails?.reservedQuantity?.totalReservedQuantity ?? 0
-  const transfer = item.inventoryDetails?.reservedQuantity?.pendingTransshipmentQuantity ?? 0
+  const d = item.inventoryDetails
+  const available = d?.fulfillableQuantity ?? item.totalQuantity ?? 0
+  const reserved = d?.reservedQuantity?.totalReservedQuantity ?? 0
+  const transfer = d?.reservedQuantity?.pendingTransshipmentQuantity ?? 0
+  const inbound = (d?.inboundWorkingQuantity ?? 0) + (d?.inboundShippedQuantity ?? 0) + (d?.inboundReceivingQuantity ?? 0)
 
   await prisma.sellerListing.updateMany({
     where: { accountId, sku, fulfillmentChannel: 'FBA' },
-    data: { quantity: available, fbaReservedQty: reserved, fbaTransferQty: transfer },
+    data: { quantity: available, fbaReservedQty: reserved, fbaTransferQty: transfer, fbaInboundQty: inbound },
   })
 
-  return { available, reserved, transfer }
+  return { available, reserved, transfer, inbound }
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -88,7 +93,7 @@ export async function syncFbaInventory(accountId: string): Promise<{ updated: nu
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
 
-  const inventoryMap = new Map<string, { qty: number; reserved: number; transfer: number; fnsku?: string; asin?: string }>() // SKU → data
+  const inventoryMap = new Map<string, { qty: number; reserved: number; transfer: number; inbound: number; fnsku?: string; asin?: string }>() // SKU → data
   let nextToken: string | undefined
   let page = 0
 
@@ -113,10 +118,11 @@ export async function syncFbaInventory(accountId: string): Promise<{ updated: nu
         if (!item.sellerSku) continue
         // fulfillableQuantity is the count available to ship to customers
         const qty = item.inventoryDetails?.fulfillableQuantity ?? item.totalQuantity ?? 0
-        const rq = item.inventoryDetails?.reservedQuantity
-        const reserved = rq?.totalReservedQuantity ?? 0
-        const transfer = rq?.pendingTransshipmentQuantity ?? 0
-        inventoryMap.set(item.sellerSku, { qty, reserved, transfer, fnsku: item.fnSku, asin: item.asin })
+        const d = item.inventoryDetails
+        const reserved = d?.reservedQuantity?.totalReservedQuantity ?? 0
+        const transfer = d?.reservedQuantity?.pendingTransshipmentQuantity ?? 0
+        const inbound = (d?.inboundWorkingQuantity ?? 0) + (d?.inboundShippedQuantity ?? 0) + (d?.inboundReceivingQuantity ?? 0)
+        inventoryMap.set(item.sellerSku, { qty, reserved, transfer, inbound, fnsku: item.fnSku, asin: item.asin })
       }
 
       nextToken = response?.pagination?.nextToken
@@ -144,10 +150,10 @@ export async function syncFbaInventory(accountId: string): Promise<{ updated: nu
 
   // Bulk-update all FBA listings with their fresh fulfillable quantities + FNSKU/ASIN
   let updated = 0
-  for (const [sku, { qty: quantity, reserved, transfer, fnsku, asin }] of Array.from(inventoryMap.entries())) {
+  for (const [sku, { qty: quantity, reserved, transfer, inbound, fnsku, asin }] of Array.from(inventoryMap.entries())) {
     const result = await prisma.sellerListing.updateMany({
       where: { accountId, sku, fulfillmentChannel: 'FBA' },
-      data: { quantity, fbaReservedQty: reserved, fbaTransferQty: transfer, ...(fnsku ? { fnsku } : {}), ...(asin ? { asin } : {}) },
+      data: { quantity, fbaReservedQty: reserved, fbaTransferQty: transfer, fbaInboundQty: inbound, ...(fnsku ? { fnsku } : {}), ...(asin ? { asin } : {}) },
     })
     updated += result.count
   }
