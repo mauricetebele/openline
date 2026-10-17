@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { clsx } from 'clsx'
-import { Plus, Trash2, Pencil, X, RefreshCcw, AlertCircle, GripVertical, Check } from 'lucide-react'
+import { Plus, Trash2, Pencil, X, RefreshCcw, AlertCircle, Check } from 'lucide-react'
 
 interface Preset { id: string; name: string }
 interface SsCarrier { carrierCode: string; carrierName: string; services: { code: string; name: string }[] }
@@ -83,7 +83,7 @@ export default function ShippingRulesManager() {
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       <div className="flex items-center gap-3 mb-3">
-        <p className="text-sm text-gray-500">Evaluated top-down by priority; the first ruleset whose conditions <strong>all</strong> pass wins.</p>
+        <p className="text-sm text-gray-500">The first ruleset whose conditions <strong>all</strong> pass wins for an order.</p>
         <button onClick={() => setDraft(emptyDraft())} className="ml-auto inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-amazon-blue text-white text-xs font-medium hover:bg-amazon-blue/90">
           <Plus size={14} /> New Ruleset
         </button>
@@ -101,11 +101,9 @@ export default function ShippingRulesManager() {
           <div className="py-10 text-center text-sm text-gray-400">No rulesets yet. Create one to start.</div>
         ) : rules.map(r => (
           <div key={r.id} className={clsx('rounded-lg border p-3 flex items-start gap-3', r.active ? 'border-gray-200 bg-white' : 'border-gray-200 bg-gray-50 opacity-70')}>
-            <GripVertical size={14} className="text-gray-300 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-semibold text-gray-900">{r.name}</span>
-                <span className="text-[10px] font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">priority {r.priority}</span>
                 {!r.active && <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded">inactive</span>}
               </div>
               <div className="text-xs text-gray-600 mt-1 space-y-0.5">
@@ -147,14 +145,9 @@ function RuleEditor({ draft, setDraft, opts, onSave, onCancel, saving }: {
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
         <div className="p-5 space-y-4">
-          <div className="grid grid-cols-3 gap-3">
-            <label className="col-span-2 text-xs font-medium text-gray-500">Name
-              <input value={draft.name} onChange={e => up({ name: e.target.value })} className={clsx(fieldCls, 'w-full mt-1')} placeholder="e.g. Fast ground, high value" />
-            </label>
-            <label className="text-xs font-medium text-gray-500">Priority
-              <input type="number" value={draft.priority} onChange={e => up({ priority: parseInt(e.target.value) || 0 })} className={clsx(fieldCls, 'w-full mt-1')} />
-            </label>
-          </div>
+          <label className="text-xs font-medium text-gray-500 block">Name
+            <input value={draft.name} onChange={e => up({ name: e.target.value })} className={clsx(fieldCls, 'w-full mt-1')} placeholder="e.g. Fast ground, high value" />
+          </label>
           <label className="flex items-center gap-1.5 text-sm text-gray-700"><input type="checkbox" checked={draft.active} onChange={e => up({ active: e.target.checked })} /> Active</label>
 
           {/* Conditions */}
