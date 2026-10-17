@@ -87,47 +87,66 @@ export async function GET(
   //    shipment was created, then cap each SKU's offset at its real shortage. ──
   const skus = Array.from(skuAgg.keys())
   let totalReimbursed = 0
-  // Lost_Inbound reimbursement events matched to this shipment, surfaced for the
-  // shipment detail view.
+  // Lost_Inbound reimbursement events attributed to THIS shipment, surfaced for
+  // the detail view.
   const reimbursementEvents: { reimbursementId: string; sku: string; fnsku: string | null; quantity: number; amountTotal: number | null; currency: string | null; approvalDate: Date | null }[] = []
-  if (skus.length > 0 || fnskus.size > 0) {
+
+  // Per-SKU shortage for THIS shipment. Reimbursement rows carry no inbound-shipment
+  // id, so the same FNSKU lost on a DIFFERENT shipment would otherwise be mis-
+  // attributed here. Guard against that by only attributing a reimbursement to a
+  // SKU this shipment actually came up short on, and only up to that shortage —
+  // anything beyond belongs to another shipment's shortage.
+  const shortageBySku = new Map<string, number>()
+  for (const [sku, a] of Array.from(skuAgg.entries())) {
+    const short = Math.max(0, a.shipped - a.received)
+    if (short > 0) shortageBySku.set(sku, short)
+  }
+
+  if (shortageBySku.size > 0) {
+    const shortageSkus = Array.from(shortageBySku.keys())
+    const shortageFnskus = shortageSkus.map(s => skuAgg.get(s)?.fnsku).filter((x): x is string => !!x)
     const reimbs = await prisma.fbaReimbursement.findMany({
       where: {
         accountId: shipment.accountId,
         reason: 'Lost_Inbound',
         OR: [
-          { sku: { in: skus } },
-          ...(fnskus.size > 0 ? [{ fnsku: { in: Array.from(fnskus) } }] : []),
+          { sku: { in: shortageSkus } },
+          ...(shortageFnskus.length > 0 ? [{ fnsku: { in: shortageFnskus } }] : []),
         ],
       },
       select: { reimbursementId: true, sku: true, fnsku: true, quantityReimbursedTotal: true, amountTotal: true, currencyUnit: true, approvalDate: true },
     }).catch(() => [])
 
-    // Sum reimbursed units per shipment SKU (match by sku, else by fnsku).
-    const reimbBySku = new Map<string, number>()
     const fnskuToSku = new Map<string, string>()
     for (const [sku, a] of Array.from(skuAgg.entries())) if (a.fnsku) fnskuToSku.set(a.fnsku, sku)
-    for (const r of reimbs) {
+
+    // Remaining shortage to "fill" per SKU — each reimbursement is consumed up to
+    // this shipment's shortage, so a reimbursement spanning several shipments only
+    // contributes its share here. Oldest-first for deterministic consumption.
+    const remaining = new Map(shortageBySku)
+    const sorted = [...reimbs].sort((a, b) => (a.approvalDate?.getTime() ?? 0) - (b.approvalDate?.getTime() ?? 0))
+    for (const r of sorted) {
       if (r.approvalDate && r.approvalDate < shipment.createdAt) continue // not this shipment's era
       const units = r.quantityReimbursedTotal ?? 0
       if (units <= 0) continue
-      const sku = skuAgg.has(r.sku) ? r.sku : (r.fnsku ? fnskuToSku.get(r.fnsku) : undefined)
+      const sku = shortageBySku.has(r.sku) ? r.sku : (r.fnsku ? fnskuToSku.get(r.fnsku) : undefined)
       if (!sku) continue
-      reimbBySku.set(sku, (reimbBySku.get(sku) ?? 0) + units)
+      const left = remaining.get(sku) ?? 0
+      if (left <= 0) continue // this shipment's shortage for the SKU is already covered
+      const take = Math.min(units, left)
+      remaining.set(sku, left - take)
+      totalReimbursed += take
+      // Prorate the dollar amount to the attributed quantity.
+      const amt = r.amountTotal != null ? Number(r.amountTotal) : null
       reimbursementEvents.push({
         reimbursementId: r.reimbursementId,
         sku: r.sku || sku,
         fnsku: r.fnsku,
-        quantity: units,
-        amountTotal: r.amountTotal != null ? Number(r.amountTotal) : null,
+        quantity: take,
+        amountTotal: amt != null ? (take === units ? amt : Math.round((amt * take / units) * 100) / 100) : null,
         currency: r.currencyUnit ?? 'USD',
         approvalDate: r.approvalDate,
       })
-    }
-    for (const [sku, a] of Array.from(skuAgg.entries())) {
-      const shortage = Math.max(0, a.shipped - a.received)
-      if (shortage <= 0) continue
-      totalReimbursed += Math.min(shortage, reimbBySku.get(sku) ?? 0)
     }
   }
   reimbursementEvents.sort((a, b) => (b.approvalDate?.getTime() ?? 0) - (a.approvalDate?.getTime() ?? 0))
