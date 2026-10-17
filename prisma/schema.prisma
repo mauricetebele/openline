@@ -3298,3 +3298,22 @@ model RepairOrderItem {
   @@index([receivedLocationId])
   @@map("repair_order_items")
 }
+
+// ─── BM Unpaid Orders report: per-order resolution notes & archive state ──────
+// Tracks user actions on the "BM Unpaid Orders" report. Keyed by the Back Market
+// order number (Order.amazonOrderId for orderSource='backmarket'). "Problem
+// Solved" captures a note; "Archive" moves the entry to the Archived tab.
+model BmUnpaidResolution {
+  id         String    @id @default(cuid())
+  orderId    String    @unique            // Back Market order number (Order.amazonOrderId)
+  note       String?   @db.Text
+  solvedAt   DateTime?                     // set when "Problem Solved" recorded
+  archived   Boolean   @default(false)
+  archivedAt DateTime?
+  updatedBy  String?                       // user email who last acted
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([archived])
+  @@map("bm_unpaid_resolutions")
+}
