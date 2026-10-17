@@ -576,7 +576,7 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                                     </p>
                                     <p>
                                       <span className="text-gray-400">Customer:</span>{' '}
-                                      <span className="font-medium text-gray-800">{event.salesOrder.customer.companyName}</span>
+                                      <span className="font-medium text-gray-800">{event.salesOrder.customer?.companyName ?? '—'}</span>
                                     </p>
                                     {event.salesOrder.shipTracking && (
                                       <p>
