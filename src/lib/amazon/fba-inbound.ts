@@ -565,6 +565,31 @@ export async function getShipmentItemsV0(
   return resp.payload?.ItemData ?? resp.ItemData ?? []
 }
 
+/**
+ * Fetch the Amazon ShipmentStatus for one or more shipments via the v0 Inbound
+ * API (WORKING, SHIPPED, IN_TRANSIT, DELIVERED, CHECKED_IN, RECEIVING, CLOSED,
+ * CANCELLED, …). Returns a map of shipmentConfirmationId → status. Shortages are
+ * only final once a shipment is CLOSED.
+ */
+export async function getShipmentStatusV0(
+  accountId: string,
+  marketplaceId: string,
+  amazonShipmentIds: string[],
+): Promise<Record<string, string>> {
+  if (amazonShipmentIds.length === 0) return {}
+  const client = new SpApiClient(accountId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp = await client.get<any>('/fba/inbound/v0/shipments', {
+    QueryType: 'SHIPMENT',
+    ShipmentIdList: amazonShipmentIds.join(','),
+    MarketplaceId: marketplaceId,
+  })
+  const data = resp.payload?.ShipmentData ?? resp.ShipmentData ?? []
+  const map: Record<string, string> = {}
+  for (const s of data) if (s?.ShipmentId) map[s.ShipmentId] = s.ShipmentStatus ?? ''
+  return map
+}
+
 // ─── 12e. Get Transport Tracking (v0 API) ────────────────────────────────────
 
 /**

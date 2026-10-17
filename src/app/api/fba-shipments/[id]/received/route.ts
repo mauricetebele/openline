@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { getShipmentItemsV0 } from '@/lib/amazon/fba-inbound'
+import { getShipmentItemsV0, getShipmentStatusV0 } from '@/lib/amazon/fba-inbound'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -23,7 +23,7 @@ export async function GET(
 
   const shipment = await prisma.fbaShipment.findUnique({
     where: { id },
-    select: { accountId: true, labelData: true, shipmentConfirmationId: true, createdAt: true },
+    select: { accountId: true, labelData: true, shipmentConfirmationId: true, createdAt: true, account: { select: { marketplaceId: true } } },
   })
   if (!shipment) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -121,5 +121,14 @@ export async function GET(
 
   const reconciled = Math.min(totalShipped, totalReceived + totalReimbursed)
 
-  return NextResponse.json({ byShipment, totalReceived, totalShipped, reimbursed: totalReimbursed, reconciled })
+  // A shortage is only final once Amazon has CLOSED the shipment(s); while a
+  // shipment is still WORKING/IN_TRANSIT/RECEIVING, received < shipped is normal.
+  let closed = false
+  try {
+    const statuses = await getShipmentStatusV0(shipment.accountId, shipment.account.marketplaceId, confirmationIds)
+    const vals = confirmationIds.map(cid => statuses[cid])
+    closed = vals.length > 0 && vals.every(v => v === 'CLOSED')
+  } catch { /* unknown → treat as not closed (don't flag shortage) */ }
+
+  return NextResponse.json({ byShipment, totalReceived, totalShipped, reimbursed: totalReimbursed, reconciled, closed })
 }

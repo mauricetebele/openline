@@ -280,7 +280,7 @@ function ListView({
   // Received counts per FBA shipment: { [fbaId]: { [confirmationId]: { received, shipped } } }
   const [receivedMap, setReceivedMap] = useState<Record<string, ReceivedCounts>>({})
   // Shipment-level reconciliation: received + Lost_Inbound reimbursements vs shipped.
-  const [reconMap, setReconMap] = useState<Record<string, { totalReceived: number; totalShipped: number; reimbursed: number; reconciled: number }>>({})
+  const [reconMap, setReconMap] = useState<Record<string, { totalReceived: number; totalShipped: number; reimbursed: number; reconciled: number; closed: boolean }>>({})
   const fetchedIds = useRef(new Set<string>())
   const [showBulkSync, setShowBulkSync] = useState(false)
 
@@ -302,6 +302,7 @@ function ListView({
               totalShipped: d.totalShipped ?? 0,
               reimbursed: d.reimbursed ?? 0,
               reconciled: d.reconciled ?? (d.totalReceived ?? 0),
+              closed: d.closed ?? false,
             } }))
           }
         })
@@ -406,7 +407,9 @@ function ListView({
                               // Colour the raw received/shipped neutral once the shipment is
                               // reconciled whole, so only genuine shortages read amber.
                               const perShort = c ? c.received < c.shipped : false
-                              const color = !perShort ? 'text-green-600' : (recon && netShort <= 0 ? 'text-gray-400' : 'text-amber-600')
+                              // Only flag amber once Amazon has CLOSED the shipment AND it's
+                              // still net-short; while open (receiving), short counts are normal.
+                              const color = !perShort ? 'text-green-600' : (recon?.closed && netShort > 0 ? 'text-amber-600' : 'text-gray-400')
                               return (
                                 <span key={i} className="whitespace-nowrap">
                                   {id}
@@ -414,9 +417,11 @@ function ListView({
                                 </span>
                               )
                             })}
-                            {recon && recon.totalShipped > 0 && (recon.totalReceived < recon.totalShipped) && (
+                            {/* Only surface shortage/reconciled once Amazon has CLOSED the
+                                shipment — until then received < shipped is just in-progress. */}
+                            {recon?.closed && recon.totalShipped > 0 && (recon.totalReceived < recon.totalShipped) && (
                               netShort > 0 ? (
-                                <span className="whitespace-nowrap text-[10px] font-semibold text-red-600" title="Units still short after Lost_Inbound reimbursements — check Seller Central">
+                                <span className="whitespace-nowrap text-[10px] font-semibold text-red-600" title="Shipment CLOSED and still short after Lost_Inbound reimbursements — check Seller Central">
                                   ⚠ short {netShort} of {recon.totalShipped} (after reimbursements)
                                 </span>
                               ) : (
