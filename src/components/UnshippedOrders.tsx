@@ -7208,6 +7208,14 @@ export default function UnshippedOrders() {
     })
   }, [orders, wholesaleOrders, sortBy, sortDir, filterPkgPreset, filterPrime])
 
+  // BM shipping rules apply only to Back Market orders — gate the button so it's
+  // enabled only when every selected order is a Back Market order.
+  const selectedAllBackmarket = useMemo(() => {
+    if (selectedOrderIds.size === 0) return false
+    const byId = new Map(displayOrders.map(o => [o.id, o]))
+    return Array.from(selectedOrderIds).every(id => byId.get(id)?.orderSource === 'backmarket')
+  }, [selectedOrderIds, displayOrders])
+
   // ── Drag-to-select: press on a row's checkbox cell and drag up/down to select
   // (or deselect) a contiguous range without clicking each box individually. The
   // anchor row's current state decides the mode; the selection outside the dragged
@@ -7764,10 +7772,12 @@ export default function UnshippedOrders() {
             </button>
             <button
               onClick={applyBmRules}
-              disabled={applyingBmRules || selectedOrderIds.size === 0}
-              title="Apply Back Market shipping rulesets (if/then) to the selected BM orders"
+              disabled={applyingBmRules || selectedOrderIds.size === 0 || !selectedAllBackmarket}
+              title={selectedOrderIds.size > 0 && !selectedAllBackmarket
+                ? 'Select only Back Market orders to apply BM shipping rules'
+                : 'Apply Back Market shipping rulesets (if/then) to the selected BM orders'}
               className={clsx('flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium whitespace-nowrap transition-colors',
-                applyingBmRules || selectedOrderIds.size === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-fuchsia-600 text-white hover:bg-fuchsia-700')}>
+                applyingBmRules || selectedOrderIds.size === 0 || !selectedAllBackmarket ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-fuchsia-600 text-white hover:bg-fuchsia-700')}>
               {applyingBmRules
                 ? <><RefreshCcw size={11} className="animate-spin" /> {rateShopAppliedIds.size > 0 ? `${rateShopAppliedIds.size} left` : 'Rating…'}</>
                 : <><Truck size={11} /> Apply BM Rules{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</>}
