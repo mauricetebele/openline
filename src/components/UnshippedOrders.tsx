@@ -7104,6 +7104,48 @@ export default function UnshippedOrders() {
     })
   }, [orders, wholesaleOrders, sortBy, sortDir, filterPkgPreset, filterPrime])
 
+  // ── Drag-to-select: press on a row's checkbox cell and drag up/down to select
+  // (or deselect) a contiguous range without clicking each box individually. The
+  // anchor row's current state decides the mode; the selection outside the dragged
+  // range is preserved (snapshotted at drag start) so dragging back shrinks it.
+  const dragState = useRef<{ mode: 'select' | 'deselect'; anchorIdx: number; base: Set<string> } | null>(null)
+  const [dragging, setDragging] = useState(false)
+
+  const applyDragRange = useCallback((toIdx: number) => {
+    const st = dragState.current
+    if (!st) return
+    const [a, b] = st.anchorIdx <= toIdx ? [st.anchorIdx, toIdx] : [toIdx, st.anchorIdx]
+    const rangeIds = displayOrders.slice(a, b + 1).map(o => o.id)
+    const next = new Set(st.base)
+    if (st.mode === 'select') rangeIds.forEach(id => next.add(id))
+    else rangeIds.forEach(id => next.delete(id))
+    setSelectedOrderIds(next)
+  }, [displayOrders])
+
+  const startRowDrag = useCallback((rowIdx: number, e: React.MouseEvent) => {
+    if (e.button !== 0) return // left button only
+    const id = displayOrders[rowIdx]?.id
+    if (id == null) return
+    dragState.current = {
+      mode: selectedOrderIds.has(id) ? 'deselect' : 'select',
+      anchorIdx: rowIdx,
+      base: new Set(selectedOrderIds),
+    }
+    setDragging(true)
+    applyDragRange(rowIdx) // toggle the anchor row immediately (handles plain clicks too)
+    e.preventDefault() // suppress native text selection while dragging
+  }, [displayOrders, selectedOrderIds, applyDragRange])
+
+  const extendRowDrag = useCallback((rowIdx: number) => {
+    if (dragState.current) applyDragRange(rowIdx)
+  }, [applyDragRange])
+
+  useEffect(() => {
+    const end = () => { dragState.current = null; setDragging(false) }
+    window.addEventListener('mouseup', end)
+    return () => window.removeEventListener('mouseup', end)
+  }, [])
+
   // Status badge helper
   function statusBadge(status: string) {
     const cls =
@@ -7998,8 +8040,11 @@ export default function UnshippedOrders() {
               const needsSerialize = !!order.pleaseSerialize
                 && order.workflowStatus !== 'SHIPPED' && order.workflowStatus !== 'CANCELLED'
               return (
-                <tr key={order.id} className={clsx(
+                <tr key={order.id}
+                  onMouseEnter={() => extendRowDrag(rowIdx)}
+                  className={clsx(
                   'border-b border-slate-100 dark:border-gray-800 last:border-0 transition-colors align-middle',
+                  dragging && 'select-none',
                   isMystery
                     ? 'bg-fuchsia-50 hover:bg-fuchsia-100/70 dark:bg-fuchsia-900/30 dark:hover:bg-fuchsia-900/50 ring-2 ring-inset ring-fuchsia-500'
                     : hasCancelRequest
@@ -8016,19 +8061,15 @@ export default function UnshippedOrders() {
                         ? 'bg-white hover:bg-blue-50/60 dark:bg-gray-900 dark:hover:bg-gray-800/70'
                         : 'bg-slate-50/70 hover:bg-blue-50/60 dark:bg-gray-800/50 dark:hover:bg-gray-800/70',
                 )}>
-                  {/* Checkbox */}
-                  <td className="px-2 py-2.5 text-center w-8">
+                  {/* Checkbox — press & drag over rows to select a range */}
+                  <td className="px-2 py-2.5 text-center w-8 cursor-pointer"
+                    onMouseDown={e => startRowDrag(rowIdx, e)}
+                    title="Click, or press and drag over rows to select a range">
                     <input type="checkbox"
+                      readOnly
+                      tabIndex={-1}
                       checked={selectedOrderIds.has(order.id)}
-                      onChange={e => {
-                        setSelectedOrderIds(prev => {
-                          const next = new Set(prev)
-                          if (e.target.checked) next.add(order.id)
-                          else next.delete(order.id)
-                          return next
-                        })
-                      }}
-                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 pointer-events-none"
                     />
                   </td>
                   {/* Order */}
