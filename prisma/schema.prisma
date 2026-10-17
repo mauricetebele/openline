@@ -310,12 +310,21 @@ model FbaReimbursement {
   quantityReimbursedTotal     Int?
   approvalDate                DateTime?
 
+  // Manual attribution to an inbound shipment. Amazon's reimbursement report has
+  // no shipment id (only a case-id), so Lost_Inbound reimbursements are attributed
+  // to a shipment by hand — the shipment detail view then uses the exact match.
+  attributedShipmentId String?
+  attributedShipment   FbaShipment? @relation("ReimbursementAttribution", fields: [attributedShipmentId], references: [id], onDelete: SetNull)
+  attributedAt         DateTime?
+  attributedById       String?
+
   importedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@unique([accountId, reimbursementId, sku])
   @@index([orderId])
   @@index([accountId])
+  @@index([attributedShipmentId])
   @@map("fba_reimbursements")
 }
 
@@ -2359,6 +2368,7 @@ model FbaShipment {
 
   items             FbaShipmentItem[]
   boxes             FbaShipmentBox[]
+  attributedReimbursements FbaReimbursement[] @relation("ReimbursementAttribution")
   reservations      FbaInventoryReservation[]
   serialAssignments FbaShipmentSerialAssignment[]
   serialHistory     SerialHistory[]

@@ -85,23 +85,41 @@ export async function GET(
   //    overstate receipts. Reimbursement rows carry no inbound-shipment id, so we
   //    match by SKU / FNSKU and only consider reimbursements approved on/after the
   //    shipment was created, then cap each SKU's offset at its real shortage. ──
-  const skus = Array.from(skuAgg.keys())
   let totalReimbursed = 0
-  // Lost_Inbound reimbursement events attributed to THIS shipment, surfaced for
-  // the detail view.
-  const reimbursementEvents: { reimbursementId: string; sku: string; fnsku: string | null; quantity: number; amountTotal: number | null; currency: string | null; approvalDate: Date | null }[] = []
+  // Lost_Inbound reimbursement events for THIS shipment, surfaced for the detail
+  // view. `attributed` = explicitly assigned to this shipment by hand (exact);
+  // otherwise it's a heuristic SKU/shortage match (best-guess, capped).
+  const reimbursementEvents: { reimbursementId: string; sku: string; fnsku: string | null; quantity: number; amountTotal: number | null; currency: string | null; approvalDate: Date | null; attributed: boolean }[] = []
 
-  // Per-SKU shortage for THIS shipment. Reimbursement rows carry no inbound-shipment
-  // id, so the same FNSKU lost on a DIFFERENT shipment would otherwise be mis-
-  // attributed here. Guard against that by only attributing a reimbursement to a
-  // SKU this shipment actually came up short on, and only up to that shortage —
-  // anything beyond belongs to another shipment's shortage.
+  // 1. Exact: reimbursements manually attributed to THIS shipment — trusted fully.
+  const attributedReimbs = await prisma.fbaReimbursement.findMany({
+    where: { accountId: shipment.accountId, reason: 'Lost_Inbound', attributedShipmentId: id },
+    select: { reimbursementId: true, sku: true, fnsku: true, quantityReimbursedTotal: true, amountTotal: true, currencyUnit: true, approvalDate: true },
+  }).catch(() => [])
+  for (const r of attributedReimbs) {
+    const units = r.quantityReimbursedTotal ?? 0
+    totalReimbursed += units
+    reimbursementEvents.push({
+      reimbursementId: r.reimbursementId,
+      sku: r.sku || '—',
+      fnsku: r.fnsku,
+      quantity: units,
+      amountTotal: r.amountTotal != null ? Number(r.amountTotal) : null,
+      currency: r.currencyUnit ?? 'USD',
+      approvalDate: r.approvalDate,
+      attributed: true,
+    })
+  }
+
+  // 2. Heuristic fallback — only UNattributed reimbursements, matched to a SKU this
+  //    shipment actually came up short on, capped to that shortage. (Reimbursements
+  //    attributed to another shipment are excluded entirely.) This keeps data useful
+  //    before a reimbursement has been manually attributed.
   const shortageBySku = new Map<string, number>()
   for (const [sku, a] of Array.from(skuAgg.entries())) {
     const short = Math.max(0, a.shipped - a.received)
     if (short > 0) shortageBySku.set(sku, short)
   }
-
   if (shortageBySku.size > 0) {
     const shortageSkus = Array.from(shortageBySku.keys())
     const shortageFnskus = shortageSkus.map(s => skuAgg.get(s)?.fnsku).filter((x): x is string => !!x)
@@ -109,6 +127,7 @@ export async function GET(
       where: {
         accountId: shipment.accountId,
         reason: 'Lost_Inbound',
+        attributedShipmentId: null, // leave manually-attributed rows to step 1 / their own shipment
         OR: [
           { sku: { in: shortageSkus } },
           ...(shortageFnskus.length > 0 ? [{ fnsku: { in: shortageFnskus } }] : []),
@@ -120,9 +139,6 @@ export async function GET(
     const fnskuToSku = new Map<string, string>()
     for (const [sku, a] of Array.from(skuAgg.entries())) if (a.fnsku) fnskuToSku.set(a.fnsku, sku)
 
-    // Remaining shortage to "fill" per SKU — each reimbursement is consumed up to
-    // this shipment's shortage, so a reimbursement spanning several shipments only
-    // contributes its share here. Oldest-first for deterministic consumption.
     const remaining = new Map(shortageBySku)
     const sorted = [...reimbs].sort((a, b) => (a.approvalDate?.getTime() ?? 0) - (b.approvalDate?.getTime() ?? 0))
     for (const r of sorted) {
@@ -132,11 +148,10 @@ export async function GET(
       const sku = shortageBySku.has(r.sku) ? r.sku : (r.fnsku ? fnskuToSku.get(r.fnsku) : undefined)
       if (!sku) continue
       const left = remaining.get(sku) ?? 0
-      if (left <= 0) continue // this shipment's shortage for the SKU is already covered
+      if (left <= 0) continue
       const take = Math.min(units, left)
       remaining.set(sku, left - take)
       totalReimbursed += take
-      // Prorate the dollar amount to the attributed quantity.
       const amt = r.amountTotal != null ? Number(r.amountTotal) : null
       reimbursementEvents.push({
         reimbursementId: r.reimbursementId,
@@ -146,6 +161,7 @@ export async function GET(
         amountTotal: amt != null ? (take === units ? amt : Math.round((amt * take / units) * 100) / 100) : null,
         currency: r.currencyUnit ?? 'USD',
         approvalDate: r.approvalDate,
+        attributed: false,
       })
     }
   }

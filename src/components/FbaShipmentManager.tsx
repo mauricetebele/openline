@@ -968,7 +968,7 @@ function CreateForm({
 
 interface ReceiptsData {
   byFc: { confirmationId: string; fulfillmentCenterId: string | null; shipmentName: string | null; shipped: number; received: number; status: string | null }[]
-  reimbursementEvents: { reimbursementId: string; sku: string; fnsku: string | null; quantity: number; amountTotal: number | null; currency: string | null; approvalDate: string | null }[]
+  reimbursementEvents: { reimbursementId: string; sku: string; fnsku: string | null; quantity: number; amountTotal: number | null; currency: string | null; approvalDate: string | null; attributed: boolean }[]
   totalReceived: number; totalShipped: number; reimbursed: number; reconciled: number; closed: boolean; amazonStatus: string | null
 }
 
@@ -1073,11 +1073,12 @@ function ReceiptsAndReimbursements({ data, loading }: { data: ReceiptsData | nul
               <th className="text-center px-3 py-2 font-medium">Qty</th>
               <th className="text-right px-3 py-2 font-medium">Amount</th>
               <th className="text-left px-3 py-2 font-medium">Reimbursement ID</th>
+              <th className="text-center px-3 py-2 font-medium">Match</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {reimb.length === 0 ? (
-              <tr><td colSpan={6} className="px-3 py-6 text-center text-xs text-gray-400">No Lost Inbound reimbursements for this shipment.</td></tr>
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-xs text-gray-400">No Lost Inbound reimbursements for this shipment.</td></tr>
             ) : reimb.map((r, i) => (
               <tr key={`${r.reimbursementId}-${r.sku}-${i}`}>
                 <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(r.approvalDate)}</td>
@@ -1086,6 +1087,12 @@ function ReceiptsAndReimbursements({ data, loading }: { data: ReceiptsData | nul
                 <td className="px-3 py-2 text-center tabular-nums text-gray-700">{r.quantity}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-gray-700">{money(r.amountTotal, r.currency)}</td>
                 <td className="px-3 py-2 font-mono text-xs text-gray-500">{r.reimbursementId}</td>
+                <td className="px-3 py-2 text-center">
+                  <span className={clsx('inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded', r.attributed ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')}
+                    title={r.attributed ? 'Manually attributed to this shipment' : 'Best-guess SKU/shortage match — attribute it on the Lost Inbound Reimbursements page to confirm'}>
+                    {r.attributed ? 'Attributed' : 'Heuristic'}
+                  </span>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1161,7 +1168,7 @@ function WizardView({
   // SHIPPED (units are in Amazon's hands, so receipt/reimbursement data exists).
   type ReceivedData = {
     byFc: { confirmationId: string; fulfillmentCenterId: string | null; shipmentName: string | null; shipped: number; received: number; status: string | null }[]
-    reimbursementEvents: { reimbursementId: string; sku: string; fnsku: string | null; quantity: number; amountTotal: number | null; currency: string | null; approvalDate: string | null }[]
+    reimbursementEvents: { reimbursementId: string; sku: string; fnsku: string | null; quantity: number; amountTotal: number | null; currency: string | null; approvalDate: string | null; attributed: boolean }[]
     totalReceived: number; totalShipped: number; reimbursed: number; reconciled: number; closed: boolean; amazonStatus: string | null
   }
   const [recv, setRecv] = useState<ReceivedData | null>(null)
