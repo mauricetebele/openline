@@ -7110,6 +7110,8 @@ export default function UnshippedOrders() {
   // range is preserved (snapshotted at drag start) so dragging back shrinks it.
   const dragState = useRef<{ mode: 'select' | 'deselect'; anchorIdx: number; base: Set<string> } | null>(null)
   const [dragging, setDragging] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)       // the orders table's scroll viewport
+  const pointerRef = useRef<{ x: number; y: number } | null>(null)
 
   const applyDragRange = useCallback((toIdx: number) => {
     const st = dragState.current
@@ -7131,6 +7133,7 @@ export default function UnshippedOrders() {
       anchorIdx: rowIdx,
       base: new Set(selectedOrderIds),
     }
+    pointerRef.current = { x: e.clientX, y: e.clientY }
     setDragging(true)
     applyDragRange(rowIdx) // toggle the anchor row immediately (handles plain clicks too)
     e.preventDefault() // suppress native text selection while dragging
@@ -7145,6 +7148,44 @@ export default function UnshippedOrders() {
     window.addEventListener('mouseup', end)
     return () => window.removeEventListener('mouseup', end)
   }, [])
+
+  // Edge auto-scroll while dragging: when the pointer nears the top/bottom of the
+  // scroll viewport, scroll it so rows that were off-screen when the drag began
+  // come into view and get swept into the selection. A rAF loop keeps scrolling
+  // even while the pointer is held still at the edge; after each scroll we locate
+  // the row now under the pointer and extend the range to it.
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (e: MouseEvent) => { pointerRef.current = { x: e.clientX, y: e.clientY } }
+    window.addEventListener('mousemove', onMove)
+    let raf = 0
+    const EDGE = 64, MAX_SPEED = 22
+    const tick = () => {
+      const el = scrollRef.current, p = pointerRef.current
+      if (el && p) {
+        const rect = el.getBoundingClientRect()
+        let dy = 0
+        if (p.y < rect.top + EDGE) dy = -MAX_SPEED * Math.min(1, (rect.top + EDGE - p.y) / EDGE)
+        else if (p.y > rect.bottom - EDGE) dy = MAX_SPEED * Math.min(1, (p.y - (rect.bottom - EDGE)) / EDGE)
+        if (dy !== 0) {
+          const before = el.scrollTop
+          el.scrollTop += dy
+          if (el.scrollTop !== before) {
+            const clampedY = Math.max(rect.top + 2, Math.min(rect.bottom - 2, p.y))
+            const under = document.elementFromPoint(p.x, clampedY) as HTMLElement | null
+            const rowEl = under?.closest('[data-row-idx]') as HTMLElement | null
+            if (rowEl) {
+              const idx = Number(rowEl.getAttribute('data-row-idx'))
+              if (!Number.isNaN(idx)) extendRowDrag(idx)
+            }
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => { window.removeEventListener('mousemove', onMove); cancelAnimationFrame(raf) }
+  }, [dragging, extendRowDrag])
 
   // Status badge helper
   function statusBadge(status: string) {
@@ -7938,7 +7979,7 @@ export default function UnshippedOrders() {
       })()}
 
       {/* Table */}
-      <div className="flex-1 overflow-auto dark:bg-gray-900">
+      <div ref={scrollRef} className={clsx('flex-1 overflow-auto dark:bg-gray-900', dragging && 'cursor-ns-resize select-none')}>
         <table className="w-full text-xs dark:text-gray-200">
           <thead className="sticky top-0 bg-slate-50/95 backdrop-blur border-b border-slate-200 z-10">
             <tr>
@@ -8039,12 +8080,16 @@ export default function UnshippedOrders() {
               // unshipped, so the warehouse can't miss it.
               const needsSerialize = !!order.pleaseSerialize
                 && order.workflowStatus !== 'SHIPPED' && order.workflowStatus !== 'CANCELLED'
+              const isSelected = selectedOrderIds.has(order.id)
               return (
                 <tr key={order.id}
+                  data-row-idx={rowIdx}
                   onMouseEnter={() => extendRowDrag(rowIdx)}
                   className={clsx(
                   'border-b border-slate-100 dark:border-gray-800 last:border-0 transition-colors align-middle',
-                  dragging && 'select-none',
+                  // Drag-selection highlight: a strong indigo tint + left accent bar
+                  // so the growing selection is obvious while sweeping the mouse.
+                  isSelected && '!bg-indigo-100/80 dark:!bg-indigo-900/40 shadow-[inset_3px_0_0_0_#6366f1]',
                   isMystery
                     ? 'bg-fuchsia-50 hover:bg-fuchsia-100/70 dark:bg-fuchsia-900/30 dark:hover:bg-fuchsia-900/50 ring-2 ring-inset ring-fuchsia-500'
                     : hasCancelRequest
