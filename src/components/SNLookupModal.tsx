@@ -39,6 +39,12 @@ interface LookupSerial {
   history: HistoryEvent[]
 }
 
+interface WarehouseWithLocations {
+  id: string
+  name: string
+  locations: { id: string; name: string }[]
+}
+
 interface PartialMatch {
   id:           string
   serialNumber: string
@@ -89,8 +95,22 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
   const [editingNote, setEditingNote] = useState(false)
   const [noteDraft, setNoteDraft] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+  // Inline "move serial" to another location (in-stock serials only).
+  const [warehouses, setWarehouses] = useState<WarehouseWithLocations[]>([])
+  const [moving, setMoving] = useState(false)          // picker open
+  const [moveWarehouseId, setMoveWarehouseId] = useState('')
+  const [moveLocationId, setMoveLocationId] = useState('')
+  const [moveSaving, setMoveSaving] = useState(false)
 
   useEffect(() => { inputRef.current?.focus() }, [])
+
+  // Warehouses + their locations for the move destination picker.
+  useEffect(() => {
+    fetch('/api/warehouses')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.data) setWarehouses(d.data) })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     const trg = result?.trgId?.trim()
@@ -154,6 +174,29 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
       setErr(e instanceof Error ? e.message : 'Failed to save note')
     } finally {
       setSavingNote(false)
+    }
+  }
+
+  async function moveSerial() {
+    if (!result || !moveLocationId) return
+    setMoveSaving(true)
+    setErr('')
+    try {
+      const res = await fetch('/api/serials/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serialIds: [result.id], locationId: moveLocationId }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? 'Failed to move serial')
+      setMoving(false)
+      setMoveWarehouseId('')
+      setMoveLocationId('')
+      // Re-fetch so the new location + LOCATION_MOVE history event show.
+      await handleSearch(result.serialNumber)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to move serial')
+    } finally {
+      setMoveSaving(false)
     }
   }
 
@@ -320,7 +363,56 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                   <span className="font-medium text-gray-700">
                     {result.location.warehouse.name} / {result.location.name}
                   </span>
+                  {result.status === 'IN_STOCK' && !moving && (
+                    <button
+                      onClick={() => {
+                        setMoving(true)
+                        setMoveWarehouseId(warehouses.find(w => w.locations.some(l => l.name === result.location.name))?.id ?? '')
+                        setMoveLocationId('')
+                      }}
+                      className="ml-auto inline-flex items-center gap-1 h-6 px-2 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-600 text-[11px] font-medium hover:bg-indigo-100"
+                      title="Move this serial to another location"
+                    >
+                      <ArrowRightLeft size={11} /> Move
+                    </button>
+                  )}
                 </div>
+
+                {/* Inline move picker — in-stock serials only. */}
+                {moving && (
+                  <div className="rounded-md border border-indigo-200 bg-indigo-50/50 p-2.5 space-y-2">
+                    <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">Move to</p>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={moveWarehouseId}
+                        onChange={e => { setMoveWarehouseId(e.target.value); setMoveLocationId('') }}
+                        className="flex-1 h-8 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value="">Warehouse…</option>
+                        {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                      </select>
+                      <select
+                        value={moveLocationId}
+                        onChange={e => setMoveLocationId(e.target.value)}
+                        disabled={!moveWarehouseId}
+                        className="flex-1 h-8 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-100"
+                      >
+                        <option value="">Location…</option>
+                        {(warehouses.find(w => w.id === moveWarehouseId)?.locations ?? []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={moveSerial}
+                        disabled={!moveLocationId || moveSaving}
+                        className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md bg-indigo-600 text-white text-xs font-medium disabled:opacity-50 hover:bg-indigo-700"
+                      >
+                        {moveSaving ? <Loader2 size={12} className="animate-spin" /> : <ArrowRightLeft size={12} />} Move
+                      </button>
+                      <button onClick={() => { setMoving(false); setMoveLocationId('') }} disabled={moveSaving} className="h-7 px-3 rounded-md border border-gray-300 text-gray-600 text-xs">Cancel</button>
+                    </div>
+                  </div>
+                )}
                 <p className="text-xs text-gray-500 pl-0.5">
                   Bin: <span className="font-mono font-medium text-gray-700">{result.binLocation ?? '—'}</span>
                 </p>
