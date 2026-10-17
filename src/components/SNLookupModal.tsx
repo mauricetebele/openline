@@ -386,7 +386,7 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                       <select
                         value={moveWarehouseId}
                         onChange={e => { setMoveWarehouseId(e.target.value); setMoveLocationId('') }}
-                        className="flex-1 h-8 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        className="flex-1 h-8 rounded border border-gray-300 px-2 text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       >
                         <option value="">Warehouse…</option>
                         {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
@@ -395,7 +395,7 @@ export default function SNLookupModal({ onClose, initialQuery }: { onClose: () =
                         value={moveLocationId}
                         onChange={e => setMoveLocationId(e.target.value)}
                         disabled={!moveWarehouseId}
-                        className="flex-1 h-8 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-100"
+                        className="flex-1 h-8 rounded border border-gray-300 px-2 text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-100"
                       >
                         <option value="">Location…</option>
                         {(warehouses.find(w => w.id === moveWarehouseId)?.locations ?? []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
