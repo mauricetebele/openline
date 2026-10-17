@@ -49,9 +49,10 @@ export async function GET() {
           .filter(c => !c.code.toLowerCase().includes('amazon')) // BM orders don't use Amazon Buy Shipping
           .map(async c => {
             const services = await client.getCarrierServices(c.code).catch(() => [])
+            // c.name is the real carrier ("UPS"); c.nickname is the funding card.
             return {
               carrierCode: c.code,
-              carrierName: c.nickname || c.name,
+              carrierName: c.name + (c.accountNumber ? ` (${c.accountNumber})` : ''),
               services: services.filter(s => s.domestic).map(s => ({ code: s.code, name: s.name })),
             }
           }),
