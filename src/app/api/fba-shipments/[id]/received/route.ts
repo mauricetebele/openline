@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { prisma } from '@/lib/prisma'
-import { getShipmentItemsV0, getShipmentStatusV0 } from '@/lib/amazon/fba-inbound'
+import { getShipmentItemsV0, getShipmentSummariesV0 } from '@/lib/amazon/fba-inbound'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -87,6 +87,9 @@ export async function GET(
   //    shipment was created, then cap each SKU's offset at its real shortage. ──
   const skus = Array.from(skuAgg.keys())
   let totalReimbursed = 0
+  // Lost_Inbound reimbursement events matched to this shipment, surfaced for the
+  // shipment detail view.
+  const reimbursementEvents: { reimbursementId: string; sku: string; fnsku: string | null; quantity: number; amountTotal: number | null; currency: string | null; approvalDate: Date | null }[] = []
   if (skus.length > 0 || fnskus.size > 0) {
     const reimbs = await prisma.fbaReimbursement.findMany({
       where: {
@@ -97,7 +100,7 @@ export async function GET(
           ...(fnskus.size > 0 ? [{ fnsku: { in: Array.from(fnskus) } }] : []),
         ],
       },
-      select: { sku: true, fnsku: true, quantityReimbursedTotal: true, approvalDate: true },
+      select: { reimbursementId: true, sku: true, fnsku: true, quantityReimbursedTotal: true, amountTotal: true, currencyUnit: true, approvalDate: true },
     }).catch(() => [])
 
     // Sum reimbursed units per shipment SKU (match by sku, else by fnsku).
@@ -111,6 +114,15 @@ export async function GET(
       const sku = skuAgg.has(r.sku) ? r.sku : (r.fnsku ? fnskuToSku.get(r.fnsku) : undefined)
       if (!sku) continue
       reimbBySku.set(sku, (reimbBySku.get(sku) ?? 0) + units)
+      reimbursementEvents.push({
+        reimbursementId: r.reimbursementId,
+        sku: r.sku || sku,
+        fnsku: r.fnsku,
+        quantity: units,
+        amountTotal: r.amountTotal != null ? Number(r.amountTotal) : null,
+        currency: r.currencyUnit ?? 'USD',
+        approvalDate: r.approvalDate,
+      })
     }
     for (const [sku, a] of Array.from(skuAgg.entries())) {
       const shortage = Math.max(0, a.shipped - a.received)
@@ -118,6 +130,7 @@ export async function GET(
       totalReimbursed += Math.min(shortage, reimbBySku.get(sku) ?? 0)
     }
   }
+  reimbursementEvents.sort((a, b) => (b.approvalDate?.getTime() ?? 0) - (a.approvalDate?.getTime() ?? 0))
 
   const reconciled = Math.min(totalShipped, totalReceived + totalReimbursed)
 
@@ -125,13 +138,33 @@ export async function GET(
   // shipment is still WORKING/IN_TRANSIT/RECEIVING, received < shipped is normal.
   let closed = false
   let amazonStatus: string | null = null
+  // Receipt events grouped by receiving Amazon fulfillment center (warehouse).
+  const byFc: { confirmationId: string; fulfillmentCenterId: string | null; shipmentName: string | null; shipped: number; received: number; status: string | null }[] = []
   try {
-    const statuses = await getShipmentStatusV0(shipment.accountId, shipment.account.marketplaceId, confirmationIds)
-    const vals = confirmationIds.map(cid => statuses[cid]).filter(Boolean)
+    const summaries = await getShipmentSummariesV0(shipment.accountId, shipment.account.marketplaceId, confirmationIds)
+    const vals = confirmationIds.map(cid => summaries[cid]?.status).filter(Boolean) as string[]
     closed = vals.length > 0 && vals.every(v => v === 'CLOSED')
     const distinct = Array.from(new Set(vals))
     amazonStatus = distinct.length === 0 ? null : distinct.length === 1 ? distinct[0] : distinct.join(' / ')
-  } catch { /* unknown → treat as not closed (don't flag shortage) */ }
+    for (const cid of confirmationIds) {
+      const s = summaries[cid]
+      const counts = byShipment[cid] ?? { received: 0, shipped: 0 }
+      byFc.push({
+        confirmationId: cid,
+        fulfillmentCenterId: s?.destinationFc ?? null,
+        shipmentName: s?.name ?? null,
+        shipped: counts.shipped,
+        received: counts.received,
+        status: s?.status ?? null,
+      })
+    }
+  } catch {
+    // unknown → treat as not closed (don't flag shortage); still surface counts
+    for (const cid of confirmationIds) {
+      const counts = byShipment[cid] ?? { received: 0, shipped: 0 }
+      byFc.push({ confirmationId: cid, fulfillmentCenterId: null, shipmentName: null, shipped: counts.shipped, received: counts.received, status: null })
+    }
+  }
 
-  return NextResponse.json({ byShipment, totalReceived, totalShipped, reimbursed: totalReimbursed, reconciled, closed, amazonStatus })
+  return NextResponse.json({ byShipment, byFc, totalReceived, totalShipped, reimbursed: totalReimbursed, reconciled, closed, amazonStatus, reimbursementEvents })
 }

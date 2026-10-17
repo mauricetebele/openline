@@ -590,6 +590,37 @@ export async function getShipmentStatusV0(
   return map
 }
 
+/**
+ * Like getShipmentStatusV0 but returns the full per-shipment summary incl. the
+ * destination Amazon fulfillment center (DestinationFulfillmentCenterId) and
+ * shipment name — used to present receipts grouped by receiving warehouse.
+ */
+export async function getShipmentSummariesV0(
+  accountId: string,
+  marketplaceId: string,
+  amazonShipmentIds: string[],
+): Promise<Record<string, { status: string; destinationFc: string | null; name: string | null }>> {
+  if (amazonShipmentIds.length === 0) return {}
+  const client = new SpApiClient(accountId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp = await client.get<any>('/fba/inbound/v0/shipments', {
+    QueryType: 'SHIPMENT',
+    ShipmentIdList: amazonShipmentIds.join(','),
+    MarketplaceId: marketplaceId,
+  })
+  const data = resp.payload?.ShipmentData ?? resp.ShipmentData ?? []
+  const map: Record<string, { status: string; destinationFc: string | null; name: string | null }> = {}
+  for (const s of data) {
+    if (!s?.ShipmentId) continue
+    map[s.ShipmentId] = {
+      status: s.ShipmentStatus ?? '',
+      destinationFc: s.DestinationFulfillmentCenterId ?? null,
+      name: s.ShipmentName ?? null,
+    }
+  }
+  return map
+}
+
 // ─── 12e. Get Transport Tracking (v0 API) ────────────────────────────────────
 
 /**

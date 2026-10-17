@@ -964,6 +964,137 @@ function CreateForm({
   )
 }
 
+// ─── Receipts-by-warehouse + Lost Inbound reimbursements (SHIPPED shipments) ──
+
+interface ReceiptsData {
+  byFc: { confirmationId: string; fulfillmentCenterId: string | null; shipmentName: string | null; shipped: number; received: number; status: string | null }[]
+  reimbursementEvents: { reimbursementId: string; sku: string; fnsku: string | null; quantity: number; amountTotal: number | null; currency: string | null; approvalDate: string | null }[]
+  totalReceived: number; totalShipped: number; reimbursed: number; reconciled: number; closed: boolean; amazonStatus: string | null
+}
+
+function ReceiptsAndReimbursements({ data, loading }: { data: ReceiptsData | null; loading: boolean }) {
+  const fmtDate = (s: string | null) => s ? new Date(s).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'
+  const money = (n: number | null, c: string | null) => n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: c || 'USD' })
+
+  if (loading && !data) {
+    return (
+      <div className="mb-4 rounded-lg border border-gray-200 p-4 flex items-center justify-center text-sm text-gray-400">
+        <Loader2 size={14} className="animate-spin mr-2" /> Loading receipts & reimbursements…
+      </div>
+    )
+  }
+  if (!data) return null
+
+  const fcRows = data.byFc ?? []
+  const reimb = data.reimbursementEvents ?? []
+  const totalShort = Math.max(0, data.totalShipped - data.totalReceived)
+  const reimbTotalAmt = reimb.reduce((s, r) => s + (r.amountTotal ?? 0), 0)
+
+  return (
+    <div className="mb-4 space-y-3">
+      {/* Summary strip */}
+      <div className="grid grid-cols-4 gap-3 text-sm">
+        <div className="rounded-lg border border-gray-200 p-3">
+          <div className="text-xs text-gray-400 mb-1">Shipped</div>
+          <div className="font-semibold text-gray-800 tabular-nums">{data.totalShipped}</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 p-3">
+          <div className="text-xs text-gray-400 mb-1">Received</div>
+          <div className="font-semibold text-gray-800 tabular-nums">{data.totalReceived}</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 p-3">
+          <div className="text-xs text-gray-400 mb-1">Reimbursed (Lost In.)</div>
+          <div className="font-semibold text-gray-800 tabular-nums">{data.reimbursed}</div>
+        </div>
+        <div className={clsx('rounded-lg border p-3', data.closed && totalShort > data.reimbursed ? 'border-red-200 bg-red-50' : 'border-gray-200')}>
+          <div className="text-xs text-gray-400 mb-1">Short {data.closed ? '' : '(open)'}</div>
+          <div className={clsx('font-semibold tabular-nums', data.closed && totalShort > data.reimbursed ? 'text-red-600' : 'text-gray-800')}>
+            {data.closed ? Math.max(0, totalShort - data.reimbursed) : '—'}
+          </div>
+        </div>
+      </div>
+
+      {/* Receipts by fulfillment center */}
+      <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-1.5">
+          <Package size={12} className="text-gray-400" />
+          <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Receipts by Fulfillment Center</h3>
+          {data.amazonStatus && <span className="ml-auto text-[10px] text-gray-400">Amazon: {data.amazonStatus}</span>}
+        </div>
+        <table className="w-full text-sm">
+          <thead className="bg-white text-gray-400 text-[10px] uppercase tracking-wide">
+            <tr>
+              <th className="text-left px-3 py-2 font-medium">Fulfillment Center</th>
+              <th className="text-left px-3 py-2 font-medium">Amazon Shipment</th>
+              <th className="text-center px-3 py-2 font-medium">Shipped</th>
+              <th className="text-center px-3 py-2 font-medium">Received</th>
+              <th className="text-center px-3 py-2 font-medium">Short</th>
+              <th className="text-left px-3 py-2 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {fcRows.length === 0 ? (
+              <tr><td colSpan={6} className="px-3 py-6 text-center text-xs text-gray-400">No receipt data from Amazon yet.</td></tr>
+            ) : fcRows.map(r => {
+              const short = Math.max(0, r.shipped - r.received)
+              return (
+                <tr key={r.confirmationId}>
+                  <td className="px-3 py-2 font-mono font-medium text-gray-800">{r.fulfillmentCenterId ?? '—'}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-500">{r.confirmationId}</td>
+                  <td className="px-3 py-2 text-center tabular-nums text-gray-700">{r.shipped}</td>
+                  <td className="px-3 py-2 text-center tabular-nums text-gray-700">{r.received}</td>
+                  <td className={clsx('px-3 py-2 text-center tabular-nums', short > 0 && r.status === 'CLOSED' ? 'text-red-600 font-semibold' : 'text-gray-400')}>{short > 0 ? short : '—'}</td>
+                  <td className="px-3 py-2">
+                    <span className={clsx('inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded',
+                      r.status === 'CLOSED' ? 'bg-green-100 text-green-700' : r.status ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500')}>
+                      {r.status ?? 'unknown'}
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Lost Inbound reimbursements */}
+      <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-1.5">
+          <AlertCircle size={12} className="text-gray-400" />
+          <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Lost Inbound Reimbursements</h3>
+          {reimb.length > 0 && <span className="ml-auto text-[10px] text-gray-500">{reimb.reduce((s, r) => s + r.quantity, 0)} units · {money(reimbTotalAmt, reimb[0]?.currency ?? 'USD')}</span>}
+        </div>
+        <table className="w-full text-sm">
+          <thead className="bg-white text-gray-400 text-[10px] uppercase tracking-wide">
+            <tr>
+              <th className="text-left px-3 py-2 font-medium">Approved</th>
+              <th className="text-left px-3 py-2 font-medium">SKU</th>
+              <th className="text-left px-3 py-2 font-medium">FNSKU</th>
+              <th className="text-center px-3 py-2 font-medium">Qty</th>
+              <th className="text-right px-3 py-2 font-medium">Amount</th>
+              <th className="text-left px-3 py-2 font-medium">Reimbursement ID</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {reimb.length === 0 ? (
+              <tr><td colSpan={6} className="px-3 py-6 text-center text-xs text-gray-400">No Lost Inbound reimbursements for this shipment.</td></tr>
+            ) : reimb.map((r, i) => (
+              <tr key={`${r.reimbursementId}-${r.sku}-${i}`}>
+                <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(r.approvalDate)}</td>
+                <td className="px-3 py-2 font-mono text-gray-700">{r.sku || '—'}</td>
+                <td className="px-3 py-2 font-mono text-xs text-gray-500">{r.fnsku ?? '—'}</td>
+                <td className="px-3 py-2 text-center tabular-nums text-gray-700">{r.quantity}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-gray-700">{money(r.amountTotal, r.currency)}</td>
+                <td className="px-3 py-2 font-mono text-xs text-gray-500">{r.reimbursementId}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ─── Wizard View ──────────────────────────────────────────────────────────────
 
 function WizardView({
@@ -1025,6 +1156,27 @@ function WizardView({
   }, [shipmentId])
 
   useEffect(() => { loadShipment() }, [loadShipment])
+
+  // Receipts-by-FC + Lost_Inbound reimbursements — loaded once the shipment is
+  // SHIPPED (units are in Amazon's hands, so receipt/reimbursement data exists).
+  type ReceivedData = {
+    byFc: { confirmationId: string; fulfillmentCenterId: string | null; shipmentName: string | null; shipped: number; received: number; status: string | null }[]
+    reimbursementEvents: { reimbursementId: string; sku: string; fnsku: string | null; quantity: number; amountTotal: number | null; currency: string | null; approvalDate: string | null }[]
+    totalReceived: number; totalShipped: number; reimbursed: number; reconciled: number; closed: boolean; amazonStatus: string | null
+  }
+  const [recv, setRecv] = useState<ReceivedData | null>(null)
+  const [recvLoading, setRecvLoading] = useState(false)
+  useEffect(() => {
+    if (shipment?.status !== 'SHIPPED') { setRecv(null); return }
+    let cancelled = false
+    setRecvLoading(true)
+    fetch(`/api/fba-shipments/${shipmentId}/received`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setRecv(d) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setRecvLoading(false) })
+    return () => { cancelled = true }
+  }, [shipment?.status, shipmentId])
 
   const [syncingTracking, setSyncingTracking] = useState(false)
   async function handleSyncTracking() {
@@ -1251,6 +1403,11 @@ function WizardView({
           <div className="font-medium text-gray-700">{shipment.items.length} SKU{shipment.items.length !== 1 ? 's' : ''}, {shipment.items.reduce((s, i) => s + i.quantity, 0)} units</div>
         </div>
       </div>
+
+      {/* Receipts by warehouse + Lost Inbound reimbursements (SHIPPED only) */}
+      {shipment.status === 'SHIPPED' && (
+        <ReceiptsAndReimbursements data={recv} loading={recvLoading} />
+      )}
 
       {/* Items table */}
       <div className="border border-gray-200 rounded-lg overflow-hidden mb-4">
