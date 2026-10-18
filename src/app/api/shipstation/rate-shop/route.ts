@@ -465,6 +465,7 @@ export async function POST(req: NextRequest) {
           ? { length: body.dimensions.length, width: body.dimensions.width, height: body.dimensions.height, unit: dimUnit }
           : undefined,
         confirmation: (body.confirmation ?? 'none') as 'none' | 'delivery' | 'signature' | 'adult_signature',
+        includeTimeInTransit: true,
       }, body.upsCredentialId)
 
       for (const r of upsRates) {
@@ -476,7 +477,7 @@ export async function POST(req: NextRequest) {
           carrierName:  'UPS Direct',
           shipmentCost: cost,
           otherCost:    0,
-          transitDays:  null,
+          transitDays:  r.businessDaysInTransit,
           deliveryDate: null,
         })
       }

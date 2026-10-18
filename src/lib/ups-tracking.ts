@@ -1367,7 +1367,10 @@ export interface UpsDirectRate {
   shipmentCost:   number   // published rate
   negotiatedCost: number | null  // account-level rate (if available)
   currency:       string
+  businessDaysInTransit: number | null // estimated transit (when time-in-transit requested)
 }
+
+const UPS_SHOPTIT_URL = 'https://onlinetools.ups.com/api/rating/v1/Shoptimeintransit'
 
 /**
  * Fetch rates for ALL available UPS services in a single call (RequestOption: 'Shop').
@@ -1379,6 +1382,7 @@ export async function getUpsDirectRates(params: {
   weight:        { value: number; unit: 'LBS' | 'OZS' }
   dimensions?:   { length: number; width: number; height: number; unit?: 'IN' | 'CM' }
   confirmation?: 'none' | 'delivery' | 'signature' | 'adult_signature'
+  includeTimeInTransit?: boolean // request UPS estimated business days in transit
 }, upsCredentialId?: string): Promise<UpsDirectRate[]> {
   const creds = upsCredentialId ? await getUPSCredentialsById(upsCredentialId) : await getUPSCredentials()
   const { accountNumber } = creds
@@ -1396,13 +1400,15 @@ export async function getUpsDirectRates(params: {
   const toLines = [toLine1]
   if (params.toAddress.line2?.trim()) toLines.push(sanitizeAddressLine(params.toAddress.line2))
 
+  const tnt = !!params.includeTimeInTransit
   const body = {
     RateRequest: {
       Request: {
-        RequestOption: 'Shop',  // returns ALL available services
+        RequestOption: tnt ? 'Shoptimeintransit' : 'Shop',  // Shop = all services; Shoptimeintransit adds transit days
         TransactionReference: { CustomerContext: 'ups-direct-rate-shop' },
       },
       Shipment: {
+        ...(tnt ? { DeliveryTimeInformation: { PackageBillType: '03' } } : {}), // 03 = Non-Document (required for time-in-transit)
         Shipper: {
           Name:          RETURN_ADDRESS.name,
           ShipperNumber: accountNumber,
@@ -1451,7 +1457,7 @@ export async function getUpsDirectRates(params: {
 
   let data: unknown
   try {
-    const res = await axios.post(UPS_SHOP_URL, body, {
+    const res = await axios.post(tnt ? UPS_SHOPTIT_URL : UPS_SHOP_URL, body, {
       headers: {
         Authorization:  `Bearer ${token}`,
         transId:        `ups-direct-shop-${Date.now()}`,
@@ -1481,6 +1487,8 @@ export async function getUpsDirectRates(params: {
     Service?: { Code?: string }
     TotalCharges?: { MonetaryValue?: string; CurrencyCode?: string }
     NegotiatedRateCharges?: { TotalCharge?: { MonetaryValue?: string; CurrencyCode?: string } }
+    GuaranteedDelivery?: { BusinessDaysInTransit?: string; DeliveryByTime?: string }
+    TimeInTransit?: { ServiceSummary?: { EstimatedArrival?: { BusinessDaysInTransit?: string } } }
   }
 
   const ratedShipments = (data as {
@@ -1501,12 +1509,16 @@ export async function getUpsDirectRates(params: {
         ? parseFloat(s.NegotiatedRateCharges.TotalCharge.MonetaryValue)
         : null
 
+      const bdt = s.GuaranteedDelivery?.BusinessDaysInTransit ?? s.TimeInTransit?.ServiceSummary?.EstimatedArrival?.BusinessDaysInTransit
+      const businessDaysInTransit = bdt != null && bdt !== '' ? parseInt(bdt, 10) : null
+
       return {
         serviceName,
         serviceCode,
         shipmentCost:   published,
         negotiatedCost: negotiated,
         currency:       s.TotalCharges!.CurrencyCode ?? 'USD',
+        businessDaysInTransit: Number.isNaN(businessDaysInTransit as number) ? null : businessDaysInTransit,
       }
     })
     .sort((a, b) => (a.negotiatedCost ?? a.shipmentCost) - (b.negotiatedCost ?? b.shipmentCost))

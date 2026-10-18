@@ -178,7 +178,10 @@ export async function POST(req: NextRequest) {
 
         let pass = true
         if (rule.transitEnabled) {
-          const ground = rates.find(isUpsGround)
+          // Prefer a UPS Ground rate that carries transit info (UPS Direct now
+          // does; a ShipStation UPS Ground may not), else any UPS Ground.
+          const grounds = rates.filter(isUpsGround)
+          const ground = grounds.find(g => g.transitDays != null || g.deliveryDate) ?? grounds[0]
           let within: boolean | null = null
           if (ground) {
             let days = ground.transitDays
