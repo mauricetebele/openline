@@ -80,7 +80,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
         where:   { status: 'PENDING' },
         include: {
           order: {
-            include: { appliedPreset: true },
+            include: { appliedPreset: true, appliedPackagePreset: true },
           },
         },
         orderBy: { createdAt: 'asc' },
@@ -152,9 +152,29 @@ export async function runLabelBatch(batchId: string): Promise<void> {
       const isUpsDirect = order.presetRateCarrier === 'ups_direct' ||
         order.appliedPreset?.carrierCode === 'ups_direct'
 
+      // Effective preset for the label: the manually-applied ShippingPreset if any,
+      // otherwise a virtual one built from a BM shipping rule's captured rate +
+      // the order's applied PACKAGE preset (box dims). Lets rule-applied orders buy
+      // without a ShippingPreset.
+      const effPreset = order.appliedPreset ?? (order.presetRateServiceCode && order.appliedPackagePreset ? {
+        carrierCode:     order.presetRateCarrier ?? '',
+        serviceCode:     order.presetRateServiceCode,
+        packageCode:     order.appliedPackagePreset.packageCode,
+        weightValue:     order.appliedPackagePreset.weightValue,
+        weightUnit:      order.appliedPackagePreset.weightUnit,
+        dimLength:       order.appliedPackagePreset.dimLength,
+        dimWidth:        order.appliedPackagePreset.dimWidth,
+        dimHeight:       order.appliedPackagePreset.dimHeight,
+        dimUnit:         order.appliedPackagePreset.dimUnit,
+        confirmation:    order.presetRateConfirmation ?? order.appliedPackagePreset.confirmation,
+        upsCredentialId: order.presetRateUpsCredentialId,
+        insuredValue:    null as number | null,
+        insuranceProvider: null as string | null,
+      } : null)
+
       if (isUpsDirect) {
         // ── UPS Direct path: create shipment via UPS API ─────────────────────
-        const preset = order.appliedPreset
+        const preset = effPreset
         if (!preset) {
           throw new Error('No applied preset found on order — re-apply preset before batching')
         }
@@ -209,7 +229,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
         if (!fedexCreds) {
           throw new Error('FedEx credentials not configured — go to Settings → FedEx')
         }
-        const preset = order.appliedPreset
+        const preset = effPreset
         if (!preset) {
           throw new Error('No applied preset found on order — re-apply preset before batching')
         }
@@ -290,7 +310,7 @@ export async function runLabelBatch(batchId: string): Promise<void> {
 
       } else {
         // ── V1 path: direct createLabel with preset parameters ───────────────
-        const preset = order.appliedPreset
+        const preset = effPreset
         if (!preset) {
           throw new Error('No applied preset found on order — re-apply preset before batching')
         }

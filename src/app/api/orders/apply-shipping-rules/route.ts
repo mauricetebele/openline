@@ -212,6 +212,7 @@ export async function POST(req: NextRequest) {
             presetRateAmount: amount,
             presetRateCarrier: rate.carrierCode,
             presetRateService: rate.serviceName,
+            presetRateServiceCode: rate.serviceCode,
             presetRateId: rate.rate_id ?? null,
             presetRateError: null,
             presetRateCheckedAt: new Date(),

@@ -610,6 +610,7 @@ model Order {
   presetRateCheckedAt       DateTime?
   presetRateUpsCredentialId String?
   presetRateConfirmation    String? // signature requirement from a shipping rule ('signature' | 'adult_signature' | 'delivery' | null)
+  presetRateServiceCode     String? // carrier service CODE (presetRateService holds the display name) — needed to buy direct-carrier labels
   presetRateFedexOneRate    Boolean? // FedEx One Rate chosen by a shipping rule
   presetRateFedexPackaging  String?  // resolved One Rate packaging for this order
   presetShipDate            String?
