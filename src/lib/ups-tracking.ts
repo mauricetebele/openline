@@ -430,25 +430,34 @@ function upsDeliveryConfirmation(confirmation?: string): { DeliveryConfirmation:
   return { DeliveryConfirmation: { DCISType: code } }
 }
 
-/** Convert a base64 PNG label image into a 4×6 inch PDF (matching FedEx/ShipStation output). */
+/** Convert a base64 PNG label image into a 4×6 inch PDF (matching FedEx/ShipStation output).
+ *  UPS often returns the label with an extra ~1" blank "doc tab" (e.g. a 1400×800
+ *  7×4 image for a 6×4 label). We scale by the 4" SHORT side so the label is never
+ *  distorted (no vertical squish) and let the trailing doc tab overflow the 4×6
+ *  page bounds, where it's clipped — keeping the label content and barcodes 1:1. */
 async function pngLabelToPdf(pngBase64: string): Promise<string> {
   const pngBytes = Buffer.from(pngBase64, 'base64')
   const pdf = await PDFDocument.create()
   const pngImage = await pdf.embedPng(pngBytes)
 
-  const W = 4 * 72  // 288 pt
-  const H = 6 * 72  // 432 pt
+  const SHORT = 4 * 72  // 288 pt (the 4" side)
+  const LONG  = 6 * 72  // 432 pt (the 6" side)
   const isLandscape = pngImage.width > pngImage.height
 
   if (isLandscape) {
-    // UPS returns landscape PNG — draw on landscape page, then set /Rotate 90
-    // so PDF viewers/printers render it as portrait 4×6
-    const page = pdf.addPage([H, W])          // landscape page: 432 × 288
-    page.drawImage(pngImage, { x: 0, y: 0, width: H, height: W })
-    page.setRotation(degrees(90))
+    // Scale so the image height (4") fills the page short side; width (the 6" label
+    // + any doc tab) is anchored at the leading edge and clipped at the 6" bound.
+    const scale = SHORT / pngImage.height
+    const page = pdf.addPage([LONG, SHORT])   // landscape 432 × 288
+    page.drawImage(pngImage, { x: 0, y: 0, width: pngImage.width * scale, height: SHORT })
+    page.setRotation(degrees(90))             // viewers render it portrait 4×6
   } else {
-    const page = pdf.addPage([W, H])
-    page.drawImage(pngImage, { x: 0, y: 0, width: W, height: H })
+    // Portrait: scale so width (4") fills the short side; top-align so the label
+    // content stays and any trailing tab overflows below the 6" bound (clipped).
+    const scale = SHORT / pngImage.width
+    const drawnHeight = pngImage.height * scale
+    const page = pdf.addPage([SHORT, LONG])   // portrait 288 × 432
+    page.drawImage(pngImage, { x: 0, y: LONG - drawnHeight, width: SHORT, height: drawnHeight })
   }
 
   const pdfBytes = await pdf.save()
