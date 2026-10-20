@@ -210,6 +210,23 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
     try { setTracking(await api(`/api/repair-orders/${id}/tracking`)) } catch { /* ignore */ }
   }
 
+  const [voiding, setVoiding] = useState<null | 'outbound' | 'inbound'>(null)
+  async function voidLabel(dir: 'outbound' | 'inbound') {
+    if (!confirm(`Void the ${dir === 'outbound' ? 'outbound (to vendor)' : 'inbound (back to us)'} label? This cancels it with the carrier and clears the tracking so you can create a new one.`)) return
+    setVoiding(dir)
+    try {
+      const r = await api(`/api/repair-orders/${id}/label/void`, 'POST', { direction: dir })
+      toast.success(`Voided ${dir} label${r?.carrierVoided === false ? ' (carrier reported an issue — cleared anyway)' : ''}`)
+      await load(); loadTracking()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Void failed'
+      if (/carrier void failed/i.test(msg) && confirm(`${msg}\n\nForce-clear the label anyway (mark it voided here even though the carrier rejected it)?`)) {
+        try { await api(`/api/repair-orders/${id}/label/void`, 'POST', { direction: dir, force: true }); toast.success('Label cleared'); await load(); loadTracking() }
+        catch (e2) { toast.error(e2 instanceof Error ? e2.message : 'Failed') }
+      } else { toast.error(msg) }
+    } finally { setVoiding(null) }
+  }
+
   // Column sorting for the items grid.
   const sortVal = (it: Item): string | number => {
     switch (sortKey) {
@@ -297,6 +314,7 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
                 <div className="flex items-center gap-2">
                   {trk && <a href={`/api/repair-orders/${id}/label/pdf?direction=${dir}`} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-amazon-blue flex items-center gap-1"><Printer size={12} /> Print</a>}
                   {trk && <a href={`/api/repair-orders/${id}/label/pdf?direction=${dir}&dl=1`} className="text-xs text-gray-500 hover:text-amazon-blue flex items-center gap-1"><Download size={12} /> Download</a>}
+                  {trk && <button onClick={() => voidLabel(dir)} disabled={voiding === dir} className="text-xs text-red-600 hover:underline flex items-center gap-1 disabled:opacity-50">{voiding === dir ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />} Void</button>}
                   <button onClick={() => setLabelDir(dir)} className="text-xs text-amazon-blue hover:underline flex items-center gap-1"><Truck size={12} /> {trk ? 'New label' : 'Create label'}</button>
                 </div>
               </div>
