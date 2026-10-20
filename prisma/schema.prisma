@@ -3030,6 +3030,9 @@ model RemovalShipmentItem {
   fnsku       String
   disposition String? // Unsellable, Sellable, Defective, etc.
   quantity    Int             @default(1)
+  // Units with no physical unit to receive back (e.g. a case was filed but Amazon
+  // never returned the unit). Marked via "No Unit To Receive" — counts as received.
+  noUnitToReceiveQty Int      @default(0)
 
   fbaReturnReceipts FbaReturnReceipt[]
   fbaRemovalCases   FbaRemovalCase[]

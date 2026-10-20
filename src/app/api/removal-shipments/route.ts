@@ -52,15 +52,17 @@ export async function GET(req: NextRequest) {
       take: pageSize,
       orderBy,
       include: {
-        _count: { select: { items: true, fbaReturnReceipts: true, fbaRemovalCases: true } },
-        items: { select: { quantity: true } },
+        _count: { select: { items: true, fbaReturnReceipts: true } },
+        items: { select: { quantity: true, noUnitToReceiveQty: true } },
       },
     }),
   ])
 
   const data = shipments.map(s => {
     const unitCount = s.items.reduce((sum, item) => sum + item.quantity, 0)
-    const rawReceived = s._count.fbaReturnReceipts + s._count.fbaRemovalCases
+    // Received = return receipts + "No Unit To Receive" marks (cases alone don't count).
+    const noUnit = s.items.reduce((sum, item) => sum + item.noUnitToReceiveQty, 0)
+    const rawReceived = s._count.fbaReturnReceipts + noUnit
     const receivedCount = Math.min(rawReceived, unitCount)
     const { items: _items, ...rest } = s
     return { ...rest, unitCount, receivedCount }

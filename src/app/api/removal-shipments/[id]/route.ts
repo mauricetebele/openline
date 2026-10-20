@@ -66,8 +66,9 @@ export async function GET(
   }
 
   const items = shipment.items.map(item => {
-    const rawReceived = item._count.fbaReturnReceipts + item._count.fbaRemovalCases
-    const receivedCount = Math.min(rawReceived, item.quantity)
+    // A unit counts as received if it has a return receipt OR is marked "No Unit To
+    // Receive". A removal case alone does NOT count (received + case = 1 via receipt).
+    const receivedCount = Math.min(item._count.fbaReturnReceipts + item.noUnitToReceiveQty, item.quantity)
     return {
       id: item.id,
       shipmentId: item.shipmentId,
@@ -79,6 +80,8 @@ export async function GET(
       receivedCount,
       remainingQty: Math.max(0, item.quantity - receivedCount),
       lpnNumber: itemLpnMap.get(item.id) ?? null,
+      hasCase: item._count.fbaRemovalCases > 0,
+      noUnitToReceiveQty: item.noUnitToReceiveQty,
     }
   })
 

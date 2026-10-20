@@ -17,6 +17,8 @@ interface ShipmentItem {
   receivedCount: number
   remainingQty: number
   lpnNumber: string | null
+  hasCase: boolean
+  noUnitToReceiveQty: number
 }
 
 interface ShipmentDetail {
@@ -45,6 +47,7 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
   const [loading, setLoading] = useState(true)
   const [receiveItem, setReceiveItem] = useState<ShipmentItem | null>(null)
   const [caseItem, setCaseItem] = useState<ShipmentItem | null>(null)
+  const [markingNoUnit, setMarkingNoUnit] = useState<string | null>(null)
 
   const fetchDetail = useCallback(async () => {
     try {
@@ -67,6 +70,20 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
     setCaseItem(null)
     fetchDetail()
     onUpdated()
+  }
+
+  // Mark one unit as "No Unit To Receive" — a case was filed but no physical unit
+  // came back. Counts toward received.
+  async function handleNoUnit(item: ShipmentItem) {
+    setMarkingNoUnit(item.id)
+    try {
+      const res = await fetch(`/api/removal-shipments/${shipmentId}/no-unit`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemId: item.id }),
+      })
+      if (res.ok) { await fetchDetail(); onUpdated() }
+    } finally {
+      setMarkingNoUnit(null)
+    }
   }
 
   const allDone = detail ? detail.totalReceived >= detail.totalUnits : false
@@ -166,6 +183,17 @@ export default function ProcessShipmentModal({ shipmentId, trackingNumber, onClo
                             >
                               Create Case
                             </button>
+                            {!done && item.hasCase && (
+                              <button
+                                onClick={() => handleNoUnit(item)}
+                                disabled={markingNoUnit === item.id}
+                                title="A case was filed but no physical unit was returned — count it as received"
+                                className="px-3 py-1 text-[11px] font-semibold text-white bg-slate-600 rounded hover:bg-slate-700 disabled:opacity-50 inline-flex items-center gap-1"
+                              >
+                                {markingNoUnit === item.id && <Loader2 size={10} className="animate-spin" />}
+                                No Unit To Receive
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
