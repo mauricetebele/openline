@@ -41,7 +41,7 @@ interface ProcessReturn {
   archivedByLabel: string | null
   units: Unit[]
   // Serial-vs-order match for single-unit Amazon returns (server-computed).
-  match?: { eligible: boolean; matched: boolean; orderId: string | null }
+  match?: { eligible: boolean; matched: boolean; orderId: string | null; internalOrderId: string | null }
 }
 interface Grade { id: string; grade: string }
 
@@ -587,9 +587,9 @@ export default function ProcessReturnsManager() {
                     {r.match?.matched ? (
                       <span className="inline-flex items-center gap-1.5 whitespace-nowrap" title="Serial matches the order for this return's tracking number">
                         <CheckCircle2 size={16} className="text-green-500 shrink-0" />
-                        {r.match.orderId && (
+                        {r.match.orderId && r.match.internalOrderId && (
                           <a
-                            href={`https://sellercentral.amazon.com/orders-v3/order/${encodeURIComponent(r.match.orderId)}`}
+                            href={`/orders/${r.match.internalOrderId}`}
                             target="_blank" rel="noopener noreferrer"
                             onClick={e => e.stopPropagation()}
                             className="font-mono text-[11px] text-amazon-blue hover:underline"

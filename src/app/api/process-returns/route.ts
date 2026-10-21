@@ -23,11 +23,11 @@ export async function GET() {
   })
 
   const matchByReturnId = await computeSerialMatches(returns)
-  const data = returns.map(r => ({ ...r, match: matchByReturnId.get(r.id) ?? { eligible: false, matched: false, orderId: null } }))
+  const data = returns.map(r => ({ ...r, match: matchByReturnId.get(r.id) ?? { eligible: false, matched: false, orderId: null, internalOrderId: null } }))
   return NextResponse.json({ data })
 }
 
-interface MatchResult { eligible: boolean; matched: boolean; orderId: string | null }
+interface MatchResult { eligible: boolean; matched: boolean; orderId: string | null; internalOrderId: string | null }
 
 /**
  * For "Not Yet Processed" Amazon returns: if the tracking number belongs to an
@@ -87,8 +87,8 @@ async function computeSerialMatches(
       saleByInternalId.get(s.orderId)!.add(sn)
     }
 
-    // amazonOrderId → { totalQty, serials }
-    const orderInfo = new Map<string, { totalQty: number; serials: Set<string> }>()
+    // amazonOrderId → { id (internal), totalQty, serials }
+    const orderInfo = new Map<string, { id: string; totalQty: number; serials: Set<string> }>()
     for (const o of orders) {
       const totalQty = o.items.reduce((sum, it) => sum + (it.quantityOrdered ?? 0), 0)
       const serials = new Set<string>()
@@ -99,7 +99,7 @@ async function computeSerialMatches(
         }
       }
       Array.from(saleByInternalId.get(o.id) ?? []).forEach(sn => serials.add(sn))
-      orderInfo.set(o.amazonOrderId, { totalQty, serials })
+      orderInfo.set(o.amazonOrderId, { id: o.id, totalQty, serials })
     }
 
     for (const r of active) {
@@ -108,10 +108,10 @@ async function computeSerialMatches(
       const info = orderInfo.get(mfn.orderId)
       const totalQty = info?.totalQty ?? mfn.orderQuantity ?? null
       // Eligible only for a single-unit Amazon order we can resolve.
-      if (!info || totalQty !== 1) { out.set(r.id, { eligible: false, matched: false, orderId: mfn.orderId }); continue }
+      if (!info || totalQty !== 1) { out.set(r.id, { eligible: false, matched: false, orderId: mfn.orderId, internalOrderId: info?.id ?? null }); continue }
       const entered = r.units.map(u => u.serialNumber?.trim().toUpperCase()).filter(Boolean)
       const matched = entered.some(sn => info.serials.has(sn))
-      out.set(r.id, { eligible: true, matched, orderId: mfn.orderId })
+      out.set(r.id, { eligible: true, matched, orderId: mfn.orderId, internalOrderId: info.id })
     }
   } catch (err) {
     console.error('[process-returns] serial match computation failed:', err instanceof Error ? err.message : err)
