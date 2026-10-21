@@ -67,6 +67,25 @@ export async function GET(
     }
   }
 
+  // Match removal cases to line items — linked by id, else by FNSKU (older cases
+  // weren't tied to a specific item). Each case claims one matching-FNSKU item so
+  // N cases for the same FNSKU surface on N items.
+  const rawCases = await prisma.fbaRemovalCase.findMany({
+    where: { removalShipmentId: id },
+    orderBy: { createdAt: 'desc' },
+    include: { createdBy: { select: { name: true } } },
+  })
+  const caseCountByItem = new Map<string, number>()
+  const claimed = new Set<string>()
+  for (const c of rawCases) {
+    if (c.removalShipmentItemId) caseCountByItem.set(c.removalShipmentItemId, (caseCountByItem.get(c.removalShipmentItemId) ?? 0) + 1)
+  }
+  for (const c of rawCases) {
+    if (c.removalShipmentItemId) continue
+    const item = shipment.items.find(it => it.fnsku === c.fnsku && !claimed.has(it.id))
+    if (item) { claimed.add(item.id); caseCountByItem.set(item.id, (caseCountByItem.get(item.id) ?? 0) + 1) }
+  }
+
   const items = shipment.items.map(item => {
     // A unit counts as received if it has a return receipt OR is marked "No Unit To
     // Receive". A removal case alone does NOT count (received + case = 1 via receipt).
@@ -82,13 +101,17 @@ export async function GET(
       receivedCount,
       remainingQty: Math.max(0, item.quantity - receivedCount),
       lpnNumber: itemLpnMap.get(item.id) ?? null,
-      hasCase: item._count.fbaRemovalCases > 0,
+      hasCase: (caseCountByItem.get(item.id) ?? 0) > 0,
       noUnitToReceiveQty: item.noUnitToReceiveQty,
     }
   })
 
   const totalUnits = items.reduce((sum, i) => sum + i.quantity, 0)
-  const totalReceived = items.reduce((sum, i) => sum + i.receivedCount, 0)
+  // Count shipment-level receipts (some older ones aren't linked to a line item)
+  // plus "No Unit To Receive" marks, capped — so the total can reach whole even
+  // when receipts/cases predate per-item linking.
+  const totalNoUnit = shipment.items.reduce((sum, it) => sum + it.noUnitToReceiveQty, 0)
+  const totalReceived = Math.min(shipment.fbaReturnReceipts.length + totalNoUnit, totalUnits)
 
   const receipts = shipment.fbaReturnReceipts.map(r => ({
     id: r.id,
@@ -125,13 +148,6 @@ export async function GET(
       }
     }
   }
-
-  // Fetch cases linked to this shipment
-  const rawCases = await prisma.fbaRemovalCase.findMany({
-    where: { removalShipmentId: id },
-    orderBy: { createdAt: 'desc' },
-    include: { createdBy: { select: { name: true } } },
-  })
 
   const cases = rawCases.map(c => ({
     id: c.id,
