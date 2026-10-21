@@ -69,6 +69,10 @@ export default function ReceiveRemovalItemModal({
   // Step 1 — LPN
   const [lpnNumber, setLpnNumber] = useState('')
   const lpnRef = useRef<HTMLInputElement>(null)
+  // LPN ↔ FNSKU check against the FBA Customer Returns data.
+  const [lpnCheck, setLpnCheck] = useState<{ status: 'match' | 'mismatch' | 'unknown'; lpnFnsku: string | null; sku: string | null } | null>(null)
+  const [checkingLpn, setCheckingLpn] = useState(false)
+  const [lpnOverride, setLpnOverride] = useState(false)
 
   // Step 2 — Serial (validate first, then product is determined)
   const [serialInput, setSerialInput] = useState('')
@@ -151,6 +155,27 @@ export default function ReceiveRemovalItemModal({
       setSearchingProducts(false)
     }, 300)
   }, [])
+
+  // Validate the LPN against the line item's FNSKU, then advance to the serial step.
+  // Blocks on a confirmed FNSKU mismatch unless the user overrides.
+  async function proceedFromLpn() {
+    const lpn = lpnNumber.trim()
+    if (!lpn) return
+    setCheckingLpn(true)
+    try {
+      const res = await fetch(`/api/fba-return-receipts/validate-lpn?lpn=${encodeURIComponent(lpn)}&fnsku=${encodeURIComponent(fnsku)}`)
+      const d = await res.json()
+      const check = { status: d.status as 'match' | 'mismatch' | 'unknown', lpnFnsku: d.lpnFnsku ?? null, sku: d.sku ?? null }
+      setLpnCheck(check)
+      if (check.status === 'mismatch' && !lpnOverride) return // block — show warning, require override
+    } catch {
+      setLpnCheck({ status: 'unknown', lpnFnsku: null, sku: null }) // couldn't verify — don't block
+    } finally {
+      setCheckingLpn(false)
+    }
+    setStep(2)
+    setTimeout(() => serialRef.current?.focus(), 50)
+  }
 
   async function handleValidateSerial() {
     const sn = serialInput.trim()
@@ -320,20 +345,47 @@ export default function ReceiveRemovalItemModal({
               ref={lpnRef}
               autoFocus
               value={lpnNumber}
-              onChange={(e) => setLpnNumber(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && lpnNumber.trim()) { setStep(2); setTimeout(() => serialRef.current?.focus(), 50) } }}
+              onChange={(e) => { setLpnNumber(e.target.value); setLpnCheck(null); setLpnOverride(false) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && lpnNumber.trim()) proceedFromLpn() }}
               placeholder="Scan or type LPN..."
               disabled={step > 1}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 disabled:opacity-60"
             />
+            {/* LPN ↔ FNSKU validation result */}
+            {lpnCheck?.status === 'mismatch' && (
+              <div className="mt-2 rounded-md border border-red-300 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                ⚠ This LPN belongs to FNSKU <span className="font-mono font-semibold">{lpnCheck.lpnFnsku ?? '—'}</span>
+                {lpnCheck.sku ? <> ({lpnCheck.sku})</> : null}, not this line item&apos;s FNSKU <span className="font-mono font-semibold">{fnsku}</span>. You may be receiving the wrong unit.
+              </div>
+            )}
+            {lpnCheck?.status === 'match' && (
+              <div className="mt-2 text-xs text-green-600 dark:text-green-400">✓ LPN matches this item&apos;s FNSKU ({fnsku}).</div>
+            )}
+            {lpnCheck?.status === 'unknown' && step === 1 && (
+              <div className="mt-2 text-xs text-amber-600 dark:text-amber-400">LPN not found in the returns data yet — FNSKU can&apos;t be verified.</div>
+            )}
             {step === 1 && (
-              <button
-                onClick={() => { if (lpnNumber.trim()) { setStep(2); setTimeout(() => serialRef.current?.focus(), 50) } }}
-                disabled={!lpnNumber.trim()}
-                className="mt-2 px-4 py-1.5 text-xs font-medium text-white bg-amazon-blue rounded-lg hover:bg-amazon-blue/90 disabled:opacity-40"
-              >
-                Next
-              </button>
+              <div className="mt-2 flex items-center gap-2">
+                {lpnCheck?.status === 'mismatch' ? (
+                  <>
+                    <button
+                      onClick={() => { setLpnOverride(true); setStep(2); setTimeout(() => serialRef.current?.focus(), 50) }}
+                      className="px-4 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+                    >
+                      Receive anyway
+                    </button>
+                    <span className="text-[11px] text-gray-400">Override the FNSKU mismatch</span>
+                  </>
+                ) : (
+                  <button
+                    onClick={proceedFromLpn}
+                    disabled={!lpnNumber.trim() || checkingLpn}
+                    className="px-4 py-1.5 text-xs font-medium text-white bg-amazon-blue rounded-lg hover:bg-amazon-blue/90 disabled:opacity-40 inline-flex items-center gap-1.5"
+                  >
+                    {checkingLpn && <Loader2 size={12} className="animate-spin" />} Next
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
