@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
-import { Plus, X, Paperclip, Loader2, CheckCircle2, RotateCcw, Search, Package, Send } from 'lucide-react'
+import { Plus, X, Paperclip, Loader2, CheckCircle2, RotateCcw, Search, Package, Send, Mail } from 'lucide-react'
 
 interface Attachment { url: string; filename: string; contentType: string; size: number }
 interface CaseRow {
@@ -114,7 +114,7 @@ export default function CustomerServiceCases() {
       {/* Right: thread */}
       <div className="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
         {selectedId
-          ? <CaseThread key={selectedId} id={selectedId} onChanged={loadList} />
+          ? <CaseThread key={selectedId} id={selectedId} onChanged={loadList} onClose={() => setSelectedId(null)} />
           : <div className="h-full flex items-center justify-center text-sm text-gray-400">Select a case to view the conversation.</div>}
       </div>
 
@@ -123,7 +123,7 @@ export default function CustomerServiceCases() {
   )
 }
 
-function CaseThread({ id, onChanged }: { id: string; onChanged: () => void }) {
+function CaseThread({ id, onChanged, onClose }: { id: string; onChanged: () => void; onClose: () => void }) {
   const [data, setData] = useState<{ case: { id: string; caseNumber: number; orderId: string | null; status: string; createdBy: { name: string } | null; createdAt: string; resolvedAt: string | null; resolvedByName: string | null; messages: Message[] }; linkedOrder: LinkedOrder | null } | null>(null)
   const [loading, setLoading] = useState(true)
   const [reply, setReply] = useState('')
@@ -162,6 +162,12 @@ function CaseThread({ id, onChanged }: { id: string; onChanged: () => void }) {
     load(); onChanged()
   }
 
+  // Mark unread, then close the thread so re-opening doesn't immediately re-read it.
+  async function markUnread() {
+    await fetch(`/api/cs-cases/${id}/unread`, { method: 'POST' })
+    onChanged(); onClose()
+  }
+
   if (loading || !data) return <div className="h-full flex items-center justify-center text-gray-400"><Loader2 className="animate-spin" size={18} /></div>
   const c = data.case
   const o = data.linkedOrder
@@ -173,7 +179,8 @@ function CaseThread({ id, onChanged }: { id: string; onChanged: () => void }) {
         <span className="text-sm font-bold text-gray-900 dark:text-white">CS-{c.caseNumber}</span>
         <span className={clsx('text-[10px] px-1.5 py-0.5 rounded font-semibold', c.status === 'RESOLVED' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-800')}>{c.status}</span>
         <span className="text-xs text-gray-500">{c.createdBy?.name}</span>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={markUnread} title="Mark this case unread" className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-gray-300 text-gray-600 text-xs font-medium hover:bg-gray-50"><Mail size={13} /> Mark as Unread</button>
           {c.status === 'OPEN'
             ? <button onClick={() => setResolved(false)} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-green-600 text-white text-xs font-medium hover:bg-green-700"><CheckCircle2 size={13} /> Mark as Resolved</button>
             : <button onClick={() => setResolved(true)} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-gray-300 text-gray-600 text-xs font-medium hover:bg-gray-50"><RotateCcw size={13} /> Reopen</button>}
