@@ -41,7 +41,7 @@ interface ProcessReturn {
   archivedByLabel: string | null
   units: Unit[]
   // Serial-vs-order match for single-unit Amazon returns (server-computed).
-  match?: { eligible: boolean; matched: boolean }
+  match?: { eligible: boolean; matched: boolean; orderId: string | null }
 }
 interface Grade { id: string; grade: string }
 
@@ -585,8 +585,18 @@ export default function ProcessReturnsManager() {
                   </td>
                   <td className="px-3 py-2 text-center">
                     {r.match?.matched ? (
-                      <span className="inline-flex" title="Serial matches the order for this return's tracking number">
-                        <CheckCircle2 size={16} className="text-green-500" />
+                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap" title="Serial matches the order for this return's tracking number">
+                        <CheckCircle2 size={16} className="text-green-500 shrink-0" />
+                        {r.match.orderId && (
+                          <a
+                            href={`https://sellercentral.amazon.com/orders-v3/order/${encodeURIComponent(r.match.orderId)}`}
+                            target="_blank" rel="noopener noreferrer"
+                            onClick={e => e.stopPropagation()}
+                            className="font-mono text-[11px] text-amazon-blue hover:underline"
+                          >
+                            {r.match.orderId}
+                          </a>
+                        )}
                       </span>
                     ) : r.match?.eligible ? (
                       <span className="inline-flex" title="Serial does not match the order for this return's tracking number">

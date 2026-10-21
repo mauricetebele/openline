@@ -23,11 +23,11 @@ export async function GET() {
   })
 
   const matchByReturnId = await computeSerialMatches(returns)
-  const data = returns.map(r => ({ ...r, match: matchByReturnId.get(r.id) ?? { eligible: false, matched: false } }))
+  const data = returns.map(r => ({ ...r, match: matchByReturnId.get(r.id) ?? { eligible: false, matched: false, orderId: null } }))
   return NextResponse.json({ data })
 }
 
-interface MatchResult { eligible: boolean; matched: boolean }
+interface MatchResult { eligible: boolean; matched: boolean; orderId: string | null }
 
 /**
  * For "Not Yet Processed" Amazon returns: if the tracking number belongs to an
@@ -108,10 +108,10 @@ async function computeSerialMatches(
       const info = orderInfo.get(mfn.orderId)
       const totalQty = info?.totalQty ?? mfn.orderQuantity ?? null
       // Eligible only for a single-unit Amazon order we can resolve.
-      if (!info || totalQty !== 1) { out.set(r.id, { eligible: false, matched: false }); continue }
+      if (!info || totalQty !== 1) { out.set(r.id, { eligible: false, matched: false, orderId: mfn.orderId }); continue }
       const entered = r.units.map(u => u.serialNumber?.trim().toUpperCase()).filter(Boolean)
       const matched = entered.some(sn => info.serials.has(sn))
-      out.set(r.id, { eligible: true, matched })
+      out.set(r.id, { eligible: true, matched, orderId: mfn.orderId })
     }
   } catch (err) {
     console.error('[process-returns] serial match computation failed:', err instanceof Error ? err.message : err)
