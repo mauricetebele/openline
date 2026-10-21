@@ -24,6 +24,8 @@ const bodySchema = z.object({
   reason:     z.enum(['New Stock', 'Return', 'Order Edit']),
   gradeId:    z.string().optional().nullable(),
   serials:    z.array(z.string().min(1)).optional(),
+  vendorId:   z.string().optional().nullable(),
+  unitCost:   z.number().nonnegative().optional().nullable(),
 })
 
 export async function POST(req: NextRequest) {
@@ -40,7 +42,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 })
   }
 
-  const { sku, locationId, qty, reason, gradeId, serials } = parsed.data
+  const { sku, locationId, qty, reason, gradeId, serials, vendorId, unitCost } = parsed.data
 
   // ── Resolve product ────────────────────────────────────────────────────────
   const product = await prisma.product.findUnique({ where: { sku } })
@@ -130,6 +132,8 @@ export async function POST(req: NextRequest) {
                 locationId: location.id,
                 gradeId:    gradeId ?? null,
                 productId:  product.id,
+                ...(vendorId !== undefined ? { vendorId: vendorId || null } : {}),
+                ...(unitCost != null ? { unitCost } : {}),
               },
             })
             serialId = existingId
@@ -141,6 +145,8 @@ export async function POST(req: NextRequest) {
                 locationId:   location.id,
                 gradeId:      gradeId ?? null,
                 status:       'IN_STOCK',
+                vendorId:     vendorId || null,
+                unitCost:     unitCost != null ? unitCost : null,
               },
             })
             serialId = serial.id

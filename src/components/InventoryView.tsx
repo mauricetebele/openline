@@ -1768,6 +1768,9 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
   const [qtyStr,       setQtyStr]       = useState('1')
   const qty = Math.max(1, parseInt(qtyStr) || 0)
   const [addReason,    setAddReason]    = useState<string>('New Stock')
+  const [vendors,      setVendors]      = useState<{ id: string; name: string }[]>([])
+  const [vendorId,     setVendorId]     = useState<string>('')
+  const [costStr,      setCostStr]      = useState<string>('')
   const [serials,      setSerials]      = useState<string[]>([])
   const [bulkText,     setBulkText]     = useState('')
   const [bulkErr,      setBulkErr]      = useState('')
@@ -1795,6 +1798,10 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
     }
     document.addEventListener('mousedown', onClickOutside)
     return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/vendors').then(r => r.json()).then(d => setVendors(d.data ?? [])).catch(() => {})
   }, [])
 
   function handleSkuChange(val: string) {
@@ -1908,6 +1915,8 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
         body: JSON.stringify({
           sku: product!.sku, locationId, qty, reason: addReason,
           ...(gradeId ? { gradeId } : {}),
+          ...(vendorId ? { vendorId } : {}),
+          ...(costStr.trim() && !isNaN(parseFloat(costStr)) ? { unitCost: parseFloat(costStr) } : {}),
           ...(product!.isSerializable ? { serials: serials.map(s => s.trim()) } : {}),
         }),
       })
@@ -2094,6 +2103,25 @@ function AddRemoveInventoryModal({ warehouses, onClose, onDone }: {
                     className="w-full h-8 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue">
                     {ADD_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
+                </div>
+              </div>
+
+              {/* Vendor + Cost (optional) */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Vendor</label>
+                  <select value={vendorId} onChange={e => setVendorId(e.target.value)}
+                    className="w-full h-8 rounded border border-gray-300 px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amazon-blue">
+                    <option value="">— None —</option>
+                    {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Unit Cost ($)</label>
+                  <input type="text" inputMode="decimal" value={costStr}
+                    onChange={e => { if (/^\d*\.?\d*$/.test(e.target.value)) setCostStr(e.target.value) }}
+                    placeholder="0.00"
+                    className="w-full h-8 rounded border border-gray-300 px-2 text-xs text-right focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
                 </div>
               </div>
 
