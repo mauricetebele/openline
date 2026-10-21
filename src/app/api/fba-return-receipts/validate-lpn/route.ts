@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const ret = await prisma.fbaReturn.findFirst({
     where: { lpn },
     orderBy: { returnDate: 'desc' },
-    select: { fnsku: true, sku: true, title: true, reason: true, orderId: true },
+    select: { fnsku: true, sku: true, title: true, reason: true },
   })
 
   if (!ret) return NextResponse.json({ status: 'unknown', lpn })
@@ -34,5 +34,5 @@ export async function GET(req: NextRequest) {
     ? (lpnFnsku.toUpperCase() === fnsku.toUpperCase() ? 'match' : 'mismatch')
     : 'unknown'
 
-  return NextResponse.json({ status, lpn, lpnFnsku, expectedFnsku: fnsku ?? null, sku: ret.sku, title: ret.title, orderId: ret.orderId ?? null })
+  return NextResponse.json({ status, lpn, lpnFnsku, expectedFnsku: fnsku ?? null, sku: ret.sku, title: ret.title })
 }
