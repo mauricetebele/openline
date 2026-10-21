@@ -70,7 +70,7 @@ export default function ReceiveRemovalItemModal({
   const [lpnNumber, setLpnNumber] = useState('')
   const lpnRef = useRef<HTMLInputElement>(null)
   // LPN ↔ FNSKU check against the FBA Customer Returns data.
-  const [lpnCheck, setLpnCheck] = useState<{ status: 'match' | 'mismatch' | 'unknown'; lpnFnsku: string | null; sku: string | null } | null>(null)
+  const [lpnCheck, setLpnCheck] = useState<{ status: 'match' | 'mismatch' | 'unknown'; lpnFnsku: string | null; sku: string | null; orderId: string | null } | null>(null)
   const [checkingLpn, setCheckingLpn] = useState(false)
   const [lpnOverride, setLpnOverride] = useState(false)
 
@@ -165,11 +165,11 @@ export default function ReceiveRemovalItemModal({
     try {
       const res = await fetch(`/api/fba-return-receipts/validate-lpn?lpn=${encodeURIComponent(lpn)}&fnsku=${encodeURIComponent(fnsku)}`)
       const d = await res.json()
-      const check = { status: d.status as 'match' | 'mismatch' | 'unknown', lpnFnsku: d.lpnFnsku ?? null, sku: d.sku ?? null }
+      const check = { status: d.status as 'match' | 'mismatch' | 'unknown', lpnFnsku: d.lpnFnsku ?? null, sku: d.sku ?? null, orderId: d.orderId ?? null }
       setLpnCheck(check)
       if (check.status === 'mismatch' && !lpnOverride) return // block — show warning, require override
     } catch {
-      setLpnCheck({ status: 'unknown', lpnFnsku: null, sku: null }) // couldn't verify — don't block
+      setLpnCheck({ status: 'unknown', lpnFnsku: null, sku: null, orderId: null }) // couldn't verify — don't block
     } finally {
       setCheckingLpn(false)
     }
@@ -359,7 +359,14 @@ export default function ReceiveRemovalItemModal({
               </div>
             )}
             {lpnCheck?.status === 'match' && (
-              <div className="mt-2 text-xs text-green-600 dark:text-green-400">✓ LPN matches this item&apos;s FNSKU ({fnsku}).</div>
+              <div className="mt-2 text-xs text-green-600 dark:text-green-400 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span>✓ LPN matches this item&apos;s FNSKU ({fnsku}).</span>
+                {lpnCheck.orderId && (
+                  <span className="text-gray-600 dark:text-gray-300">
+                    Order <span className="font-mono font-semibold">{lpnCheck.orderId}</span>
+                  </span>
+                )}
+              </div>
             )}
             {lpnCheck?.status === 'unknown' && step === 1 && (
               <div className="mt-2 text-xs text-amber-600 dark:text-amber-400">LPN not found in the returns data yet — FNSKU can&apos;t be verified.</div>
