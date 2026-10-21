@@ -49,6 +49,8 @@ interface RemovalReceipt {
   sku: string
   description: string | null
   lpnNumber: string | null
+  returnReason: string | null
+  customerComments: string | null
   grade: string | null
   regraded: boolean
   location: string | null
@@ -458,6 +460,8 @@ export default function RemovalShipmentView() {
                                         <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">LPN</th>
                                         <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">SKU</th>
                                         <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Grade</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Return Reason</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Customer Comments</th>
                                         <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Location</th>
                                         <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Note</th>
                                         <th className="px-2 py-1.5 text-left font-semibold text-gray-500 dark:text-gray-400">Received By</th>
@@ -475,6 +479,8 @@ export default function RemovalShipmentView() {
                                             {r.grade ?? '—'}
                                             {r.regraded && <span className="ml-1 text-amber-500" title="Regraded from previous grade">*</span>}
                                           </td>
+                                          <td className="px-2 py-1.5 whitespace-nowrap">{r.returnReason ? <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] font-medium">{r.returnReason}</span> : <span className="text-gray-400">—</span>}</td>
+                                          <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300 max-w-[220px] truncate" title={r.customerComments ?? ''}>{r.customerComments || <span className="text-gray-400">—</span>}</td>
                                           <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.location ?? '—'}</td>
                                           <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={r.note ?? ''}>{r.note || '—'}</td>
                                           <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{r.receivedBy ?? '—'}</td>

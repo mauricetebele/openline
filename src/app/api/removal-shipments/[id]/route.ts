@@ -30,6 +30,8 @@ export async function GET(
           serialNumber: true,
           sku: true,
           lpnNumber: true,
+          returnReason: true,
+          customerComments: true,
           note: true,
           receivedAt: true,
           grade: { select: { grade: true } },
@@ -95,6 +97,8 @@ export async function GET(
     sku: r.sku,
     description: r.product?.description ?? null,
     lpnNumber: r.lpnNumber,
+    returnReason: r.returnReason,
+    customerComments: r.customerComments,
     grade: r.grade?.grade ?? null,
     regraded: !!r.previousGradeId,
     location: r.location ? `${r.location.warehouse.name} / ${r.location.name}` : null,
@@ -102,6 +106,25 @@ export async function GET(
     receivedBy: r.receivedBy?.name ?? null,
     receivedAt: r.receivedAt,
   }))
+
+  // Fallback: fill reason/comments by LPN for receipts stored before the returns
+  // report synced (keeps the expanded Received Units view in step with the tab).
+  const needLookup = receipts.filter(r => r.lpnNumber && !r.returnReason && !r.customerComments)
+  if (needLookup.length > 0) {
+    const rets = await prisma.fbaReturn.findMany({
+      where: { lpn: { in: Array.from(new Set(needLookup.map(r => r.lpnNumber!))) } },
+      orderBy: { returnDate: 'desc' },
+      select: { lpn: true, reason: true, customerComments: true },
+    })
+    const byLpn = new Map<string, { reason: string | null; customerComments: string | null }>()
+    for (const x of rets) if (x.lpn && !byLpn.has(x.lpn)) byLpn.set(x.lpn, { reason: x.reason, customerComments: x.customerComments })
+    for (const r of receipts) {
+      if (r.lpnNumber && !r.returnReason && !r.customerComments) {
+        const m = byLpn.get(r.lpnNumber)
+        if (m) { r.returnReason = m.reason; r.customerComments = m.customerComments }
+      }
+    }
+  }
 
   // Fetch cases linked to this shipment
   const rawCases = await prisma.fbaRemovalCase.findMany({

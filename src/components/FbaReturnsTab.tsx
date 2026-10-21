@@ -17,6 +17,8 @@ interface FbaReturnReceipt {
   receivedAt: string
   removalTrackingNumber: string | null
   lpnNumber: string | null
+  returnReason: string | null
+  customerComments: string | null
   product: { sku: string; description: string }
   grade: { id: string; grade: string } | null
   location: { name: string; warehouse: { name: string } }
@@ -104,6 +106,8 @@ export default function FbaReturnsTab() {
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Shipment #</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Removal Tracking #</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">LPN #</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Return Reason</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Customer Comments</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Location</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Received By</th>
                 <th className="px-3 py-2 text-left font-semibold text-gray-100 whitespace-nowrap">Date</th>
@@ -145,6 +149,12 @@ export default function FbaReturnsTab() {
                   </td>
                   <td className="px-3 py-1.5 font-mono text-gray-500 dark:text-gray-400">
                     {r.lpnNumber ?? '—'}
+                  </td>
+                  <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                    {r.returnReason ? <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] font-medium">{r.returnReason}</span> : <span className="text-gray-400">—</span>}
+                  </td>
+                  <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300 max-w-[260px] truncate" title={r.customerComments ?? ''}>
+                    {r.customerComments || <span className="text-gray-400">—</span>}
                   </td>
                   <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                     {r.location.warehouse.name} / {r.location.name}

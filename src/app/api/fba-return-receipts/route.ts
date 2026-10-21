@@ -35,6 +35,8 @@ export async function GET(req: NextRequest) {
       receivedAt: true,
       removalTrackingNumber: true,
       lpnNumber: true,
+      returnReason: true,
+      customerComments: true,
       createdAt: true,
       product: { select: { sku: true, description: true } },
       grade: { select: { id: true, grade: true } },
@@ -46,6 +48,26 @@ export async function GET(req: NextRequest) {
       receivedBy: { select: { name: true } },
     },
   })
+
+  // Fallback: fill reason/comments for receipts received before the returns report
+  // synced, by matching the LPN live against fba_returns.
+  const needLookup = receipts.filter(r => r.lpnNumber && !r.returnReason && !r.customerComments)
+  if (needLookup.length > 0) {
+    const lpns = Array.from(new Set(needLookup.map(r => r.lpnNumber!) ))
+    const rets = await prisma.fbaReturn.findMany({
+      where: { lpn: { in: lpns } },
+      orderBy: { returnDate: 'desc' },
+      select: { lpn: true, reason: true, customerComments: true },
+    })
+    const byLpn = new Map<string, { reason: string | null; customerComments: string | null }>()
+    for (const r of rets) if (r.lpn && !byLpn.has(r.lpn)) byLpn.set(r.lpn, { reason: r.reason, customerComments: r.customerComments })
+    for (const r of receipts) {
+      if (r.lpnNumber && !r.returnReason && !r.customerComments) {
+        const m = byLpn.get(r.lpnNumber)
+        if (m) { r.returnReason = m.reason; r.customerComments = m.customerComments }
+      }
+    }
+  }
 
   return NextResponse.json({ data: receipts })
 }
@@ -229,6 +251,21 @@ export async function POST(req: NextRequest) {
       }
       const receiptNumber = `FBA-RET-${String(nextNum).padStart(4, '0')}`
 
+      // Pull the customer return reason + comments from the FBA Customer Returns
+      // report (synced into fba_returns), matched by LPN.
+      const cleanLpn = lpnNumber?.trim() || null
+      let returnReason: string | null = null
+      let customerComments: string | null = null
+      if (cleanLpn) {
+        const ret = await tx.fbaReturn.findFirst({
+          where: { lpn: cleanLpn },
+          orderBy: { returnDate: 'desc' },
+          select: { reason: true, customerComments: true },
+        })
+        returnReason = ret?.reason ?? null
+        customerComments = ret?.customerComments ?? null
+      }
+
       // 7. Create FbaReturnReceipt record
       const receipt = await tx.fbaReturnReceipt.create({
         data: {
@@ -246,7 +283,9 @@ export async function POST(req: NextRequest) {
           removalShipmentId: removalShipmentId || null,
           removalShipmentItemId: removalShipmentItemId || null,
           removalTrackingNumber: removalTrackingNumber || null,
-          lpnNumber: lpnNumber?.trim() || null,
+          lpnNumber: cleanLpn,
+          returnReason,
+          customerComments,
         },
         include: {
           product: { select: { sku: true, description: true } },

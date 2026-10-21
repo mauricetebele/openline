@@ -276,6 +276,7 @@ model FbaReturn {
   fulfillmentCenterId String?
   lpn                 String? // License Plate Number
   reason              String? // customer return reason code, e.g. "UNWANTED_ITEM", "DEFECTIVE"
+  customerComments    String? @db.Text // free-text buyer comments from the returns report
 
   importedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -283,6 +284,7 @@ model FbaReturn {
   @@unique([accountId, orderId, sku])
   @@index([orderId])
   @@index([accountId])
+  @@index([lpn])
   @@map("fba_returns")
 }
 
@@ -2539,11 +2541,16 @@ model FbaReturnReceipt {
   removalShipmentItem   RemovalShipmentItem? @relation(fields: [removalShipmentItemId], references: [id], onDelete: SetNull)
   removalTrackingNumber String?
   lpnNumber             String?
+  // Customer return reason + comments, pulled from the FBA Customer Returns report
+  // by LPN at receive time (so they travel with the received unit).
+  returnReason          String?
+  customerComments      String?              @db.Text
   createdAt             DateTime             @default(now())
 
   @@index([inventorySerialId])
   @@index([productId])
   @@index([removalShipmentId])
+  @@index([lpnNumber])
   @@map("fba_return_receipts")
 }
 
