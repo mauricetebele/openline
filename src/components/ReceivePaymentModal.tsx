@@ -356,7 +356,7 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Payment Date</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{creditsOnly ? 'Credit Application Date' : 'Payment Date'}</label>
                   <input
                     type="date"
                     value={paymentDate}
@@ -365,14 +365,24 @@ export default function ReceivePaymentModal({ onClose, onSuccess }: { onClose: (
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Payment Method *</label>
-                  <select
-                    value={method}
-                    onChange={(e) => setMethod(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                  >
-                    {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                  </select>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Payment Method {creditsOnly ? '' : '*'}</label>
+                  {creditsOnly ? (
+                    <select
+                      value="CREDIT_APPLICATION"
+                      disabled
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-100 text-gray-600 cursor-not-allowed focus:outline-none"
+                    >
+                      <option value="CREDIT_APPLICATION">Credit Application</option>
+                    </select>
+                  ) : (
+                    <select
+                      value={method}
+                      onChange={(e) => setMethod(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    >
+                      {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                  )}
                 </div>
               </div>
               <div>
