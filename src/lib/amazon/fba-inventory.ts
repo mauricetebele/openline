@@ -29,7 +29,7 @@ interface InventorySummary {
     fulfillableQuantity?: number
     inboundWorkingQuantity?: number    // being prepped by seller, not yet shipped to Amazon
     inboundShippedQuantity?: number    // shipped to Amazon, not yet received
-    inboundReceivingQuantity?: number  // at an FC, being received/checked in
+    inboundReceivingQuantity?: number  // being checked in at an FC — INCLUDES customer returns, not just our shipments, so it's excluded from the "Inbound" figure
     reservedQuantity?: {
       totalReservedQuantity?: number
       pendingCustomerOrderQuantity?: number
@@ -77,7 +77,10 @@ export async function fetchFbaInventoryForSku(
   const available = d?.fulfillableQuantity ?? item.totalQuantity ?? 0
   const reserved = d?.reservedQuantity?.totalReservedQuantity ?? 0
   const transfer = d?.reservedQuantity?.pendingTransshipmentQuantity ?? 0
-  const inbound = (d?.inboundWorkingQuantity ?? 0) + (d?.inboundShippedQuantity ?? 0) + (d?.inboundReceivingQuantity ?? 0)
+  // "Inbound" = units en route from us (working + shipped). inboundReceivingQuantity
+  // is deliberately excluded: it also covers customer returns being checked in, which
+  // aren't inbound shipments (they'd otherwise show false inbound, e.g. damaged returns).
+  const inbound = (d?.inboundWorkingQuantity ?? 0) + (d?.inboundShippedQuantity ?? 0)
 
   await prisma.sellerListing.updateMany({
     where: { accountId, sku, fulfillmentChannel: 'FBA' },
@@ -121,7 +124,9 @@ export async function syncFbaInventory(accountId: string): Promise<{ updated: nu
         const d = item.inventoryDetails
         const reserved = d?.reservedQuantity?.totalReservedQuantity ?? 0
         const transfer = d?.reservedQuantity?.pendingTransshipmentQuantity ?? 0
-        const inbound = (d?.inboundWorkingQuantity ?? 0) + (d?.inboundShippedQuantity ?? 0) + (d?.inboundReceivingQuantity ?? 0)
+        // Exclude inboundReceivingQuantity — it also counts customer returns being
+        // checked in, which aren't our inbound shipments. See single-SKU fetch above.
+        const inbound = (d?.inboundWorkingQuantity ?? 0) + (d?.inboundShippedQuantity ?? 0)
         inventoryMap.set(item.sellerSku, { qty, reserved, transfer, inbound, fnsku: item.fnSku, asin: item.asin })
       }
 

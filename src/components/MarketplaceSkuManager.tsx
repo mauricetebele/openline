@@ -2602,7 +2602,7 @@ export default function MarketplaceSkuManager() {
                               <span className="font-mono text-xs text-gray-700">{s.fbaReservedQty ?? <span className="text-gray-300">—</span>}</span>
                             </div>
                             <div className="flex items-center justify-between gap-2 text-[10px]">
-                              <span className="text-gray-400 uppercase tracking-wide" title="Units inbound to Amazon (working + shipped + receiving)">Inbound</span>
+                              <span className="text-gray-400 uppercase tracking-wide" title="Units inbound to Amazon from our shipments (working + shipped). Excludes FC 'receiving', which also counts customer returns.">Inbound</span>
                               <span className="font-mono text-xs text-gray-700">{s.fbaInboundQty ?? <span className="text-gray-300">—</span>}</span>
                             </div>
                             {(() => {
