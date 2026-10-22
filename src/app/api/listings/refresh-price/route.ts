@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     }
 
     const includeBuyBox = parsed.data.buyBox !== false
-    const { asin, price, listingStatus, condition, buyBoxPrice, buyBoxSeller } =
+    const { asin, price, listingStatus, condition, buyBoxPrice, buyBoxSeller, buyBoxIsPrime, buyBoxFulfillment } =
       await fetchLiveListingPrice(accountId, sku, { includeBuyBox })
 
     // For FBA listings, also refresh the Amazon-managed inventory breakdown
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ sku, asin, price, listingStatus, condition, buyBoxPrice, buyBoxSeller, fbaAvailableQty, fbaTransferQty, fbaReservedQty, fbaInboundQty })
+    return NextResponse.json({ sku, asin, price, listingStatus, condition, buyBoxPrice, buyBoxSeller, buyBoxIsPrime, buyBoxFulfillment, fbaAvailableQty, fbaTransferQty, fbaReservedQty, fbaInboundQty })
   } catch (err) {
     console.error('[refresh-price]', err)
     return NextResponse.json(

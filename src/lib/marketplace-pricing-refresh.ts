@@ -27,6 +27,7 @@ interface ListingItemResponse {
 interface ItemOffersResponse {
   payload?: { Offers?: Array<{
     SellerId?: string; IsBuyBoxWinner?: boolean
+    IsFulfilledByAmazon?: boolean; PrimeInformation?: { IsPrime?: boolean }
     ListingPrice?: { Amount?: number }; Shipping?: { Amount?: number }; LandedPrice?: { Amount?: number }
   }> }
 }
@@ -72,7 +73,7 @@ export async function refreshAllPricing(): Promise<RefreshPricingResult> {
   const amazonPhase = async () => {
     if (amazonListings.length === 0) return
     const accountCache = new Map<string, { sellerId: string; marketplaceId: string; client: SpApiClient } | null>()
-    const buyBoxByAsin = new Map<string, Promise<{ price: number | null; seller: string | null } | null>>()
+    const buyBoxByAsin = new Map<string, Promise<{ price: number | null; seller: string | null; isPrime: boolean | null; fulfillment: string | null } | null>>()
     const uncachedSellers = new Map<string, Set<string>>()
 
     async function getAccount(accountId: string) {
@@ -94,8 +95,10 @@ export async function refreshAllPricing(): Promise<RefreshPricingResult> {
             { MarketplaceId: acc.marketplaceId, ItemCondition: 'New', CustomerType: 'Consumer' },
           )
           const win = offers.payload?.Offers?.find(o => o.IsBuyBoxWinner)
-          if (!win) return { price: null, seller: null }
+          if (!win) return { price: null, seller: null, isPrime: null, fulfillment: null }
           const price = win.LandedPrice?.Amount ?? ((win.ListingPrice?.Amount ?? 0) + (win.Shipping?.Amount ?? 0))
+          const isPrime = win.PrimeInformation?.IsPrime ?? null
+          const fulfillment = win.IsFulfilledByAmazon == null ? null : (win.IsFulfilledByAmazon ? 'FBA' : 'FBM')
           const sid = win.SellerId ?? null
           let seller: string | null = null
           if (sid && sid === acc.sellerId) seller = 'You'
@@ -104,7 +107,7 @@ export async function refreshAllPricing(): Promise<RefreshPricingResult> {
             seller = prof?.name ?? sid
             if (!prof?.name) { const s = uncachedSellers.get(acc.marketplaceId) ?? new Set(); s.add(sid); uncachedSellers.set(acc.marketplaceId, s) }
           }
-          return { price, seller }
+          return { price, seller, isPrime, fulfillment }
         })().catch(() => null))
       }
       return buyBoxByAsin.get(key)!
@@ -128,7 +131,7 @@ export async function refreshAllPricing(): Promise<RefreshPricingResult> {
           data: {
             listingStatus,
             ...(Number.isFinite(amount) ? { price: amount } : {}),
-            ...(bb ? { buyBoxPrice: bb.price, buyBoxSeller: bb.seller, buyBoxSyncedAt: new Date() } : {}),
+            ...(bb ? { buyBoxPrice: bb.price, buyBoxSeller: bb.seller, buyBoxIsPrime: bb.isPrime, buyBoxFulfillment: bb.fulfillment, buyBoxSyncedAt: new Date() } : {}),
             lastSyncedAt: new Date(),
           },
         })

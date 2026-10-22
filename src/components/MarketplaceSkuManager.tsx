@@ -51,6 +51,8 @@ interface MarketplaceSku {
   shippingTemplate: string | null
   buyBoxPrice: string | null
   buyBoxSeller: string | null
+  buyBoxIsPrime: boolean | null
+  buyBoxFulfillment: string | null
   backboxWon: boolean | null
   backboxPrice: string | null
   backboxPriceToWin: string | null
@@ -949,6 +951,8 @@ export default function MarketplaceSkuManager() {
                   itemCondition: res.condition ?? x.itemCondition,
                   buyBoxPrice: res.buyBoxPrice != null ? String(res.buyBoxPrice) : x.buyBoxPrice,
                   buyBoxSeller: res.buyBoxSeller ?? x.buyBoxSeller,
+                  buyBoxIsPrime: res.buyBoxIsPrime != null ? res.buyBoxIsPrime : x.buyBoxIsPrime,
+                  buyBoxFulfillment: res.buyBoxFulfillment ?? x.buyBoxFulfillment,
                   fbaAvailableQty: res.fbaAvailableQty != null ? res.fbaAvailableQty : x.fbaAvailableQty,
                   fbaTransferQty: res.fbaTransferQty != null ? res.fbaTransferQty : x.fbaTransferQty,
                   fbaReservedQty: res.fbaReservedQty != null ? res.fbaReservedQty : x.fbaReservedQty,
@@ -1046,6 +1050,8 @@ export default function MarketplaceSkuManager() {
                       itemCondition: res.condition ?? x.itemCondition,
                       buyBoxPrice: res.buyBoxPrice != null ? String(res.buyBoxPrice) : x.buyBoxPrice,
                       buyBoxSeller: res.buyBoxSeller ?? x.buyBoxSeller,
+                  buyBoxIsPrime: res.buyBoxIsPrime != null ? res.buyBoxIsPrime : x.buyBoxIsPrime,
+                  buyBoxFulfillment: res.buyBoxFulfillment ?? x.buyBoxFulfillment,
                     }
                   : {
                       backboxWon: res.backboxWon ?? x.backboxWon,
@@ -2400,6 +2406,14 @@ export default function MarketplaceSkuManager() {
                           <span className="text-xs">
                             <span className={clsx('font-medium', s.buyBoxSeller === 'You' ? 'text-green-700' : 'text-gray-800')}>${Number(s.buyBoxPrice).toFixed(2)}</span>
                             {s.buyBoxSeller && <span className={clsx('ml-1', s.buyBoxSeller === 'You' ? 'text-green-600' : 'text-gray-400')}>{s.buyBoxSeller}</span>}
+                            {s.buyBoxIsPrime && (
+                              <span className="ml-1 align-middle px-1 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" title="Buy Box winner is a Prime offer">prime</span>
+                            )}
+                            {s.buyBoxFulfillment && (
+                              <span className={clsx('ml-1 align-middle px-1 py-0.5 rounded text-[9px] font-semibold',
+                                s.buyBoxFulfillment === 'FBA' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300')}
+                                title={`Buy Box winner fulfillment: ${s.buyBoxFulfillment}`}>{s.buyBoxFulfillment}</span>
+                            )}
                           </span>
                         ) : <span className="text-gray-300 text-xs">—</span>
                       ) : s.marketplace === 'backmarket' ? (

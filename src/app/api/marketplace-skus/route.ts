@@ -33,13 +33,15 @@ export async function GET(req: NextRequest) {
     const sellerListings = amazonSkus.length > 0
       ? await prisma.sellerListing.findMany({
           where: { sku: { in: amazonSkus } },
-          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true, listingStatus: true, shippingTemplate: true, shippingTemplateGroupId: true, buyBoxPrice: true, buyBoxSeller: true, quantity: true, fbaReservedQty: true, fbaTransferQty: true, fbaInboundQty: true },
+          select: { sku: true, asin: true, fnsku: true, fulfillmentChannel: true, condition: true, price: true, minPrice: true, maxPrice: true, listingStatus: true, shippingTemplate: true, shippingTemplateGroupId: true, buyBoxPrice: true, buyBoxSeller: true, buyBoxIsPrime: true, buyBoxFulfillment: true, quantity: true, fbaReservedQty: true, fbaTransferQty: true, fbaInboundQty: true },
           distinct: ['sku'],
         })
       : []
     const asinMap = new Map(sellerListings.map(l => [l.sku, l.asin]))
     const buyBoxPriceMap = new Map(sellerListings.map(l => [l.sku, l.buyBoxPrice != null ? l.buyBoxPrice.toString() : null]))
     const buyBoxSellerMap = new Map(sellerListings.map(l => [l.sku, l.buyBoxSeller ?? null]))
+    const buyBoxIsPrimeMap = new Map(sellerListings.map(l => [l.sku, l.buyBoxIsPrime ?? null]))
+    const buyBoxFulfillmentMap = new Map(sellerListings.map(l => [l.sku, l.buyBoxFulfillment ?? null]))
     const fnskuMap = new Map(sellerListings.filter(l => l.fnsku).map(l => [l.sku, l.fnsku]))
     const slFcMap = new Map(sellerListings.filter(l => l.fulfillmentChannel).map(l => [l.sku, l.fulfillmentChannel]))
     const conditionMap = new Map(sellerListings.filter(l => l.condition).map(l => [l.sku, l.condition]))
@@ -128,6 +130,8 @@ export async function GET(req: NextRequest) {
       shippingTemplate: s.marketplace === 'amazon' ? (templateMap.get(s.sellerSku) ?? null) : null,
       buyBoxPrice: s.marketplace === 'amazon' ? (buyBoxPriceMap.get(s.sellerSku) ?? null) : null,
       buyBoxSeller: s.marketplace === 'amazon' ? (buyBoxSellerMap.get(s.sellerSku) ?? null) : null,
+      buyBoxIsPrime: s.marketplace === 'amazon' ? (buyBoxIsPrimeMap.get(s.sellerSku) ?? null) : null,
+      buyBoxFulfillment: s.marketplace === 'amazon' ? (buyBoxFulfillmentMap.get(s.sellerSku) ?? null) : null,
       backboxWon: s.marketplace === 'backmarket' ? (backboxWonMap.get(s.sellerSku) ?? null) : null,
       backboxPrice: s.marketplace === 'backmarket' ? (backboxPriceMap.get(s.sellerSku) ?? null) : null,
       backboxPriceToWin: s.marketplace === 'backmarket' ? (backboxPriceToWinMap.get(s.sellerSku) ?? null) : null,

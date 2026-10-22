@@ -16,6 +16,7 @@ import { resolveSellerNames } from './seller-name'
 interface ItemOffersResponse {
   payload?: { Offers?: Array<{
     SellerId?: string; IsBuyBoxWinner?: boolean
+    IsFulfilledByAmazon?: boolean; PrimeInformation?: { IsPrime?: boolean }
     ListingPrice?: { Amount?: number }; Shipping?: { Amount?: number }; LandedPrice?: { Amount?: number }
   }> }
 }
@@ -837,7 +838,7 @@ export async function fetchLiveListingPrice(
   accountId: string,
   sku: string,
   opts?: { includeBuyBox?: boolean },
-): Promise<{ asin: string | null; price: number | null; listingStatus: string | null; shippingTemplateGroupId: string | null; condition: string | null; buyBoxPrice: number | null; buyBoxSeller: string | null }> {
+): Promise<{ asin: string | null; price: number | null; listingStatus: string | null; shippingTemplateGroupId: string | null; condition: string | null; buyBoxPrice: number | null; buyBoxSeller: string | null; buyBoxIsPrime: boolean | null; buyBoxFulfillment: string | null }> {
   const account = await prisma.amazonAccount.findUniqueOrThrow({ where: { id: accountId } })
   const client = new SpApiClient(accountId)
   const encodedSku = encodeURIComponent(sku)
@@ -882,6 +883,8 @@ export async function fetchLiveListingPrice(
   // lean; the 30-min cron covers Buy Box en masse otherwise.
   let buyBoxPrice: number | null = null
   let buyBoxSeller: string | null = null
+  let buyBoxIsPrime: boolean | null = null
+  let buyBoxFulfillment: string | null = null
   let buyBoxFetched = false
   if (opts?.includeBuyBox && asin) {
     try {
@@ -893,6 +896,8 @@ export async function fetchLiveListingPrice(
       const win = offers.payload?.Offers?.find(o => o.IsBuyBoxWinner)
       if (win) {
         buyBoxPrice = win.LandedPrice?.Amount ?? ((win.ListingPrice?.Amount ?? 0) + (win.Shipping?.Amount ?? 0))
+        buyBoxIsPrime = win.PrimeInformation?.IsPrime ?? null
+        buyBoxFulfillment = win.IsFulfilledByAmazon == null ? null : (win.IsFulfilledByAmazon ? 'FBA' : 'FBM')
         const sid = win.SellerId ?? null
         if (sid && sid === account.sellerId) buyBoxSeller = 'You'
         else if (sid) {
@@ -907,7 +912,7 @@ export async function fetchLiveListingPrice(
   const data: {
     asin?: string; condition?: string; price?: number; listingStatus?: string; quantity?: number
     shippingTemplateGroupId?: string; shippingTemplate?: string
-    buyBoxPrice?: number | null; buyBoxSeller?: string | null; buyBoxSyncedAt?: Date; updatedAt: Date
+    buyBoxPrice?: number | null; buyBoxSeller?: string | null; buyBoxIsPrime?: boolean | null; buyBoxFulfillment?: string | null; buyBoxSyncedAt?: Date; updatedAt: Date
   } = { updatedAt: new Date() }
   if (asin != null) data.asin = asin
   if (condition != null) data.condition = condition
@@ -916,7 +921,7 @@ export async function fetchLiveListingPrice(
   if (fulfillQty != null) data.quantity = fulfillQty
   if (shipGroup.id != null) data.shippingTemplateGroupId = shipGroup.id
   if (shipGroup.name != null) data.shippingTemplate = shipGroup.name
-  if (buyBoxFetched) { data.buyBoxPrice = buyBoxPrice; data.buyBoxSeller = buyBoxSeller; data.buyBoxSyncedAt = new Date() }
+  if (buyBoxFetched) { data.buyBoxPrice = buyBoxPrice; data.buyBoxSeller = buyBoxSeller; data.buyBoxIsPrime = buyBoxIsPrime; data.buyBoxFulfillment = buyBoxFulfillment; data.buyBoxSyncedAt = new Date() }
   // Upsert (not updateMany): a SKU refreshed from the grid may have no
   // SellerListing row yet (created in-app, never synced) — create it so the ASIN
   // and price land somewhere the grid can read.
@@ -934,6 +939,8 @@ export async function fetchLiveListingPrice(
     condition,
     buyBoxPrice: buyBoxFetched ? buyBoxPrice : null,
     buyBoxSeller: buyBoxFetched ? buyBoxSeller : null,
+    buyBoxIsPrime: buyBoxFetched ? buyBoxIsPrime : null,
+    buyBoxFulfillment: buyBoxFetched ? buyBoxFulfillment : null,
   }
 }
 

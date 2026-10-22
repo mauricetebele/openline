@@ -456,9 +456,11 @@ model SellerListing {
   velocitySyncedAt DateTime?
 
   // Live Buy Box (from SP-API competitive pricing), refreshed on demand.
-  buyBoxPrice    Decimal?  @db.Decimal(12, 2)
-  buyBoxSeller   String? // winning seller name ("You" when we hold it)
-  buyBoxSyncedAt DateTime?
+  buyBoxPrice       Decimal?  @db.Decimal(12, 2)
+  buyBoxSeller      String? // winning seller name ("You" when we hold it)
+  buyBoxIsPrime     Boolean? // true if the Buy Box winning offer is a Prime offer
+  buyBoxFulfillment String? // "FBA" or "FBM" for the Buy Box winning offer
+  buyBoxSyncedAt    DateTime?
 
   // Amazon uptime check (cron/listing-uptime): live = BUYABLE with available qty > 0.
   isLive          Boolean?
