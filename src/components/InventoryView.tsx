@@ -2713,6 +2713,9 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   const totalOnHand    = visibleItems.reduce((s, i) => s + i.onHand, 0)
   const totalReserved  = visibleItems.reduce((s, i) => s + i.reserved, 0)
   const totalAvailable = visibleItems.reduce((s, i) => s + (i.onHand - i.reserved), 0)
+  // Total inventory value of the current filtered view (on-hand × unit cost).
+  // Rows without a unit cost contribute 0.
+  const totalValue     = visibleItems.reduce((s, i) => s + (i.unitCost ?? 0) * i.onHand, 0)
 
   // Export the CURRENT filtered + sorted view (sortedItems) to an .xlsx — same
   // rows and order shown in the grid, with the marketplace facet resolved.
@@ -2832,6 +2835,9 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
             <span className="font-medium text-gray-600">{totalOnHand.toLocaleString()} on hand</span>
             {totalReserved > 0 && (
               <> · <span className="text-amber-600">{totalReserved.toLocaleString()} reserved</span> · {totalAvailable.toLocaleString()} available</>
+            )}
+            {totalValue > 0 && (
+              <> · <span className="font-semibold text-emerald-700" title="Total value of the current filtered view (on-hand × unit cost)">{totalValue.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} value</span></>
             )}
           </span>
         )}
