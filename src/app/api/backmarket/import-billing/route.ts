@@ -23,8 +23,16 @@ import { randomUUID } from 'crypto'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
-function dedupeKey(r: { invoiceKey: string; valueDate: string | null; orderId: string; sku: string | null; amount: number }) {
+function dedupeContent(r: { invoiceKey: string; valueDate: string | null; orderId: string; sku: string | null; amount: number }) {
   return `${r.invoiceKey}|${r.valueDate ?? ''}|${r.orderId}|${r.sku ?? ''}|${r.amount}`
+}
+// A statement can legitimately list the same line more than once — e.g. an order
+// with two identical orderlines produces two identical "sales" rows that differ
+// only by position (BM gives them the same order id, date, sku and amount). An
+// occurrence index keeps every copy distinct while still deduping a re-uploaded
+// statement (same rows → same occurrences → same keys → ON CONFLICT skips them).
+function dedupeKey(r: { invoiceKey: string; valueDate: string | null; orderId: string; sku: string | null; amount: number }, occurrence: number) {
+  return `${dedupeContent(r)}|#${occurrence}`
 }
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -93,9 +101,15 @@ export async function POST(req: NextRequest) {
   }
 
   // 1. Upsert every parsed line (idempotent on dedupe_key, keyed by the raw id).
+  //    Number each row within its content group so identical lines in the same
+  //    upload get distinct keys (and both persist) rather than colliding.
+  const occurrenceSeen = new Map<string, number>()
   const values = allRows.map(r => {
     const res = resolve(r.orderId)
-    return Prisma.sql`(${randomUUID()}, ${r.invoiceKey}, ${r.valueDate ? new Date(r.valueDate) : null}, ${res.orderId}, ${res.orderlineId}, ${r.sku}, ${r.designation}, ${r.amount}, ${r.currency}, ${r.statementRef}, ${dedupeKey(r)})`
+    const content = dedupeContent(r)
+    const occurrence = occurrenceSeen.get(content) ?? 0
+    occurrenceSeen.set(content, occurrence + 1)
+    return Prisma.sql`(${randomUUID()}, ${r.invoiceKey}, ${r.valueDate ? new Date(r.valueDate) : null}, ${res.orderId}, ${res.orderlineId}, ${r.sku}, ${r.designation}, ${r.amount}, ${r.currency}, ${r.statementRef}, ${dedupeKey(r, occurrence)})`
   })
   const CHUNK = 500
   for (let i = 0; i < values.length; i += CHUNK) {
@@ -154,9 +168,21 @@ export async function POST(req: NextRequest) {
       const oldTotal = order.items.reduce((s, i) => s + Number(i.itemPrice ?? 0), 0)
       const singleSalePrice = order.items.length === 1 ? salesByOrder.get(oid) : undefined
 
+      // salesByOrderSku is the SUM of every sales line for an order+sku. When an
+      // order has several items of the SAME sku (e.g. two identical orderlines),
+      // that sum must be split across them, not assigned in full to each — otherwise
+      // the order total double-counts (2 × $379 lines → $1516 instead of $758).
+      const itemCountBySku = new Map<string, number>()
       for (const item of order.items) {
-        // Match the sales line by seller SKU; fall back to the order's single sales total.
-        let sale = salesByOrderSku.get(`${oid}|${item.sellerSku ?? ''}`)
+        const k = item.sellerSku ?? ''
+        itemCountBySku.set(k, (itemCountBySku.get(k) ?? 0) + 1)
+      }
+
+      for (const item of order.items) {
+        const skuKey = item.sellerSku ?? ''
+        // Per-item sale = this sku's summed sales ÷ how many items share the sku.
+        const skuSalesTotal = salesByOrderSku.get(`${oid}|${skuKey}`)
+        let sale = skuSalesTotal !== undefined ? skuSalesTotal / (itemCountBySku.get(skuKey) ?? 1) : undefined
         if (sale === undefined && order.items.length === 1 && singleSalePrice !== undefined) sale = singleSalePrice
         if (sale !== undefined && sale > 0 && round2(sale) !== round2(Number(item.itemPrice ?? 0))) {
           await tx.orderItem.update({ where: { id: item.id }, data: { itemPrice: round2(sale) } })
