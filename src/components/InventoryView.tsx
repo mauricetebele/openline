@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef, useMemo, Fragment } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown, Barcode, Store, Download } from 'lucide-react'
+import { AlertCircle, X, Package, Hash, Clock, ChevronDown, ChevronUp, ChevronRight, ShoppingCart, Search, ArrowRightLeft, CheckSquare, Square, Tag, Plus, RefreshCcw, CheckCircle2, ChevronsUpDown, Barcode, Store, Download, Copy, Check } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { clsx } from 'clsx'
 import SNLookupModal from './SNLookupModal'
@@ -2717,6 +2717,23 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
   // Rows without a unit cost contribute 0.
   const totalValue     = visibleItems.reduce((s, i) => s + (i.unitCost ?? 0) * i.onHand, 0)
 
+  // Copy every SKU in the current filtered + sorted view as a single newline-
+  // separated column (dedup'd, grid order) — paste straight into a spreadsheet.
+  const [skusCopied, setSkusCopied] = useState(false)
+  function copyFilteredSkus() {
+    const seen = new Set<string>()
+    const skus: string[] = []
+    for (const item of sortedItems) {
+      const sku = item.product.sku
+      if (sku && !seen.has(sku)) { seen.add(sku); skus.push(sku) }
+    }
+    if (skus.length === 0) return
+    navigator.clipboard.writeText(skus.join('\n')).then(() => {
+      setSkusCopied(true)
+      setTimeout(() => setSkusCopied(false), 1500)
+    }).catch(() => {})
+  }
+
   // Export the CURRENT filtered + sorted view (sortedItems) to an .xlsx — same
   // rows and order shown in the grid, with the marketplace facet resolved.
   function exportXlsx() {
@@ -2924,6 +2941,13 @@ export default function InventoryView({ openModal }: { openModal?: OpenModal } =
                 <th className="text-left">
                   <span className="inline-flex items-center gap-1.5">
                     <button onClick={() => toggleSort('sku')} className="inline-flex items-center gap-0.5 hover:text-slate-700 transition-colors">SKU {sortArrow('sku')}</button>
+                    <button
+                      onClick={copyFilteredSkus}
+                      title={`Copy all ${sortedItems.length} filtered SKU${sortedItems.length !== 1 ? 's' : ''} as a column`}
+                      className={`inline-flex items-center justify-center rounded p-0.5 transition-colors ${skusCopied ? 'text-emerald-600' : 'text-slate-400 hover:text-amazon-blue hover:bg-slate-200/70'}`}
+                    >
+                      {skusCopied ? <Check size={11} /> : <Copy size={11} />}
+                    </button>
                     <button onClick={() => toggleSort('grade')} className="inline-flex items-center gap-0.5 font-normal text-slate-400 hover:text-slate-700 transition-colors">· grade {sortArrow('grade')}</button>
                   </span>
                 </th>
