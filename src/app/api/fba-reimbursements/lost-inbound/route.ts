@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     select: {
       accountId: true, reimbursementId: true, caseId: true, sku: true, fnsku: true,
       quantityReimbursedTotal: true, amountTotal: true, currencyUnit: true, approvalDate: true,
-      attributedShipmentId: true, attributedAt: true,
+      attributedShipmentId: true, attributedShipmentExternalId: true, attributedAt: true,
       attributedShipment: { select: { shipmentNumber: true, name: true } },
       account: { select: { marketplaceName: true } },
     },
@@ -39,7 +39,8 @@ export async function GET(req: NextRequest) {
     approvalDate: Date | null; currency: string | null
     lines: { sku: string; fnsku: string | null; quantity: number; amount: number | null }[]
     totalQty: number; totalAmount: number
-    attributedShipmentId: string | null; attributedShipmentNumber: string | null; attributedShipmentName: string | null; attributedAt: Date | null
+    attributedShipmentId: string | null; attributedShipmentNumber: string | null; attributedShipmentName: string | null
+    attributedShipmentExternalId: string | null; attributedAt: Date | null
   }>()
 
   for (const r of rows) {
@@ -54,6 +55,7 @@ export async function GET(req: NextRequest) {
         attributedShipmentId: r.attributedShipmentId,
         attributedShipmentNumber: r.attributedShipment?.shipmentNumber ?? null,
         attributedShipmentName: r.attributedShipment?.name ?? null,
+        attributedShipmentExternalId: r.attributedShipmentExternalId ?? null,
         attributedAt: r.attributedAt,
       }
       groups.set(key, g)
@@ -65,13 +67,18 @@ export async function GET(req: NextRequest) {
     g.totalAmount += amt
   }
 
+  // A reimbursement is "attributed" if it's tied to one of our shipments OR carries
+  // a free-text external (Seller Central) shipment id.
+  const isAttributed = (g: { attributedShipmentId: string | null; attributedShipmentExternalId: string | null }) =>
+    !!g.attributedShipmentId || !!g.attributedShipmentExternalId
+
   let data = Array.from(groups.values())
-  if (filter === 'attributed') data = data.filter(g => g.attributedShipmentId)
-  else if (filter === 'unattributed') data = data.filter(g => !g.attributedShipmentId)
+  if (filter === 'attributed') data = data.filter(isAttributed)
+  else if (filter === 'unattributed') data = data.filter(g => !isAttributed(g))
 
   // Unattributed first, then by most recent approval.
   data.sort((a, b) => {
-    const au = a.attributedShipmentId ? 1 : 0, bu = b.attributedShipmentId ? 1 : 0
+    const au = isAttributed(a) ? 1 : 0, bu = isAttributed(b) ? 1 : 0
     if (au !== bu) return au - bu
     return (b.approvalDate?.getTime() ?? 0) - (a.approvalDate?.getTime() ?? 0)
   })
@@ -83,7 +90,7 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: 'desc' },
   })
 
-  const unattributedCount = Array.from(groups.values()).filter(g => !g.attributedShipmentId).length
+  const unattributedCount = Array.from(groups.values()).filter(g => !isAttributed(g)).length
   return NextResponse.json({ rows: data, shipments, counts: { total: groups.size, unattributed: unattributedCount } })
 }
 
@@ -91,10 +98,14 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json().catch(() => null) as { reimbursementId?: string; accountId?: string; shipmentId?: string | null } | null
+  const body = await req.json().catch(() => null) as { reimbursementId?: string; accountId?: string; shipmentId?: string | null; externalShipmentId?: string | null } | null
   const reimbursementId = body?.reimbursementId?.trim()
   const accountId = body?.accountId?.trim()
   const shipmentId = body?.shipmentId ? body.shipmentId.trim() : null
+  // `externalShipmentId` is a free-text Amazon inbound id (FBA…) for a shipment not
+  // in our system. Only treated as provided when the key is present in the body.
+  const hasExternal = body != null && Object.prototype.hasOwnProperty.call(body, 'externalShipmentId')
+  const externalShipmentId = body?.externalShipmentId ? body.externalShipmentId.trim() : null
   if (!reimbursementId || !accountId) return NextResponse.json({ error: 'reimbursementId and accountId are required' }, { status: 400 })
 
   if (shipmentId) {
@@ -102,9 +113,17 @@ export async function POST(req: NextRequest) {
     if (!ship) return NextResponse.json({ error: 'Shipment not found' }, { status: 404 })
   }
 
+  // Setting one attribution kind clears the other (a reimbursement ties to one shipment).
+  const data: {
+    attributedShipmentId?: string | null; attributedShipmentExternalId?: string | null
+    attributedAt: Date | null; attributedById: string | null
+  } = hasExternal
+    ? { attributedShipmentExternalId: externalShipmentId, attributedShipmentId: null, attributedAt: externalShipmentId ? new Date() : null, attributedById: externalShipmentId ? user.dbId : null }
+    : { attributedShipmentId: shipmentId, attributedShipmentExternalId: null, attributedAt: shipmentId ? new Date() : null, attributedById: shipmentId ? user.dbId : null }
+
   const res = await prisma.fbaReimbursement.updateMany({
     where: { accountId, reimbursementId },
-    data: { attributedShipmentId: shipmentId, attributedAt: shipmentId ? new Date() : null, attributedById: shipmentId ? user.dbId : null },
+    data,
   })
 
   return NextResponse.json({ ok: true, updated: res.count })

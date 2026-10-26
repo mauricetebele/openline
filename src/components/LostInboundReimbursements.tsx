@@ -17,6 +17,7 @@ interface Row {
   attributedShipmentId: string | null
   attributedShipmentNumber: string | null
   attributedShipmentName: string | null
+  attributedShipmentExternalId: string | null
   attributedAt: string | null
 }
 interface Shipment { id: string; shipmentNumber: string | null; name: string | null; accountId: string; shipmentConfirmationId: string | null }
@@ -52,6 +53,25 @@ export default function LostInboundReimbursements() {
       const res = await fetch('/api/fba-reimbursements/lost-inbound', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reimbursementId: row.reimbursementId, accountId: row.accountId, shipmentId }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? String(res.status))
+      load(tab)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Attribution failed')
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  // Attribute to a free-text Amazon inbound shipment id (FBA…) not in our system.
+  const attributeExternal = async (row: Row, externalShipmentId: string | null) => {
+    const next = externalShipmentId?.trim() || null
+    if (next === (row.attributedShipmentExternalId ?? null)) return
+    setSavingId(row.reimbursementId); setError(null)
+    try {
+      const res = await fetch('/api/fba-reimbursements/lost-inbound', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reimbursementId: row.reimbursementId, accountId: row.accountId, externalShipmentId: next }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? String(res.status))
       load(tab)
@@ -103,8 +123,9 @@ export default function LostInboundReimbursements() {
               </td></tr>
             ) : rows.map((r, i) => {
               const opts = shipments.filter(s => s.accountId === r.accountId)
+              const attributed = !!r.attributedShipmentId || !!r.attributedShipmentExternalId
               return (
-                <tr key={`${r.accountId}-${r.reimbursementId}`} className={clsx(i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50', !r.attributedShipmentId && 'bg-amber-50/40')}>
+                <tr key={`${r.accountId}-${r.reimbursementId}`} className={clsx(i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50', !attributed && 'bg-amber-50/40')}>
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap align-top">{fmtDate(r.approvalDate)}</td>
                   <td className="px-3 py-2 font-mono text-gray-700 align-top">{r.reimbursementId}</td>
                   <td className="px-3 py-2 font-mono text-gray-500 align-top">{r.caseId ?? '—'}</td>
@@ -122,9 +143,10 @@ export default function LostInboundReimbursements() {
                     <div className="flex items-center gap-2">
                       <select
                         value={r.attributedShipmentId ?? ''}
-                        disabled={savingId === r.reimbursementId}
+                        disabled={savingId === r.reimbursementId || !!r.attributedShipmentExternalId}
                         onChange={e => attribute(r, e.target.value || null)}
-                        className={clsx('h-7 min-w-[13rem] rounded border px-2 text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500',
+                        title={r.attributedShipmentExternalId ? 'Clear the external shipment id to pick one of our shipments' : undefined}
+                        className={clsx('h-7 min-w-[13rem] rounded border px-2 text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-400',
                           r.attributedShipmentId ? 'border-green-300' : 'border-amber-300')}
                       >
                         <option value="">— Unattributed —</option>
@@ -136,11 +158,27 @@ export default function LostInboundReimbursements() {
                       </select>
                       {savingId === r.reimbursementId
                         ? <RefreshCcw size={13} className="animate-spin text-gray-400" />
-                        : r.attributedShipmentId
+                        : attributed
                           ? <Check size={14} className="text-green-600" />
                           : <Link2 size={13} className="text-amber-500" />}
                     </div>
-                    {r.attributedShipmentId && r.marketplaceName && (
+                    {/* Free-text Amazon inbound id (FBA…) for shipments not in our system. */}
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="text-[10px] text-gray-400 whitespace-nowrap">or FBA id</span>
+                      <input
+                        type="text"
+                        defaultValue={r.attributedShipmentExternalId ?? ''}
+                        key={r.attributedShipmentExternalId ?? ''}
+                        disabled={savingId === r.reimbursementId || !!r.attributedShipmentId}
+                        placeholder="FBA…"
+                        title={r.attributedShipmentId ? 'Clear the shipment selection to enter an external id' : 'Amazon inbound shipment id, e.g. FBA19Q63NMDM'}
+                        onBlur={e => attributeExternal(r, e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                        className={clsx('h-7 w-40 rounded border px-2 text-xs font-mono bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-400',
+                          r.attributedShipmentExternalId ? 'border-green-300' : 'border-gray-200')}
+                      />
+                    </div>
+                    {attributed && r.marketplaceName && (
                       <div className="text-[10px] text-gray-400 mt-0.5">{r.marketplaceName}</div>
                     )}
                   </td>

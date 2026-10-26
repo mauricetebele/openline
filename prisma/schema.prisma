@@ -317,6 +317,9 @@ model FbaReimbursement {
   // to a shipment by hand — the shipment detail view then uses the exact match.
   attributedShipmentId String?
   attributedShipment   FbaShipment? @relation("ReimbursementAttribution", fields: [attributedShipmentId], references: [id], onDelete: SetNull)
+  // Free-text Amazon inbound shipment id (FBA…) for shipments created directly in
+  // Seller Central that don't exist in our FbaShipment table — attribution by id.
+  attributedShipmentExternalId String?
   attributedAt         DateTime?
   attributedById       String?
 
