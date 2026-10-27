@@ -938,8 +938,15 @@ export async function generateUpsMultiPieceLabels(
     const lines = [l1]
     const l2 = a.address2?.trim() ? sanitizeAddressLine(a.address2) : ''
     if (l2) lines.push(l2)
+    // UPS prints `Name` as the primary line and `AttentionName` beneath it. For a
+    // commercial shipment the company belongs on the primary line with the contact
+    // person as the attention name — so when both exist, don't drop the company.
+    const company = a.company?.trim() ? sanitizeAddressLine(a.company) : ''
+    const person  = a.name?.trim()    ? sanitizeAddressLine(a.name)    : ''
+    const primaryName = company || person || 'N/A'
     return {
-      Name: sanitizeAddressLine(a.name || a.company || 'N/A') || 'N/A',
+      Name: primaryName || 'N/A',
+      ...(company && person && person !== company ? { AttentionName: person } : {}),
       ...(a.phone?.trim() ? { Phone: { Number: a.phone.trim().replace(/[^0-9]/g, '').slice(0, 15) } } : {}),
       Address: {
         AddressLine: lines,
