@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { clsx } from 'clsx'
-import { RefreshCcw, AlertCircle, Plus, X, ExternalLink, Check, Trash2, Pencil, RotateCcw } from 'lucide-react'
+import { RefreshCcw, AlertCircle, Plus, X, ExternalLink, Check, Trash2, Pencil, RotateCcw, Search } from 'lucide-react'
 
 type Status = 'OPEN' | 'RESOLVED'
 interface BmCase {
@@ -30,6 +30,7 @@ export default function BmCaseManager() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<BmCase | null>(null)
+  const [search, setSearch] = useState('')
 
   const load = useCallback((t: Tab) => {
     setLoading(true); setError(null)
@@ -41,6 +42,16 @@ export default function BmCaseManager() {
   }, [])
 
   useEffect(() => { load(tab) }, [tab, load])
+
+  // Client-side search across case id, order id, description, and URL.
+  const q = search.trim().toLowerCase()
+  const visibleRows = q
+    ? rows.filter(r =>
+        r.caseId.toLowerCase().includes(q) ||
+        (r.orderId ?? '').toLowerCase().includes(q) ||
+        r.description.toLowerCase().includes(q) ||
+        (r.caseUrl ?? '').toLowerCase().includes(q))
+    : rows
 
   const setStatus = async (row: BmCase, status: Status) => {
     setBusyId(row.id); setError(null)
@@ -83,7 +94,21 @@ export default function BmCaseManager() {
             </button>
           ))}
         </div>
-        <span className="text-xs text-gray-400">{counts.total} case{counts.total !== 1 ? 's' : ''}</span>
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search case, order, description…"
+            className="h-8 w-64 rounded-md border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 pl-8 pr-7 text-xs focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X size={13} /></button>
+          )}
+        </div>
+        <span className="text-xs text-gray-400">
+          {q ? `${visibleRows.length} of ${counts.total}` : counts.total} case{(q ? visibleRows.length : counts.total) !== 1 ? 's' : ''}
+        </span>
         <div className="ml-auto flex items-center gap-2">
           <button onClick={() => load(tab)} disabled={loading} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
             <RefreshCcw size={13} className={clsx(loading && 'animate-spin')} /> Refresh
@@ -112,11 +137,12 @@ export default function BmCaseManager() {
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {loading ? (
               <tr><td colSpan={7} className="px-3 py-10 text-center text-gray-400"><RefreshCcw size={16} className="animate-spin inline" /></td></tr>
-            ) : rows.length === 0 ? (
+            ) : visibleRows.length === 0 ? (
               <tr><td colSpan={7} className="px-3 py-10 text-center text-sm text-gray-400">
-                {tab === 'open' ? 'No open cases. 🎉' : tab === 'resolved' ? 'No resolved cases.' : 'No cases yet — create one with “New Case”.'}
+                {q ? `No cases match “${search.trim()}”.`
+                  : tab === 'open' ? 'No open cases. 🎉' : tab === 'resolved' ? 'No resolved cases.' : 'No cases yet — create one with “New Case”.'}
               </td></tr>
-            ) : rows.map((r, i) => (
+            ) : visibleRows.map((r, i) => (
               <tr key={r.id} className={clsx(i % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/50 dark:bg-gray-800/40', r.status === 'OPEN' && 'bg-amber-50/40 dark:bg-amber-900/10')}>
                 <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-200 align-top whitespace-nowrap">{r.caseId}</td>
                 <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400 align-top whitespace-nowrap">{r.orderId ?? '—'}</td>
