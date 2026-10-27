@@ -103,6 +103,7 @@ const NAV: NavItem[] = [
       { href: '/profitability',      label: 'Profitability', icon: TrendingUp },
       { href: '/backmarket-financials', label: 'BM Financials', icon: BookOpen },
       { href: '/bm-unpaid-orders',   label: 'BM Unpaid Orders', icon: AlertCircle },
+      { href: '/bm-cases',           label: 'BM Cases',         icon: MessageSquare },
       { href: '/sales-stats',        label: 'Sales Stats',   icon: BarChart2 },
       { href: '/return-rates',       label: 'Return Rates',  icon: RotateCcw },
       { href: '/fba-sales-report',   label: 'FBA Sales',     icon: BarChart2 },

@@ -3393,3 +3393,26 @@ model BmUnpaidResolution {
   @@index([archived])
   @@map("bm_unpaid_resolutions")
 }
+
+enum BmCaseStatus {
+  OPEN
+  RESOLVED
+}
+
+model BmCase {
+  id          String       @id @default(cuid())
+  caseId      String                          // Back Market case id
+  orderId     String?                         // Back Market order id (optional)
+  description String       @db.Text           // description of the issue
+  caseUrl     String?                         // link to the case on Back Market
+  status      BmCaseStatus @default(OPEN)
+  resolvedAt  DateTime?                        // set when moved to RESOLVED
+  createdBy   String?                          // user email who created it
+  updatedBy   String?                          // user email who last acted
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([status])
+  @@index([orderId])
+  @@map("bm_cases")
+}
