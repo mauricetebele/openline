@@ -35,6 +35,17 @@ const PAGE_SLEEP_MS      = 65_000  // after burst: 0.0167 req/s
 const DETAIL_SLEEP_MS    = 1_100   // after burst: ~1 req/s
 const ITEMS_DELAY_MS     = 2_100   // after burst: 0.5 req/s
 
+// FBA/AFN sync resilience: the AFN order list is paged and rate-limited, and each
+// new order needs a ~1.1s detail call — so a multi-day window can far exceed a
+// serverless function's wall-clock limit and get killed mid-run (leaving the job
+// PENDING → marked stale/failed, so the watermark never advances and it loops
+// forever). To stay bounded we (1) anchor the AFN window on the newest AFN order
+// already in the DB (a self-correcting data watermark, resumable with no data
+// loss), (2) cap how much time each run covers, and (3) stop processing before
+// the deadline, deferring the rest to the next run.
+const AFN_WINDOW_CAP_MS = 2 * 24 * 60 * 60 * 1000   // max span of order-updates one run ingests
+const AFN_OVERLAP_MS    = 2 * 60 * 60 * 1000        // re-scan the last 2h to avoid boundary gaps
+
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
 /** Atomically allocate the next OLM number. Retries on conflict (race with concurrent sync). */
@@ -231,7 +242,12 @@ export async function syncUnshippedOrders(
   jobId: string,
   mode: SyncMode = 'all',
   forceFull = false,
+  // When set, stop processing new orders once this many ms have elapsed since the
+  // function started, mark the job COMPLETED, and leave the rest for the next run.
+  // The AFN data watermark makes that safe (next run resumes where this left off).
+  softDeadlineMs?: number,
 ): Promise<void> {
+  const fnStart = Date.now()
   console.log(`[SyncOrders] Starting sync — accountId=${accountId} jobId=${jobId}`)
   await prisma.orderSyncJob.update({ where: { id: jobId }, data: { status: 'RUNNING' } })
 
@@ -323,23 +339,32 @@ export async function syncUnshippedOrders(
 
     if (syncAfn) {
       if (isIncremental) {
-        // The FBA cron runs every 12h, but `lastSuccessfulSync` is the last
-        // COMPLETED sync of ANY trigger — dominated by the 10-minute MFN cron —
-        // so completedAt is usually only minutes old. Using that directly made
-        // the AFN window ~10 minutes and silently dropped almost every new FBA
-        // order. Floor the look-back to at least 4 days so the 12h cron always
-        // overlaps comfortably (and survives a missed run); FBA volume is low so
-        // the modest re-fetch is cheap.
-        const AFN_MIN_LOOKBACK_MS = 4 * 24 * 60 * 60 * 1000
-        const base = lastSuccessfulSync.completedAt!.getTime() - 5 * 60 * 1000
-        const lastUpdatedAfter = new Date(Math.min(base, Date.now() - AFN_MIN_LOOKBACK_MS)).toISOString()
-        console.log(`[SyncOrders] Incremental AFN sync — LastUpdatedAfter=${lastUpdatedAfter}`)
+        // Anchor the AFN window on the newest AFN order already in the DB (a
+        // self-correcting data watermark) rather than a sync-job timestamp — the
+        // latter is dominated by the 10-minute MFN cron, which made the window
+        // either far too short (dropping FBA orders) or, with a flat multi-day
+        // floor, far too long (27 pages → 65s page-sleeps → timeout). Re-scan the
+        // last 2h for safety, and cap the span this run ingests so a backlog is
+        // walked forward in bounded chunks instead of blowing the timeout.
+        const newestAfn = await prisma.order.findFirst({
+          where: { accountId, fulfillmentChannel: 'AFN' },
+          orderBy: { lastUpdateDate: 'desc' },
+          select: { lastUpdateDate: true },
+        })
+        const watermark = newestAfn?.lastUpdateDate
+          ? newestAfn.lastUpdateDate.getTime() - AFN_OVERLAP_MS
+          : Date.now() - 60 * 24 * 60 * 60 * 1000 // no AFN data yet → 60-day seed
+        const windowEnd = Math.min(Date.now(), watermark + AFN_WINDOW_CAP_MS)
+        const lastUpdatedAfter = new Date(watermark).toISOString()
+        const lastUpdatedBefore = new Date(windowEnd).toISOString()
+        console.log(`[SyncOrders] Incremental AFN sync — LastUpdatedAfter=${lastUpdatedAfter} LastUpdatedBefore=${lastUpdatedBefore}`)
         do {
           const params: Record<string, string> = {
             MarketplaceIds:      account.marketplaceId,
             OrderStatuses:       'Pending,Unshipped,Shipped',
             FulfillmentChannels: 'AFN',
             LastUpdatedAfter:    lastUpdatedAfter,
+            LastUpdatedBefore:   lastUpdatedBefore,
             MaxResultsPerPage:   '100',
           }
           if (afnNextToken) params.NextToken = afnNextToken
@@ -408,12 +433,31 @@ export async function syncUnshippedOrders(
       console.log(`[SyncOrders] ${newAmazonIds.length} new orders detected`)
     }
 
+    // When a soft deadline is active, process oldest-first so the AFN data
+    // watermark advances monotonically — a mid-run stop then resumes cleanly.
+    if (softDeadlineMs) {
+      allOrders.sort((a, b) =>
+        new Date(a.LastUpdateDate ?? a.PurchaseDate ?? 0).getTime() -
+        new Date(b.LastUpdateDate ?? b.PurchaseDate ?? 0).getTime())
+    }
+
     let synced = 0
     let detailCallCount = 0  // tracks only new-order detail API calls
     let itemsCallCount  = 0  // tracks only new/no-items items API calls
+    let deferred = 0
 
     for (let i = 0; i < allOrders.length; i++) {
       const o = allOrders[i]
+
+      // Soft-deadline guard: stop before the serverless limit kills us mid-write.
+      // Remaining orders aren't in the DB yet (or are cheap existing-order updates),
+      // so the next run picks them up from the advanced watermark. Only trips for
+      // orders that still need the expensive new-order path.
+      if (softDeadlineMs && Date.now() - fnStart > softDeadlineMs && o.AmazonOrderId && !existingMap.has(o.AmazonOrderId)) {
+        deferred = allOrders.length - i
+        console.log(`[SyncOrders] Soft deadline (${softDeadlineMs}ms) reached — synced ${synced}, deferring ~${deferred} order(s) to next run`)
+        break
+      }
       if (!o.AmazonOrderId) continue
 
       const existing        = existingMap.get(o.AmazonOrderId)

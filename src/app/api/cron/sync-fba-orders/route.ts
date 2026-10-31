@@ -51,7 +51,9 @@ export async function GET(req: NextRequest) {
       const job = await prisma.orderSyncJob.create({
         data: { accountId: account.id, status: 'PENDING', trigger: 'cron-fba' },
       })
-      await syncUnshippedOrders(account.id, job.id, 'afn-only')
+      // Soft deadline well under maxDuration (300s) so the run always finishes and
+      // marks the job COMPLETED instead of being killed mid-write and left stale.
+      await syncUnshippedOrders(account.id, job.id, 'afn-only', false, 240_000)
       results.push({ accountId: account.id, sellerId: account.sellerId, jobId: job.id })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
