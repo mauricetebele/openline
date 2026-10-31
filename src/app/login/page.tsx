@@ -33,7 +33,7 @@ export default function LoginPage() {
       : data.role === 'CLIENT' ? '/client/inventory'
       : data.role === 'RESOLUTION_PROVIDER' ? '/cases'
       : data.role === 'MARKETPLACE_CS' ? '/customer-service'
-      : '/refunds'
+      : '/unshipped-orders'
     // Honor a deep link preserved through login (e.g. a case notification link),
     // falling back to the role's home. Middleware still guards role access.
     const from = new URLSearchParams(window.location.search).get('from')

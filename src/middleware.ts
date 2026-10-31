@@ -112,7 +112,7 @@ export function middleware(req: NextRequest) {
       if (pathname.startsWith('/api/')) {
         return new NextResponse(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { 'content-type': 'application/json' } })
       }
-      return NextResponse.redirect(new URL('/refunds', req.url))
+      return NextResponse.redirect(new URL('/unshipped-orders', req.url))
     }
   }
 
@@ -126,7 +126,7 @@ export function middleware(req: NextRequest) {
 
   // Already logged in and hitting /login → redirect to refunds
   if (pathname === '/login') {
-    return NextResponse.redirect(new URL('/refunds', req.url))
+    return NextResponse.redirect(new URL('/unshipped-orders', req.url))
   }
 
   return NextResponse.next()

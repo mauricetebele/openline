@@ -134,7 +134,6 @@ const NAV: NavItem[] = [
     label: 'Special Tools',
     icon: Cpu,
     children: [
-      { href: '/refunds',            label: 'Refunds',            icon: RefreshCcw },
       { href: '/fba-refunds',       label: 'FBA Refunds',        icon: RefreshCcw },
       { href: '/chargeback-response', label: 'Chargeback Response', icon: FileText },
       { href: '/returns',            label: 'MFN Returns',        icon: RotateCcw },
