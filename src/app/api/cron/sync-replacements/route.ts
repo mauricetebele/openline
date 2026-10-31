@@ -4,21 +4,14 @@
  */
 export const maxDuration = 300
 
-import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncReplacementOrders } from '@/lib/amazon/sync-replacements'
+import { cronGet } from '@/lib/cron-handler'
 
-export async function GET(req: NextRequest) {
-  // Verify cron secret (Vercel sends Authorization: Bearer <CRON_SECRET>)
-  const authHeader = req.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export const GET = cronGet('sync-replacements', async () => {
   const accounts = await prisma.amazonAccount.findMany({ where: { isActive: true } })
   if (accounts.length === 0) {
-    return NextResponse.json({ message: 'No active accounts' })
+    return { message: 'No active accounts' }
   }
 
   const results: { accountId: string; status: string; message?: string }[] = []
@@ -39,5 +32,5 @@ export async function GET(req: NextRequest) {
   }
 
   console.log('[Cron] sync-replacements complete:', results)
-  return NextResponse.json({ ok: true, results })
-}
+  return { ok: true, results }
+})

@@ -4,21 +4,15 @@
  * Separated from the main sync-orders cron (MFN only, every 10 min)
  * to avoid slowing down the fulfillment page.
  */
-import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncUnshippedOrders } from '@/lib/amazon/sync-orders'
+import { cronGet } from '@/lib/cron-handler'
 
 export const maxDuration = 300
 
 const STALE_MINUTES = 10
 
-export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export const GET = cronGet('sync-fba-orders', async () => {
   // Clean up stale FBA sync jobs
   const staleThreshold = new Date(Date.now() - STALE_MINUTES * 60 * 1000)
   await prisma.orderSyncJob.updateMany({
@@ -62,5 +56,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ synced: results.length, results })
-}
+  return { synced: results.length, results }
+})

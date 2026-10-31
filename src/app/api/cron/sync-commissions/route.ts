@@ -5,17 +5,11 @@
  */
 export const maxDuration = 300
 
-import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncAmazonCommissions, syncBackMarketCommissions } from '@/lib/amazon/sync-commissions'
+import { cronGet } from '@/lib/cron-handler'
 
-export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export const GET = cronGet('sync-commissions', async () => {
   const accounts = await prisma.amazonAccount.findMany({ where: { isActive: true } })
   const results: { source: string; status: string; message?: string }[] = []
 
@@ -124,5 +118,5 @@ export async function GET(req: NextRequest) {
     results.push({ source: 'backmarket', status: 'error', message })
   }
 
-  return NextResponse.json({ status: 'success', results })
-}
+  return { status: 'success', results }
+})

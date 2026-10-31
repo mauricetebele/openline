@@ -2,19 +2,13 @@
  * GET /api/cron/sync-fba-inventory — Vercel Cron
  * Syncs FBA inventory (quantities + FNSKUs) for all active Amazon accounts.
  */
-import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncFbaInventory } from '@/lib/amazon/fba-inventory'
+import { cronGet } from '@/lib/cron-handler'
 
 export const maxDuration = 300
 
-export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export const GET = cronGet('sync-fba-inventory', async () => {
   const accounts = await prisma.amazonAccount.findMany({
     where: { isActive: true },
     select: { id: true, sellerId: true },
@@ -33,5 +27,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ synced: results.length, results })
-}
+  return { synced: results.length, results }
+})

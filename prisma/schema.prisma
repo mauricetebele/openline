@@ -768,6 +768,32 @@ model OrderSyncJob {
   @@map("order_sync_jobs")
 }
 
+enum CronRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// One row per invocation of a scheduled cron — powers the Cron Status panel.
+model CronRun {
+  id              String        @id @default(cuid())
+  name            String        // cron name, e.g. "sync-fba-orders"
+  status          CronRunStatus @default(RUNNING)
+  trigger         String        @default("cron") // "cron" | "manual"
+  startedAt       DateTime      @default(now())
+  completedAt     DateTime?
+  durationMs      Int?
+  progressCurrent Int? // for a progress bar while RUNNING
+  progressTotal   Int?
+  detail          String? // short human status line, e.g. "page 12/27"
+  summary         String?       @db.Text // result summary on completion
+  error           String?       @db.Text // failure message
+
+  @@index([name, startedAt(sort: Desc)])
+  @@index([status])
+  @@map("cron_runs")
+}
+
 enum OrderSyncJobStatus {
   PENDING
   RUNNING

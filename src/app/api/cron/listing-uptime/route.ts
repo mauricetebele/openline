@@ -5,16 +5,11 @@
  */
 export const maxDuration = 300
 
-import { NextRequest, NextResponse } from 'next/server'
 import { checkListingUptime } from '@/lib/amazon/listing-uptime'
+import { cronGet } from '@/lib/cron-handler'
 
-export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+export const GET = cronGet('listing-uptime', async () => {
   const r = await checkListingUptime({ budgetMs: 210_000 })
   console.log('[cron/listing-uptime]', JSON.stringify(r))
-  return NextResponse.json({ status: 'success', ...r })
-}
+  return { status: 'success', ...r }
+})

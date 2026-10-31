@@ -4,7 +4,7 @@
  * Creates a Neon branch snapshot as a database backup.
  * Deletes backup branches older than 7 days to avoid clutter.
  */
-import { NextRequest, NextResponse } from 'next/server'
+import { cronGet } from '@/lib/cron-handler'
 
 export const maxDuration = 30
 
@@ -34,15 +34,7 @@ async function neonFetch(path: string, options: RequestInit = {}) {
   return res.json()
 }
 
-export async function GET(req: NextRequest) {
-  // Verify cron secret
-  const authHeader = req.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  try {
+export const GET = cronGet('backup-db', async () => {
     // 1. Create a backup branch named backup-YYYY-MM-DD
     const today = new Date().toISOString().slice(0, 10)
     const branchName = `${BACKUP_PREFIX}${today}`
@@ -79,16 +71,9 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({
+    return {
       created: branchName,
       branchId: newBranchId,
       deletedOldBackups: deleted,
-    })
-  } catch (err) {
-    console.error('[backup-db]', err)
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Backup failed' },
-      { status: 500 },
-    )
-  }
-}
+    }
+})

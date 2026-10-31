@@ -5,20 +5,14 @@
  * daily job uses a wider 30-day window so return reasons + customer comments
  * are backfilled for late-arriving / recently-amended returns.
  */
-import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncFbaReturns } from '@/lib/amazon/fba-returns'
+import { cronGet } from '@/lib/cron-handler'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export const GET = cronGet('sync-fba-returns', async () => {
   const end = new Date()
   const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000) // 30 days back
 
@@ -37,5 +31,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, window: { start, end }, results })
-}
+  return { ok: true, window: { start, end }, results }
+})

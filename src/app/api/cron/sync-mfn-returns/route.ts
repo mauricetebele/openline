@@ -7,22 +7,15 @@
  */
 export const maxDuration = 300
 
-import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncMfnReturns, autoCheckNewReturns } from '@/lib/amazon/mfn-returns'
 import { getCarrierStatus } from '@/lib/ups-tracking'
+import { cronGet } from '@/lib/cron-handler'
 
-export async function GET(req: NextRequest) {
-  // Verify cron secret (Vercel sends Authorization: Bearer <CRON_SECRET>)
-  const authHeader = req.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export const GET = cronGet('sync-mfn-returns', async () => {
   const accounts = await prisma.amazonAccount.findMany({ where: { isActive: true } })
   if (accounts.length === 0) {
-    return NextResponse.json({ message: 'No active accounts' })
+    return { message: 'No active accounts' }
   }
 
   const end = new Date(Date.now() - 5 * 60 * 1000) // 5-min buffer
@@ -133,5 +126,5 @@ export async function GET(req: NextRequest) {
   }
 
   console.log('[Cron] sync-mfn-returns complete:', results)
-  return NextResponse.json({ ok: true, results })
-}
+  return { ok: true, results }
+})

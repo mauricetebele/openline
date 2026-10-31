@@ -5,24 +5,17 @@
  */
 export const maxDuration = 300
 
-import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncFbaRefunds } from '@/lib/amazon/fba-refunds'
 import { syncFbaReturns } from '@/lib/amazon/fba-returns'
 import { syncFbaReimbursements } from '@/lib/amazon/fba-reimbursements'
 import { autoValidateFbaRefunds } from '@/lib/fba-auto-validate'
+import { cronGet } from '@/lib/cron-handler'
 
-export async function GET(req: NextRequest) {
-  // Verify cron secret (Vercel sends Authorization: Bearer <CRON_SECRET>)
-  const authHeader = req.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export const GET = cronGet('sync-fba-refunds', async () => {
   const accounts = await prisma.amazonAccount.findMany({ where: { isActive: true } })
   if (accounts.length === 0) {
-    return NextResponse.json({ message: 'No active accounts' })
+    return { message: 'No active accounts' }
   }
 
   const end = new Date(Date.now() - 5 * 60 * 1000) // 5-min buffer
@@ -95,5 +88,5 @@ export async function GET(req: NextRequest) {
   }
 
   console.log('[Cron] FBA refunds + returns + reimbursements sync complete:', results, 'validation:', validation)
-  return NextResponse.json({ ok: true, results, validation })
-}
+  return { ok: true, results, validation }
+})

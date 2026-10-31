@@ -2,24 +2,17 @@
  * GET /api/cron/sync-orders — Vercel Cron (every 15 min)
  * Syncs unshipped orders for all active Amazon accounts.
  */
-import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncUnshippedOrders } from '@/lib/amazon/sync-orders'
 import { syncBackMarketOrders } from '@/lib/backmarket/sync-orders'
 import { enrichOrdersFromShipStation } from '@/lib/shipstation/enrich-orders'
+import { cronGet } from '@/lib/cron-handler'
 
 export const maxDuration = 300
 
 const STALE_MINUTES = 10
 
-export async function GET(req: NextRequest) {
-  // Verify cron secret (Vercel sends Authorization: Bearer <CRON_SECRET>)
-  const authHeader = req.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export const GET = cronGet('sync-orders', async () => {
   // Clean up stale jobs (PENDING/RUNNING > 10 min old)
   const staleThreshold = new Date(Date.now() - STALE_MINUTES * 60 * 1000)
   await prisma.orderSyncJob.updateMany({
@@ -107,5 +100,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ synced: results.length, results, backmarket: bmResult ?? null, ssEnrich: ssEnrichResult })
-}
+  return { synced: results.length, results, backmarket: bmResult ?? null, ssEnrich: ssEnrichResult }
+})

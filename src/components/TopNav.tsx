@@ -10,7 +10,7 @@ import {
   Store, Users, FileText, BarChart2, Cpu, Printer, Smartphone, BatteryCharging,
   Plus, PlusCircle, Search, ArrowRightLeft, Menu, X, Settings, History,
   Moon, Sun, Undo2, Upload, BookOpen, TrendingUp, Bell, Archive, CreditCard, FolderOpen, Brain, AlertCircle, Mail,
-  Sparkles, Receipt, Ban, Wrench, KeyRound, Languages, MessageSquare, Hash,
+  Sparkles, Receipt, Ban, Wrench, KeyRound, Languages, MessageSquare, Hash, Activity,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLanguage } from '@/context/LanguageContext'
@@ -150,6 +150,7 @@ const NAV: NavItem[] = [
       { href: '/unlock-codes',       label: 'Unlock Codes',       icon: KeyRound },
       { href: '/trg-ids',            label: 'TRG IDs',            icon: Hash },
       { href: '/audit',              label: 'Audit Log',          icon: ClipboardList },
+      { href: '/cron-status',        label: 'Cron Status',        icon: Activity },
     ],
   },
   {
