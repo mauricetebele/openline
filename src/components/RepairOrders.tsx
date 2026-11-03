@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet, MapPin, Pencil, ChevronUp, ChevronDown, ChevronsUpDown, Download } from 'lucide-react'
+import { Plus, X, Loader2, Trash2, Truck, Printer, RefreshCcw, Wrench, Building2, ArrowLeft, CheckCircle2, Ban, DollarSign, FileSpreadsheet, MapPin, Pencil, ChevronUp, ChevronDown, ChevronsUpDown, Download, Mail } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
 import { printAllLabels, openLabel } from '@/lib/print-labels'
@@ -143,6 +143,9 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
   const [labelDir, setLabelDir] = useState<null | 'outbound' | 'inbound'>(null)
   const [locs, setLocs] = useState<LocOption[]>([])
   const [receiveOpen, setReceiveOpen] = useState(false)
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [emailTo, setEmailTo] = useState('')
+  const [emailSending, setEmailSending] = useState(false)
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const toggleSort = (k: string) => { if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortKey(k); setSortDir('asc') } }
@@ -208,6 +211,16 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
   }
   async function loadTracking() {
     try { setTracking(await api(`/api/repair-orders/${id}/tracking`)) } catch { /* ignore */ }
+  }
+  async function sendPoEmail() {
+    const to = emailTo.trim()
+    if (!to) { toast.error('Enter a recipient email'); return }
+    setEmailSending(true)
+    try {
+      const r = await api(`/api/repair-orders/${id}/email-po`, 'POST', { to })
+      toast.success(`Repair PO emailed to ${r.to}`)
+      setEmailOpen(false)
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to send') } finally { setEmailSending(false) }
   }
 
   const [voiding, setVoiding] = useState<null | 'outbound' | 'inbound'>(null)
@@ -286,6 +299,11 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
             className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-green-300 text-green-700 text-xs font-medium hover:bg-green-50">
             <FileSpreadsheet size={13} /> Repair PO (Excel)
           </a>
+          <button onClick={() => { setEmailTo(order.vendor.email ?? ''); setEmailOpen(true) }}
+            title="Email the Repair PO spreadsheet to the vendor"
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-blue-300 text-blue-700 text-xs font-medium hover:bg-blue-50">
+            <Mail size={13} /> Email PO
+          </button>
           <select className="h-8 px-2 rounded border border-gray-300 text-xs" value={order.status} onChange={e => setStatus(e.target.value)}>
             {['DRAFT', 'SHIPPED_OUT', 'AT_VENDOR', 'RETURNED', 'COMPLETED', 'CANCELLED'].map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
           </select>
@@ -372,6 +390,38 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
           onClose={() => setReceiveOpen(false)}
           onDone={() => { setReceiveOpen(false); setSelected(new Set()); load() }}
         />
+      )}
+
+      {emailOpen && order && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !emailSending && setEmailOpen(false)}>
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b dark:border-gray-700">
+              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-1.5"><Mail size={15} /> Email Repair PO — RO-{String(order.orderNumber).padStart(4, '0')}</h3>
+              <button onClick={() => !emailSending && setEmailOpen(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Send to</label>
+                <input type="email" value={emailTo} onChange={e => setEmailTo(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !emailSending) sendPoEmail() }}
+                  placeholder="vendor@example.com"
+                  className="w-full h-9 rounded border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-amazon-blue" />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  {order.vendor.email
+                    ? <>Defaulted to {order.vendor.companyName}&apos;s email — edit to send elsewhere.</>
+                    : <>{order.vendor.companyName} has no email on file — enter a recipient.</>}
+                </p>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">The Repair PO spreadsheet (<span className="font-mono">Repair-PO-{String(order.orderNumber).padStart(4, '0')}.xlsx</span>) will be attached.</p>
+            </div>
+            <div className="px-5 py-3 border-t dark:border-gray-700 flex justify-end gap-2">
+              <button onClick={() => setEmailOpen(false)} disabled={emailSending} className="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">Cancel</button>
+              <button onClick={sendPoEmail} disabled={emailSending || !emailTo.trim()} className="px-3 py-1.5 text-xs bg-amazon-blue text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1.5">
+                {emailSending ? <><Loader2 size={12} className="animate-spin" /> Sending…</> : <><Mail size={12} /> Send PO</>}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Items grid */}
