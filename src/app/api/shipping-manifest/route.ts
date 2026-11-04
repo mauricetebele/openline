@@ -151,6 +151,25 @@ export async function GET(req: NextRequest) {
     }),
   ])
 
+  // Per-box wholesale tracking: each piece of a multi-piece wholesale shipment is a
+  // separate WHOLESALE ReturnLabel (linked by salesOrderId). Pull them so every box
+  // gets its own manifest row (not just the master on SalesOrder.shipTracking).
+  const wholesaleOrderIds = wholesaleOrders.map((o) => o.id)
+  const wholesalePieces = wholesaleOrderIds.length > 0
+    ? await prisma.returnLabel.findMany({
+        where: { salesOrderId: { in: wholesaleOrderIds }, labelType: 'WHOLESALE', voided: false },
+        select: { id: true, salesOrderId: true, trackingNumber: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      })
+    : []
+  const piecesByOrder = new Map<string, { id: string; trackingNumber: string }[]>()
+  for (const p of wholesalePieces) {
+    if (!p.salesOrderId || !p.trackingNumber) continue
+    const list = piecesByOrder.get(p.salesOrderId) ?? []
+    list.push({ id: p.id, trackingNumber: p.trackingNumber })
+    piecesByOrder.set(p.salesOrderId, list)
+  }
+
   const rows = [
     ...orders.map((o) => {
       const tracking = o.label?.trackingNumber || o.shipTracking || null
@@ -173,22 +192,46 @@ export async function GET(req: NextRequest) {
         trackingNumber: tracking,
       }
     }),
-    ...wholesaleOrders.map((so) => {
-      const carrier = resolveCarrier(so.shipCarrier, so.shipTracking)
-      return {
-        id: so.id,
-        source: 'wholesale' as const,
-        olmNumber: null,
-        amazonOrderId: null as string | null,
-        orderSource: 'wholesale' as string,
-        orderRef: so.invoiceNumber ?? so.orderNumber,
-        customerName: so.customer.companyName,
-        carrier,
-        carrierNorm: normalizeCarrier(carrier),
-        serviceCode: null,
-        shipDate: so.shippedAt,
-        trackingNumber: so.shipTracking,
+    ...wholesaleOrders.flatMap((so) => {
+      const ref = so.invoiceNumber ?? so.orderNumber
+      const pieces = piecesByOrder.get(so.id) ?? []
+      // No per-piece labels on file (manual tracking / older orders) → single row
+      // with the master tracking, preserving prior behavior.
+      if (pieces.length === 0) {
+        const carrier = resolveCarrier(so.shipCarrier, so.shipTracking)
+        return [{
+          id: so.id,
+          source: 'wholesale' as const,
+          olmNumber: null,
+          amazonOrderId: null as string | null,
+          orderSource: 'wholesale' as string,
+          orderRef: ref,
+          customerName: so.customer.companyName,
+          carrier,
+          carrierNorm: normalizeCarrier(carrier),
+          serviceCode: null,
+          shipDate: so.shippedAt,
+          trackingNumber: so.shipTracking,
+        }]
       }
+      // One row per box so every tracking number appears on the manifest.
+      return pieces.map((p, idx) => {
+        const carrier = resolveCarrier(so.shipCarrier, p.trackingNumber)
+        return {
+          id: p.id,
+          source: 'wholesale' as const,
+          olmNumber: null,
+          amazonOrderId: null as string | null,
+          orderSource: 'wholesale' as string,
+          orderRef: pieces.length > 1 ? `${ref} · Box ${idx + 1}` : ref,
+          customerName: so.customer.companyName,
+          carrier,
+          carrierNorm: normalizeCarrier(carrier),
+          serviceCode: null,
+          shipDate: so.shippedAt,
+          trackingNumber: p.trackingNumber,
+        }
+      })
     }),
     ...vendorLabels.map((l) => {
       const carrier = resolveCarrier(l.carrier === 'ups' ? 'UPS' : l.carrier === 'fedex' ? 'FedEx' : l.carrier, l.trackingNumber)
