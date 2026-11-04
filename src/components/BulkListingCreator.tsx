@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import {
   AlertCircle, CheckCircle2, XCircle, Loader2, ChevronRight, ArrowLeft, X, Plus, Trash2,
-  Upload, FileSpreadsheet, Download,
+  Upload, FileSpreadsheet, Download, RefreshCcw,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { AmazonAccountDTO } from '@/types'
@@ -198,14 +198,58 @@ export default function BulkListingCreator() {
       .catch(() => {})
   }, [])
 
-  // Load templates when account changes
-  useEffect(() => {
+  // Load the available shipping-template names (distinct across the account's
+  // synced listings) — this is the source of the template dropdown.
+  const loadTemplates = useCallback(async () => {
     if (!accountId) return
-    fetch(`/api/listings?accountId=${accountId}&pageSize=1`)
-      .then((r) => r.json())
-      .then((data) => { if (data.templates) setTemplates(data.templates) })
-      .catch(() => {})
+    try {
+      const data = await fetch(`/api/listings?accountId=${accountId}&pageSize=1`).then((r) => r.json())
+      if (data.templates) setTemplates(data.templates)
+    } catch { /* ignore */ }
   }, [accountId])
+
+  useEffect(() => { loadTemplates() }, [loadTemplates])
+
+  // Sync the Amazon catalog so newly-created shipping templates (assigned to a
+  // listing in Seller Central) get pulled in, then refresh the dropdown — the same
+  // full listings sync that populated the templates originally.
+  const [syncingTemplates, setSyncingTemplates] = useState(false)
+  const [templateSyncMsg, setTemplateSyncMsg] = useState<string | null>(null)
+  const tmplPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  useEffect(() => () => { if (tmplPollRef.current) clearInterval(tmplPollRef.current) }, [])
+
+  async function syncTemplates() {
+    if (!accountId || syncingTemplates) return
+    setSyncingTemplates(true)
+    setTemplateSyncMsg('Syncing Amazon listings…')
+    try {
+      const { jobId } = await fetch('/api/listings/sync', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId }),
+      }).then((r) => r.json()) as { jobId: string }
+      tmplPollRef.current = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/listings/sync?jobId=${jobId}`)
+          if (!res.ok) return
+          const job = await res.json() as { status: string; totalUpserted?: number; totalFound?: number; errorMessage?: string }
+          if (job.totalFound) setTemplateSyncMsg(`Syncing listings… ${job.totalUpserted ?? 0}/${job.totalFound}`)
+          if (job.status === 'COMPLETED' || job.status === 'FAILED') {
+            if (tmplPollRef.current) clearInterval(tmplPollRef.current)
+            setSyncingTemplates(false)
+            if (job.status === 'FAILED') { setTemplateSyncMsg(`Sync failed: ${job.errorMessage ?? 'unknown error'}`) }
+            else {
+              await loadTemplates()
+              setTemplateSyncMsg('Templates updated ✓')
+              setTimeout(() => setTemplateSyncMsg(null), 4000)
+            }
+          }
+        } catch { /* transient — keep polling */ }
+      }, 5000)
+    } catch (e) {
+      setSyncingTemplates(false)
+      setTemplateSyncMsg(e instanceof Error ? e.message : 'Failed to start sync')
+    }
+  }
 
   // ─── Step 0 → Step 1: Load SKUs ─────────────────────────────────────────
 
@@ -1322,6 +1366,27 @@ export default function BulkListingCreator() {
                     </button>
                   </div>
                 </div>
+
+                {/* Shipping templates — refresh from Amazon (MFN only) */}
+                {fulfillment === 'MFN' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Shipping Templates</label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={syncTemplates}
+                        disabled={syncingTemplates || !accountId}
+                        title="Re-sync Amazon listings to pull in newly-created shipping templates"
+                        className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        <RefreshCcw size={14} className={clsx(syncingTemplates && 'animate-spin')} />
+                        {syncingTemplates ? 'Syncing…' : 'Sync Templates'}
+                      </button>
+                      <span className="text-[11px] text-gray-400">{templates.length} available</span>
+                    </div>
+                    {templateSyncMsg && <p className="text-[11px] text-gray-500 mt-1">{templateSyncMsg}</p>}
+                  </div>
+                )}
               </div>
               )}
 
