@@ -86,10 +86,42 @@ export async function GET(
     if (item) { claimed.add(item.id); caseCountByItem.set(item.id, (caseCountByItem.get(item.id) ?? 0) + 1) }
   }
 
+  // Attribute receipts to line items: directly by removalShipmentItemId, else by
+  // FNSKU. Older/auto receipts store the LPN + the physical product SKU (e.g. an
+  // iPad), NOT the item's Amazon seller SKU — so they come in with a null item id
+  // and can only be matched to the manifest line via the LPN → FBA-returns FNSKU,
+  // which equals the item's fnsku. Each receipt fills one unit of a matching item.
+  const receiptCountByItem = new Map<string, number>()
+  const claimLpnByItem = new Map<string, string>()
+  for (const r of shipment.fbaReturnReceipts) {
+    if (r.removalShipmentItemId) receiptCountByItem.set(r.removalShipmentItemId, (receiptCountByItem.get(r.removalShipmentItemId) ?? 0) + 1)
+  }
+  const unlinkedReceipts = shipment.fbaReturnReceipts.filter(r => !r.removalShipmentItemId && r.lpnNumber)
+  if (unlinkedReceipts.length > 0) {
+    const lpns = Array.from(new Set(unlinkedReceipts.map(r => r.lpnNumber!)))
+    const rets = await prisma.fbaReturn.findMany({
+      where: { lpn: { in: lpns } },
+      orderBy: { returnDate: 'desc' },
+      select: { lpn: true, fnsku: true },
+    })
+    const fnskuByLpn = new Map<string, string | null>()
+    for (const x of rets) if (x.lpn && !fnskuByLpn.has(x.lpn)) fnskuByLpn.set(x.lpn, x.fnsku)
+    for (const r of unlinkedReceipts) {
+      const fnsku = fnskuByLpn.get(r.lpnNumber!)
+      if (!fnsku) continue
+      const item = shipment.items.find(it => it.fnsku === fnsku && (receiptCountByItem.get(it.id) ?? 0) < it.quantity)
+      if (item) {
+        receiptCountByItem.set(item.id, (receiptCountByItem.get(item.id) ?? 0) + 1)
+        if (!claimLpnByItem.has(item.id)) claimLpnByItem.set(item.id, r.lpnNumber!)
+      }
+    }
+  }
+
   const items = shipment.items.map(item => {
     // A unit counts as received if it has a return receipt OR is marked "No Unit To
     // Receive". A removal case alone does NOT count (received + case = 1 via receipt).
-    const receivedCount = Math.min(item._count.fbaReturnReceipts + item.noUnitToReceiveQty, item.quantity)
+    const receiptCount = receiptCountByItem.get(item.id) ?? 0
+    const receivedCount = Math.min(receiptCount + item.noUnitToReceiveQty, item.quantity)
     return {
       id: item.id,
       shipmentId: item.shipmentId,
@@ -100,7 +132,7 @@ export async function GET(
       title: titleMap.get(item.sellerSku) ?? null,
       receivedCount,
       remainingQty: Math.max(0, item.quantity - receivedCount),
-      lpnNumber: itemLpnMap.get(item.id) ?? null,
+      lpnNumber: itemLpnMap.get(item.id) ?? claimLpnByItem.get(item.id) ?? null,
       hasCase: (caseCountByItem.get(item.id) ?? 0) > 0,
       noUnitToReceiveQty: item.noUnitToReceiveQty,
     }
