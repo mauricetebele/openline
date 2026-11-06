@@ -958,14 +958,15 @@ export async function generateUpsMultiPieceLabels(
     }
   }
 
-  // UPS placement rule: for US/PR domestic shipments, DeliveryConfirmation
-  // (incl. signature) must go at the SHIPMENT level (ShipmentServiceOptions) —
-  // package-level is silently ignored, so no signature + no surcharge. Only
-  // international shipments use package-level PackageServiceOptions.
+  // UPS placement rule: for US-domestic shipments DeliveryConfirmation (incl.
+  // signature) goes at the PACKAGE level (PackageServiceOptions). For international
+  // it goes at the SHIPMENT level (ShipmentServiceOptions) — using the wrong level
+  // yields "accessory options unavailable between the selected locations".
   const confObj = upsDeliveryConfirmation(req.confirmation)
   const hasConf = Object.keys(confObj).length > 0
-  const destCountry = (req.shipTo.country ?? 'US').trim().toUpperCase()
-  const isDomesticUS = destCountry === 'US' || destCountry === 'PR'
+  const toUS = (req.shipTo.country ?? 'US').trim().toUpperCase() === 'US'
+  const fromUS = (req.shipFrom.country ?? 'US').trim().toUpperCase() === 'US'
+  const isDomesticUS = toUS && fromUS
 
   const buildPackage = (p: MultiPiecePackage) => {
     const dimUnitDesc = (p.dimUnit ?? 'IN') === 'CM' ? 'Centimeters' : 'Inches'
@@ -983,7 +984,7 @@ export async function generateUpsMultiPieceLabels(
         UnitOfMeasurement: { Code: p.weightUnit, Description: weightUnitDesc },
         Weight: String(p.weightValue),
       },
-      ...(hasConf && !isDomesticUS ? { PackageServiceOptions: confObj } : {}),
+      ...(hasConf && isDomesticUS ? { PackageServiceOptions: confObj } : {}),
       ...(req.referenceNumber ? { ReferenceNumber: { Code: 'IK', Value: req.referenceNumber } } : {}),
     }
   }
@@ -1011,7 +1012,7 @@ export async function generateUpsMultiPieceLabels(
         },
         PaymentInformation: { ShipmentCharge: { Type: '01', BillShipper: { AccountNumber: accountNumber } } },
         ShipmentRatingOptions: { NegotiatedRatesIndicator: 'X' },
-        ...(hasConf && isDomesticUS ? { ShipmentServiceOptions: confObj } : {}),
+        ...(hasConf && !isDomesticUS ? { ShipmentServiceOptions: confObj } : {}),
         Package: req.packages.map(buildPackage),
       },
       LabelSpecification: {
@@ -1102,12 +1103,13 @@ export async function getUpsMultiPieceRate(req: MultiPieceLabelRequest, upsCrede
     return { Name: sanitizeAddressLine(a.name || a.company || 'N/A') || 'N/A', Address: { AddressLine: lines, City: sanitizeAddressLine(a.city), StateProvinceCode: a.state?.trim().slice(0, 2), PostalCode: a.postal?.trim().replace(/[^0-9A-Za-z-]/g, '').slice(0, 10), CountryCode: a.country?.trim() || 'US' } }
   }
   // Signature/delivery confirmation surcharge: same placement rule as the label
-  // buy — shipment-level for US/PR domestic, package-level for international — so
-  // the quote matches what the label actually costs.
+  // buy — PACKAGE level for US domestic, SHIPMENT level for international — so the
+  // quote matches the label and avoids "accessory options unavailable".
   const confObj = upsDeliveryConfirmation(req.confirmation)
   const hasConf = Object.keys(confObj).length > 0
-  const destCountry = (req.shipTo.country ?? 'US').trim().toUpperCase()
-  const isDomesticUS = destCountry === 'US' || destCountry === 'PR'
+  const toUS = (req.shipTo.country ?? 'US').trim().toUpperCase() === 'US'
+  const fromUS = (req.shipFrom.country ?? 'US').trim().toUpperCase() === 'US'
+  const isDomesticUS = toUS && fromUS
 
   const shipper = addr(req.shipFrom)
   const body = {
@@ -1118,12 +1120,12 @@ export async function getUpsMultiPieceRate(req: MultiPieceLabelRequest, upsCrede
         ShipFrom: shipper,
         ShipTo: addr(req.shipTo),
         Service: { Code: req.serviceCode },
-        ...(hasConf && isDomesticUS ? { ShipmentServiceOptions: confObj } : {}),
+        ...(hasConf && !isDomesticUS ? { ShipmentServiceOptions: confObj } : {}),
         Package: req.packages.map(p => ({
           PackagingType: { Code: '02' },
           ...(p.length && p.width && p.height ? { Dimensions: { UnitOfMeasurement: { Code: p.dimUnit ?? 'IN' }, Length: String(p.length), Width: String(p.width), Height: String(p.height) } } : {}),
           PackageWeight: { UnitOfMeasurement: { Code: p.weightUnit }, Weight: String(p.weightValue) },
-          ...(hasConf && !isDomesticUS ? { PackageServiceOptions: confObj } : {}),
+          ...(hasConf && isDomesticUS ? { PackageServiceOptions: confObj } : {}),
         })),
         ShipmentRatingOptions: { NegotiatedRatesIndicator: 'X' },
       },
