@@ -1105,6 +1105,10 @@ export async function getUpsMultiPieceRate(req: MultiPieceLabelRequest, upsCrede
           PackagingType: { Code: '02' },
           ...(p.length && p.width && p.height ? { Dimensions: { UnitOfMeasurement: { Code: p.dimUnit ?? 'IN' }, Length: String(p.length), Width: String(p.width), Height: String(p.height) } } : {}),
           PackageWeight: { UnitOfMeasurement: { Code: p.weightUnit }, Weight: String(p.weightValue) },
+          // Include the signature/delivery-confirmation surcharge in the quote so the
+          // rate matches what the label actually costs (same structure as the buy).
+          ...(Object.keys(upsDeliveryConfirmation(req.confirmation)).length > 0
+            ? { PackageServiceOptions: upsDeliveryConfirmation(req.confirmation) } : {}),
         })),
         ShipmentRatingOptions: { NegotiatedRatesIndicator: 'X' },
       },

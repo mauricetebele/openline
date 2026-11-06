@@ -121,7 +121,7 @@ export async function rateManualShipment(input: ManualLabelInput): Promise<{ tot
   const shipTo = toMPAddress(input.shipTo)
 
   if (input.path === 'ups') {
-    return getUpsMultiPieceRate({ shipFrom, shipTo, serviceCode: input.serviceCode, packages: upsPackages(input.packages) }, input.upsCredentialId)
+    return getUpsMultiPieceRate({ shipFrom, shipTo, serviceCode: input.serviceCode, packages: upsPackages(input.packages), confirmation: input.confirmation }, input.upsCredentialId)
   }
   if (input.path === 'fedex') {
     const creds = await loadFedExCredentials()
