@@ -159,10 +159,18 @@ export function computeBatteryHealth(ioreg: Record<string, unknown> | undefined)
   fullCapacity: number | null
 } {
   if (!ioreg) return { healthPct: null, cycleCount: null, designCapacity: null, fullCapacity: null }
-  const design = toNum(ioreg.DesignCapacity)
-  const full = toNum(ioreg.NominalChargeCapacity) ?? toNum(ioreg.AppleRawMaxCapacity) ?? toNum(ioreg.MaxCapacity)
-  const cycleCount = toNum(ioreg.CycleCount)
-  const healthPct = design && full && design > 0 ? round((full / design) * 100, 1) : null
+  // Modern iPhones nest the mAh capacities under `BatteryData`; older devices expose
+  // them at the top level. Read nested first, fall back to top-level.
+  const bd = (ioreg.BatteryData && typeof ioreg.BatteryData === 'object')
+    ? (ioreg.BatteryData as Record<string, unknown>) : {}
+  const pick = (k: string) => toNum(bd[k]) ?? toNum(ioreg[k])
+  const design = pick('DesignCapacity')
+  // Current full-charge capacity, in mAh (NOT `MaxCapacity`, which on modern
+  // devices is already a 0-100 health percentage, not mAh).
+  const full = pick('NominalChargeCapacity') ?? pick('AppleRawMaxCapacity') ?? pick('FullChargeCapacity')
+  const cycleCount = toNum(ioreg.CycleCount) ?? toNum(bd.CycleCount)
+  let healthPct = design && full && design > 0 ? round((full / design) * 100, 1) : null
+  if (healthPct != null && healthPct > 100) healthPct = 100 // Apple caps "Maximum Capacity" at 100%
   return {
     healthPct,
     cycleCount: cycleCount != null ? Math.round(cycleCount) : null,
@@ -201,7 +209,14 @@ export function enrichAppleScan(raw: RawAppleScan): EnrichedAppleScan {
     batteryCycleCount: battery.cycleCount,
     batteryDesignCapacity: battery.designCapacity,
     batteryFullCapacity: battery.fullCapacity,
-    batteryCurrentCharge: toNum(bat.BatteryCurrentCapacity) != null ? Math.round(toNum(bat.BatteryCurrentCapacity)!) : null,
+    batteryCurrentCharge: (() => {
+      // Charge level 0-100 at scan time. Prefer the ideviceinfo battery payload,
+      // else the ioreg's CurrentCapacity (nested under BatteryData on modern iOS).
+      const ib = raw.ioregBattery ?? {}
+      const bdd = (ib.BatteryData && typeof ib.BatteryData === 'object') ? (ib.BatteryData as Record<string, unknown>) : {}
+      const c = toNum(bat.BatteryCurrentCapacity) ?? toNum(bdd.CurrentCapacity) ?? toNum(ib.CurrentCapacity)
+      return c != null ? Math.round(c) : null
+    })(),
     activationState: toStr(ld.ActivationState),
     agentVersion: toStr(raw.agentVersion),
   }
