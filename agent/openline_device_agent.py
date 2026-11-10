@@ -19,12 +19,22 @@ Config (first run creates ./agent_config.json, or use env vars):
     OPENLINE_AGENT_TOKEN   the token from the Device Diagnostics page
 """
 import argparse
+import asyncio
+import inspect
 import json
 import os
 import sys
 import time
 import urllib.request
 import urllib.error
+
+
+def _resolve(value):
+    """pymobiledevice3 4.x made several calls async; 3.x is sync. Support both:
+    if a call returns a coroutine, run it to completion."""
+    if inspect.iscoroutine(value):
+        return asyncio.new_event_loop().run_until_complete(value)
+    return value
 
 AGENT_VERSION = "1.0.0"
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_config.json")
@@ -48,41 +58,70 @@ def load_config():
                 cfg = json.load(f)
         except Exception:
             cfg = {}
-    site = os.environ.get("OPENLINE_SITE_URL") or cfg.get("siteUrl") or ""
-    token = os.environ.get("OPENLINE_AGENT_TOKEN") or cfg.get("agentToken") or ""
-    if not site or not token:
-        site = site or input("Site URL (e.g. https://openlinemobility.vercel.app): ").strip()
-        token = token or input("Agent Token (from the Device Diagnostics page): ").strip()
+    site = (os.environ.get("OPENLINE_SITE_URL") or cfg.get("siteUrl") or "").strip()
+    token = (os.environ.get("OPENLINE_AGENT_TOKEN") or cfg.get("agentToken") or "").strip()
+    # A valid site URL must look like a URL — re-prompt otherwise (guards against a
+    # stray value getting saved).
+    if not site.startswith("http"):
+        while True:
+            site = input("Site URL (e.g. https://openlinemobility.vercel.app): ").strip()
+            if site.startswith("http"):
+                break
+            print("  → must start with http(s)://")
+    if not token:
+        token = input("Agent Token (from the Device Diagnostics page): ").strip()
+    site = site.rstrip("/")
+    # Always persist the resolved values (also repairs a previously-bad config).
+    if cfg.get("siteUrl") != site or cfg.get("agentToken") != token:
         try:
             with open(CONFIG_PATH, "w") as f:
                 json.dump({"siteUrl": site, "agentToken": token}, f, indent=2)
             print(f"Saved config → {CONFIG_PATH}")
         except Exception as e:
             print(f"(could not save config: {e})")
-    return site.rstrip("/"), token
+    return site, token
 
 
 # ── Device read ───────────────────────────────────────────────────────────────
 def connected_udids():
     try:
-        return [d.serial for d in usbmux.list_devices()]
-    except Exception:
+        devices = _resolve(usbmux.list_devices())
+        return [d.serial for d in devices]
+    except Exception as e:
+        print(f"  (device list failed: {e})")
         return []
+
+
+def _read_battery(diag):
+    """AppleSmartBattery IORegistry (DesignCapacity, AppleRawMaxCapacity,
+    NominalChargeCapacity, CycleCount, BatteryCurrentCapacity, …). Try the known
+    method names across pymobiledevice3 versions."""
+    for attempt in (
+        lambda: diag.ioregistry(entry_class="AppleSmartBattery"),
+        lambda: diag.get_battery(),
+    ):
+        try:
+            result = _resolve(attempt())
+            if result:
+                return result
+        except Exception:
+            continue
+    return {}
 
 
 def scan_device(udid):
     """Return a RawAppleScan dict the site understands, or None on failure."""
-    lockdown = create_using_usbmux(serial=udid)
+    lockdown = _resolve(create_using_usbmux(serial=udid))
     try:
-        lockdown_info = dict(lockdown.all_values)
+        lockdown_info = dict(_resolve(lockdown.all_values))
     except Exception:
-        lockdown_info = {}
+        try:
+            lockdown_info = dict(lockdown.all_values)
+        except Exception:
+            lockdown_info = {}
     ioreg_battery = {}
     try:
-        diag = DiagnosticsService(lockdown=lockdown)
-        # AppleSmartBattery IORegistry: DesignCapacity, AppleRawMaxCapacity,
-        # NominalChargeCapacity, CycleCount, BatteryCurrentCapacity, ...
-        ioreg_battery = diag.get_battery() or {}
+        ioreg_battery = _read_battery(DiagnosticsService(lockdown=lockdown)) or {}
     except Exception as e:
         print(f"  (battery read failed: {e})")
     return {
