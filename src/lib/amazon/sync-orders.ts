@@ -466,12 +466,15 @@ export async function syncUnshippedOrders(
       // Re-fetch items if order transitioned from Unshipped → PartiallyShipped
       const statusChanged   = existing && o.OrderStatus !== existing.orderStatus
 
-      // ── Detail call: only for NEW orders ──────────────────────────────────
-      // Existing orders already have their shipping address from a previous
-      // sync (or SS enrichment). Skipping this call is the biggest time-saver
-      // on re-syncs since it removes up to N × 1100 ms of throttle sleeps.
+      // ── Detail call: only for NEW *MFN* orders ────────────────────────────
+      // The GetOrder call just fetches the shipping address. AFN/FBA orders are
+      // shipped by Amazon, so we never need their address — skipping the detail
+      // call for them removes the biggest source of SP-API calls (and 1.1s throttle
+      // sleeps), which was exhausting the Orders quota (429 QuotaExceeded) and
+      // timing the FBA cron out. Existing orders already have their address.
+      const isAfnList = o.FulfillmentChannel === 'AFN'
       let fullOrder: AmazonOrder = o
-      if (isNew) {
+      if (isNew && !isAfnList) {
         try {
           // Sleep BEFORE the call once burst budget is spent
           if (detailCallCount >= ORDER_DETAIL_BURST) await sleep(DETAIL_SLEEP_MS)
