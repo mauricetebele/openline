@@ -1,7 +1,8 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
-import { RefreshCcw, AlertCircle, Search, Download, CheckCircle2, Zap, BatteryCharging, Copy, Check, KeyRound, Loader2, ChevronDown } from 'lucide-react'
+import { RefreshCcw, AlertCircle, Search, Download, CheckCircle2, Zap, BatteryCharging, Copy, Check, KeyRound, Loader2, ChevronDown, ShieldCheck } from 'lucide-react'
+import SickwCheckButton from '@/components/SickwCheckButton'
 
 interface Diagnostic {
   id: string
@@ -191,6 +192,16 @@ export default function DeviceDiagnostics() {
                 <Stat label="IMEI" value={latest.imei ?? '—'} mono />
                 <Stat label="Model #" value={latest.modelNumber ?? '—'} mono />
               </div>
+              {/* FMI / iCloud Lock check via SICKW (by IMEI) */}
+              {(latest.imei || latest.serialNumber) && (
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] uppercase tracking-wide text-gray-400 flex items-center gap-1"><ShieldCheck size={12} /> iCloud / Find My</span>
+                  <SickwCheckButton
+                    serial={latest.imei ?? latest.serialNumber ?? ''}
+                    deviceHint={latest.marketingName ?? latest.productType ?? 'iPhone'}
+                  />
+                </div>
+              )}
               <div className="text-[11px] text-gray-400 mt-3">Scanned {fmtWhen(latest.createdAt)}</div>
             </div>
             <div className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
