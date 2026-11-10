@@ -128,7 +128,7 @@ export default function DeviceDiagnostics() {
   const prepIdRef = useRef<string | null>(null)
 
   const startPrepare = useCallback(async () => {
-    if (!confirm('Skip Setup → Home Screen?\n\nThis prepares & SUPERVISES the connected iPhone via Apple Configurator (cfgutil) and skips the setup screens. The device must be clean (iCloud / Find My OFF). Continue?')) return
+    if (!confirm('Skip Setup → Home Screen?\n\nThis supervises the connected iPhone (via Apple Configurator) and skips the setup screens, sending it to the home screen. Continue?')) return
     setPrepMsg(null)
     try {
       const d = await fetch('/api/devices/agent-command', {
@@ -240,7 +240,7 @@ export default function DeviceDiagnostics() {
                 <button
                   onClick={startPrepare}
                   disabled={prepState === 'PENDING' || prepState === 'RUNNING' || !agentActive}
-                  title={agentActive ? 'Supervise the connected iPhone and skip Setup Assistant (requires iCloud/Find My OFF + Apple Configurator)' : 'The agent must be running on the computer the phone is plugged into'}
+                  title={agentActive ? 'Supervise the connected iPhone and skip Setup Assistant → home screen (via Apple Configurator)' : 'The agent must be running on the computer the phone is plugged into'}
                   className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-indigo-300 text-indigo-700 dark:text-indigo-300 text-xs font-medium hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-50"
                 >
                   {prepState === 'PENDING' || prepState === 'RUNNING'
