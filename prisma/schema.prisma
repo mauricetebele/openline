@@ -3229,6 +3229,19 @@ model DeviceDiagnostic {
   @@map("device_diagnostics")
 }
 
+// Opaque bearer token the desktop device agent uses to post scans (one per user).
+model DeviceAgentToken {
+  id         String    @id @default(cuid())
+  token      String    @unique
+  userId     String // owner (scans are attributed to this user)
+  label      String? // optional station/computer label
+  lastSeenAt DateTime? // updated on each successful post
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("device_agent_tokens")
+}
+
 // ─── Email (Gmail) accounts ──────────────────────────────────────────────────
 // Connected Google mailboxes for the in-app email client. OAuth tokens are
 // stored encrypted (see @/lib/crypto). One row per linked address.

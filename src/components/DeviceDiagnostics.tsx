@@ -1,8 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
-import { RefreshCcw, AlertCircle, Smartphone, Search, Usb, CheckCircle2, Zap, BatteryCharging, Loader2, ChevronDown } from 'lucide-react'
-import { DeviceAgent } from '@/lib/devices/agent-bridge'
+import { RefreshCcw, AlertCircle, Search, Download, CheckCircle2, Zap, BatteryCharging, Copy, Check, KeyRound, Loader2, ChevronDown } from 'lucide-react'
 
 interface Diagnostic {
   id: string
@@ -22,7 +21,6 @@ interface Diagnostic {
   createdAt: string
 }
 
-// Health thresholds → verdict + color.
 function verdictFor(pct: number | null, pass: number, fair: number) {
   if (pct == null) return { label: 'No reading', tone: 'gray' as const }
   if (pct >= pass) return { label: 'Healthy', tone: 'green' as const }
@@ -56,6 +54,14 @@ function CapacityRing({ pct, tone }: { pct: number | null; tone: keyof typeof TO
 }
 
 const fmtWhen = (s: string) => new Date(s).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+const ago = (s: string | null) => {
+  if (!s) return null
+  const sec = Math.floor((Date.now() - new Date(s).getTime()) / 1000)
+  if (sec < 60) return `${sec}s ago`
+  const m = Math.floor(sec / 60); if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
 
 export default function DeviceDiagnostics() {
   const [rows, setRows] = useState<Diagnostic[]>([])
@@ -64,22 +70,27 @@ export default function DeviceDiagnostics() {
   const [latest, setLatest] = useState<Diagnostic | null>(null)
   const [passThreshold, setPassThreshold] = useState(85)
   const fairThreshold = 80
+  const [flash, setFlash] = useState(false)
+  const lastIdRef = useRef<string | null>(null)
 
-  // Agent state
-  const agentRef = useRef<DeviceAgent | null>(null)
-  const [agentState, setAgentState] = useState<'idle' | 'connecting' | 'connected' | 'missing'>('idle')
-  const [agentVersion, setAgentVersion] = useState<string | null>(null)
-  const [scanning, setScanning] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Agent token / status
+  const [token, setToken] = useState<string | null>(null)
+  const [lastSeenAt, setLastSeenAt] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
   const [showSetup, setShowSetup] = useState(false)
 
   const load = useCallback((q?: string) => {
-    setLoading(true)
     fetch(`/api/devices/diagnostics?limit=100${q ? `&q=${encodeURIComponent(q)}` : ''}`)
       .then(r => r.ok ? r.json() : { diagnostics: [] })
       .then((d: { diagnostics: Diagnostic[] }) => {
-        setRows(d.diagnostics ?? [])
-        if (!q) setLatest(prev => prev ?? d.diagnostics?.[0] ?? null)
+        const list = d.diagnostics ?? []
+        setRows(list)
+        if (!q && list[0]) {
+          // Surface the newest scan live; flash the card if it's a new arrival.
+          if (lastIdRef.current && list[0].id !== lastIdRef.current) { setFlash(true); setTimeout(() => setFlash(false), 1200) }
+          lastIdRef.current = list[0].id
+          setLatest(prev => (!prev || list[0].id !== prev.id) ? list[0] : prev)
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -87,83 +98,81 @@ export default function DeviceDiagnostics() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { const t = setTimeout(() => load(search.trim() || undefined), 300); return () => clearTimeout(t) }, [search, load])
+  // Live poll (only when not actively searching) so agent scans appear automatically.
+  useEffect(() => {
+    const t = setInterval(() => { if (!search.trim()) load() }, 4000)
+    return () => clearInterval(t)
+  }, [search, load])
 
-  const connectAgent = useCallback(async () => {
-    if (!agentRef.current) agentRef.current = new DeviceAgent()
-    setAgentState('connecting'); setError(null)
-    const res = await agentRef.current.connect()
-    if (res.ok) { setAgentState('connected'); setAgentVersion(res.agentVersion ?? null) }
-    else { setAgentState('missing') }
+  const loadToken = useCallback(() => {
+    fetch('/api/devices/agent-token').then(r => r.ok ? r.json() : null)
+      .then((d: { token: string; lastSeenAt: string | null } | null) => { if (d) { setToken(d.token); setLastSeenAt(d.lastSeenAt) } })
+      .catch(() => {})
   }, [])
+  useEffect(() => { loadToken() }, [loadToken])
 
-  useEffect(() => { connectAgent(); return () => agentRef.current?.disconnect() }, [connectAgent])
-
-  async function runScan() {
-    if (scanning) return
-    setError(null)
-    if (!agentRef.current?.connected) { await connectAgent(); if (!agentRef.current?.connected) { setError('Local agent not detected. Install/launch it, then retry.'); return } }
-    setScanning(true)
-    try {
-      const raw = await agentRef.current.scan()
-      const res = await fetch('/api/devices/diagnostic-scan', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(raw),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Scan rejected')
-      setLatest(data.diagnostic)
-      load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Scan failed')
-    } finally {
-      setScanning(false)
-    }
+  async function regenerateToken() {
+    if (!confirm('Regenerate the agent token? The old one stops working and you must update the agent config.')) return
+    const d = await fetch('/api/devices/agent-token', { method: 'POST' }).then(r => r.json()).catch(() => null)
+    if (d?.token) { setToken(d.token); setLastSeenAt(null) }
+  }
+  function copyToken() {
+    if (!token) return
+    navigator.clipboard.writeText(token).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) }).catch(() => {})
   }
 
+  const agentActive = !!lastSeenAt && (Date.now() - new Date(lastSeenAt).getTime()) < 2 * 60 * 1000
   const v = verdictFor(latest?.batteryHealthPct ?? null, passThreshold, fairThreshold)
 
   return (
     <div className="flex flex-col h-full overflow-auto">
-      {/* Agent status + scan control */}
+      {/* Agent setup / status bar */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <a href="/openline-device-agent.zip" download
+          className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-amazon-blue text-white text-sm font-semibold hover:bg-blue-700 shadow">
+          <Download size={16} /> Download Agent
+        </a>
         <div className={clsx('inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm',
-          agentState === 'connected' ? 'border-green-300 bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300'
-          : agentState === 'connecting' ? 'border-gray-300 bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
-          : 'border-amber-300 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300')}>
-          {agentState === 'connected' ? <CheckCircle2 size={15} /> : agentState === 'connecting' ? <Loader2 size={15} className="animate-spin" /> : <Usb size={15} />}
-          {agentState === 'connected' ? `Agent connected${agentVersion ? ` · v${agentVersion}` : ''}`
-            : agentState === 'connecting' ? 'Looking for agent…' : 'Agent not detected'}
+          agentActive ? 'border-green-300 bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300'
+          : 'border-gray-300 bg-gray-50 text-gray-500 dark:bg-gray-800 dark:text-gray-300')}>
+          {agentActive ? <CheckCircle2 size={15} /> : <Loader2 size={15} className="opacity-50" />}
+          {lastSeenAt ? `Agent last posted ${ago(lastSeenAt)}` : 'Agent not connected yet'}
         </div>
-        {agentState === 'missing' && (
-          <button onClick={() => setShowSetup(s => !s)} className="text-xs text-amazon-blue hover:underline inline-flex items-center gap-1">
-            Set up agent <ChevronDown size={12} className={clsx(showSetup && 'rotate-180')} />
-          </button>
-        )}
-        <button onClick={runScan} disabled={scanning}
-          className="ml-auto inline-flex items-center gap-2 h-10 px-5 rounded-lg bg-amazon-blue text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 shadow">
-          {scanning ? <><Loader2 size={16} className="animate-spin" /> Reading device…</> : <><Smartphone size={16} /> Scan Connected iPhone</>}
+        <button onClick={() => setShowSetup(s => !s)} className="text-xs text-amazon-blue hover:underline inline-flex items-center gap-1">
+          Setup &amp; token <ChevronDown size={12} className={clsx(showSetup && 'rotate-180')} />
         </button>
       </div>
 
-      {showSetup && agentState === 'missing' && (
-        <div className="mb-4 p-3 rounded-lg border border-amber-200 bg-amber-50/60 dark:bg-amber-900/10 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 space-y-1">
-          <p className="font-semibold">To scan a physical iPhone, the local device agent must be running on this computer:</p>
-          <ol className="list-decimal ml-4 space-y-0.5">
-            <li>Install &amp; launch the Open Line device agent (one-time).</li>
-            <li>Plug the iPhone in with a data cable, unlock it, and tap <b>Trust</b> on the device.</li>
-            <li>Click <b>Scan Connected iPhone</b> above.</li>
-          </ol>
-          <button onClick={connectAgent} className="mt-1 inline-flex items-center gap-1 text-amazon-blue hover:underline"><RefreshCcw size={11} /> Retry connection</button>
+      {showSetup && (
+        <div className="mb-4 p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 text-xs text-gray-700 dark:text-gray-300 space-y-3">
+          <div>
+            <div className="font-semibold mb-1">1. Install the agent (one-time, per computer)</div>
+            <p>Click <b>Download Agent</b>, unzip it, and run <code className="font-mono bg-gray-200 dark:bg-gray-700 px-1 rounded">run-windows.bat</code> (Windows) or <code className="font-mono bg-gray-200 dark:bg-gray-700 px-1 rounded">run-mac.sh</code> (Mac). It asks for the site URL and the token below (saved after the first run).</p>
+          </div>
+          <div>
+            <div className="font-semibold mb-1 flex items-center gap-1"><KeyRound size={12} /> 2. Agent token</div>
+            <div className="flex items-center gap-2">
+              <code className="font-mono text-[11px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 flex-1 min-w-0 truncate">{token ?? '…'}</code>
+              <button onClick={copyToken} className="inline-flex items-center gap-1 h-7 px-2 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700">
+                {copied ? <><Check size={12} className="text-green-600" /> Copied</> : <><Copy size={12} /> Copy</>}
+              </button>
+              <button onClick={regenerateToken} className="inline-flex items-center gap-1 h-7 px-2 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"><RefreshCcw size={12} /> Regenerate</button>
+            </div>
+          </div>
+          <div>
+            <div className="font-semibold mb-1">3. Scan</div>
+            <p>Leave the agent running. Plug an iPhone in with a data cable, unlock it, and tap <b>Trust</b> — the scan appears here automatically.</p>
+          </div>
         </div>
       )}
 
-      {error && <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded bg-red-50 border border-red-200 text-red-700 text-sm"><AlertCircle size={14} /> {error}</div>}
-
       {/* Latest result card */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 mb-5">
+      <div className={clsx('rounded-xl border bg-white dark:bg-gray-900 p-5 mb-5 transition-colors',
+        flash ? 'border-green-400 ring-2 ring-green-200 dark:ring-green-800' : 'border-gray-200 dark:border-gray-700')}>
         {!latest ? (
           <div className="flex flex-col items-center justify-center py-10 text-gray-400 text-sm gap-2">
             <BatteryCharging size={28} className="opacity-40" />
-            No scans yet — plug in an iPhone and click <b>Scan Connected iPhone</b>.
+            No scans yet — run the agent and plug in an iPhone.
           </div>
         ) : (
           <div className="flex flex-col md:flex-row gap-6 items-center md:items-start">
@@ -184,7 +193,6 @@ export default function DeviceDiagnostics() {
               </div>
               <div className="text-[11px] text-gray-400 mt-3">Scanned {fmtWhen(latest.createdAt)}</div>
             </div>
-            {/* Threshold control */}
             <div className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
               <label className="block mb-1">Healthy ≥</label>
               <div className="inline-flex items-center gap-1">
