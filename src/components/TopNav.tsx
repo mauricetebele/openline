@@ -145,6 +145,7 @@ const NAV: NavItem[] = [
       { href: '/bulk-listing',       label: 'Bulk Listing',       icon: List },
       { href: '/pricing-rules',      label: 'Pricing Rules',      icon: Tag },
       { href: '/sickw',             label: 'SICKW',              icon: Smartphone },
+      { href: '/device-diagnostics', label: 'Device Diagnostics', icon: Smartphone },
       { href: '/battery-health',     label: 'Battery Health Upload', icon: BatteryCharging },
       { href: '/bh-sort',           label: 'BH Sorting Tool',    icon: BatteryCharging },
       { href: '/unlock-codes',       label: 'Unlock Codes',       icon: KeyRound },
