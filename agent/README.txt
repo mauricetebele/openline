@@ -37,3 +37,23 @@ TROUBLESHOOTING
   make sure Apple Devices/iTunes is installed.
 - "Server rejected scan": your Agent Token is wrong or was regenerated — copy a
   fresh one from the Device Diagnostics page into agent_config.json.
+
+SKIP SETUP → HOME SCREEN (optional)
+-----------------------------------
+The Diagnostics page has a "Skip Setup → Home" button that supervises the
+connected iPhone and skips Apple's Setup Assistant (Hello screen → home screen),
+using Apple Configurator's cfgutil. This is the same supported mechanism tools
+like PhoneCheck use. It does NOT bypass Activation Lock — the phone must be clean
+(iCloud / Find My OFF), which the FMI check verifies.
+
+Requirements:
+  1. Install "Apple Configurator" (free, Mac App Store).
+  2. In Apple Configurator's menu bar: Install Automation Tools (adds `cfgutil`).
+  3. The agent must be running, with the phone plugged in.
+
+The exact cfgutil command can be tuned for your supervision identity by adding a
+"prepareCommand" line to agent_config.json, e.g.:
+  { "siteUrl": "...", "agentToken": "...",
+    "prepareCommand": "cfgutil prepare --skip-all" }
+If the default fails, the Diagnostics page shows cfgutil's exact output so you can
+adjust the command.

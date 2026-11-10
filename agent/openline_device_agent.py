@@ -23,10 +23,20 @@ import asyncio
 import inspect
 import json
 import os
+import shutil
+import subprocess
 import sys
 import time
 import urllib.request
 import urllib.error
+
+# Default "skip Setup Assistant → home screen" command (Apple Configurator's cfgutil).
+# cfgutil acts on the connected device; supervising + skipping all setup panes sends
+# a clean (iCloud-OFF) device straight to the home screen — the same mechanism tools
+# like PhoneCheck use. The exact invocation depends on your supervision identity, so
+# override it in agent_config.json → "prepareCommand" if needed. Requires Apple
+# Configurator (Automation Tools) installed; does NOT bypass Activation Lock.
+DEFAULT_PREPARE_CMD = "cfgutil prepare --skip-all"
 
 
 def _resolve(value):
@@ -175,6 +185,66 @@ def post_scan(site, token, raw):
     return False
 
 
+# ── Command queue (web-triggered actions, e.g. cfgutil prepare) ───────────────
+def _api(site, token, body):
+    req = urllib.request.Request(f"{site}/api/devices/agent-command", data=json.dumps(body).encode("utf-8"), method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def claim_command(site, token):
+    try:
+        return _api(site, token, {"action": "claim"}).get("command")
+    except Exception:
+        return None
+
+
+def report_result(site, token, cmd_id, status, result="", error=""):
+    try:
+        _api(site, token, {"action": "result", "id": cmd_id, "status": status, "result": result, "error": error})
+    except Exception as e:
+        print(f"  (could not report command result: {e})")
+
+
+def prepare_device(udid):
+    """Run cfgutil to prepare/supervise the connected device and skip Setup Assistant.
+    Returns (ok, output)."""
+    if shutil.which("cfgutil") is None:
+        return False, ("cfgutil not found. Install Apple Configurator from the Mac App Store, "
+                       "then its menu → Install Automation Tools (provides cfgutil).")
+    cfg = {}
+    try:
+        with open(CONFIG_PATH) as f:
+            cfg = json.load(f)
+    except Exception:
+        pass
+    cmd = cfg.get("prepareCommand") or DEFAULT_PREPARE_CMD
+    print(f"  → preparing device via: {cmd}")
+    try:
+        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=600)
+        out = (proc.stdout + "\n" + proc.stderr).strip()
+        ok = proc.returncode == 0
+        print(f"  {'✓ prepare finished' if ok else '✗ prepare failed'} (exit {proc.returncode})")
+        return ok, out[:8000]
+    except Exception as e:
+        return False, str(e)
+
+
+def handle_commands(site, token, current_udid=None):
+    cmd = claim_command(site, token)
+    if not cmd:
+        return
+    if cmd.get("type") == "prepare":
+        print(f"Command: prepare (skip setup) — running cfgutil …")
+        ok, out = prepare_device(cmd.get("udid") or current_udid)
+        report_result(site, token, cmd["id"], "DONE" if ok else "FAILED",
+                      result=out if ok else "", error="" if ok else out)
+    else:
+        report_result(site, token, cmd["id"], "FAILED", error=f"Unknown command type: {cmd.get('type')}")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     ap = argparse.ArgumentParser(description="Open Line Device Agent")
@@ -205,6 +275,8 @@ def main():
                 raw = scan_device(udid)
                 post_scan(site, token, raw)
             seen = current
+            # Pick up any web-queued commands (e.g. "Skip Setup" → cfgutil prepare).
+            handle_commands(site, token, next(iter(current)) if current else None)
             time.sleep(POLL_SECONDS)
         except KeyboardInterrupt:
             print("\nBye.")

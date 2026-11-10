@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
-import { RefreshCcw, AlertCircle, Search, Download, CheckCircle2, Zap, BatteryCharging, Copy, Check, KeyRound, Loader2, ChevronDown, ShieldCheck } from 'lucide-react'
+import { RefreshCcw, AlertCircle, Search, Download, CheckCircle2, Zap, BatteryCharging, Copy, Check, KeyRound, Loader2, ChevronDown, ShieldCheck, Rocket } from 'lucide-react'
 import SickwCheckButton from '@/components/SickwCheckButton'
 
 interface Diagnostic {
@@ -122,6 +122,38 @@ export default function DeviceDiagnostics() {
     navigator.clipboard.writeText(token).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) }).catch(() => {})
   }
 
+  // Skip Setup (cfgutil prepare) command
+  const [prepState, setPrepState] = useState<'idle' | 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED'>('idle')
+  const [prepMsg, setPrepMsg] = useState<string | null>(null)
+  const prepIdRef = useRef<string | null>(null)
+
+  const startPrepare = useCallback(async () => {
+    if (!confirm('Skip Setup → Home Screen?\n\nThis prepares & SUPERVISES the connected iPhone via Apple Configurator (cfgutil) and skips the setup screens. The device must be clean (iCloud / Find My OFF). Continue?')) return
+    setPrepMsg(null)
+    try {
+      const d = await fetch('/api/devices/agent-command', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'prepare', udid: latest?.serialNumber ? undefined : undefined }),
+      }).then(r => r.json())
+      if (d?.command?.id) { prepIdRef.current = d.command.id; setPrepState('PENDING'); setPrepMsg('Queued — the agent will run it (keep the agent running).') }
+    } catch { setPrepMsg('Failed to queue the command.') }
+  }, [latest])
+
+  // Poll the prepare command's status while it's in flight.
+  useEffect(() => {
+    if (prepState !== 'PENDING' && prepState !== 'RUNNING') return
+    const t = setInterval(async () => {
+      if (!prepIdRef.current) return
+      const d = await fetch(`/api/devices/agent-command?id=${prepIdRef.current}`).then(r => r.json()).catch(() => null)
+      const c = d?.command
+      if (!c) return
+      setPrepState(c.status)
+      if (c.status === 'DONE') { setPrepMsg('Done — the device should be at the Hello/setup skip or home screen.'); clearInterval(t) }
+      else if (c.status === 'FAILED') { setPrepMsg(c.error || 'Prepare failed.'); clearInterval(t) }
+    }, 2500)
+    return () => clearInterval(t)
+  }, [prepState])
+
   const agentActive = !!lastSeenAt && (Date.now() - new Date(lastSeenAt).getTime()) < 2 * 60 * 1000
   const v = verdictFor(latest?.batteryHealthPct ?? null, passThreshold, fairThreshold)
 
@@ -202,6 +234,24 @@ export default function DeviceDiagnostics() {
                   />
                 </div>
               )}
+
+              {/* Skip Setup → Home (cfgutil prepare) */}
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={startPrepare}
+                  disabled={prepState === 'PENDING' || prepState === 'RUNNING' || !agentActive}
+                  title={agentActive ? 'Supervise the connected iPhone and skip Setup Assistant (requires iCloud/Find My OFF + Apple Configurator)' : 'The agent must be running on the computer the phone is plugged into'}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-indigo-300 text-indigo-700 dark:text-indigo-300 text-xs font-medium hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-50"
+                >
+                  {prepState === 'PENDING' || prepState === 'RUNNING'
+                    ? <><Loader2 size={13} className="animate-spin" /> {prepState === 'RUNNING' ? 'Preparing…' : 'Queued…'}</>
+                    : <><Rocket size={13} /> Skip Setup → Home</>}
+                </button>
+                {prepState === 'DONE' && <span className="text-[11px] text-green-600 dark:text-green-400 inline-flex items-center gap-1"><Check size={12} /> Done</span>}
+                {prepState === 'FAILED' && <span className="text-[11px] text-red-600 dark:text-red-400 inline-flex items-center gap-1"><AlertCircle size={12} /> Failed</span>}
+              </div>
+              {prepMsg && <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 break-words max-w-xl">{prepMsg}</p>}
+
               <div className="text-[11px] text-gray-400 mt-3">Scanned {fmtWhen(latest.createdAt)}</div>
             </div>
             <div className="shrink-0 text-xs text-gray-500 dark:text-gray-400">

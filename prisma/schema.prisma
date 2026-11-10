@@ -3242,6 +3242,23 @@ model DeviceAgentToken {
   @@map("device_agent_tokens")
 }
 
+// A command the web UI queues for the desktop agent to run (e.g. "prepare" = skip
+// Setup Assistant via cfgutil). The agent polls, executes, and reports the result.
+model DeviceAgentCommand {
+  id        String   @id @default(cuid())
+  userId    String // owner (the agent polls commands for its token's user)
+  type      String // 'prepare'
+  status    String   @default("PENDING") // PENDING | RUNNING | DONE | FAILED
+  udid      String? // target device (if known)
+  result    String?  @db.Text // agent stdout / summary
+  error     String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@map("device_agent_commands")
+}
+
 // ─── Email (Gmail) accounts ──────────────────────────────────────────────────
 // Connected Google mailboxes for the in-app email client. OAuth tokens are
 // stored encrypted (see @/lib/crypto). One row per linked address.
