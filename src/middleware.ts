@@ -27,7 +27,8 @@ export function middleware(req: NextRequest) {
     pathname.startsWith('/workbox-') ||
     pathname.startsWith('/icons/') ||
     pathname.startsWith('/logos/') ||
-    pathname === '/apple-touch-icon.png'
+    pathname === '/apple-touch-icon.png' ||
+    pathname === '/openline-device-agent.zip'
   ) {
     return NextResponse.next()
   }
