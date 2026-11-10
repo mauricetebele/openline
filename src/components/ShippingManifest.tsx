@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Search, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { detectCarrier, trackingUrl } from '@/lib/tracking-utils'
 
@@ -134,7 +134,9 @@ export default function ShippingManifest() {
   const [carrierFilter, setCarrierFilter] = useState('')
   const [marketplaceFilter, setMarketplaceFilter] = useState('')
   const [notScannedOnly, setNotScannedOnly] = useState(false)
+  const [search, setSearch] = useState('')
 
+  const q = search.trim().toLowerCase()
   const filtered = rows.filter((r) => {
     if (channelFilter !== 'all' && r.source !== channelFilter) return false
     if (carrierFilter && (r.carrierNorm || '') !== carrierFilter) return false
@@ -143,6 +145,11 @@ export default function ShippingManifest() {
       if ((r.orderSource || 'amazon') !== marketplaceFilter) return false
     }
     if (notScannedOnly && !isNotScanned(r.trackingNumber ? trackingMap[r.trackingNumber] : undefined)) return false
+    if (q) {
+      const hay = [r.orderRef, r.customerName, r.trackingNumber, r.carrier, r.amazonOrderId, r.olmNumber]
+        .filter(Boolean).join(' ').toLowerCase()
+      if (!hay.includes(q)) return false
+    }
     return true
   })
 
@@ -352,6 +359,20 @@ export default function ShippingManifest() {
           <span className={clsx('w-1.5 h-1.5 rounded-full', notScannedOnly ? 'bg-white' : 'bg-amber-500')} />
           No scans out
         </label>
+
+        {/* Search */}
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(0) }}
+            placeholder="Search order, customer, tracking…"
+            className="h-[30px] w-64 rounded-lg border border-gray-200 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 pl-8 pr-7 text-xs focus:outline-none focus:ring-1 focus:ring-amazon-blue"
+          />
+          {search && (
+            <button onClick={() => { setSearch(''); setPage(0) }} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X size={13} /></button>
+          )}
+        </div>
 
         {/* Row count */}
         <span className="ml-auto text-xs text-gray-400">
