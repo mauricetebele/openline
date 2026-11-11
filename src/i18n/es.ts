@@ -68,7 +68,7 @@ export const ES: Record<string, string> = {
   'Manifest': 'Manifiesto',
   'Transactions': 'Transacciones',
   'Review Amazon Refunds': 'Revisar reembolsos de Amazon',
-  'Shipping Bill Audit': 'Auditoría de facturas de envío',
+  'Fedex Bill Auditing': 'Auditoría de facturas de FedEx',
   'Orphaned Labels': 'Etiquetas huérfanas',
   'Label Print History': 'Historial de impresión de etiquetas',
 
