@@ -1,9 +1,10 @@
 'use client'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as XLSX from 'xlsx'
 import {
   Upload, FileSpreadsheet, X, AlertCircle, AlertTriangle, CheckCircle2,
   Loader2, Download, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown,
+  Truck, MapPin, User, FileText, DollarSign, Scale, Package,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -44,6 +45,7 @@ interface Row {
   invoiceDate: string
   recipient: Recipient
   lineCount: number
+  fields: { label: string; value: string }[] // every non-empty column from the report
   // populated after match
   matched: boolean
   quoted: number | null
@@ -61,6 +63,13 @@ interface MatchResp {
 }
 
 const DEFAULT_TOL = 0.25
+
+// Spreadsheet column letter for an index (0 → A, 25 → Z, 26 → AA …).
+function colLetter(i: number): string {
+  let s = ''; let n = i + 1
+  while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26) }
+  return s
+}
 
 // Locate a column by header name (normalized), falling back to a fixed index
 // (the FedEx "Shipment Detail" export layout the user confirmed).
@@ -120,6 +129,7 @@ export default function FedexBillAuditManager() {
   const [loading, setLoading] = useState(false)
   const [rows, setRows] = useState<Row[] | null>(null)
   const [view, setView] = useState<'MATCHED' | 'UNMATCHED'>('MATCHED')
+  const [selected, setSelected] = useState<Row | null>(null)
   const [sort, setSort] = useState<SortState | null>(null)
   const onSort = useCallback((key: string) => {
     setSort(s => (s && s.key === key) ? (s.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' })
@@ -135,6 +145,15 @@ export default function FedexBillAuditManager() {
     const header = hasHeader ? (aoa[0] as string[]) : []
     const dataRows = hasHeader ? aoa.slice(1) : aoa
     const col = makeCol(header)
+    // Labels for every column (real header, or synthesized A/B/C… if headerless),
+    // used to show the full report row in the detail modal.
+    const width = Math.max(0, ...aoa.map(r => r.length))
+    const labels: string[] = hasHeader
+      ? Array.from({ length: width }, (_, i) => String(aoa[0][i] ?? '').trim() || colLetter(i))
+      : Array.from({ length: width }, (_, i) => colLetter(i))
+    const buildFields = (r: unknown[]) => labels
+      .map((lab, i) => ({ label: lab, value: String(r[i] ?? '').trim() }))
+      .filter(f => f.value !== '')
 
     const iTrack = col(['shipment tracking number'], 8)              // Column I
     const iNet   = col(['net charge amount usd'], 21)               // Column V
@@ -194,6 +213,7 @@ export default function FedexBillAuditManager() {
           invoiceNumber: String(r[iInvNo] ?? '').trim(),
           invoiceDate: String(r[iInvDt] ?? '').trim(),
           recipient: buildRcv(r),
+          fields: buildFields(r),
           matched: false, quoted: null, source: null, olmNumber: null, amazonOrderId: null,
           salesOrderId: null, status: null, variance: null,
         })
@@ -368,17 +388,18 @@ export default function FedexBillAuditManager() {
                 a <CheckCircle2 size={12} className="inline text-emerald-600 -mt-0.5" /> means they match (within ±${appliedTol.toFixed(2)}),
                 a <AlertTriangle size={12} className="inline text-amber-500 -mt-0.5" /> flags a discrepancy. Click any column header to sort; the last row totals the overcharge.
               </p>
-              <MatchedTable rows={matchedSorted} summary={summary} tol={appliedTol} sort={sort} onSort={onSort} />
+              <MatchedTable rows={matchedSorted} summary={summary} tol={appliedTol} sort={sort} onSort={onSort} onOpen={setSelected} />
             </>
           ) : (
             <>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Billed by FedEx but with <span className="font-medium">no matching label in the system</span> — verify these shipments belong to us before paying. Click any column header to sort.
               </p>
-              <UnmatchedTable rows={unmatchedSorted} total={summary.unmatchedBilled} sort={sort} onSort={onSort} />
+              <UnmatchedTable rows={unmatchedSorted} total={summary.unmatchedBilled} sort={sort} onSort={onSort} onOpen={setSelected} />
             </>
           )}
         </div>
+        {selected && <ShipmentModal row={selected} tol={appliedTol} onClose={() => setSelected(null)} />}
       </div>
     )
   }
@@ -499,8 +520,191 @@ function OrderRef({ r }: { r: Row }) {
   )
 }
 
+// ─── Detail modal ─────────────────────────────────────────────────────────────
+const prettyLabel = (s: string) => s
+  .replace(/\s*\(mm\/dd\/yyyy\)/i, '')
+  .replace(/\s*\(yyyymm\)/i, '')
+  .replace(/\s*\(pounds\)/i, '')
+  .replace(/\s*\(cm\)/i, '')
+  .replace(/\s*\(y or n\)/i, '')
+  .replace(/\s+USD$/i, '')
+  .replace(/\s{2,}/g, ' ')
+  .trim()
+
+const MODAL_SECTIONS: { title: string; icon: typeof Truck; labels: string[] }[] = [
+  { title: 'Shipment', icon: Truck, labels: [
+    'OPCO', 'Service Type', 'Service Description', 'Pay Type', 'Shipment Date (mm/dd/yyyy)',
+    'Shipment Delivery Date (mm/dd/yyyy)', 'Shipment Delivery Time', 'Pieces In Shipment',
+    'Package Type', 'Domestic/Intl', 'Pricing Zone', 'Proof Of Delivery Recipient',
+  ] },
+  { title: 'Recipient', icon: MapPin, labels: [
+    'Recipient Name', 'Recipient Company Name', 'Recipient Address', 'Recipient City',
+    'Recipient State/Province', 'Recipient Postal Code', 'Recipient Country/Territory',
+    'Recipient Original Address', 'Recipient Original City', 'Recipient Original State/Province',
+    'Recipient Original Postal Code', 'Recipient Original Country/Territory',
+  ] },
+  { title: 'Shipper', icon: User, labels: [
+    'Shipper Name', 'Shipper Company Name', 'Shipper Address', 'Shipper City',
+    'Shipper State/Province', 'Shipper Postal Code', 'Shipper Country/Territory', 'Postal Identification Number',
+  ] },
+  { title: 'Invoice & references', icon: FileText, labels: [
+    'Invoice Number', 'Invoice Date (mm/dd/yyyy)', 'Invoice Month (yyyymm)', 'Payer Account',
+    'Master Tracking Number', 'Reference Notes Line 1', 'Reference Notes Line 2', 'Reference Notes Line 3',
+    'Department Number', 'PO Number', 'Customer Order Number', 'Shipment Declared Value Amount',
+    'Customs Value', 'Customs Value Currency  Code',
+  ] },
+]
+
+function Field({ label, value, mono, tone }: { label: string; value: ReactNode; mono?: boolean; tone?: 'amber' | 'red' | 'emerald' }) {
+  return (
+    <div className="flex justify-between gap-4 py-1 border-b border-gray-100 dark:border-gray-800 last:border-0">
+      <span className="text-gray-500 dark:text-gray-400 shrink-0">{label}</span>
+      <span className={clsx('text-right', mono && 'font-mono',
+        tone === 'amber' ? 'text-amber-600' : tone === 'red' ? 'text-red-600' : tone === 'emerald' ? 'text-emerald-600' : 'text-gray-800 dark:text-gray-100')}>
+        {value || '—'}
+      </span>
+    </div>
+  )
+}
+
+function SectionCard({ icon: Icon, title, children }: { icon: typeof Truck; title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/40 p-4">
+      <p className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+        <Icon size={13} className="text-purple-500" /> {title}
+      </p>
+      <div className="text-xs">{children}</div>
+    </div>
+  )
+}
+
+function ShipmentModal({ row, tol, onClose }: { row: Row; tol: number; onClose: () => void }) {
+  const map = new Map(row.fields.map(f => [f.label, f.value]))
+  const used = new Set<string>()
+
+  // Charges (special money formatting)
+  const chargeDefs: { label: string; key: string }[] = [
+    { label: 'Freight', key: 'Shipment Freight Charge Amount USD' },
+    { label: 'Miscellaneous', key: 'Shipment Miscellaneous Charge USD' },
+    { label: 'Duty & tax', key: 'Shipment Duty and Tax Charge USD' },
+    { label: 'Discount', key: 'Shipment Discount Amount USD' },
+  ]
+  const charges = chargeDefs.map(c => ({ ...c, raw: map.get(c.key) })).filter(c => c.raw != null)
+  charges.forEach(c => used.add(c.key))
+  const netRaw = map.get('Net Charge Amount USD'); used.add('Net Charge Amount USD')
+
+  // Weight & dimensions
+  const wtRated = map.get('Shipment Rated Weight (Pounds)'); used.add('Shipment Rated Weight (Pounds)')
+  const wtOrig = map.get('Original Weight (Pounds)'); used.add('Original Weight (Pounds)')
+  const dimFlag = map.get('Shipment DIM Flag (Y or N)'); used.add('Shipment DIM Flag (Y or N)')
+  ;['Dimmed Height (cm)', 'Dimmed Width (cm)', 'Dimmed Length (cm)', 'Weight Type Code'].forEach(l => used.add(l))
+
+  // Curated sections
+  const sections = MODAL_SECTIONS.map(s => ({
+    ...s,
+    items: s.labels.map(l => ({ label: prettyLabel(l), value: map.get(l) })).filter(i => i.value),
+  })).filter(s => s.items.length > 0)
+  MODAL_SECTIONS.forEach(s => s.labels.forEach(l => used.add(l)))
+
+  // Anything not categorized — so the modal truly shows every field.
+  const leftover = row.fields.filter(f => !used.has(f.label))
+
+  const matched = row.matched && row.quoted != null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[86vh] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-start gap-3 px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              {row.status && (row.status === 'MATCH'
+                ? <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+                : <AlertTriangle size={18} className="text-amber-500 shrink-0" />)}
+              <h2 className="text-lg font-bold font-mono text-gray-900 dark:text-gray-100 truncate">{row.tracking}</h2>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              {row.service || 'FedEx'}{row.shipDate ? ` · shipped ${row.shipDate}` : ''}
+              {' · '}{row.matched ? (row.olmNumber ? `OLM-${row.olmNumber}` : row.amazonOrderId || (row.salesOrderId ? 'Wholesale' : 'In system')) : 'Not in system'}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="shrink-0 h-8 w-8 flex items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto p-5 space-y-4">
+          {/* Audit strip */}
+          {matched && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-2 text-center">
+                <p className="text-[10px] uppercase tracking-wide text-gray-400">Quoted</p>
+                <p className="text-base font-bold font-mono text-gray-700 dark:text-gray-200">{fmt(row.quoted!)}</p>
+              </div>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-2 text-center">
+                <p className="text-[10px] uppercase tracking-wide text-gray-400">Billed</p>
+                <p className="text-base font-bold font-mono text-gray-900 dark:text-gray-100">{fmt(row.billed)}</p>
+              </div>
+              <div className={clsx('rounded-xl border px-3 py-2 text-center',
+                (row.variance ?? 0) > tol ? 'border-red-200 bg-red-50 dark:bg-red-500/10 dark:border-red-500/30'
+                  : (row.variance ?? 0) < -tol ? 'border-blue-200 bg-blue-50 dark:bg-blue-500/10 dark:border-blue-500/30'
+                  : 'border-emerald-200 bg-emerald-50 dark:bg-emerald-500/10 dark:border-emerald-500/30')}>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400">Overcharge</p>
+                <p className={clsx('text-base font-bold font-mono',
+                  (row.variance ?? 0) > tol ? 'text-red-600' : (row.variance ?? 0) < -tol ? 'text-blue-600' : 'text-emerald-600')}>
+                  {row.variance != null ? fmt(row.variance) : '—'}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Charges */}
+            <SectionCard icon={DollarSign} title="Charges">
+              {charges.map(c => (
+                <Field key={c.key} label={c.label} value={fmt(money(c.raw))} mono
+                  tone={c.key.includes('Miscellaneous') && Math.abs(money(c.raw)) > 0.005 ? 'amber' : c.key.includes('Discount') ? 'emerald' : undefined} />
+              ))}
+              {netRaw != null && (
+                <div className="flex justify-between gap-4 pt-1.5 mt-1 border-t border-gray-200 dark:border-gray-700">
+                  <span className="font-semibold text-gray-700 dark:text-gray-200">Net charge</span>
+                  <span className="font-mono font-bold text-gray-900 dark:text-gray-100">{fmt(money(netRaw))}</span>
+                </div>
+              )}
+            </SectionCard>
+
+            {/* Weight & dimensions */}
+            <SectionCard icon={Scale} title="Weight & dimensions">
+              <Field label="Rated weight" value={wtRated ? `${ri(num(wtRated) ?? 0)} lb` : '—'} mono />
+              {wtOrig && <Field label="Original weight" value={`${ri(num(wtOrig) ?? 0)} lb`} mono />}
+              <Field label="Dimensions (L×W×H)" value={row.dims ? `${fmtDims(row.dims)} in` : '—'} mono />
+              {dimFlag && <Field label="DIM-rated" value={/y/i.test(dimFlag) ? 'Yes' : 'No'} />}
+            </SectionCard>
+
+            {/* Curated sections */}
+            {sections.map(s => (
+              <SectionCard key={s.title} icon={s.icon} title={s.title}>
+                {s.items.map(i => <Field key={i.label} label={i.label} value={i.value} />)}
+              </SectionCard>
+            ))}
+
+            {/* Catch-all so nothing in the report is hidden */}
+            {leftover.length > 0 && (
+              <SectionCard icon={Package} title="Other fields">
+                {leftover.map(f => <Field key={f.label} label={prettyLabel(f.label)} value={f.value} />)}
+              </SectionCard>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface MatchSummary { compared: number; totalQuoted: number; totalComparedBilled: number; overcharge: number; mismatches: number; noQuote: number }
-function MatchedTable({ rows, summary, tol, sort, onSort }: { rows: Row[]; summary: MatchSummary; tol: number; sort: SortState | null; onSort: (id: string) => void }) {
+function MatchedTable({ rows, summary, tol, sort, onSort, onOpen }: { rows: Row[]; summary: MatchSummary; tol: number; sort: SortState | null; onSort: (id: string) => void; onOpen: (r: Row) => void }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
       <table className="min-w-full text-xs">
@@ -527,7 +731,10 @@ function MatchedTable({ rows, summary, tol, sort, onSort }: { rows: Row[]; summa
                   ? <CheckCircle2 size={16} className="inline text-emerald-600" />
                   : <AlertTriangle size={16} className="inline text-amber-500" />}
               </td>
-              <td className="px-3 py-1.5 font-mono text-gray-800 dark:text-gray-100 whitespace-nowrap">{r.tracking}</td>
+              <td className="px-3 py-1.5 whitespace-nowrap">
+                <button type="button" onClick={() => onOpen(r)}
+                  className="font-mono text-purple-700 dark:text-purple-400 hover:underline">{r.tracking}</button>
+              </td>
               <AddressCell r={r.recipient} />
               <OrderRef r={r} />
               <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">{r.service || '—'}</td>
@@ -566,7 +773,7 @@ function MatchedTable({ rows, summary, tol, sort, onSort }: { rows: Row[]; summa
   )
 }
 
-function UnmatchedTable({ rows, total, sort, onSort }: { rows: Row[]; total: number; sort: SortState | null; onSort: (id: string) => void }) {
+function UnmatchedTable({ rows, total, sort, onSort, onOpen }: { rows: Row[]; total: number; sort: SortState | null; onSort: (id: string) => void; onOpen: (r: Row) => void }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
       <table className="min-w-full text-xs">
@@ -585,7 +792,10 @@ function UnmatchedTable({ rows, total, sort, onSort }: { rows: Row[]; total: num
         <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
           {rows.map(r => (
             <tr key={r.tracking} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-              <td className="px-3 py-1.5 font-mono text-gray-800 dark:text-gray-100 whitespace-nowrap">{r.tracking}</td>
+              <td className="px-3 py-1.5 whitespace-nowrap">
+                <button type="button" onClick={() => onOpen(r)}
+                  className="font-mono text-purple-700 dark:text-purple-400 hover:underline">{r.tracking}</button>
+              </td>
               <AddressCell r={r.recipient} />
               <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">{r.service || '—'}</td>
               <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{r.shipDate || '—'}</td>
