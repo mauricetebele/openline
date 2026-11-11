@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import {
   Upload, FileSpreadsheet, X, AlertCircle, AlertTriangle, CheckCircle2,
-  Loader2, Download, ArrowLeft,
+  Loader2, Download, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -12,8 +12,19 @@ const money = (s: unknown): number => {
   const n = parseFloat(String(s ?? '').replace(/[$,\s]/g, ''))
   return Number.isFinite(n) ? n : 0
 }
+const num = (s: unknown): number | null => {
+  const n = parseFloat(String(s ?? '').replace(/[^\d.-]/g, ''))
+  return Number.isFinite(n) ? n : null
+}
 const normTracking = (s: unknown) => String(s ?? '').replace(/^["'\s]+|["'\s]+$/g, '').toUpperCase()
 const fmt = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toFixed(2)}`
+// Round to at most 1 decimal, dropping a trailing .0 (dims convert to clean inches).
+const ri = (n: number) => { const r = Math.round(n * 10) / 10; return r % 1 === 0 ? String(r) : r.toFixed(1) }
+const CM_PER_IN = 2.54
+
+interface Dims { l: number; w: number; h: number } // inches
+const fmtDims = (d: Dims | null) => d ? `${ri(d.l)} × ${ri(d.w)} × ${ri(d.h)}` : '—'
+const fmtWt = (n: number | null) => n == null ? '—' : ri(n)
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface Recipient {
@@ -26,7 +37,8 @@ interface Row {
   billed: number          // FedEx Net Charge (col V), summed per tracking
   service: string
   shipDate: string
-  weight: string
+  weightLb: number | null // Shipment Rated Weight (col X), pounds
+  dims: Dims | null       // Dimmed L×W×H converted cm → inches
   zone: string
   invoiceNumber: string
   invoiceDate: string
@@ -60,6 +72,45 @@ function makeCol(header: string[]) {
   }
 }
 
+// ─── Sorting ──────────────────────────────────────────────────────────────────
+type SortDir = 'asc' | 'desc'
+interface SortState { key: string; dir: SortDir }
+
+const dimVol = (r: Row) => r.dims ? r.dims.l * r.dims.w * r.dims.h : null
+const shipTs = (r: Row) => { const t = Date.parse(r.shipDate); return Number.isNaN(t) ? null : t }
+const STATUS_ORDER: Record<Status, number> = { MISMATCH: 0, NO_QUOTE: 1, MATCH: 2 }
+
+const SORT_ACCESSORS: Record<string, (r: Row) => string | number | null> = {
+  tracking:  r => r.tracking,
+  recipient: r => (r.recipient.name || r.recipient.company || '').toLowerCase(),
+  order:     r => r.olmNumber ?? r.amazonOrderId ?? r.salesOrderId ?? '',
+  service:   r => r.service.toLowerCase(),
+  shipDate:  r => shipTs(r),
+  weight:    r => r.weightLb,
+  dims:      r => dimVol(r),
+  quoted:    r => r.quoted,
+  billed:    r => r.billed,
+  variance:  r => r.variance,
+  status:    r => (r.status ? STATUS_ORDER[r.status] : null),
+  invoice:   r => r.invoiceNumber.toLowerCase(),
+}
+
+function sortRows(rows: Row[], sort: SortState | null): Row[] {
+  if (!sort) return rows
+  const acc = SORT_ACCESSORS[sort.key]
+  if (!acc) return rows
+  const dir = sort.dir === 'asc' ? 1 : -1
+  return [...rows].sort((a, b) => {
+    const va = acc(a), vb = acc(b)
+    const aNull = va == null || va === '', bNull = vb == null || vb === ''
+    if (aNull && bNull) return 0
+    if (aNull) return 1          // blanks always sort last
+    if (bNull) return -1
+    if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir
+    return String(va).localeCompare(String(vb)) * dir
+  })
+}
+
 export default function FedexBillAuditManager() {
   const [tolerance, setTolerance] = useState(String(DEFAULT_TOL))
   const [appliedTol, setAppliedTol] = useState(DEFAULT_TOL)
@@ -69,6 +120,10 @@ export default function FedexBillAuditManager() {
   const [loading, setLoading] = useState(false)
   const [rows, setRows] = useState<Row[] | null>(null)
   const [view, setView] = useState<'MATCHED' | 'UNMATCHED'>('MATCHED')
+  const [sort, setSort] = useState<SortState | null>(null)
+  const onSort = useCallback((key: string) => {
+    setSort(s => (s && s.key === key) ? (s.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' })
+  }, [])
   const fileRef = useRef<HTMLInputElement>(null)
 
   const process = useCallback(async (aoa: unknown[][], name: string, tol: number) => {
@@ -86,7 +141,10 @@ export default function FedexBillAuditManager() {
     const iSvcT  = col(['service type'], 3)
     const iSvcD  = col(['service description'], 4)
     const iShip  = col(['shipment date (mm/dd/yyyy)'], 6)
-    const iWt    = col(['shipment rated weight (pounds)'], 23)
+    const iWt    = col(['shipment rated weight (pounds)'], 23)      // already pounds
+    const iDimH  = col(['dimmed height (cm)'], 40)                  // cm → inches
+    const iDimW  = col(['dimmed width (cm)'], 41)
+    const iDimL  = col(['dimmed length (cm)'], 42)
     const iZone  = col(['pricing zone'], 38)
     const iInvNo = col(['invoice number'], 52)
     const iInvDt = col(['invoice date (mm/dd/yyyy)'], 51)
@@ -104,6 +162,11 @@ export default function FedexBillAuditManager() {
       state: String(r[iRSt] ?? '').trim(), postal: String(r[iRZip] ?? '').trim(),
       country: String(r[iRCtry] ?? '').trim(),
     })
+    const cmToIn = (v: unknown) => { const n = num(v); return n != null && n > 0 ? n / CM_PER_IN : 0 }
+    const buildDims = (r: unknown[]): Dims | null => {
+      const l = cmToIn(r[iDimL]), w = cmToIn(r[iDimW]), h = cmToIn(r[iDimH])
+      return (l > 0 || w > 0 || h > 0) ? { l, w, h } : null
+    }
 
     // Group by tracking number, summing Net Charge across any repeated lines.
     const groups = new Map<string, Row>()
@@ -116,6 +179,8 @@ export default function FedexBillAuditManager() {
         g.billed += charge
         g.lineCount++
         if (!g.recipient.name && !g.recipient.addr) { const rc = buildRcv(r); if (rc.name || rc.addr) g.recipient = rc }
+        if (g.weightLb == null) g.weightLb = num(r[iWt])
+        if (!g.dims) g.dims = buildDims(r)
       } else {
         const svcD = String(r[iSvcD] ?? '').trim()
         const svcT = String(r[iSvcT] ?? '').trim()
@@ -123,7 +188,8 @@ export default function FedexBillAuditManager() {
           tracking, billed: charge, lineCount: 1,
           service: svcD || svcT,
           shipDate: String(r[iShip] ?? '').trim(),
-          weight: String(r[iWt] ?? '').trim(),
+          weightLb: num(r[iWt]),
+          dims: buildDims(r),
           zone: String(r[iZone] ?? '').trim(),
           invoiceNumber: String(r[iInvNo] ?? '').trim(),
           invoiceDate: String(r[iInvDt] ?? '').trim(),
@@ -164,6 +230,7 @@ export default function FedexBillAuditManager() {
       setFileName(name)
       setAppliedTol(tol)
       setView('MATCHED')
+      setSort(null)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Match lookup failed')
     } finally {
@@ -193,12 +260,14 @@ export default function FedexBillAuditManager() {
   }, [process, tolerance])
 
   function reset() {
-    setRows(null); setFileName(''); setErr(''); setView('MATCHED')
+    setRows(null); setFileName(''); setErr(''); setView('MATCHED'); setSort(null)
     if (fileRef.current) fileRef.current.value = ''
   }
 
   const matched = useMemo(() => (rows ?? []).filter(r => r.matched), [rows])
   const unmatched = useMemo(() => (rows ?? []).filter(r => !r.matched), [rows])
+  const matchedSorted = useMemo(() => sortRows(matched, sort), [matched, sort])
+  const unmatchedSorted = useMemo(() => sortRows(unmatched, sort), [unmatched, sort])
 
   const summary = useMemo(() => {
     if (!rows) return null
@@ -222,25 +291,26 @@ export default function FedexBillAuditManager() {
     const addr = (r: Recipient) => [r.addr, r.city, [r.state, r.postal].filter(Boolean).join(' '), r.country].filter(Boolean).join(', ')
     let head: string[]; let lines: string[]
     if (which === 'matched') {
-      head = ['Tracking', 'Recipient', 'Address', 'Service', 'Ship Date', 'Order', 'Quoted', 'Billed', 'Overcharge', 'Status']
+      head = ['Tracking', 'Recipient', 'Address', 'Service', 'Ship Date', 'Weight (lb)', 'Dimensions (in)', 'Order', 'Quoted', 'Billed', 'Overcharge', 'Status']
       lines = [head.join(',')]
-      for (const r of matched) lines.push([
+      for (const r of matchedSorted) lines.push([
         r.tracking, esc(r.recipient.name || r.recipient.company), esc(addr(r.recipient)), esc(r.service), r.shipDate,
+        fmtWt(r.weightLb), esc(fmtDims(r.dims)),
         r.olmNumber ? `OLM-${r.olmNumber}` : (r.amazonOrderId ?? r.salesOrderId ?? ''),
         r.quoted != null ? r.quoted.toFixed(2) : '', r.billed.toFixed(2),
         r.variance != null ? r.variance.toFixed(2) : '',
         r.status === 'MATCH' ? 'Match' : r.status === 'MISMATCH' ? 'Mismatch' : 'No quote',
       ].join(','))
       const sm = summary!
-      lines.push(['TOTAL', '', '', '', '', '', sm.totalQuoted.toFixed(2), sm.totalComparedBilled.toFixed(2), sm.overcharge.toFixed(2), ''].join(','))
+      lines.push(['TOTAL', '', '', '', '', '', '', '', sm.totalQuoted.toFixed(2), sm.totalComparedBilled.toFixed(2), sm.overcharge.toFixed(2), ''].join(','))
     } else {
-      head = ['Tracking', 'Recipient', 'Address', 'Service', 'Ship Date', 'Invoice', 'Charged']
+      head = ['Tracking', 'Recipient', 'Address', 'Service', 'Ship Date', 'Weight (lb)', 'Dimensions (in)', 'Invoice', 'Charged']
       lines = [head.join(',')]
-      for (const r of unmatched) lines.push([
+      for (const r of unmatchedSorted) lines.push([
         r.tracking, esc(r.recipient.name || r.recipient.company), esc(addr(r.recipient)), esc(r.service), r.shipDate,
-        r.invoiceNumber, r.billed.toFixed(2),
+        fmtWt(r.weightLb), esc(fmtDims(r.dims)), r.invoiceNumber, r.billed.toFixed(2),
       ].join(','))
-      lines.push(['TOTAL', '', '', '', '', '', (summary?.unmatchedBilled ?? 0).toFixed(2)].join(','))
+      lines.push(['TOTAL', '', '', '', '', '', '', '', (summary?.unmatchedBilled ?? 0).toFixed(2)].join(','))
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -296,16 +366,16 @@ export default function FedexBillAuditManager() {
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Tracking numbers found on a label purchased through the system. FedEx&apos;s billed Net Charge is compared to the quoted rate —
                 a <CheckCircle2 size={12} className="inline text-emerald-600 -mt-0.5" /> means they match (within ±${appliedTol.toFixed(2)}),
-                a <AlertTriangle size={12} className="inline text-amber-500 -mt-0.5" /> flags a discrepancy. The last row totals the overcharge.
+                a <AlertTriangle size={12} className="inline text-amber-500 -mt-0.5" /> flags a discrepancy. Click any column header to sort; the last row totals the overcharge.
               </p>
-              <MatchedTable rows={matched} summary={summary} tol={appliedTol} />
+              <MatchedTable rows={matchedSorted} summary={summary} tol={appliedTol} sort={sort} onSort={onSort} />
             </>
           ) : (
             <>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Billed by FedEx but with <span className="font-medium">no matching label in the system</span> — verify these shipments belong to us before paying.
+                Billed by FedEx but with <span className="font-medium">no matching label in the system</span> — verify these shipments belong to us before paying. Click any column header to sort.
               </p>
-              <UnmatchedTable rows={unmatched} total={summary.unmatchedBilled} />
+              <UnmatchedTable rows={unmatchedSorted} total={summary.unmatchedBilled} sort={sort} onSort={onSort} />
             </>
           )}
         </div>
@@ -387,6 +457,24 @@ function Card({ label, value, sub, tone = 'neutral' }: { label: string; value: s
   )
 }
 
+function SortHeader({ id, label, sort, onSort, align = 'left', title }: {
+  id: string; label: string; sort: SortState | null; onSort: (id: string) => void; align?: 'left' | 'right' | 'center'; title?: string
+}) {
+  const active = sort?.key === id
+  return (
+    <th title={title ?? `Sort by ${label || 'status'}`}
+      onClick={() => onSort(id)}
+      className={clsx('px-3 py-2 font-semibold text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap',
+        align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left',
+        active && 'text-purple-700 dark:text-purple-400')}>
+      <span className={clsx('inline-flex items-center gap-1', align === 'right' && 'flex-row-reverse', align === 'center' && 'justify-center')}>
+        {label}
+        {active ? (sort!.dir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ChevronsUpDown size={12} className="text-gray-300 dark:text-gray-600" />}
+      </span>
+    </th>
+  )
+}
+
 function AddressCell({ r }: { r: Recipient }) {
   const line2 = [r.city, [r.state, r.postal].filter(Boolean).join(' ')].filter(Boolean).join(', ')
   return (
@@ -412,21 +500,23 @@ function OrderRef({ r }: { r: Row }) {
 }
 
 interface MatchSummary { compared: number; totalQuoted: number; totalComparedBilled: number; overcharge: number; mismatches: number; noQuote: number }
-function MatchedTable({ rows, summary, tol }: { rows: Row[]; summary: MatchSummary; tol: number }) {
+function MatchedTable({ rows, summary, tol, sort, onSort }: { rows: Row[]; summary: MatchSummary; tol: number; sort: SortState | null; onSort: (id: string) => void }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
       <table className="min-w-full text-xs">
         <thead>
           <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-            <th className="px-3 py-2 text-center font-semibold text-gray-500 w-10"></th>
-            <th className="px-3 py-2 text-left font-semibold text-gray-500">Tracking</th>
-            <th className="px-3 py-2 text-left font-semibold text-gray-500">Recipient / Address</th>
-            <th className="px-3 py-2 text-left font-semibold text-gray-500">Order</th>
-            <th className="px-3 py-2 text-left font-semibold text-gray-500">Service</th>
-            <th className="px-3 py-2 text-left font-semibold text-gray-500">Ship Date</th>
-            <th className="px-3 py-2 text-right font-semibold text-gray-500">Quoted</th>
-            <th className="px-3 py-2 text-right font-semibold text-gray-500">Billed</th>
-            <th className="px-3 py-2 text-right font-semibold text-gray-500">Overcharge</th>
+            <SortHeader id="status" label="" align="center" sort={sort} onSort={onSort} title="Sort by status" />
+            <SortHeader id="tracking" label="Tracking" sort={sort} onSort={onSort} />
+            <SortHeader id="recipient" label="Recipient / Address" sort={sort} onSort={onSort} />
+            <SortHeader id="order" label="Order" sort={sort} onSort={onSort} />
+            <SortHeader id="service" label="Service" sort={sort} onSort={onSort} />
+            <SortHeader id="shipDate" label="Ship Date" sort={sort} onSort={onSort} />
+            <SortHeader id="weight" label="Wt (lb)" align="right" sort={sort} onSort={onSort} />
+            <SortHeader id="dims" label="Dims (in) L×W×H" align="right" sort={sort} onSort={onSort} />
+            <SortHeader id="quoted" label="Quoted" align="right" sort={sort} onSort={onSort} />
+            <SortHeader id="billed" label="Billed" align="right" sort={sort} onSort={onSort} />
+            <SortHeader id="variance" label="Overcharge" align="right" sort={sort} onSort={onSort} />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -442,6 +532,8 @@ function MatchedTable({ rows, summary, tol }: { rows: Row[]; summary: MatchSumma
               <OrderRef r={r} />
               <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">{r.service || '—'}</td>
               <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{r.shipDate || '—'}</td>
+              <td className="px-3 py-1.5 text-right font-mono text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtWt(r.weightLb)}</td>
+              <td className="px-3 py-1.5 text-right font-mono text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtDims(r.dims)}</td>
               <td className="px-3 py-1.5 text-right font-mono text-gray-500">{r.quoted != null ? fmt(r.quoted) : <span className="text-amber-500">no quote</span>}</td>
               <td className="px-3 py-1.5 text-right font-mono text-gray-800 dark:text-gray-100">{fmt(r.billed)}</td>
               <td className={clsx('px-3 py-1.5 text-right font-mono font-medium',
@@ -450,13 +542,13 @@ function MatchedTable({ rows, summary, tol }: { rows: Row[]; summary: MatchSumma
               </td>
             </tr>
           ))}
-          {rows.length === 0 && <tr><td colSpan={9} className="px-3 py-8 text-center text-gray-400">No tracking numbers on this bill matched a purchased label.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={11} className="px-3 py-8 text-center text-gray-400">No tracking numbers on this bill matched a purchased label.</td></tr>}
         </tbody>
         {rows.length > 0 && (
           <tfoot>
             <tr className="border-t-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 font-semibold">
               <td></td>
-              <td className="px-3 py-2 text-gray-700 dark:text-gray-200" colSpan={5}>
+              <td className="px-3 py-2 text-gray-700 dark:text-gray-200" colSpan={7}>
                 Total overcharge (billed − quoted) · {summary.compared} compared
                 {summary.mismatches > 0 && <span className="ml-2 text-amber-600 font-normal">{summary.mismatches} flagged</span>}
                 {summary.noQuote > 0 && <span className="ml-2 text-gray-400 font-normal">{summary.noQuote} without a quote</span>}
@@ -474,18 +566,20 @@ function MatchedTable({ rows, summary, tol }: { rows: Row[]; summary: MatchSumma
   )
 }
 
-function UnmatchedTable({ rows, total }: { rows: Row[]; total: number }) {
+function UnmatchedTable({ rows, total, sort, onSort }: { rows: Row[]; total: number; sort: SortState | null; onSort: (id: string) => void }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
       <table className="min-w-full text-xs">
         <thead>
           <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-            <th className="px-3 py-2 text-left font-semibold text-gray-500">Tracking</th>
-            <th className="px-3 py-2 text-left font-semibold text-gray-500">Recipient / Address</th>
-            <th className="px-3 py-2 text-left font-semibold text-gray-500">Service</th>
-            <th className="px-3 py-2 text-left font-semibold text-gray-500">Ship Date</th>
-            <th className="px-3 py-2 text-left font-semibold text-gray-500">Invoice</th>
-            <th className="px-3 py-2 text-right font-semibold text-gray-500">Charged by FedEx</th>
+            <SortHeader id="tracking" label="Tracking" sort={sort} onSort={onSort} />
+            <SortHeader id="recipient" label="Recipient / Address" sort={sort} onSort={onSort} />
+            <SortHeader id="service" label="Service" sort={sort} onSort={onSort} />
+            <SortHeader id="shipDate" label="Ship Date" sort={sort} onSort={onSort} />
+            <SortHeader id="weight" label="Wt (lb)" align="right" sort={sort} onSort={onSort} />
+            <SortHeader id="dims" label="Dims (in) L×W×H" align="right" sort={sort} onSort={onSort} />
+            <SortHeader id="invoice" label="Invoice" sort={sort} onSort={onSort} />
+            <SortHeader id="billed" label="Charged by FedEx" align="right" sort={sort} onSort={onSort} />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -495,16 +589,18 @@ function UnmatchedTable({ rows, total }: { rows: Row[]; total: number }) {
               <AddressCell r={r.recipient} />
               <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">{r.service || '—'}</td>
               <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{r.shipDate || '—'}</td>
+              <td className="px-3 py-1.5 text-right font-mono text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtWt(r.weightLb)}</td>
+              <td className="px-3 py-1.5 text-right font-mono text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtDims(r.dims)}</td>
               <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{r.invoiceNumber || '—'}{r.invoiceDate ? ` · ${r.invoiceDate}` : ''}</td>
               <td className="px-3 py-1.5 text-right font-mono text-gray-800 dark:text-gray-100">{fmt(r.billed)}</td>
             </tr>
           ))}
-          {rows.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-gray-400">Every billed shipment matched a label in the system. 🎉</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-400">Every billed shipment matched a label in the system. 🎉</td></tr>}
         </tbody>
         {rows.length > 0 && (
           <tfoot>
             <tr className="border-t-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 font-semibold">
-              <td className="px-3 py-2 text-gray-700 dark:text-gray-200" colSpan={5}>Total charged — {rows.length} shipment{rows.length !== 1 ? 's' : ''} not in system</td>
+              <td className="px-3 py-2 text-gray-700 dark:text-gray-200" colSpan={7}>Total charged — {rows.length} shipment{rows.length !== 1 ? 's' : ''} not in system</td>
               <td className="px-3 py-2 text-right font-mono text-gray-700 dark:text-gray-200">{fmt(total)}</td>
             </tr>
           </tfoot>
