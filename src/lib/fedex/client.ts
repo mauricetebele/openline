@@ -199,7 +199,9 @@ export async function getRates(
               } }
             : {}),
           ...(params.signatureType && params.signatureType !== 'NO_SIGNATURE_REQUIRED'
-            ? { packageSpecialServices: { signatureOptionType: params.signatureType } }
+            // FedEx only applies the signature if SIGNATURE_OPTION is also listed
+            // in specialServiceTypes — signatureOptionType alone is silently ignored.
+            ? { packageSpecialServices: { specialServiceTypes: ['SIGNATURE_OPTION'], signatureOptionType: params.signatureType } }
             : {}),
         },
       ],
@@ -340,7 +342,9 @@ export async function createShipment(
             units: params.dimensions.units,
           } } : {}),
           ...(params.signatureType && params.signatureType !== 'NO_SIGNATURE_REQUIRED'
-            ? { packageSpecialServices: { signatureOptionType: params.signatureType } }
+            // FedEx only applies the signature if SIGNATURE_OPTION is also listed
+            // in specialServiceTypes — signatureOptionType alone is silently ignored.
+            ? { packageSpecialServices: { specialServiceTypes: ['SIGNATURE_OPTION'], signatureOptionType: params.signatureType } }
             : {}),
         },
       ],
@@ -459,7 +463,8 @@ export async function createMultiPieceShipment(
           length: p.dimensions.length, width: p.dimensions.width, height: p.dimensions.height, units: p.dimensions.units,
         } } : {}),
         ...(params.signatureType && params.signatureType !== 'NO_SIGNATURE_REQUIRED'
-          ? { packageSpecialServices: { signatureOptionType: params.signatureType } } : {}),
+          // SIGNATURE_OPTION must be listed in specialServiceTypes or FedEx ignores it.
+          ? { packageSpecialServices: { specialServiceTypes: ['SIGNATURE_OPTION'], signatureOptionType: params.signatureType } } : {}),
         ...(params.reference ? { customerReferences: [{ customerReferenceType: 'CUSTOMER_REFERENCE', value: params.reference }] } : {}),
       })),
     },
