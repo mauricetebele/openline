@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { format, differenceInCalendarDays } from 'date-fns'
 import {
   Search, RefreshCcw, ExternalLink, Loader2, ChevronLeft, ChevronRight,
-  AlertTriangle, PackageSearch, CheckCircle2, Truck, X,
+  AlertTriangle, PackageSearch, CheckCircle2, Truck, X, Archive, Undo2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -17,12 +17,15 @@ interface Row {
   returnDate: string | null
   deliveredAt: string | null
   tenderedAt: string | null
+  threatArchivedAt: string | null
+  threatArchivedByLabel: string | null
+  threatArchiveNote: string | null
   processedAt: string | null
   processedOutcome: string | null
   processed: boolean
   received: boolean
   statusGroup: 'delivered' | 'in_transit' | 'not_tendered' | 'needs_status' | 'unknown'
-  disposition: 'resolved' | 'threat_unprocessed' | 'threat_lost' | 'not_tendered' | 'needs_status' | 'on_track'
+  disposition: 'resolved' | 'archived' | 'threat_unprocessed' | 'threat_lost' | 'not_tendered' | 'needs_status' | 'on_track'
 }
 
 interface Summary {
@@ -32,6 +35,7 @@ interface Summary {
   needsStatus: number
   notTendered: number
   resolved: number
+  archived: number
   onTrack: number
 }
 
@@ -67,6 +71,7 @@ const VIEWS = [
   { value: 'needs_status', label: 'No Status' },
   { value: 'not_tendered', label: 'Not Tendered' },
   { value: 'resolved', label: 'Resolved' },
+  { value: 'archived', label: 'Archived' },
 ] as const
 
 function Tile({ label, value, tone, icon: Icon, active, onClick }: {
@@ -165,6 +170,32 @@ export default function IncomingReturnLabelsGrid() {
     }
   }
 
+  // Manually mark a threat as handled (or restore it). Clears it from the
+  // threat counts via a server-side 'archived' disposition.
+  async function archiveThreat(id: string, archive: boolean) {
+    let note: string | undefined
+    if (archive) {
+      const input = window.prompt('Reason for marking as not a threat (optional):', '')
+      if (input === null) return // cancelled
+      note = input
+    }
+    try {
+      const res = await fetch('/api/incoming-return-labels', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action: archive ? 'archive' : 'unarchive', note }),
+      })
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}))
+        alert(b.error ?? 'Archive failed')
+        return
+      }
+      fetchRows(pagination.page)
+    } catch {
+      alert('Archive failed')
+    }
+  }
+
   // Pull UPS status for every in-transit (no tender date yet) and no-status
   // return, so tender dates — and lost-in-transit threats — populate now.
   async function bulkRefresh() {
@@ -218,7 +249,7 @@ export default function IncomingReturnLabelsGrid() {
 
       {/* Summary tiles double as quick filters */}
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
           <Tile label={`Delivered · unprocessed >${sla.delivery}d`} value={summary.unprocessedDelivered} tone="red"
             icon={AlertTriangle} active={view === 'unprocessed_delivered'}
             onClick={() => setView(view === 'unprocessed_delivered' ? 'all' : 'unprocessed_delivered')} />
@@ -234,6 +265,9 @@ export default function IncomingReturnLabelsGrid() {
           <Tile label="Resolved (received/processed)" value={summary.resolved} tone="emerald"
             icon={CheckCircle2} active={view === 'resolved'}
             onClick={() => setView(view === 'resolved' ? 'all' : 'resolved')} />
+          <Tile label="Archived (manual)" value={summary.archived} tone="gray"
+            icon={Archive} active={view === 'archived'}
+            onClick={() => setView(view === 'archived' ? 'all' : 'archived')} />
           <Tile label="On track" value={summary.onTrack} tone="emerald"
             icon={CheckCircle2} active={false} onClick={() => setView('all')} />
         </div>
@@ -370,6 +404,17 @@ export default function IncomingReturnLabelsGrid() {
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 px-2 py-0.5 text-xs font-medium">
                         <CheckCircle2 className="h-3 w-3" /> {r.received ? 'Received' : 'Processed'}
                       </span>
+                    ) : r.disposition === 'archived' ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300 px-2 py-0.5 text-xs font-medium"
+                        title={[
+                          r.threatArchivedByLabel && `by ${r.threatArchivedByLabel}`,
+                          r.threatArchivedAt && `on ${format(new Date(r.threatArchivedAt), 'MMM d, yyyy')}`,
+                          r.threatArchiveNote && `— ${r.threatArchiveNote}`,
+                        ].filter(Boolean).join(' ')}
+                      >
+                        <Archive className="h-3 w-3" /> Archived
+                      </span>
                     ) : r.disposition === 'not_tendered' ? (
                       <span className="text-xs text-gray-400">not tendered</span>
                     ) : r.disposition === 'needs_status' ? (
@@ -379,15 +424,35 @@ export default function IncomingReturnLabelsGrid() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <button
-                      onClick={() => refreshTracking(r.id)}
-                      disabled={refreshingId === r.id}
-                      title="Refresh UPS tracking status"
-                      className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
-                    >
-                      <RefreshCcw className={clsx('h-3.5 w-3.5', refreshingId === r.id && 'animate-spin')} />
-                      Refresh
-                    </button>
+                    <div className="inline-flex items-center gap-1 justify-end">
+                      {r.disposition.startsWith('threat') && (
+                        <button
+                          onClick={() => archiveThreat(r.id, true)}
+                          title="Mark as not a threat (handled manually)"
+                          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        >
+                          <Archive className="h-3.5 w-3.5" /> Archive
+                        </button>
+                      )}
+                      {r.disposition === 'archived' && (
+                        <button
+                          onClick={() => archiveThreat(r.id, false)}
+                          title="Restore this threat"
+                          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        >
+                          <Undo2 className="h-3.5 w-3.5" /> Restore
+                        </button>
+                      )}
+                      <button
+                        onClick={() => refreshTracking(r.id)}
+                        disabled={refreshingId === r.id}
+                        title="Refresh UPS tracking status"
+                        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                      >
+                        <RefreshCcw className={clsx('h-3.5 w-3.5', refreshingId === r.id && 'animate-spin')} />
+                        Refresh
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )

@@ -56,6 +56,9 @@ const classifiedCte = Prisma.sql`
       m."returnDate",
       m."deliveredAt",
       m."tenderedAt",
+      m."threatArchivedAt",
+      m."threatArchivedByLabel",
+      m."threatArchiveNote",
       p."processedAt"      AS "processedAt",
       p."processedOutcome" AS "processedOutcome",
       (p.id IS NOT NULL)   AS processed,
@@ -96,6 +99,7 @@ const classifiedCte = Prisma.sql`
     SELECT base.*,
       CASE
         WHEN processed OR received THEN 'resolved'
+        WHEN "threatArchivedAt" IS NOT NULL THEN 'archived'
         WHEN "statusGroup" = 'delivered'
           AND "deliveredAt" IS NOT NULL
           AND "deliveredAt" < now() - (${DELIVERY_SLA_DAYS} || ' days')::interval
@@ -122,6 +126,9 @@ interface Row {
   returnDate: Date | null
   deliveredAt: Date | null
   tenderedAt: Date | null
+  threatArchivedAt: Date | null
+  threatArchivedByLabel: string | null
+  threatArchiveNote: string | null
   processedAt: Date | null
   processedOutcome: string | null
   processed: boolean
@@ -166,6 +173,7 @@ export async function GET(req: NextRequest) {
       case 'needs_status': viewCond = Prisma.sql`disposition = 'needs_status'`; break
       case 'not_tendered': viewCond = Prisma.sql`disposition = 'not_tendered'`; break
       case 'resolved': viewCond = Prisma.sql`disposition = 'resolved'`; break
+      case 'archived': viewCond = Prisma.sql`disposition = 'archived'`; break
     }
 
     const searchCond = search
@@ -200,6 +208,7 @@ export async function GET(req: NextRequest) {
         needs_status: bigint
         not_tendered: bigint
         resolved: bigint
+        archived: bigint
         on_track: bigint
       }[]>`
         ${classifiedCte}
@@ -210,6 +219,7 @@ export async function GET(req: NextRequest) {
           count(*) FILTER (WHERE disposition = 'needs_status')::bigint AS needs_status,
           count(*) FILTER (WHERE disposition = 'not_tendered')::bigint AS not_tendered,
           count(*) FILTER (WHERE disposition = 'resolved')::bigint AS resolved,
+          count(*) FILTER (WHERE disposition = 'archived')::bigint AS archived,
           count(*) FILTER (WHERE disposition = 'on_track')::bigint AS on_track
         FROM classified
       `,
@@ -224,6 +234,7 @@ export async function GET(req: NextRequest) {
       needsStatus: Number(s?.needs_status ?? 0),
       notTendered: Number(s?.not_tendered ?? 0),
       resolved: Number(s?.resolved ?? 0),
+      archived: Number(s?.archived ?? 0),
       onTrack: Number(s?.on_track ?? 0),
     }
 
@@ -318,4 +329,42 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : 'Tracking lookup failed'
     return NextResponse.json({ error: message }, { status: 422 })
   }
+}
+
+/**
+ * PATCH — archive a threat (mark as handled outside the system) or un-archive it.
+ * Body: { id, action: 'archive' | 'unarchive', note? }
+ */
+export async function PATCH(req: NextRequest) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id, action, note } = (await req.json()) as {
+    id?: string
+    action?: 'archive' | 'unarchive'
+    note?: string
+  }
+  if (!id || (action !== 'archive' && action !== 'unarchive')) {
+    return NextResponse.json({ error: "id and action ('archive'|'unarchive') required" }, { status: 400 })
+  }
+
+  const data = action === 'archive'
+    ? {
+        threatArchivedAt: new Date(),
+        threatArchivedByLabel: user.name || user.email,
+        threatArchiveNote: note?.trim() || null,
+      }
+    : {
+        threatArchivedAt: null,
+        threatArchivedByLabel: null,
+        threatArchiveNote: null,
+      }
+
+  const updated = await prisma.mFNReturn.update({
+    where: { id },
+    data,
+    select: { id: true, threatArchivedAt: true, threatArchivedByLabel: true, threatArchiveNote: true },
+  })
+
+  return NextResponse.json({ ok: true, ...updated })
 }

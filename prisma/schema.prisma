@@ -1423,6 +1423,12 @@ model MFNReturn {
   estimatedDelivery DateTime? // Estimated delivery date from carrier (set when in transit)
   tenderedAt        DateTime? // First real carrier scan (package tendered to UPS) — SLA clock start
   trackingUpdatedAt DateTime?
+
+  // Manual threat override: dismiss an auto-refund / lost-in-transit threat that
+  // was handled outside the system (e.g. refund blocked, unit located manually).
+  threatArchivedAt      DateTime?
+  threatArchivedByLabel String?
+  threatArchiveNote     String?   @db.Text
   importedAt        DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
