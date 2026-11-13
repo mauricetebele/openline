@@ -1,9 +1,9 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { format, differenceInCalendarDays } from 'date-fns'
 import {
   Search, RefreshCcw, ExternalLink, Loader2, ChevronLeft, ChevronRight,
-  AlertTriangle, PackageSearch, CheckCircle2,
+  AlertTriangle, PackageSearch, CheckCircle2, Truck, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -112,6 +112,8 @@ export default function IncomingReturnLabelsGrid() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [view, setView] = useState('all')
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
+  const [bulk, setBulk] = useState({ running: false, done: 0, total: 0, refreshed: 0, failed: 0 })
+  const cancelBulk = useRef(false)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 350)
@@ -160,6 +162,46 @@ export default function IncomingReturnLabelsGrid() {
       alert('Tracking refresh failed')
     } finally {
       setRefreshingId(null)
+    }
+  }
+
+  // Pull UPS status for every in-transit (no tender date yet) and no-status
+  // return, so tender dates — and lost-in-transit threats — populate now.
+  async function bulkRefresh() {
+    try {
+      const res = await fetch('/api/incoming-return-labels?refreshable=1')
+      const { ids } = (await res.json()) as { ids: string[] }
+      if (!ids?.length) {
+        alert('Nothing to refresh — every in-transit return already has a tender date.')
+        return
+      }
+      cancelBulk.current = false
+      setBulk({ running: true, done: 0, total: ids.length, refreshed: 0, failed: 0 })
+      const CHUNK = 25
+      let refreshed = 0, failed = 0, done = 0
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        if (cancelBulk.current) break
+        const chunk = ids.slice(i, i + CHUNK)
+        try {
+          const r = await fetch('/api/incoming-return-labels', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: chunk }),
+          })
+          const b = await r.json()
+          refreshed += b.refreshed ?? 0
+          failed += b.failed ?? 0
+        } catch {
+          failed += chunk.length
+        }
+        done += chunk.length
+        setBulk({ running: true, done, total: ids.length, refreshed, failed })
+      }
+      setBulk(b => ({ ...b, running: false }))
+      fetchRows(pagination.page)
+    } catch {
+      alert('Bulk refresh failed')
+      setBulk(b => ({ ...b, running: false }))
     }
   }
 
@@ -223,13 +265,35 @@ export default function IncomingReturnLabelsGrid() {
             </button>
           ))}
         </div>
-        <select
-          value={pageSize}
-          onChange={(e) => setPageSize(Number(e.target.value))}
-          className="ml-auto text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-2 py-2"
-        >
-          {PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n} / page</option>)}
-        </select>
+        <div className="ml-auto flex items-center gap-2">
+          {bulk.running ? (
+            <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Refreshing {bulk.done}/{bulk.total} · {bulk.refreshed} ok{bulk.failed ? ` · ${bulk.failed} failed` : ''}</span>
+              <button
+                onClick={() => { cancelBulk.current = true }}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+              >
+                <X className="h-3.5 w-3.5" /> Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={bulkRefresh}
+              title="Pull UPS status for in-transit & no-status returns to capture tender dates"
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg font-medium text-white bg-blue-600 hover:bg-blue-700"
+            >
+              <Truck className="h-4 w-4" /> Refresh in-transit &amp; no-status
+            </button>
+          )}
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-2 py-2"
+          >
+            {PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n} / page</option>)}
+          </select>
+        </div>
       </div>
 
       {error && (

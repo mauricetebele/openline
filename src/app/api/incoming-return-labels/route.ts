@@ -25,8 +25,12 @@ import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
 import { getCarrierStatus } from '@/lib/ups-tracking'
 
+// Bulk tracking refresh makes several sequential UPS calls; allow headroom.
+export const maxDuration = 60
+
 const DELIVERY_SLA_DAYS = 4 // process within N calendar days of delivery
 const TRANSIT_SLA_DAYS = 7 // delivered within N days of shipping, else "lost"
+const MAX_BATCH = 25 // cap tracking refreshes per POST so the request can't time out
 
 /**
  * Classification CTE shared by the data and summary queries. Produces, per
@@ -138,6 +142,21 @@ export async function GET(req: NextRequest) {
     const view = searchParams.get('view') ?? 'all'
     const search = searchParams.get('search')?.trim()
 
+    // Id list of rows whose tender date needs a UPS pull: in-transit without a
+    // captured tender date, or no status yet. Used by the bulk-refresh button.
+    if (searchParams.get('refreshable') === '1') {
+      const ids = await prisma.$queryRaw<{ id: string }[]>`
+        ${classifiedCte}
+        SELECT id FROM classified
+        WHERE NOT (processed OR received)
+          AND (("statusGroup" = 'in_transit' AND "tenderedAt" IS NULL)
+               OR "statusGroup" = 'needs_status')
+        ORDER BY COALESCE("returnDate", now()) DESC
+        LIMIT 2000
+      `
+      return NextResponse.json({ ids: ids.map(r => r.id) })
+    }
+
     // View filter on the computed disposition
     let viewCond = Prisma.sql`TRUE`
     switch (view) {
@@ -230,7 +249,39 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { id } = (await req.json()) as { id?: string }
+  const body = (await req.json()) as { id?: string; ids?: string[] }
+
+  // Batch refresh — used by the bulk "Refresh in-transit & no-status" button.
+  if (Array.isArray(body.ids)) {
+    const ids = body.ids.slice(0, MAX_BATCH)
+    const rets = await prisma.mFNReturn.findMany({
+      where: { id: { in: ids }, trackingNumber: { not: null } },
+      select: { id: true, trackingNumber: true },
+    })
+    let refreshed = 0
+    let failed = 0
+    for (const ret of rets) {
+      try {
+        const result = await getCarrierStatus(ret.trackingNumber!)
+        await prisma.mFNReturn.update({
+          where: { id: ret.id },
+          data: {
+            carrierStatus: result.status,
+            deliveredAt: result.deliveredAt,
+            estimatedDelivery: result.estimatedDelivery,
+            trackingUpdatedAt: new Date(),
+            ...(result.shippedAt ? { tenderedAt: result.shippedAt } : {}),
+          },
+        })
+        refreshed++
+      } catch {
+        failed++
+      }
+    }
+    return NextResponse.json({ refreshed, failed, processed: rets.length })
+  }
+
+  const id = body.id
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
   const ret = await prisma.mFNReturn.findUnique({
