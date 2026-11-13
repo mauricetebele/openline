@@ -77,6 +77,7 @@ const NAV: NavItem[] = [
     icon: Undo2,
     children: [
       { href: '/process-returns',           label: 'Process Returns',     icon: PackageOpen },
+      { href: '/incoming-return-labels',    label: 'Incoming Return Labels', icon: Truck },
       { href: '/marketplace-returns',       label: 'Marketplace Returns', icon: Undo2 },
       { href: '/wholesale/customer-rma',    label: 'Wholesale RMA',       icon: RotateCcw },
       { href: '/vendor-rma',               label: 'Vendor Returns',      icon: PackageMinus },
