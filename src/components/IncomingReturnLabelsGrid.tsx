@@ -120,10 +120,55 @@ export default function IncomingReturnLabelsGrid() {
   const [bulk, setBulk] = useState({ running: false, done: 0, total: 0, refreshed: 0, failed: 0 })
   const cancelBulk = useRef(false)
 
+  // Row selection + drag-to-select
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [archiving, setArchiving] = useState(false)
+  const dragging = useRef(false)
+  const dragAnchor = useRef<number | null>(null)
+  const dragMode = useRef<'add' | 'remove'>('add')
+  const dragBaseline = useRef<Set<string>>(new Set())
+
+  // End any drag when the mouse is released anywhere
+  useEffect(() => {
+    const up = () => { dragging.current = false; dragAnchor.current = null }
+    window.addEventListener('mouseup', up)
+    return () => window.removeEventListener('mouseup', up)
+  }, [])
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 350)
     return () => clearTimeout(t)
   }, [search])
+
+  function applyDragRange(toIndex: number) {
+    if (dragAnchor.current === null) return
+    const lo = Math.min(dragAnchor.current, toIndex)
+    const hi = Math.max(dragAnchor.current, toIndex)
+    const next = new Set(dragBaseline.current)
+    for (let i = lo; i <= hi; i++) {
+      const rowId = rows[i]?.id
+      if (!rowId) continue
+      if (dragMode.current === 'add') next.add(rowId)
+      else next.delete(rowId)
+    }
+    setSelected(next)
+  }
+
+  function startDrag(index: number, rowId: string) {
+    dragging.current = true
+    dragAnchor.current = index
+    dragMode.current = selected.has(rowId) ? 'remove' : 'add'
+    dragBaseline.current = new Set(selected)
+    applyDragRange(index)
+  }
+
+  function toggleOne(rowId: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(rowId)) next.delete(rowId); else next.add(rowId)
+      return next
+    })
+  }
 
   const fetchRows = useCallback(async (page: number) => {
     setLoading(true)
@@ -141,6 +186,7 @@ export default function IncomingReturnLabelsGrid() {
       setSummary(json.summary)
       setSla(json.slaDays)
       setPagination(json.pagination)
+      setSelected(new Set())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load returns')
       setRows([])
@@ -193,6 +239,36 @@ export default function IncomingReturnLabelsGrid() {
       fetchRows(pagination.page)
     } catch {
       alert('Archive failed')
+    }
+  }
+
+  // Archive or restore every selected row in one request.
+  async function bulkArchive(archive: boolean) {
+    const ids = Array.from(selected)
+    if (ids.length === 0) return
+    let note: string | undefined
+    if (archive) {
+      const input = window.prompt(`Reason for marking ${ids.length} return(s) as not a threat (optional):`, '')
+      if (input === null) return
+      note = input
+    }
+    setArchiving(true)
+    try {
+      const res = await fetch('/api/incoming-return-labels', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, action: archive ? 'archive' : 'unarchive', note }),
+      })
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}))
+        alert(b.error ?? 'Bulk archive failed')
+        return
+      }
+      fetchRows(pagination.page)
+    } catch {
+      alert('Bulk archive failed')
+    } finally {
+      setArchiving(false)
     }
   }
 
@@ -336,11 +412,49 @@ export default function IncomingReturnLabelsGrid() {
         </div>
       )}
 
+      {/* Bulk selection toolbar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 rounded-xl border border-blue-300 dark:border-blue-500/40 bg-blue-50 dark:bg-blue-500/10 px-4 py-2.5 text-sm">
+          <span className="font-medium text-blue-800 dark:text-blue-300">{selected.size} selected</span>
+          <button
+            onClick={() => bulkArchive(true)}
+            disabled={archiving}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-white bg-gray-700 hover:bg-gray-800 disabled:opacity-50"
+          >
+            {archiving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+            Archive selected
+          </button>
+          <button
+            onClick={() => bulkArchive(false)}
+            disabled={archiving}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
+          >
+            <Undo2 className="h-4 w-4" /> Restore selected
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="ml-auto inline-flex items-center gap-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+          >
+            <X className="h-4 w-4" /> Clear
+          </button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="flex-1 min-h-[300px] overflow-auto rounded-xl border border-gray-200 dark:border-gray-800">
-        <table className="min-w-full text-sm">
+        <table className="min-w-full text-sm select-none">
           <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/90 backdrop-blur border-b border-gray-200 dark:border-gray-800">
             <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <th className="pl-4 pr-2 py-3 w-8">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-blue-600"
+                  checked={rows.length > 0 && rows.every(r => selected.has(r.id))}
+                  ref={el => { if (el) el.indeterminate = selected.size > 0 && !rows.every(r => selected.has(r.id)) }}
+                  onChange={(e) => setSelected(e.target.checked ? new Set(rows.map(r => r.id)) : new Set())}
+                  title="Select all on this page"
+                />
+              </th>
               <th className="px-4 py-3">Order ID</th>
               <th className="px-4 py-3">Tracking Number</th>
               <th className="px-4 py-3">UPS Tracking Status</th>
@@ -353,14 +467,38 @@ export default function IncomingReturnLabelsGrid() {
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {loading ? (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400"><Loader2 className="h-5 w-5 animate-spin inline" /></td></tr>
+              <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400"><Loader2 className="h-5 w-5 animate-spin inline" /></td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">No incoming return labels match this view.</td></tr>
-            ) : rows.map((r) => {
+              <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">No incoming return labels match this view.</td></tr>
+            ) : rows.map((r, idx) => {
               const badge = statusBadge(r)
               const deliveredDays = r.deliveredAt ? differenceInCalendarDays(new Date(), new Date(r.deliveredAt)) : null
+              const isSelected = selected.has(r.id)
               return (
-                <tr key={r.id} className={clsx('hover:bg-gray-50 dark:hover:bg-gray-900/40', r.disposition.startsWith('threat') && 'bg-red-50/40 dark:bg-red-500/[0.06]')}>
+                <tr
+                  key={r.id}
+                  onMouseDown={(e) => {
+                    // Ignore drags that begin on links/buttons/inputs
+                    if ((e.target as HTMLElement).closest('a,button,input,select')) return
+                    e.preventDefault()
+                    startDrag(idx, r.id)
+                  }}
+                  onMouseEnter={() => { if (dragging.current) applyDragRange(idx) }}
+                  className={clsx(
+                    'hover:bg-gray-50 dark:hover:bg-gray-900/40',
+                    isSelected && 'bg-blue-50 dark:bg-blue-500/10',
+                    !isSelected && r.disposition.startsWith('threat') && 'bg-red-50/40 dark:bg-red-500/[0.06]',
+                  )}
+                >
+                  <td className="pl-4 pr-2 py-3">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer accent-blue-600"
+                      checked={isSelected}
+                      onChange={() => toggleOne(r.id)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-900 dark:text-gray-100 whitespace-nowrap">{r.orderId}</td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     {r.trackingNumber ? (

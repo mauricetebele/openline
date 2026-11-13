@@ -339,13 +339,19 @@ export async function PATCH(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { id, action, note } = (await req.json()) as {
+  const { id, ids, action, note } = (await req.json()) as {
     id?: string
+    ids?: string[]
     action?: 'archive' | 'unarchive'
     note?: string
   }
-  if (!id || (action !== 'archive' && action !== 'unarchive')) {
-    return NextResponse.json({ error: "id and action ('archive'|'unarchive') required" }, { status: 400 })
+  if (action !== 'archive' && action !== 'unarchive') {
+    return NextResponse.json({ error: "action ('archive'|'unarchive') required" }, { status: 400 })
+  }
+
+  const targetIds = Array.isArray(ids) ? ids.filter(Boolean) : id ? [id] : []
+  if (targetIds.length === 0) {
+    return NextResponse.json({ error: 'id or ids required' }, { status: 400 })
   }
 
   const data = action === 'archive'
@@ -360,11 +366,10 @@ export async function PATCH(req: NextRequest) {
         threatArchiveNote: null,
       }
 
-  const updated = await prisma.mFNReturn.update({
-    where: { id },
+  const result = await prisma.mFNReturn.updateMany({
+    where: { id: { in: targetIds } },
     data,
-    select: { id: true, threatArchivedAt: true, threatArchivedByLabel: true, threatArchiveNote: true },
   })
 
-  return NextResponse.json({ ok: true, ...updated })
+  return NextResponse.json({ ok: true, count: result.count })
 }
