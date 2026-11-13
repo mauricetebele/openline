@@ -106,6 +106,8 @@ export const GET = cronGet('sync-mfn-returns', async () => {
             deliveredAt: result.deliveredAt,
             estimatedDelivery: result.estimatedDelivery,
             trackingUpdatedAt: new Date(),
+            // Only set once known; never clobber a captured tender date with null
+            ...(result.shippedAt ? { tenderedAt: result.shippedAt } : {}),
           },
         })
         trackingRefreshed++

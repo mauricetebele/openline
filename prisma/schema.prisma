@@ -1421,6 +1421,7 @@ model MFNReturn {
   carrierStatus     String?
   deliveredAt       DateTime? // Actual delivery date from carrier (set when status = Delivered)
   estimatedDelivery DateTime? // Estimated delivery date from carrier (set when in transit)
+  tenderedAt        DateTime? // First real carrier scan (package tendered to UPS) — SLA clock start
   trackingUpdatedAt DateTime?
   importedAt        DateTime  @default(now())
   updatedAt         DateTime  @updatedAt

@@ -202,6 +202,20 @@ export interface TrackingResult {
   status:            string
   deliveredAt:       Date | null  // set when package is delivered
   estimatedDelivery: Date | null  // set when package is in transit
+  shippedAt:         Date | null  // first real carrier scan (tender to carrier), null until scanned
+}
+
+/**
+ * True for a UPS activity that is a pre-tender "label created / ready for UPS"
+ * event — the shipper made a label but UPS has not yet taken possession. These
+ * must NOT count as the ship/tender date.
+ */
+function isPreTenderActivity(a: { status?: { type?: string; code?: string; description?: string } }): boolean {
+  const type = a.status?.type ?? ''
+  const code = a.status?.code ?? ''
+  const desc = (a.status?.description ?? '').toLowerCase()
+  if (type === 'M' || code === 'MP') return true // Manifest / label created
+  return /label created|ready for ups|order processed|shipment ready|billing information received|has not (yet )?received|not yet received/.test(desc)
 }
 
 // UPS date format is YYYYMMDD, time is HHMMSS (local time, no timezone)
@@ -275,16 +289,31 @@ export async function getCarrierStatus(tracking: string): Promise<TrackingResult
 
   interface UpsDeliveryDate { type?: string; date?: string }
   interface UpsDeliveryTime { type?: string; startTime?: string; endTime?: string }
+  interface UpsActivity {
+    status?: { type?: string; code?: string; description?: string }
+    date?: string
+    time?: string
+  }
   interface UpsPkg {
     currentStatus?: { code?: string; simplifiedTextDescription?: string; description?: string }
     deliveryDate?:  UpsDeliveryDate[]
     deliveryTime?:  UpsDeliveryTime
+    activity?:      UpsActivity[]
   }
   const pkg = (data as { trackResponse?: { shipment?: { package?: UpsPkg[] }[] } })
     ?.trackResponse?.shipment?.[0]?.package?.[0]
 
   const status = pkg?.currentStatus?.simplifiedTextDescription ?? pkg?.currentStatus?.description
   if (!status) throw new Error('UPS returned a response but no status was found for this tracking number.')
+
+  // Tender date = first real carrier scan. UPS returns activity newest-first, so
+  // walk oldest-first and take the earliest event that is not a pre-tender
+  // "label created / ready for UPS" marker.
+  const activity = pkg?.activity ?? []
+  const firstScan = [...activity]
+    .reverse()
+    .find(a => !!a.date && !isPreTenderActivity(a))
+  const shippedAt = firstScan ? parseUpsDate(firstScan.date, firstScan.time) : null
 
   const dates = pkg?.deliveryDate ?? []
 
@@ -299,7 +328,7 @@ export async function getCarrierStatus(tracking: string): Promise<TrackingResult
   const deliveredAt       = delEntry ? parseUpsDate(delEntry.date, deliveryTimeStr) : null
   const estimatedDelivery = estEntry ? parseUpsDate(estEntry.date)                  : null
 
-  return { status, deliveredAt, estimatedDelivery }
+  return { status, deliveredAt, estimatedDelivery, shippedAt }
 }
 
 // ─── FedEx Tracking ──────────────────────────────────────────────────────────
@@ -358,11 +387,14 @@ async function getFedExTrackingStatus(tracking: string): Promise<TrackingResult>
   // ACTUAL_DELIVERY = delivered, ESTIMATED_DELIVERY = ETA
   const delEntry = dates.find(d => d.type === 'ACTUAL_DELIVERY')
   const estEntry = dates.find(d => d.type === 'ESTIMATED_DELIVERY')
+  // ACTUAL_PICKUP = tendered to FedEx; SHIP is the shipment/label date fallback
+  const shipEntry = dates.find(d => d.type === 'ACTUAL_PICKUP') ?? dates.find(d => d.type === 'SHIP')
 
   const deliveredAt       = delEntry?.dateTime ? new Date(delEntry.dateTime) : null
   const estimatedDelivery = estEntry?.dateTime ? new Date(estEntry.dateTime) : null
+  const shippedAt         = shipEntry?.dateTime ? new Date(shipEntry.dateTime) : null
 
-  return { status, deliveredAt, estimatedDelivery }
+  return { status, deliveredAt, estimatedDelivery, shippedAt }
 }
 
 // ─── Return Label Generation ──────────────────────────────────────────────────

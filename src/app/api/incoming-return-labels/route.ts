@@ -7,11 +7,14 @@
  * Threat model (per ops):
  *   - not tendered to UPS (label made, no movement) ............ NOT a threat
  *   - has movement but not delivered within 7 days of shipping . lost in transit  → THREAT
- *   - delivered but not processed in Process Returns within 4
- *     calendar days of delivery ............................... auto-refund risk → THREAT
+ *   - delivered but not resolved within 4 calendar days of
+ *     delivery ................................................ auto-refund risk → THREAT
  *
- * "Processed" is matched by tracking number against the process_returns table
- * (a ProcessReturn row carries the package's trackingNumber, not an order id).
+ * A return is "resolved" (threat cleared) once the units are back in our system,
+ * via either:
+ *   - processed in Process Returns — matched by tracking number against the
+ *     process_returns table (a ProcessReturn carries the package's trackingNumber), or
+ *   - a Marketplace RMA for the order marked RECEIVED (units received in our system).
  *
  * GET  — paginated, filterable grid data + whole-dataset summary counts.
  * POST — refresh the live carrier status for one return by id.
@@ -28,12 +31,17 @@ const TRANSIT_SLA_DAYS = 7 // delivered within N days of shipping, else "lost"
 /**
  * Classification CTE shared by the data and summary queries. Produces, per
  * incoming return that has a tracking number:
- *   statusGroup: delivered | in_transit | not_tendered | needs_status | unknown
- *   processed:   whether a process_returns row exists for this tracking number
- *   threat:      'unprocessed_delivered' | 'lost_in_transit' | null
+ *   statusGroup:  delivered | in_transit | not_tendered | needs_status | unknown
+ *   processed:    a process_returns row exists for this tracking number
+ *   received:     a Marketplace RMA for this order is marked RECEIVED
+ *   disposition:  resolved | threat_unprocessed | threat_lost | not_tendered
+ *                 | needs_status | on_track
+ *
+ * disposition is the single source of truth for threat/filtering/summary.
+ * A resolved return (processed OR received) is never a threat.
  */
 const classifiedCte = Prisma.sql`
-  WITH classified AS (
+  WITH base AS (
     SELECT
       m.id,
       m."orderId",
@@ -43,9 +51,16 @@ const classifiedCte = Prisma.sql`
       m."trackingUpdatedAt",
       m."returnDate",
       m."deliveredAt",
+      m."tenderedAt",
       p."processedAt"      AS "processedAt",
       p."processedOutcome" AS "processedOutcome",
       (p.id IS NOT NULL)   AS processed,
+      EXISTS (
+        SELECT 1 FROM marketplace_rmas mr
+        JOIN orders o ON o.id = mr."orderId"
+        WHERE o."amazonOrderId" = m."orderId"
+          AND mr.status = 'RECEIVED'
+      ) AS received,
       CASE
         WHEN m."carrierStatus" ILIKE '%delivered%' THEN 'delivered'
         WHEN m."carrierStatus" ILIKE '%transit%'
@@ -62,27 +77,7 @@ const classifiedCte = Prisma.sql`
           OR m."carrierStatus" ILIKE '%billing information received%' THEN 'not_tendered'
         WHEN m."carrierStatus" IS NULL THEN 'needs_status'
         ELSE 'unknown'
-      END AS "statusGroup",
-      CASE
-        WHEN m."carrierStatus" ILIKE '%delivered%'
-          AND p.id IS NULL
-          AND m."deliveredAt" IS NOT NULL
-          AND m."deliveredAt" < now() - (${DELIVERY_SLA_DAYS} || ' days')::interval
-          THEN 'unprocessed_delivered'
-        WHEN (
-            m."carrierStatus" ILIKE '%transit%'
-            OR m."carrierStatus" ILIKE '%on the way%'
-            OR m."carrierStatus" ILIKE '%we have your package%'
-            OR m."carrierStatus" ILIKE '%dropped off%'
-            OR m."carrierStatus" ILIKE '%out for delivery%'
-            OR m."carrierStatus" ILIKE '%exception%'
-            OR m."carrierStatus" ILIKE '%delay%'
-          )
-          AND m."returnDate" IS NOT NULL
-          AND m."returnDate" < now() - (${TRANSIT_SLA_DAYS} || ' days')::interval
-          THEN 'lost_in_transit'
-        ELSE NULL
-      END AS threat
+      END AS "statusGroup"
     FROM mfn_returns m
     LEFT JOIN LATERAL (
       SELECT pr.id, pr."processedAt", pr."processedOutcome"
@@ -92,6 +87,24 @@ const classifiedCte = Prisma.sql`
       LIMIT 1
     ) p ON TRUE
     WHERE m."trackingNumber" IS NOT NULL
+  ),
+  classified AS (
+    SELECT base.*,
+      CASE
+        WHEN processed OR received THEN 'resolved'
+        WHEN "statusGroup" = 'delivered'
+          AND "deliveredAt" IS NOT NULL
+          AND "deliveredAt" < now() - (${DELIVERY_SLA_DAYS} || ' days')::interval
+          THEN 'threat_unprocessed'
+        WHEN "statusGroup" = 'in_transit'
+          AND "tenderedAt" IS NOT NULL
+          AND "tenderedAt" < now() - (${TRANSIT_SLA_DAYS} || ' days')::interval
+          THEN 'threat_lost'
+        WHEN "statusGroup" = 'not_tendered' THEN 'not_tendered'
+        WHEN "statusGroup" = 'needs_status' THEN 'needs_status'
+        ELSE 'on_track'
+      END AS disposition
+    FROM base
   )
 `
 
@@ -104,11 +117,13 @@ interface Row {
   trackingUpdatedAt: Date | null
   returnDate: Date | null
   deliveredAt: Date | null
+  tenderedAt: Date | null
   processedAt: Date | null
   processedOutcome: string | null
   processed: boolean
+  received: boolean
   statusGroup: string
-  threat: string | null
+  disposition: string
 }
 
 export async function GET(req: NextRequest) {
@@ -123,16 +138,15 @@ export async function GET(req: NextRequest) {
     const view = searchParams.get('view') ?? 'all'
     const search = searchParams.get('search')?.trim()
 
-    // View filter on the computed columns
+    // View filter on the computed disposition
     let viewCond = Prisma.sql`TRUE`
     switch (view) {
-      case 'threats': viewCond = Prisma.sql`threat IS NOT NULL`; break
-      case 'unprocessed_delivered': viewCond = Prisma.sql`threat = 'unprocessed_delivered'`; break
-      case 'lost_in_transit': viewCond = Prisma.sql`threat = 'lost_in_transit'`; break
-      case 'needs_status': viewCond = Prisma.sql`"statusGroup" = 'needs_status'`; break
-      case 'not_tendered': viewCond = Prisma.sql`"statusGroup" = 'not_tendered'`; break
-      case 'in_transit': viewCond = Prisma.sql`"statusGroup" = 'in_transit'`; break
-      case 'delivered': viewCond = Prisma.sql`"statusGroup" = 'delivered'`; break
+      case 'threats': viewCond = Prisma.sql`disposition IN ('threat_unprocessed','threat_lost')`; break
+      case 'unprocessed_delivered': viewCond = Prisma.sql`disposition = 'threat_unprocessed'`; break
+      case 'lost_in_transit': viewCond = Prisma.sql`disposition = 'threat_lost'`; break
+      case 'needs_status': viewCond = Prisma.sql`disposition = 'needs_status'`; break
+      case 'not_tendered': viewCond = Prisma.sql`disposition = 'not_tendered'`; break
+      case 'resolved': viewCond = Prisma.sql`disposition = 'resolved'`; break
     }
 
     const searchCond = search
@@ -147,10 +161,10 @@ export async function GET(req: NextRequest) {
         SELECT * FROM classified
         ${whereCond}
         ORDER BY
-          CASE
-            WHEN threat = 'unprocessed_delivered' THEN 0
-            WHEN threat = 'lost_in_transit' THEN 1
-            WHEN "statusGroup" = 'needs_status' THEN 2
+          CASE disposition
+            WHEN 'threat_unprocessed' THEN 0
+            WHEN 'threat_lost' THEN 1
+            WHEN 'needs_status' THEN 2
             ELSE 3
           END,
           COALESCE("deliveredAt", "returnDate") DESC NULLS LAST
@@ -166,16 +180,18 @@ export async function GET(req: NextRequest) {
         lost_in_transit: bigint
         needs_status: bigint
         not_tendered: bigint
+        resolved: bigint
         on_track: bigint
       }[]>`
         ${classifiedCte}
         SELECT
           count(*)::bigint AS total,
-          count(*) FILTER (WHERE threat = 'unprocessed_delivered')::bigint AS unprocessed_delivered,
-          count(*) FILTER (WHERE threat = 'lost_in_transit')::bigint AS lost_in_transit,
-          count(*) FILTER (WHERE "statusGroup" = 'needs_status')::bigint AS needs_status,
-          count(*) FILTER (WHERE "statusGroup" = 'not_tendered')::bigint AS not_tendered,
-          count(*) FILTER (WHERE threat IS NULL AND "statusGroup" NOT IN ('needs_status','not_tendered'))::bigint AS on_track
+          count(*) FILTER (WHERE disposition = 'threat_unprocessed')::bigint AS unprocessed_delivered,
+          count(*) FILTER (WHERE disposition = 'threat_lost')::bigint AS lost_in_transit,
+          count(*) FILTER (WHERE disposition = 'needs_status')::bigint AS needs_status,
+          count(*) FILTER (WHERE disposition = 'not_tendered')::bigint AS not_tendered,
+          count(*) FILTER (WHERE disposition = 'resolved')::bigint AS resolved,
+          count(*) FILTER (WHERE disposition = 'on_track')::bigint AS on_track
         FROM classified
       `,
     ])
@@ -188,6 +204,7 @@ export async function GET(req: NextRequest) {
       lostInTransit: Number(s?.lost_in_transit ?? 0),
       needsStatus: Number(s?.needs_status ?? 0),
       notTendered: Number(s?.not_tendered ?? 0),
+      resolved: Number(s?.resolved ?? 0),
       onTrack: Number(s?.on_track ?? 0),
     }
 
@@ -235,12 +252,15 @@ export async function POST(req: NextRequest) {
         deliveredAt: result.deliveredAt,
         estimatedDelivery: result.estimatedDelivery,
         trackingUpdatedAt: new Date(),
+        // Only set once known; never clobber a captured tender date with null
+        ...(result.shippedAt ? { tenderedAt: result.shippedAt } : {}),
       },
     })
 
     return NextResponse.json({
       carrierStatus: result.status,
       deliveredAt: result.deliveredAt,
+      tenderedAt: result.shippedAt,
       trackingUpdatedAt: new Date(),
     })
   } catch (err: unknown) {
