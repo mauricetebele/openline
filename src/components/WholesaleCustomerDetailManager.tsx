@@ -223,7 +223,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
   if (!customer) return <div className="p-8 text-center text-gray-400 text-sm">Customer not found</div>
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
         <button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-gray-700">←</button>
         <h1 className="text-2xl font-bold text-gray-900">{customer.companyName}</h1>
@@ -397,15 +397,15 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-500 uppercase">
-                      <th className="text-left px-5 py-3">Date</th>
-                      <th className="text-left px-5 py-3">Type</th>
-                      <th className="text-left px-5 py-3">Reference</th>
-                      <th className="text-left px-5 py-3">Document #</th>
-                      {tab === 'open' && <th className="text-right px-5 py-3">Age</th>}
-                      <th className="text-right px-5 py-3">Charges</th>
-                      <th className="text-right px-5 py-3">Credits</th>
-                      <th className="text-right px-5 py-3">Applied</th>
-                      <th className="text-right px-5 py-3">Balance</th>
+                      <th className="text-left px-3 py-3">Date</th>
+                      <th className="text-left px-3 py-3">Type</th>
+                      <th className="text-left px-3 py-3">Reference</th>
+                      <th className="text-left px-3 py-3">Document #</th>
+                      {tab === 'open' && <th className="text-right px-3 py-3">Age</th>}
+                      <th className="text-right px-3 py-3">Charges</th>
+                      <th className="text-right px-3 py-3">Credits</th>
+                      <th className="text-right px-3 py-3">Applied</th>
+                      <th className="text-right px-3 py-3">Balance</th>
                       <th className="px-3 py-3 w-16"></th>
                     </tr>
                   </thead>
@@ -483,7 +483,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                           }
                         }}
                       >
-                        <td className="px-5 py-2.5 text-gray-500">
+                        <td className="px-3 py-2.5 text-gray-500">
                           <div className="flex items-center gap-1.5">
                             {hasAllocs && (
                               <span className={`text-[10px] text-gray-400 transition-transform inline-block ${isExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
@@ -491,7 +491,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                             {new Date(line.date).toLocaleDateString()}
                           </div>
                         </td>
-                        <td className="px-5 py-2.5">
+                        <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2">
                             <span className={`text-xs px-2 py-0.5 rounded font-medium ${
                               isInv ? 'bg-yellow-100 text-yellow-700'
@@ -503,7 +503,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                             )}
                           </div>
                         </td>
-                        <td className="px-5 py-2.5 font-mono text-xs text-gray-600">
+                        <td className="px-3 py-2.5 font-mono text-xs text-gray-600">
                           {isCM && line.creditMemoId ? (
                             <button
                               onClick={(e) => { e.stopPropagation(); router.push(`/wholesale/credit-memo/${line.creditMemoId}`) }}
@@ -514,7 +514,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                             </button>
                           ) : line.reference}
                         </td>
-                        <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.invoiceNumber ?? ''}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-gray-600">{line.invoiceNumber ?? ''}</td>
                         {tab === 'open' && (() => {
                           const ageDays = isInv
                             ? Math.max(0, Math.floor((Date.now() - new Date(line.date).getTime()) / 86_400_000))
@@ -524,15 +524,15 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                             : ageDays >= 30 ? 'text-orange-600'
                             : 'text-gray-500'
                           return (
-                            <td className={`px-5 py-2.5 text-right ${ageColor}`}>
+                            <td className={`px-3 py-2.5 text-right ${ageColor}`}>
                               {ageDays == null ? '' : `${ageDays}d`}
                             </td>
                           )
                         })()}
-                        <td className="px-5 py-2.5 text-right">{line.charges > 0 ? fmt(line.charges) : ''}</td>
-                        <td className="px-5 py-2.5 text-right text-green-600">{line.credits > 0 ? fmt(line.credits) : ''}</td>
-                        <td className="px-5 py-2.5 text-right text-gray-500">{Number(line.applied) > 0 ? fmt(Number(line.applied)) : ''}</td>
-                        <td className="px-5 py-2.5 text-right font-semibold">{fmt(balanceVal)}</td>
+                        <td className="px-3 py-2.5 text-right">{line.charges > 0 ? fmt(line.charges) : ''}</td>
+                        <td className="px-3 py-2.5 text-right text-green-600">{line.credits > 0 ? fmt(line.credits) : ''}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-500">{Number(line.applied) > 0 ? fmt(Number(line.applied)) : ''}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold">{fmt(balanceVal)}</td>
                         <td className="px-3 py-2.5 text-center">
                           {lineKey && (
                             <div className="flex items-center gap-1 justify-center">
@@ -585,7 +585,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                       </tr>
                       {isExpanded && rowAllocs && rowAllocs.length > 0 && (
                         <tr className={expandBg}>
-                          <td colSpan={tab === 'open' ? 10 : 9} className="px-5 py-0 pb-3">
+                          <td colSpan={tab === 'open' ? 10 : 9} className="px-3 py-0 pb-3">
                             <div className={`ml-6 mt-1 border ${expandBorder} rounded-lg overflow-hidden`}>
                               <table className="w-full text-xs">
                                 <thead>
