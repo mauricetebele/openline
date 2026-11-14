@@ -31,9 +31,18 @@ const BM_CONDITIONS = ['Premium', 'Excellent', 'Good', 'Stallone']
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+interface MpFlags {
+  hasMfn: boolean
+  hasFba: boolean
+  hasBm: boolean
+  amazonSuspended: boolean
+  bmSuspended: boolean
+}
+const EMPTY_MP: MpFlags = { hasMfn: false, hasFba: false, hasBm: false, amazonSuspended: false, bmSuspended: false }
+
 interface LookupProduct {
   product: { id: string; sku: string; description: string }
-  grades: { gradeId: string | null; gradeName: string | null; availableQty: number }[]
+  grades: { gradeId: string | null; gradeName: string | null; availableQty: number; mp?: MpFlags }[]
 }
 
 interface StagingRow {
@@ -44,6 +53,38 @@ interface StagingRow {
   gradeName: string | null
   availableQty: number
   checked: boolean
+  mp: MpFlags
+}
+
+/** Marketplace "live" (mapped) logos per SKU+grade — mirrors the inventory view. */
+function MarketplaceCell({ mp }: { mp: MpFlags }) {
+  if (!mp.hasMfn && !mp.hasFba && !mp.hasBm) return <span className="text-gray-300 text-[10px]">None</span>
+  // Colorize the (orange) Amazon PNG to red via a CSS filter when suspended.
+  const redImg = { filter: 'grayscale(1) sepia(1) saturate(8) hue-rotate(-40deg) brightness(0.85)' }
+  return (
+    <span className="inline-flex items-center gap-1 justify-center">
+      {mp.hasMfn && (
+        <span title={mp.amazonSuspended ? 'Amazon MFN — suspended' : 'Amazon MFN'} className="inline-flex items-center justify-center shrink-0 select-none">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logos/amazon-icon.png" alt="Amazon MFN" width={20} height={20} className="inline-block rounded" style={mp.amazonSuspended ? redImg : undefined} />
+        </span>
+      )}
+      {mp.hasFba && (
+        <span title={mp.amazonSuspended ? 'Amazon FBA — suspended' : 'Amazon FBA'} className={clsx('inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 select-none', mp.amazonSuspended ? 'bg-red-100' : 'bg-blue-100')}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logos/amazon-icon.png" alt="FBA" width={14} height={14} className="inline-block rounded" style={mp.amazonSuspended ? redImg : undefined} />
+          <span className={clsx('text-[9px] font-bold', mp.amazonSuspended ? 'text-red-700' : 'text-blue-700')}>FBA</span>
+        </span>
+      )}
+      {mp.hasBm && (
+        <span title={mp.bmSuspended ? 'Back Market — suspended' : 'Back Market'} className={clsx('inline-flex items-center justify-center shrink-0 select-none', mp.bmSuspended && 'text-red-600')}>
+          <svg xmlns="http://www.w3.org/2000/svg" width={16} height={16} viewBox="0 0.72 182 166.32">
+            <path d="M167.45.72H14.55C6.51.72 0 7.21 0 15.23v136.58c0 8.02 6.51 14.51 14.55 14.51h152.9c8.03 0 14.55-6.5 14.55-14.51V15.23C182 7.22 175.49.72 167.45.72ZM99.14 133.69H69.13c-.96 0-1.87-.38-2.55-1.06L18.54 84.59c-.59-.59-.59-1.55 0-2.15L66.58 34.4c.68-.68 1.59-1.06 2.55-1.06h30.01c.82 0 1.23.99.65 1.56L52.25 82.44c-.59.59-.59 1.55 0 2.15l47.54 47.54c.58.58.17 1.56-.65 1.56Zm16.04-49.1 47.54 47.54c.58.58.17 1.56-.65 1.56h-30.01c-.96 0-1.87-.38-2.55-1.06L81.47 84.58c-.59-.59-.59-1.55 0-2.15l48.04-48.04c.68-.68 1.59-1.06 2.55-1.06h30.01c.82 0 1.23.99.65 1.56l-47.54 47.54c-.59.59-.59 1.55 0 2.15Z" fill="currentColor"/>
+          </svg>
+        </span>
+      )}
+    </span>
+  )
 }
 
 interface GradeOption {
@@ -303,6 +344,7 @@ export default function BulkListingCreator() {
             gradeName: null,
             availableQty: 0,
             checked: false,
+            mp: EMPTY_MP,
           })
         } else {
           for (const g of grades) {
@@ -314,6 +356,7 @@ export default function BulkListingCreator() {
               gradeName: g.gradeName,
               availableQty: g.availableQty,
               checked: g.availableQty > 0,
+              mp: g.mp ?? EMPTY_MP,
             })
           }
         }
@@ -1231,6 +1274,7 @@ export default function BulkListingCreator() {
                       <th className="px-3 py-2">Description</th>
                       <th className="px-3 py-2">Grade</th>
                       <th className="px-3 py-2 text-right">Available Qty</th>
+                      <th className="px-3 py-2 text-center">Live On</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1265,6 +1309,7 @@ export default function BulkListingCreator() {
                             )}
                           </td>
                           <td className="px-3 py-2 text-right text-xs tabular-nums">{row.availableQty}</td>
+                          <td className="px-3 py-2 text-center"><MarketplaceCell mp={row.mp} /></td>
                         </tr>
                       )
                     })}

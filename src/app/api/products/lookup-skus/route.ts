@@ -40,11 +40,46 @@ export async function POST(req: NextRequest) {
     // Fetch matching products
     const products = await prisma.product.findMany({
       where: { sku: { in: uniqueSkus }, archivedAt: null },
-      select: { id: true, sku: true, description: true },
+      select: {
+        id: true, sku: true, description: true,
+        marketplaceSkus: { select: { marketplace: true, gradeId: true, sellerSku: true, suspended: true } },
+      },
     })
 
     const productIds = products.map(p => p.id)
     const productMap = new Map(products.map(p => [p.id, p]))
+
+    // Fulfillment channel (FBA vs MFN) for amazon seller SKUs — mirrors the
+    // inventory marketplace cell so "live" logos match the inventory view.
+    const allSellerSkus = new Set<string>()
+    for (const p of products) {
+      for (const ms of p.marketplaceSkus) {
+        if (ms.marketplace === 'amazon' && ms.sellerSku) allSellerSkus.add(ms.sellerSku)
+      }
+    }
+    const fcListings = allSellerSkus.size > 0
+      ? await prisma.sellerListing.findMany({
+          where: { sku: { in: Array.from(allSellerSkus) } },
+          select: { sku: true, fulfillmentChannel: true },
+          distinct: ['sku'],
+        })
+      : []
+    const fcMap = new Map(fcListings.map(l => [l.sku, l.fulfillmentChannel]))
+
+    // Per product+grade: which marketplaces the SKU is mapped (live) on.
+    const mpFlags = (productId: string, gradeId: string | null) => {
+      const matched = (productMap.get(productId)?.marketplaceSkus ?? [])
+        .filter(s => (s.gradeId ?? null) === (gradeId ?? null))
+      const amazonSkus = matched.filter(s => s.marketplace === 'amazon')
+      const bmSkus = matched.filter(s => s.marketplace === 'backmarket')
+      return {
+        hasMfn: amazonSkus.some(s => (fcMap.get(s.sellerSku) ?? null) !== 'FBA'),
+        hasFba: amazonSkus.some(s => (fcMap.get(s.sellerSku) ?? null) === 'FBA'),
+        hasBm: bmSkus.length > 0,
+        amazonSuspended: amazonSkus.length > 0 && amazonSkus.every(s => s.suspended),
+        bmSuspended: bmSkus.length > 0 && bmSkus.every(s => s.suspended),
+      }
+    }
 
     // Group inventory by product+grade (only items with qty > 0)
     const inventoryGroups = await prisma.inventoryItem.groupBy({
@@ -97,11 +132,13 @@ export async function POST(req: NextRequest) {
       foundSkus.add(p.sku.toLowerCase())
       return {
         product: { id: p.id, sku: p.sku, description: p.description },
-        grades: (productGrades.get(p.id) ?? []).sort((a, b) => {
-          if (!a.gradeName) return 1
-          if (!b.gradeName) return -1
-          return a.gradeName.localeCompare(b.gradeName)
-        }),
+        grades: (productGrades.get(p.id) ?? [])
+          .sort((a, b) => {
+            if (!a.gradeName) return 1
+            if (!b.gradeName) return -1
+            return a.gradeName.localeCompare(b.gradeName)
+          })
+          .map(g => ({ ...g, mp: mpFlags(p.id, g.gradeId) })),
       }
     })
 
