@@ -66,6 +66,33 @@ export async function POST(req: NextRequest) {
       : []
     const fcMap = new Map(fcListings.map(l => [l.sku, l.fulfillmentChannel]))
 
+    // Average FULL cost (base + cost code + repair) of in-stock units at
+    // finished-goods locations, per product+grade. Mirrors the inventory cost
+    // model and adds per-serial repair costs.
+    const fgCostRows = productIds.length > 0
+      ? await prisma.$queryRaw<{ productId: string; gradeId: string | null; avgCost: number }[]>`
+          SELECT s."productId", s."gradeId",
+                 AVG(
+                   COALESCE(pol."unitCost", s."unitCost", 0)
+                   + COALESCE(cc.amount, 0)
+                   + COALESCE(rc.repair_total, 0)
+                 )::float8 AS "avgCost"
+          FROM inventory_serials s
+          JOIN locations loc ON loc.id = s."locationId" AND loc."isFinishedGoods" = true
+          LEFT JOIN po_receipt_lines prl ON prl.id = s."receiptLineId"
+          LEFT JOIN purchase_order_lines pol ON pol.id = prl."purchaseOrderLineId"
+          LEFT JOIN cost_codes cc ON cc.id = pol."costCodeId"
+          LEFT JOIN LATERAL (
+            SELECT SUM(roi."repairCost") AS repair_total
+            FROM repair_order_items roi
+            WHERE roi."inventorySerialId" = s.id
+          ) rc ON true
+          WHERE s.status = 'IN_STOCK' AND s."productId" = ANY(${productIds})
+          GROUP BY s."productId", s."gradeId"
+        `
+      : []
+    const fgCostMap = new Map(fgCostRows.map(r => [`${r.productId}:${r.gradeId ?? ''}`, r.avgCost]))
+
     // Per product+grade: which marketplaces the SKU is mapped (live) on.
     const mpFlags = (productId: string, gradeId: string | null) => {
       const matched = (productMap.get(productId)?.marketplaceSkus ?? [])
@@ -138,7 +165,7 @@ export async function POST(req: NextRequest) {
             if (!b.gradeName) return -1
             return a.gradeName.localeCompare(b.gradeName)
           })
-          .map(g => ({ ...g, mp: mpFlags(p.id, g.gradeId) })),
+          .map(g => ({ ...g, mp: mpFlags(p.id, g.gradeId), avgCost: fgCostMap.get(`${p.id}:${g.gradeId ?? ''}`) ?? null })),
       }
     })
 
