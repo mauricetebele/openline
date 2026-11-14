@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Download, Mail } from 'lucide-react'
+import { Download, Mail, Search, X, Loader2 } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generate-wholesale-invoice'
 import { generateCreditMemoPDF } from '@/lib/generate-credit-memo-pdf'
 import { generatePaymentReceiptPDF } from '@/lib/generate-payment-receipt'
@@ -65,6 +65,17 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
   const [statement, setStatement] = useState<{ lines: StatementLine[]; openBalance: number } | null>(null)
   const [openStatement, setOpenStatement] = useState<{ lines: StatementLine[]; openBalance: number } | null>(null)
   const [stmtLoading, setStmtLoading] = useState(false)
+  const [preview, setPreview] = useState<{ url: string; title: string } | null>(null)
+
+  function openPreview(blob: Blob, title: string) {
+    setPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url)
+      return { url: URL.createObjectURL(blob), title }
+    })
+  }
+  function closePreview() {
+    setPreview((prev) => { if (prev) URL.revokeObjectURL(prev.url); return null })
+  }
 
   const load = useCallback(async () => {
     try {
@@ -113,7 +124,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
     viewType?: 'activity' | 'open'
   } | null>(null)
 
-  async function downloadInvoicePDF(orderNumber: string) {
+  async function downloadInvoicePDF(orderNumber: string, preview = false) {
     if (!customer) return
     setDownloading(orderNumber)
     try {
@@ -123,7 +134,8 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
       const res = await fetch(`/api/wholesale/orders/${order.id}`)
       if (!res.ok) { toast.error('Failed to load order'); return }
       const data = await res.json()
-      generateInvoicePDF(data)
+      if (preview) openPreview(generateInvoicePDF(data, 'blob'), `Invoice ${data.invoiceNumber ?? orderNumber}`)
+      else generateInvoicePDF(data)
     } catch {
       toast.error('Failed to generate invoice PDF')
     } finally {
@@ -131,7 +143,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
     }
   }
 
-  async function downloadCreditMemoPDF(memoNumber: string) {
+  async function downloadCreditMemoPDF(memoNumber: string, preview = false) {
     if (!customer) return
     setDownloading(memoNumber)
     try {
@@ -182,7 +194,8 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
         total: parseFloat(memo.total ?? '0'),
         notes: memo.notes ?? null,
       }
-      await generateCreditMemoPDF(pdfData)
+      if (preview) openPreview(await generateCreditMemoPDF(pdfData, 'blob'), `Credit Memo ${memo.memoNumber}`)
+      else await generateCreditMemoPDF(pdfData)
     } catch (err) {
       console.error('Credit memo PDF error:', err)
       toast.error(`CM PDF error: ${err instanceof Error ? err.message : String(err)}`)
@@ -320,6 +333,27 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
           viewType={emailModal.viewType}
           onClose={() => setEmailModal(null)}
         />
+      )}
+
+      {/* PDF preview modal */}
+      {preview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={closePreview}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b">
+              <h3 className="font-semibold text-gray-800">{preview.title}</h3>
+              <button onClick={closePreview} className="text-gray-400 hover:text-gray-700" title="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <iframe src={preview.url} title={preview.title} className="flex-1 w-full" />
+          </div>
+        </div>
       )}
 
       {(tab === 'activity' || tab === 'open') && (() => {
@@ -502,6 +536,20 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                         <td className="px-3 py-2.5 text-center">
                           {lineKey && (
                             <div className="flex items-center gap-1 justify-center">
+                              {(isInv || isCM) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (isInv) downloadInvoicePDF(line.reference, true)
+                                    else downloadCreditMemoPDF(line.invoiceNumber ?? line.reference, true)
+                                  }}
+                                  disabled={downloading === lineKey}
+                                  className="text-gray-400 hover:text-orange-600 disabled:opacity-40"
+                                  title={isInv ? 'Preview Invoice' : 'Preview Credit Memo'}
+                                >
+                                  {downloading === lineKey ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                                </button>
+                              )}
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
