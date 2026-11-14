@@ -124,17 +124,16 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
     viewType?: 'activity' | 'open'
   } | null>(null)
 
-  async function downloadInvoicePDF(orderNumber: string, preview = false) {
-    if (!customer) return
-    setDownloading(orderNumber)
+  async function downloadInvoicePDF(orderId: string, label: string, preview = false) {
+    if (!customer || !orderId) { toast.error('Order not found'); return }
+    setDownloading(orderId)
     try {
-      // Find order id from customer's salesOrders
-      const order = customer.salesOrders.find(o => o.orderNumber === orderNumber)
-      if (!order) { toast.error('Order not found'); return }
-      const res = await fetch(`/api/wholesale/orders/${order.id}`)
+      // Fetch the order directly by id — statement lines carry orderId, and not
+      // every invoiced order is present in customer.salesOrders (e.g. paid/older).
+      const res = await fetch(`/api/wholesale/orders/${orderId}`)
       if (!res.ok) { toast.error('Failed to load order'); return }
       const data = await res.json()
-      if (preview) openPreview(generateInvoicePDF(data, 'blob'), `Invoice ${data.invoiceNumber ?? orderNumber}`)
+      if (preview) openPreview(generateInvoicePDF(data, 'blob'), `Invoice ${data.invoiceNumber ?? label}`)
       else generateInvoicePDF(data)
     } catch {
       toast.error('Failed to generate invoice PDF')
@@ -412,7 +411,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                   <tbody className="divide-y divide-gray-50">
                     {currentData.lines.map((line, i) => {
                       const balanceVal = tab === 'open' ? Number(line.remaining) : Number(line.balance)
-                      const lineKey = line.type === 'PAYMENT' ? line.paymentId : line.reference
+                      const lineKey = line.type === 'PAYMENT' ? line.paymentId : line.type === 'INVOICE' ? line.orderId : line.reference
                       const isCM = line.type === 'CREDIT_MEMO'
                       const isInv = line.type === 'INVOICE'
                       const isPay = line.type === 'PAYMENT'
@@ -540,7 +539,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    if (isInv) downloadInvoicePDF(line.reference, true)
+                                    if (isInv) downloadInvoicePDF(line.orderId ?? '', line.reference, true)
                                     else downloadCreditMemoPDF(line.invoiceNumber ?? line.reference, true)
                                   }}
                                   disabled={downloading === lineKey}
@@ -553,7 +552,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  if (isInv) downloadInvoicePDF(line.reference)
+                                  if (isInv) downloadInvoicePDF(line.orderId ?? '', line.reference)
                                   else if (isCM) downloadCreditMemoPDF(line.invoiceNumber ?? line.reference)
                                   else if (line.paymentId) downloadPaymentReceipt(line.paymentId)
                                 }}
