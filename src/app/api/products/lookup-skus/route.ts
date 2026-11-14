@@ -70,13 +70,14 @@ export async function POST(req: NextRequest) {
     // finished-goods locations, per product+grade. Mirrors the inventory cost
     // model and adds per-serial repair costs.
     const fgCostRows = productIds.length > 0
-      ? await prisma.$queryRaw<{ productId: string; gradeId: string | null; avgCost: number }[]>`
+      ? await prisma.$queryRaw<{ productId: string; gradeId: string | null; avgCost: number; units: number }[]>`
           SELECT s."productId", s."gradeId",
                  AVG(
                    COALESCE(pol."unitCost", s."unitCost", 0)
                    + COALESCE(cc.amount, 0)
                    + COALESCE(rc.repair_total, 0)
-                 )::float8 AS "avgCost"
+                 )::float8 AS "avgCost",
+                 COUNT(*)::int AS "units"
           FROM inventory_serials s
           JOIN locations loc ON loc.id = s."locationId" AND loc."isFinishedGoods" = true
           LEFT JOIN po_receipt_lines prl ON prl.id = s."receiptLineId"
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
         `
       : []
     const fgCostMap = new Map(fgCostRows.map(r => [`${r.productId}:${r.gradeId ?? ''}`, r.avgCost]))
+    const fgQtyMap = new Map(fgCostRows.map(r => [`${r.productId}:${r.gradeId ?? ''}`, r.units]))
 
     // Per product+grade: which marketplaces the SKU is mapped (live) on.
     const mpFlags = (productId: string, gradeId: string | null) => {
@@ -165,7 +167,12 @@ export async function POST(req: NextRequest) {
             if (!b.gradeName) return -1
             return a.gradeName.localeCompare(b.gradeName)
           })
-          .map(g => ({ ...g, mp: mpFlags(p.id, g.gradeId), avgCost: fgCostMap.get(`${p.id}:${g.gradeId ?? ''}`) ?? null })),
+          .map(g => ({
+            ...g,
+            mp: mpFlags(p.id, g.gradeId),
+            avgCost: fgCostMap.get(`${p.id}:${g.gradeId ?? ''}`) ?? null,
+            fgQty: fgQtyMap.get(`${p.id}:${g.gradeId ?? ''}`) ?? 0,
+          })),
       }
     })
 

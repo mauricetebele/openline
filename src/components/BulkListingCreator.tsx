@@ -42,7 +42,7 @@ const EMPTY_MP: MpFlags = { hasMfn: false, hasFba: false, hasBm: false, amazonSu
 
 interface LookupProduct {
   product: { id: string; sku: string; description: string }
-  grades: { gradeId: string | null; gradeName: string | null; availableQty: number; mp?: MpFlags; avgCost?: number | null }[]
+  grades: { gradeId: string | null; gradeName: string | null; availableQty: number; mp?: MpFlags; avgCost?: number | null; fgQty?: number }[]
 }
 
 interface StagingRow {
@@ -55,6 +55,7 @@ interface StagingRow {
   checked: boolean
   mp: MpFlags
   avgCost: number | null
+  fgQty: number
 }
 
 /** Marketplace "live" (mapped) logos per SKU+grade — mirrors the inventory view. */
@@ -107,6 +108,7 @@ interface ListingRow {
   quantity: string
   shippingTemplate: string
   avgCost: number | null
+  fgQty: number
 }
 
 type RowStatus = 'pending' | 'creating' | 'success' | 'error'
@@ -348,6 +350,7 @@ export default function BulkListingCreator() {
             checked: false,
             mp: EMPTY_MP,
             avgCost: null,
+            fgQty: 0,
           })
         } else {
           for (const g of grades) {
@@ -361,6 +364,7 @@ export default function BulkListingCreator() {
               checked: g.availableQty > 0,
               mp: g.mp ?? EMPTY_MP,
               avgCost: g.avgCost ?? null,
+              fgQty: g.fgQty ?? 0,
             })
           }
         }
@@ -407,6 +411,7 @@ export default function BulkListingCreator() {
       quantity: isBM ? '1' : '0',
       shippingTemplate: '',
       avgCost: r.avgCost,
+      fgQty: r.fgQty,
     }))
     setListingRows(rows)
     if (!isBM) {
@@ -483,6 +488,7 @@ export default function BulkListingCreator() {
           quantity: row.quantity,
           shippingTemplate: row.shippingTemplate,
           avgCost: row.avgCost,
+          fgQty: row.fgQty,
         })
       } else {
         // Failed/pending rows stay editable
@@ -500,6 +506,7 @@ export default function BulkListingCreator() {
           quantity: row.quantity,
           shippingTemplate: row.shippingTemplate,
           avgCost: row.avgCost,
+          fgQty: row.fgQty,
         })
       }
     }
@@ -1451,7 +1458,7 @@ export default function BulkListingCreator() {
                         <th className="px-2 py-2 w-20"></th>
                         <th className="px-2 py-2">Internal SKU</th>
                         <th className="px-2 py-2">Grade</th>
-                        <th className="px-2 py-2 text-right whitespace-nowrap">Avg Cost (FG)</th>
+                        <th className="px-2 py-2 text-right whitespace-nowrap">FG Qty · Avg Cost</th>
                         <th className="px-2 py-2">Condition</th>
                         {!isBM && <th className="px-2 py-2">Marketplace SKU</th>}
                         <th className="px-2 py-2">{isBM ? 'BMID' : 'ASIN'}</th>
@@ -1522,6 +1529,7 @@ export default function BulkListingCreator() {
                                         quantity: '0',
                                         shippingTemplate: '',
                                         avgCost: null,
+                                        fgQty: 0,
                                       }
                                       setListingRows(prev => [...prev.slice(0, i + 1), clone, ...prev.slice(i + 1)])
                                     }}
@@ -1560,10 +1568,16 @@ export default function BulkListingCreator() {
                                 ))}
                               </select>
                             </td>
-                            <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-xs">
-                              {row.avgCost != null
-                                ? <span className="font-medium text-gray-700">${row.avgCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                : <span className="text-gray-300">—</span>}
+                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                              {row.avgCost != null ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs tabular-nums" title="Finished-goods qty · avg cost (base + cost code + repair)">
+                                  <span className="font-semibold text-gray-600">{row.fgQty}</span>
+                                  <span className="text-gray-300">·</span>
+                                  <span className="font-medium text-gray-700">${row.avgCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </span>
+                              ) : (
+                                <span className="text-gray-300 text-xs">—</span>
+                              )}
                             </td>
                             <td className="px-2 py-1.5">
                               <select
