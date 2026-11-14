@@ -367,6 +367,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                       <th className="text-left px-5 py-3">Type</th>
                       <th className="text-left px-5 py-3">Reference</th>
                       <th className="text-left px-5 py-3">Document #</th>
+                      {tab === 'open' && <th className="text-right px-5 py-3">Age</th>}
                       <th className="text-right px-5 py-3">Charges</th>
                       <th className="text-right px-5 py-3">Credits</th>
                       <th className="text-right px-5 py-3">Applied</th>
@@ -480,6 +481,20 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                           ) : line.reference}
                         </td>
                         <td className="px-5 py-2.5 font-mono text-xs text-gray-600">{line.invoiceNumber ?? ''}</td>
+                        {tab === 'open' && (() => {
+                          const ageDays = isInv
+                            ? Math.max(0, Math.floor((Date.now() - new Date(line.date).getTime()) / 86_400_000))
+                            : null
+                          const ageColor = ageDays == null ? ''
+                            : ageDays >= 60 ? 'text-red-600 font-medium'
+                            : ageDays >= 30 ? 'text-orange-600'
+                            : 'text-gray-500'
+                          return (
+                            <td className={`px-5 py-2.5 text-right ${ageColor}`}>
+                              {ageDays == null ? '' : `${ageDays}d`}
+                            </td>
+                          )
+                        })()}
                         <td className="px-5 py-2.5 text-right">{line.charges > 0 ? fmt(line.charges) : ''}</td>
                         <td className="px-5 py-2.5 text-right text-green-600">{line.credits > 0 ? fmt(line.credits) : ''}</td>
                         <td className="px-5 py-2.5 text-right text-gray-500">{Number(line.applied) > 0 ? fmt(Number(line.applied)) : ''}</td>
@@ -522,7 +537,7 @@ export default function WholesaleCustomerDetailManager({ id }: { id: string }) {
                       </tr>
                       {isExpanded && rowAllocs && rowAllocs.length > 0 && (
                         <tr className={expandBg}>
-                          <td colSpan={9} className="px-5 py-0 pb-3">
+                          <td colSpan={tab === 'open' ? 10 : 9} className="px-5 py-0 pb-3">
                             <div className={`ml-6 mt-1 border ${expandBorder} rounded-lg overflow-hidden`}>
                               <table className="w-full text-xs">
                                 <thead>
