@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import {
   AlertCircle, CheckCircle2, XCircle, Loader2, ChevronRight, ArrowLeft, X, Plus, Trash2,
-  Upload, FileSpreadsheet, Download, RefreshCcw,
+  Upload, FileSpreadsheet, Download, RefreshCcw, ExternalLink,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { AmazonAccountDTO } from '@/types'
@@ -1586,6 +1586,17 @@ export default function BulkListingCreator() {
                                     </span>
                                   ) : (
                                     <span className="text-gray-400">No buy box data</span>
+                                  )}
+                                  {!buyBoxData[row.asin].loading && (
+                                    <a
+                                      href={`https://www.amazon.com/dp/${row.asin}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title="View ASIN on Amazon.com"
+                                      className="ml-1 inline-flex items-center align-middle text-amazon-blue hover:text-blue-700"
+                                    >
+                                      <ExternalLink className="h-3 w-3" />
+                                    </a>
                                   )}
                                 </div>
                               )}
