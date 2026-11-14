@@ -40,11 +40,18 @@ export async function GET(req: NextRequest) {
   if (status)     where.status     = status
   if (customerId) where.customerId = customerId
   if (search) {
-    where.OR = [
-      { orderNumber: { contains: search, mode: 'insensitive' } },
-      { customer: { companyName: { contains: search, mode: 'insensitive' } } },
-      { customerPoNumber: { contains: search, mode: 'insensitive' } },
-    ]
+    // Multi-token search: every whitespace-separated term must match somewhere on
+    // the order (order #, customer name, PO #, or a line-item SKU). This lets a
+    // query like "KORE SAM-A14" match Kore Wireless orders that contain a SAM-A14 SKU.
+    const tokens = search.split(/\s+/).filter(Boolean)
+    where.AND = tokens.map((tok) => ({
+      OR: [
+        { orderNumber: { contains: tok, mode: 'insensitive' } },
+        { customer: { companyName: { contains: tok, mode: 'insensitive' } } },
+        { customerPoNumber: { contains: tok, mode: 'insensitive' } },
+        { items: { some: { sku: { contains: tok, mode: 'insensitive' } } } },
+      ],
+    }))
   }
 
   const [orders, total] = await Promise.all([
