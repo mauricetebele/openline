@@ -31,6 +31,7 @@ interface GridRow {
   buyBoxIsPrime: boolean | null
   fgQty: number
   pushQty: number
+  syncQty: boolean
   avgCost: number | null
   marginPct: number | null
   s1: number
@@ -98,6 +99,7 @@ export async function GET(req: NextRequest) {
              sl."buyBoxIsPrime"      AS "buyBoxIsPrime",
              COALESCE(fs.fg_qty, 0)  AS "fgQty",
              sl.quantity             AS "pushQty",
+             pgms."syncQty"          AS "syncQty",
              fc.avg_unit_cost        AS "avgUnitCost",
              fc.avg_cost_code        AS "avgCostCode",
              fc.avg_repair           AS "avgRepair",
@@ -144,7 +146,7 @@ export async function GET(req: NextRequest) {
       fulfillmentChannel: string
       ourPrice: number | null; minPrice: number | null; maxPrice: number | null
       avgCost: number | null; marginPct: number | null
-      fgQty: number; pushQty: number
+      fgQty: number; pushQty: number; syncQty: boolean
     }
     interface Group {
       key: string; asin: string; title: string | null; condition: string | null
@@ -183,7 +185,7 @@ export async function GET(req: NextRequest) {
         id: r.id, sku: r.sku, internalSku: r.internalSku, grade: r.grade,
         fulfillmentChannel: r.fulfillmentChannel,
         ourPrice: r.ourPrice, minPrice: r.minPrice, maxPrice: r.maxPrice,
-        avgCost, marginPct, fgQty: r.fgQty, pushQty: r.pushQty,
+        avgCost, marginPct, fgQty: r.fgQty, pushQty: r.pushQty, syncQty: r.syncQty,
       })
     }
 
