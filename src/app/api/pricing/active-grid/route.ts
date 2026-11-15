@@ -136,7 +136,25 @@ export async function GET(req: NextRequest) {
       templates.map(t => [t.id, { id: t.id, name: t.name, commissionPct: Number(t.commissionPct), packageCosts: t.packageCosts.map(c => ({ packagePresetId: c.packagePresetId, cost: Number(c.cost) })) }]),
     )
 
-    const data = rows.map((r) => {
+    // Merge listings that share the same ASIN + Amazon condition into one record:
+    // shared fields (title, Buy Box, winner) once, sales summed, and one member
+    // per internal SKU+grade mapped to that ASIN+condition.
+    interface Member {
+      id: string; sku: string; internalSku: string; grade: string | null
+      fulfillmentChannel: string
+      ourPrice: number | null; minPrice: number | null; maxPrice: number | null
+      avgCost: number | null; marginPct: number | null
+      fgQty: number; pushQty: number
+    }
+    interface Group {
+      key: string; asin: string; title: string | null; condition: string | null
+      buyBoxPrice: number | null; buyBoxSeller: string | null; buyBoxIsPrime: boolean | null
+      s1: number; s3: number; s7: number; s30: number
+      members: Member[]
+    }
+
+    const groupMap = new Map<string, Group>()
+    for (const r of rows) {
       const unit = r.avgUnitCost
       const code = r.avgCostCode ?? 0
       const repair = r.avgRepair ?? 0
@@ -145,14 +163,31 @@ export async function GET(req: NextRequest) {
       const marginPct = (r.ourPrice != null && unit != null && fees)
         ? marginAtPrice(r.ourPrice, unit + repair, code, fees)
         : null
-      return {
-        ...r, avgCost, marginPct,
-        avgUnitCost: undefined, avgCostCode: undefined, avgRepair: undefined,
-        calculationTemplateId: undefined, defaultPackagePresetId: undefined,
-      }
-    })
 
-    return NextResponse.json({ data })
+      const key = `${r.asin}::${r.condition ?? ''}`
+      let g = groupMap.get(key)
+      if (!g) {
+        g = {
+          key, asin: r.asin, title: r.title, condition: r.condition,
+          buyBoxPrice: r.buyBoxPrice, buyBoxSeller: r.buyBoxSeller, buyBoxIsPrime: r.buyBoxIsPrime,
+          s1: 0, s3: 0, s7: 0, s30: 0, members: [],
+        }
+        groupMap.set(key, g)
+      }
+      if (g.buyBoxPrice == null && r.buyBoxPrice != null) {
+        g.buyBoxPrice = r.buyBoxPrice; g.buyBoxSeller = r.buyBoxSeller; g.buyBoxIsPrime = r.buyBoxIsPrime
+      }
+      if (!g.title && r.title) g.title = r.title
+      g.s1 += r.s1; g.s3 += r.s3; g.s7 += r.s7; g.s30 += r.s30
+      g.members.push({
+        id: r.id, sku: r.sku, internalSku: r.internalSku, grade: r.grade,
+        fulfillmentChannel: r.fulfillmentChannel,
+        ourPrice: r.ourPrice, minPrice: r.minPrice, maxPrice: r.maxPrice,
+        avgCost, marginPct, fgQty: r.fgQty, pushQty: r.pushQty,
+      })
+    }
+
+    return NextResponse.json({ data: Array.from(groupMap.values()) })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load pricing grid'
     console.error('[GET /api/pricing/active-grid]', message)

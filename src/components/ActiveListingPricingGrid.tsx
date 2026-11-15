@@ -4,29 +4,33 @@ import { Search, Loader2, ExternalLink, Check, X, RefreshCcw, Crown, Zap } from 
 import { clsx } from 'clsx'
 import { AmazonAccountDTO } from '@/types'
 
-interface GridRow {
+interface Member {
   id: string
   sku: string
-  asin: string
-  title: string | null
-  condition: string | null
-  fulfillmentChannel: string
   internalSku: string
   grade: string | null
+  fulfillmentChannel: string
   ourPrice: number | null
   minPrice: number | null
   maxPrice: number | null
+  avgCost: number | null
+  marginPct: number | null
+  fgQty: number
+  pushQty: number
+}
+interface GridGroup {
+  key: string
+  asin: string
+  title: string | null
+  condition: string | null
   buyBoxPrice: number | null
   buyBoxSeller: string | null
   buyBoxIsPrime: boolean | null
-  fgQty: number
-  pushQty: number
-  avgCost: number | null
-  marginPct: number | null
   s1: number
   s3: number
   s7: number
   s30: number
+  members: Member[]
 }
 
 type SortKey = 'asin' | 'internalSku' | 'ourPrice' | 'buyBoxPrice' | 'fulfillmentChannel'
@@ -35,17 +39,37 @@ type SortKey = 'asin' | 'internalSku' | 'ourPrice' | 'buyBoxPrice' | 'fulfillmen
 const money = (n: number | null | undefined) =>
   n == null ? '—' : `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
+/** Group-level value used for sorting (members: use the first/primary member). */
+function sortValue(g: GridGroup, key: SortKey): string | number | null {
+  switch (key) {
+    case 'asin': return g.asin
+    case 'buyBoxPrice': return g.buyBoxPrice
+    case 'buyBoxSeller': return g.buyBoxSeller
+    case 's1': return g.s1
+    case 's3': return g.s3
+    case 's7': return g.s7
+    case 's30': return g.s30
+    case 'fgQty': return g.members.reduce((s, m) => s + m.fgQty, 0)
+    case 'pushQty': return g.members.reduce((s, m) => s + m.pushQty, 0)
+    case 'ourPrice': return g.members[0]?.ourPrice ?? null
+    case 'avgCost': return g.members[0]?.avgCost ?? null
+    case 'marginPct': return g.members[0]?.marginPct ?? null
+    case 'internalSku': return g.members[0]?.internalSku ?? null
+    case 'fulfillmentChannel': return g.members[0]?.fulfillmentChannel ?? null
+    default: return null
+  }
+}
+
 export default function ActiveListingPricingGrid() {
   const [accounts, setAccounts] = useState<AmazonAccountDTO[]>([])
   const [accountId, setAccountId] = useState('')
-  const [rows, setRows] = useState<GridRow[]>([])
+  const [groups, setGroups] = useState<GridGroup[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 's30', dir: 'desc' })
 
-  // Inline price edit state
-  const [editing, setEditing] = useState<string | null>(null) // row id
+  const [editing, setEditing] = useState<string | null>(null) // member id
   const [draftPrice, setDraftPrice] = useState('')
   const [pushing, setPushing] = useState<string | null>(null)
   const [refreshingBB, setRefreshingBB] = useState<string | null>(null)
@@ -94,10 +118,10 @@ export default function ActiveListingPricingGrid() {
       const res = await fetch(`/api/pricing/active-grid?accountId=${accountId}`)
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to load')
-      setRows(json.data)
+      setGroups(json.data)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load grid')
-      setRows([])
+      setGroups([])
     } finally {
       setLoading(false)
     }
@@ -105,27 +129,46 @@ export default function ActiveListingPricingGrid() {
 
   useEffect(() => { load() }, [load])
 
-  function startEdit(r: GridRow) {
-    setEditing(r.id)
-    setDraftPrice(r.ourPrice != null ? String(r.ourPrice) : '')
+  function updateMember(id: string, patch: Partial<Member>) {
+    setGroups(prev => prev.map(g => g.members.some(m => m.id === id)
+      ? { ...g, members: g.members.map(m => m.id === id ? { ...m, ...patch } : m) }
+      : g))
   }
 
-  async function pushPrice(r: GridRow) {
+  // A refresh pulls this member's live price AND the shared Buy Box for the group.
+  function applyRefresh(id: string, json: { price?: number | null; buyBoxPrice?: number | null; buyBoxSeller?: string | null; buyBoxIsPrime?: boolean | null }) {
+    setGroups(prev => prev.map(g => g.members.some(m => m.id === id)
+      ? {
+          ...g,
+          buyBoxPrice: json.buyBoxPrice ?? null,
+          buyBoxSeller: json.buyBoxSeller ?? null,
+          buyBoxIsPrime: json.buyBoxIsPrime ?? null,
+          members: g.members.map(m => m.id === id ? { ...m, ourPrice: json.price ?? m.ourPrice } : m),
+        }
+      : g))
+  }
+
+  function startEdit(m: Member) {
+    setEditing(m.id)
+    setDraftPrice(m.ourPrice != null ? String(m.ourPrice) : '')
+  }
+
+  async function pushPrice(m: Member) {
     const price = Number(draftPrice)
     if (!Number.isFinite(price) || price <= 0) { alert('Enter a valid price'); return }
-    if (r.minPrice != null && price < r.minPrice) { alert(`Below min price ${money(r.minPrice)}`); return }
-    if (r.maxPrice != null && price > r.maxPrice) { alert(`Above max price ${money(r.maxPrice)}`); return }
-    setPushing(r.id)
+    if (m.minPrice != null && price < m.minPrice) { alert(`Below min price ${money(m.minPrice)}`); return }
+    if (m.maxPrice != null && price > m.maxPrice) { alert(`Above max price ${money(m.maxPrice)}`); return }
+    setPushing(m.id)
     try {
       const res = await fetch('/api/listings/update-price', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId, sku: r.sku, price }),
+        body: JSON.stringify({ accountId, sku: m.sku, price }),
       })
       const json = await res.json()
       if (!res.ok) { alert(json.error ?? 'Price push failed'); return }
-      setRows(prev => prev.map(x => x.id === r.id ? { ...x, ourPrice: price } : x))
-      recordPush(r.sku, price)
+      updateMember(m.id, { ourPrice: price })
+      recordPush(m.sku, price)
       setEditing(null)
     } catch {
       alert('Price push failed')
@@ -134,25 +177,19 @@ export default function ActiveListingPricingGrid() {
     }
   }
 
-  async function refreshBuyBox(r: GridRow) {
-    setRefreshingBB(r.id)
+  async function refreshListing(m: Member) {
+    setRefreshingBB(m.id)
     try {
       const res = await fetch('/api/listings/refresh-price', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId, sku: r.sku, buyBox: true }),
+        body: JSON.stringify({ accountId, sku: m.sku, buyBox: true }),
       })
       const json = await res.json()
-      if (!res.ok) { alert(json.error ?? 'Buy Box refresh failed'); return }
-      setRows(prev => prev.map(x => x.id === r.id ? {
-        ...x,
-        ourPrice: json.price ?? x.ourPrice,
-        buyBoxPrice: json.buyBoxPrice ?? null,
-        buyBoxSeller: json.buyBoxSeller ?? null,
-        buyBoxIsPrime: json.buyBoxIsPrime ?? null,
-      } : x))
+      if (!res.ok) { alert(json.error ?? 'Refresh failed'); return }
+      applyRefresh(m.id, json)
     } catch {
-      alert('Buy Box refresh failed')
+      alert('Refresh failed')
     } finally {
       setRefreshingBB(null)
     }
@@ -160,37 +197,28 @@ export default function ActiveListingPricingGrid() {
 
   const q = search.trim().toLowerCase()
   const visible = q
-    ? rows.filter(r =>
-        r.asin.toLowerCase().includes(q) ||
-        (r.title ?? '').toLowerCase().includes(q) ||
-        r.internalSku.toLowerCase().includes(q) ||
-        r.sku.toLowerCase().includes(q))
-    : rows
+    ? groups.filter(g =>
+        g.asin.toLowerCase().includes(q) ||
+        (g.title ?? '').toLowerCase().includes(q) ||
+        g.members.some(m => m.internalSku.toLowerCase().includes(q) || m.sku.toLowerCase().includes(q)))
+    : groups
 
   async function refreshAllVisible() {
-    const targets = visible
+    const targets = visible.flatMap(g => g.members)
     if (targets.length === 0 || bulkBB.running) return
     cancelBulkBB.current = false
     setBulkBB({ running: true, done: 0, total: targets.length })
     for (let i = 0; i < targets.length; i++) {
       if (cancelBulkBB.current) break
-      const r = targets[i]
+      const m = targets[i]
       try {
         const res = await fetch('/api/listings/refresh-price', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accountId, sku: r.sku, buyBox: true }),
+          body: JSON.stringify({ accountId, sku: m.sku, buyBox: true }),
         })
         const json = await res.json()
-        if (res.ok) {
-          setRows(prev => prev.map(x => x.id === r.id ? {
-            ...x,
-            ourPrice: json.price ?? x.ourPrice,
-            buyBoxPrice: json.buyBoxPrice ?? null,
-            buyBoxSeller: json.buyBoxSeller ?? null,
-            buyBoxIsPrime: json.buyBoxIsPrime ?? null,
-          } : x))
-        }
+        if (res.ok) applyRefresh(m.id, json)
       } catch { /* skip failures, keep going */ }
       setBulkBB({ running: true, done: i + 1, total: targets.length })
     }
@@ -198,16 +226,15 @@ export default function ActiveListingPricingGrid() {
   }
 
   const sorted = [...visible].sort((a, b) => {
-    const va = a[sort.key]
-    const vb = b[sort.key]
+    const va = sortValue(a, sort.key)
+    const vb = sortValue(b, sort.key)
     if (va == null && vb == null) return 0
     if (va == null) return 1
     if (vb == null) return -1
-    const cmp = typeof va === 'number' && typeof vb === 'number'
-      ? va - vb
-      : String(va).localeCompare(String(vb))
+    const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb))
     return sort.dir === 'asc' ? cmp : -cmp
   })
+  const totalListings = visible.reduce((s, g) => s + g.members.length, 0)
 
   function toggleSort(key: SortKey) {
     setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' })
@@ -226,17 +253,21 @@ export default function ActiveListingPricingGrid() {
   )
 
   const SoldCell = ({ n }: { n: number }) => (
-    <td className="px-2 py-2 text-right tabular-nums">
+    <td className="px-2 py-2 text-right tabular-nums align-top">
       {n > 0 ? <span className="font-medium text-gray-800">{n}</span> : <span className="text-gray-300">0</span>}
     </td>
   )
+
+  // Per-member stacked cell wrapper — members share the row; each gets a divider.
+  const stackCls = 'divide-y divide-gray-100'
+  const memberCls = 'py-1.5 first:pt-0 last:pb-0'
 
   return (
     <div className="h-full flex flex-col p-4 gap-4 overflow-auto">
       <div>
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Active Listing Pricing Grid</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-          Active Amazon listings (by condition) mapped to internal SKUs — price, Buy Box, and recent sales. Edit a price to push it live to Amazon.
+          Active Amazon listings merged by ASIN + condition. Each internal SKU+grade keeps its own price, cost & margin; the Buy Box is shared per ASIN+condition. Edit a price to push it live to Amazon.
         </p>
       </div>
 
@@ -275,14 +306,14 @@ export default function ActiveListingPricingGrid() {
         ) : (
           <button
             onClick={refreshAllVisible}
-            disabled={loading || visible.length === 0}
+            disabled={loading || totalListings === 0}
             title="Pull live Buy Box from Amazon for every listing shown"
             className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
           >
             <RefreshCcw className="h-4 w-4" /> Refresh all Buy Box
           </button>
         )}
-        <span className="ml-auto text-sm text-gray-500">{visible.length} listings</span>
+        <span className="ml-auto text-sm text-gray-500">{sorted.length} ASINs · {totalListings} listings</span>
       </div>
 
       {error && (
@@ -311,143 +342,165 @@ export default function ActiveListingPricingGrid() {
           <tbody className="divide-y divide-gray-100">
             {loading ? (
               <tr><td colSpan={12} className="px-3 py-12 text-center text-gray-400"><Loader2 className="h-5 w-5 animate-spin inline" /></td></tr>
-            ) : visible.length === 0 ? (
+            ) : sorted.length === 0 ? (
               <tr><td colSpan={12} className="px-3 py-12 text-center text-gray-400">No active mapped listings.</td></tr>
-            ) : sorted.map(r => {
-              const ourIsPrime = r.fulfillmentChannel === 'FBA'
-              const weWin = (r.buyBoxSeller ?? '').toLowerCase() === 'you'
-              const isEditing = editing === r.id
+            ) : sorted.map(g => {
+              const weWin = (g.buyBoxSeller ?? '').toLowerCase() === 'you'
               return (
-                <tr key={r.id} className="hover:bg-gray-50 align-top">
-                  {/* ASIN & Title */}
-                  <td className="px-3 py-2 max-w-[340px]">
+                <tr key={g.key} className="hover:bg-gray-50 align-top">
+                  {/* ASIN & Title (shared) */}
+                  <td className="px-3 py-2 max-w-[340px] align-top">
                     <div className="flex items-center gap-1 flex-wrap">
-                      <a href={`https://www.amazon.com/dp/${r.asin}`} target="_blank" rel="noopener noreferrer"
+                      <a href={`https://www.amazon.com/dp/${g.asin}`} target="_blank" rel="noopener noreferrer"
                         className="font-mono text-xs text-blue-600 hover:underline inline-flex items-center gap-1">
-                        {r.asin}<ExternalLink className="h-3 w-3" />
+                        {g.asin}<ExternalLink className="h-3 w-3" />
                       </a>
-                      <span className={clsx('text-[9px] px-1.5 py-0.5 rounded font-medium',
-                        r.fulfillmentChannel === 'FBA' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600')}>
-                        {r.fulfillmentChannel}
-                      </span>
-                      {r.condition && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">{r.condition}</span>}
+                      {g.condition && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">{g.condition}</span>}
+                      {g.members.length > 1 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">{g.members.length} SKUs</span>}
                     </div>
-                    {r.title && (
+                    {g.title && (
                       <span className="inline-block mt-1 rounded-md bg-gray-100 text-gray-700 text-[11px] leading-snug px-2 py-0.5 whitespace-normal break-words">
-                        {r.title}
+                        {g.title}
                       </span>
                     )}
                   </td>
-                  {/* Internal SKU + Grade */}
-                  <td className="px-3 py-2">
-                    <span className="font-mono text-xs text-gray-800">{r.internalSku}</span>
-                    {r.grade && <span className="ml-1 inline-block px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium">{r.grade}</span>}
-                  </td>
-                  {/* FG qty · Push qty  (FBA: available-at-FBA only) */}
-                  <td className="px-3 py-2 text-right whitespace-nowrap">
-                    {r.fulfillmentChannel === 'FBA' ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs tabular-nums"
-                        title="Available qty at FBA (Amazon-managed)">
-                        FBA <span className="font-semibold">{r.pushQty}</span>
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs tabular-nums"
-                        title="Finished-goods on-hand qty · qty pushed/listed on Amazon">
-                        <span className="font-semibold text-gray-700">{r.fgQty}</span>
-                        <span className="text-gray-300">·</span>
-                        <span className="text-gray-500">{r.pushQty}</span>
-                      </span>
-                    )}
-                  </td>
-                  {/* Avg Cost (FG: base + cost code + repair) */}
-                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                    {r.avgCost != null ? <span className="text-gray-700">{money(r.avgCost)}</span> : <span className="text-gray-300">—</span>}
-                  </td>
-                  {/* Our Price (editable) */}
-                  <td className="px-3 py-2 text-right whitespace-nowrap">
-                    {isEditing ? (
-                      <div className="inline-flex items-center gap-1">
-                        <span className="text-gray-400 text-xs">$</span>
-                        <input
-                          autoFocus
-                          type="number"
-                          value={draftPrice}
-                          onChange={(e) => setDraftPrice(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') pushPrice(r); if (e.key === 'Escape') setEditing(null) }}
-                          step="0.01"
-                          min="0.01"
-                          className="w-20 h-7 rounded border border-gray-300 px-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-amazon-blue"
-                        />
-                        <button onClick={() => pushPrice(r)} disabled={pushing === r.id} title="Push to Amazon"
-                          className="text-green-600 hover:text-green-700 disabled:opacity-50">
-                          {pushing === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                        </button>
-                        <button onClick={() => setEditing(null)} title="Cancel" className="text-gray-400 hover:text-gray-600"><X className="h-4 w-4" /></button>
-                      </div>
-                    ) : (
-                      <div className="inline-flex items-center gap-1.5 justify-end">
-                        <button onClick={() => startEdit(r)} title="Click to edit & push price"
-                          className="font-semibold text-gray-900 hover:text-amazon-blue hover:underline tabular-nums">
-                          {money(r.ourPrice)}
-                        </button>
-                        <button onClick={() => refreshBuyBox(r)} disabled={refreshingBB === r.id}
-                          title="Refresh our price & Buy Box live from Amazon" className="text-gray-300 hover:text-amazon-blue disabled:opacity-50">
-                          <RefreshCcw className={clsx('h-3 w-3', refreshingBB === r.id && 'animate-spin')} />
-                        </button>
-                      </div>
-                    )}
-                    {r.marginPct != null && (
-                      <div className={clsx('text-[10px] font-medium', r.marginPct < 0 ? 'text-red-600' : r.marginPct < 10 ? 'text-amber-600' : 'text-emerald-600')}
-                        title="Net margin at our current price (base + cost code + repair + commission + shipping)">
-                        {r.marginPct.toFixed(1)}% margin
-                      </div>
-                    )}
-                    {(() => {
-                      const rp = recentPushes[r.sku]
-                      if (!rp || Date.now() - rp.at >= RECENT_MS) return null
-                      return (
-                        <div className="flex items-center gap-1 justify-end text-[10px] text-emerald-600 font-medium mt-0.5"
-                          title="Pushed from this grid in the last 30 min — Amazon may still be propagating the new price">
-                          <Zap className="h-2.5 w-2.5" /> Just updated to {money(rp.price)}
+                  {/* Internal SKU + Grade (per member) */}
+                  <td className="px-3 py-2 align-top">
+                    <div className={stackCls}>
+                      {g.members.map(m => (
+                        <div key={m.id} className={clsx(memberCls, 'flex items-center gap-1.5 whitespace-nowrap')}>
+                          <span className="font-mono text-xs text-gray-800">{m.internalSku}</span>
+                          {m.grade && <span className="inline-block px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium">{m.grade}</span>}
+                          <span className={clsx('text-[9px] px-1 py-0.5 rounded font-medium', m.fulfillmentChannel === 'FBA' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600')}>{m.fulfillmentChannel}</span>
                         </div>
-                      )
-                    })()}
-                    {(r.minPrice != null || r.maxPrice != null) && (
-                      <div className="text-[10px] text-gray-400">{money(r.minPrice)}–{money(r.maxPrice)}</div>
-                    )}
-                  </td>
-                  {/* Buy Box price + live refresh */}
-                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                    <div className="inline-flex items-center gap-1.5 justify-end">
-                      {r.buyBoxPrice != null ? (
-                        <span className={clsx(r.ourPrice != null && r.buyBoxPrice < r.ourPrice ? 'text-red-600' : 'text-gray-700')}>
-                          {money(r.buyBoxPrice)}
-                        </span>
-                      ) : <span className="text-gray-300">—</span>}
-                      <button onClick={() => refreshBuyBox(r)} disabled={refreshingBB === r.id}
-                        title="Refresh Buy Box live from Amazon" className="text-gray-300 hover:text-amazon-blue disabled:opacity-50">
-                        <RefreshCcw className={clsx('h-3 w-3', refreshingBB === r.id && 'animate-spin')} />
-                      </button>
+                      ))}
                     </div>
                   </td>
-                  {/* Is Prime (our offer) */}
-                  <td className="px-3 py-2 text-center">
-                    {ourIsPrime
-                      ? <span className="inline-block px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-semibold">Prime</span>
-                      : <span className="text-gray-300 text-xs">—</span>}
+                  {/* FG · Push qty (per member) */}
+                  <td className="px-3 py-2 text-right align-top">
+                    <div className={stackCls}>
+                      {g.members.map(m => (
+                        <div key={m.id} className={clsx(memberCls, 'whitespace-nowrap')}>
+                          {m.fulfillmentChannel === 'FBA' ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs tabular-nums" title="Available qty at FBA (Amazon-managed)">
+                              FBA <span className="font-semibold">{m.pushQty}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs tabular-nums" title="Finished-goods on-hand qty · qty pushed/listed on Amazon">
+                              <span className="font-semibold text-gray-700">{m.fgQty}</span>
+                              <span className="text-gray-300">·</span>
+                              <span className="text-gray-500">{m.pushQty}</span>
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </td>
-                  {/* Buy Box winner */}
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {r.buyBoxSeller ? (
+                  {/* Avg Cost (per member) */}
+                  <td className="px-3 py-2 text-right tabular-nums align-top">
+                    <div className={stackCls}>
+                      {g.members.map(m => (
+                        <div key={m.id} className={clsx(memberCls, 'whitespace-nowrap')}>
+                          {m.avgCost != null ? <span className="text-gray-700">{money(m.avgCost)}</span> : <span className="text-gray-300">—</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                  {/* Our Price · Margin (per member, editable) */}
+                  <td className="px-3 py-2 text-right align-top">
+                    <div className={stackCls}>
+                      {g.members.map(m => {
+                        const isEditing = editing === m.id
+                        const rp = recentPushes[m.sku]
+                        const justUpdated = rp && Date.now() - rp.at < RECENT_MS
+                        return (
+                          <div key={m.id} className={clsx(memberCls, 'whitespace-nowrap')}>
+                            {isEditing ? (
+                              <div className="inline-flex items-center gap-1">
+                                <span className="text-gray-400 text-xs">$</span>
+                                <input
+                                  autoFocus
+                                  type="number"
+                                  value={draftPrice}
+                                  onChange={(e) => setDraftPrice(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') pushPrice(m); if (e.key === 'Escape') setEditing(null) }}
+                                  step="0.01"
+                                  min="0.01"
+                                  className="w-20 h-7 rounded border border-gray-300 px-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-amazon-blue"
+                                />
+                                <button onClick={() => pushPrice(m)} disabled={pushing === m.id} title="Push to Amazon" className="text-green-600 hover:text-green-700 disabled:opacity-50">
+                                  {pushing === m.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                </button>
+                                <button onClick={() => setEditing(null)} title="Cancel" className="text-gray-400 hover:text-gray-600"><X className="h-4 w-4" /></button>
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center gap-1.5 justify-end">
+                                <button onClick={() => startEdit(m)} title="Click to edit & push price" className="font-semibold text-gray-900 hover:text-amazon-blue hover:underline tabular-nums">
+                                  {money(m.ourPrice)}
+                                </button>
+                                <button onClick={() => refreshListing(m)} disabled={refreshingBB === m.id} title="Refresh our price & Buy Box live from Amazon" className="text-gray-300 hover:text-amazon-blue disabled:opacity-50">
+                                  <RefreshCcw className={clsx('h-3 w-3', refreshingBB === m.id && 'animate-spin')} />
+                                </button>
+                              </div>
+                            )}
+                            {m.marginPct != null && (
+                              <div className={clsx('text-[10px] font-medium', m.marginPct < 0 ? 'text-red-600' : m.marginPct < 10 ? 'text-amber-600' : 'text-emerald-600')}
+                                title="Net margin at our current price (base + cost code + repair + commission + shipping)">
+                                {m.marginPct.toFixed(1)}% margin
+                              </div>
+                            )}
+                            {justUpdated && (
+                              <div className="flex items-center gap-1 justify-end text-[10px] text-emerald-600 font-medium mt-0.5"
+                                title="Pushed from this grid in the last 30 min — Amazon may still be propagating the new price">
+                                <Zap className="h-2.5 w-2.5" /> Just updated to {money(rp!.price)}
+                              </div>
+                            )}
+                            {(m.minPrice != null || m.maxPrice != null) && (
+                              <div className="text-[10px] text-gray-400">{money(m.minPrice)}–{money(m.maxPrice)}</div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </td>
+                  {/* Buy Box price (shared) */}
+                  <td className="px-3 py-2 text-right tabular-nums align-top whitespace-nowrap">
+                    <div className="inline-flex items-center gap-1.5 justify-end">
+                      {g.buyBoxPrice != null
+                        ? <span className="text-gray-700">{money(g.buyBoxPrice)}</span>
+                        : <span className="text-gray-300">—</span>}
+                      {g.members[0] && (
+                        <button onClick={() => refreshListing(g.members[0])} disabled={refreshingBB === g.members[0].id}
+                          title="Refresh Buy Box live from Amazon" className="text-gray-300 hover:text-amazon-blue disabled:opacity-50">
+                          <RefreshCcw className={clsx('h-3 w-3', refreshingBB === g.members[0].id && 'animate-spin')} />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  {/* Is Prime (per member) */}
+                  <td className="px-3 py-2 text-center align-top">
+                    <div className={stackCls}>
+                      {g.members.map(m => (
+                        <div key={m.id} className={memberCls}>
+                          {m.fulfillmentChannel === 'FBA'
+                            ? <span className="inline-block px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-semibold">Prime</span>
+                            : <span className="text-gray-300 text-xs">—</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                  {/* Buy Box winner (shared) */}
+                  <td className="px-3 py-2 whitespace-nowrap align-top">
+                    {g.buyBoxSeller ? (
                       <span className={clsx('inline-flex items-center gap-1 text-xs', weWin ? 'text-green-700 font-semibold' : 'text-gray-600')}>
-                        {weWin && <Crown className="h-3 w-3" />}{r.buyBoxSeller}
+                        {weWin && <Crown className="h-3 w-3" />}{g.buyBoxSeller}
                       </span>
                     ) : <span className="text-gray-300 text-xs">—</span>}
                   </td>
-                  <SoldCell n={r.s1} />
-                  <SoldCell n={r.s3} />
-                  <SoldCell n={r.s7} />
-                  <SoldCell n={r.s30} />
+                  <SoldCell n={g.s1} />
+                  <SoldCell n={g.s3} />
+                  <SoldCell n={g.s7} />
+                  <SoldCell n={g.s30} />
                 </tr>
               )
             })}
