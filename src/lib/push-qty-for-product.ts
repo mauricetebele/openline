@@ -125,6 +125,9 @@ export function pushQtyForProducts(productIds: string[]): void {
       const { bmClient, bmListingsCache } = await getBmContext(filtered)
 
       for (const msku of filtered) {
+        // Never push a sync-off, non-suspended SKU — its marketplace qty is managed
+        // manually and must not be overwritten.
+        if (!msku.syncQty && !msku.suspended) continue
         const finalQty = msku.suspended ? 0 : (qtyMap.get(msku.id) ?? 0)
         try {
           if (msku.marketplace === 'amazon') {

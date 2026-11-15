@@ -379,6 +379,9 @@ export async function pushAllQuantities(): Promise<{ results: PushResult[] }> {
   let skipped = 0
 
   for (const msku of filteredMskus) {
+    // Never push a sync-off, non-suspended SKU — its marketplace qty is managed
+    // manually and must not be overwritten.
+    if (!msku.syncQty && !msku.suspended) continue
     // Suspended = force 0 regardless of on-hand; otherwise the group-split qty.
     const finalQty = msku.suspended ? 0 : (qtyMap.get(msku.id) ?? 0)
 
@@ -522,6 +525,10 @@ export async function pushSingleQuantity(mskuId: string): Promise<PushResult> {
   let targetResult: PushResult | null = null
 
   for (const sibling of group) {
+    // Never push a SKU whose qty sync is OFF and that isn't suspended — its Seller
+    // Central quantity is managed manually (e.g. preselling inbound) and must not
+    // be overwritten (the target is force-included above, so guard it here too).
+    if (!sibling.syncQty && !sibling.suspended) continue
     const finalQty = sibling.suspended ? 0 : (qtyMap.get(sibling.id) ?? 0)
     try {
       if (sibling.marketplace === 'amazon') {
