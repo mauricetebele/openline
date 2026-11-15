@@ -19,11 +19,16 @@ interface GridRow {
   buyBoxPrice: number | null
   buyBoxSeller: string | null
   buyBoxIsPrime: boolean | null
+  fgQty: number
+  pushQty: number
   s1: number
   s3: number
   s7: number
   s30: number
 }
+
+type SortKey = 'asin' | 'internalSku' | 'ourPrice' | 'buyBoxPrice' | 'fulfillmentChannel'
+  | 'buyBoxSeller' | 'fgQty' | 'pushQty' | 's1' | 's3' | 's7' | 's30'
 
 const money = (n: number | null | undefined) =>
   n == null ? '—' : `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -35,6 +40,7 @@ export default function ActiveListingPricingGrid() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 's30', dir: 'desc' })
 
   // Inline price edit state
   const [editing, setEditing] = useState<string | null>(null) // row id
@@ -164,6 +170,34 @@ export default function ActiveListingPricingGrid() {
     setBulkBB(b => ({ ...b, running: false }))
   }
 
+  const sorted = [...visible].sort((a, b) => {
+    const va = a[sort.key]
+    const vb = b[sort.key]
+    if (va == null && vb == null) return 0
+    if (va == null) return 1
+    if (vb == null) return -1
+    const cmp = typeof va === 'number' && typeof vb === 'number'
+      ? va - vb
+      : String(va).localeCompare(String(vb))
+    return sort.dir === 'asc' ? cmp : -cmp
+  })
+
+  function toggleSort(key: SortKey) {
+    setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' })
+  }
+
+  const Th = ({ col, label, align = 'left' }: { col: SortKey; label: string; align?: 'left' | 'right' | 'center' }) => (
+    <th
+      onClick={() => toggleSort(col)}
+      className={clsx('px-3 py-2.5 cursor-pointer select-none hover:text-gray-700',
+        align === 'right' && 'text-right', align === 'center' && 'text-center')}
+    >
+      <span className={clsx('inline-flex items-center gap-1', align === 'right' && 'flex-row-reverse')}>
+        {label}{sort.key === col && <span className="text-gray-400">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
+      </span>
+    </th>
+  )
+
   const SoldCell = ({ n }: { n: number }) => (
     <td className="px-2 py-2 text-right tabular-nums">
       {n > 0 ? <span className="font-medium text-gray-800">{n}</span> : <span className="text-gray-300">0</span>}
@@ -233,24 +267,25 @@ export default function ActiveListingPricingGrid() {
         <table className="min-w-full text-sm">
           <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
             <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-              <th className="px-3 py-2.5">ASIN & Title</th>
-              <th className="px-3 py-2.5">Internal SKU + Grade</th>
-              <th className="px-3 py-2.5 text-right">Our Price</th>
-              <th className="px-3 py-2.5 text-right">Buy Box</th>
-              <th className="px-3 py-2.5 text-center">Is Prime</th>
-              <th className="px-3 py-2.5">Buy Box Winner</th>
-              <th className="px-2 py-2.5 text-right">1d</th>
-              <th className="px-2 py-2.5 text-right">3d</th>
-              <th className="px-2 py-2.5 text-right">7d</th>
-              <th className="px-2 py-2.5 text-right">30d</th>
+              <Th col="asin" label="ASIN & Title" />
+              <Th col="internalSku" label="Internal SKU + Grade" />
+              <Th col="fgQty" label="FG · Push Qty" align="right" />
+              <Th col="ourPrice" label="Our Price" align="right" />
+              <Th col="buyBoxPrice" label="Buy Box" align="right" />
+              <Th col="fulfillmentChannel" label="Is Prime" align="center" />
+              <Th col="buyBoxSeller" label="Buy Box Winner" />
+              <Th col="s1" label="1d" align="right" />
+              <Th col="s3" label="3d" align="right" />
+              <Th col="s7" label="7d" align="right" />
+              <Th col="s30" label="30d" align="right" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={10} className="px-3 py-12 text-center text-gray-400"><Loader2 className="h-5 w-5 animate-spin inline" /></td></tr>
+              <tr><td colSpan={11} className="px-3 py-12 text-center text-gray-400"><Loader2 className="h-5 w-5 animate-spin inline" /></td></tr>
             ) : visible.length === 0 ? (
-              <tr><td colSpan={10} className="px-3 py-12 text-center text-gray-400">No active mapped listings.</td></tr>
-            ) : visible.map(r => {
+              <tr><td colSpan={11} className="px-3 py-12 text-center text-gray-400">No active mapped listings.</td></tr>
+            ) : sorted.map(r => {
               const ourIsPrime = r.fulfillmentChannel === 'FBA'
               const weWin = (r.buyBoxSeller ?? '').toLowerCase() === 'you'
               const isEditing = editing === r.id
@@ -279,6 +314,15 @@ export default function ActiveListingPricingGrid() {
                   <td className="px-3 py-2">
                     <span className="font-mono text-xs text-gray-800">{r.internalSku}</span>
                     {r.grade && <span className="ml-1 inline-block px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium">{r.grade}</span>}
+                  </td>
+                  {/* FG qty · Push qty */}
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs tabular-nums"
+                      title="Finished-goods on-hand qty · qty pushed/listed on Amazon">
+                      <span className="font-semibold text-gray-700">{r.fgQty}</span>
+                      <span className="text-gray-300">·</span>
+                      <span className="text-gray-500">{r.pushQty}</span>
+                    </span>
                   </td>
                   {/* Our Price (editable) */}
                   <td className="px-3 py-2 text-right whitespace-nowrap">

@@ -28,6 +28,8 @@ interface GridRow {
   buyBoxPrice: number | null
   buyBoxSeller: string | null
   buyBoxIsPrime: boolean | null
+  fgQty: number
+  pushQty: number
   s1: number
   s3: number
   s7: number
@@ -57,6 +59,13 @@ export async function GET(req: NextRequest) {
           AND o."orderStatus" <> 'Canceled'
           AND oi."sellerSku" IS NOT NULL
         GROUP BY oi."sellerSku"
+      ),
+      fg_stock AS (
+        SELECT ii."productId", ii."gradeId", SUM(ii.qty)::int AS fg_qty
+        FROM inventory_items ii
+        JOIN locations loc ON loc.id = ii."locationId" AND loc."isFinishedGoods" = true
+        WHERE ii.qty > 0
+        GROUP BY ii."productId", ii."gradeId"
       )
       SELECT sl.id, sl.sku, sl.asin, sl."productTitle" AS title, sl.condition,
              sl."fulfillmentChannel" AS "fulfillmentChannel",
@@ -67,6 +76,8 @@ export async function GET(req: NextRequest) {
              sl."buyBoxPrice"::float8 AS "buyBoxPrice",
              sl."buyBoxSeller"       AS "buyBoxSeller",
              sl."buyBoxIsPrime"      AS "buyBoxIsPrime",
+             COALESCE(fs.fg_qty, 0)  AS "fgQty",
+             sl.quantity             AS "pushQty",
              COALESCE(sa.s1, 0)  AS s1,
              COALESCE(sa.s3, 0)  AS s3,
              COALESCE(sa.s7, 0)  AS s7,
@@ -77,6 +88,7 @@ export async function GET(req: NextRequest) {
       JOIN products p ON p.id = pgms."productId"
       LEFT JOIN grades g ON g.id = pgms."gradeId"
       LEFT JOIN sales sa ON sa."sellerSku" = sl.sku
+      LEFT JOIN fg_stock fs ON fs."productId" = pgms."productId" AND fs."gradeId" IS NOT DISTINCT FROM pgms."gradeId"
       WHERE sl."accountId" = ${accountId}
         AND sl.asin IS NOT NULL
         AND sl."listingStatus" = 'Active'
