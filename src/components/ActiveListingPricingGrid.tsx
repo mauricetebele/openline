@@ -297,8 +297,8 @@ export default function ActiveListingPricingGrid() {
               <Th col="asin" label="ASIN & Title" />
               <Th col="internalSku" label="Internal SKU + Grade" />
               <Th col="fgQty" label="FG · Push Qty" align="right" />
-              <Th col="ourPrice" label="Our Price" align="right" />
               <Th col="avgCost" label="Avg Cost" align="right" />
+              <Th col="ourPrice" label="Our Price" align="right" />
               <Th col="marginPct" label="Margin" align="right" />
               <Th col="buyBoxPrice" label="Buy Box" align="right" />
               <Th col="fulfillmentChannel" label="Is Prime" align="center" />
@@ -360,6 +360,10 @@ export default function ActiveListingPricingGrid() {
                       </span>
                     )}
                   </td>
+                  {/* Avg Cost (FG: base + cost code + repair) */}
+                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                    {r.avgCost != null ? <span className="text-gray-700">{money(r.avgCost)}</span> : <span className="text-gray-300">—</span>}
+                  </td>
                   {/* Our Price (editable) */}
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     {isEditing ? (
@@ -406,10 +410,6 @@ export default function ActiveListingPricingGrid() {
                     {(r.minPrice != null || r.maxPrice != null) && (
                       <div className="text-[10px] text-gray-400">{money(r.minPrice)}–{money(r.maxPrice)}</div>
                     )}
-                  </td>
-                  {/* Avg Cost (FG: base + cost code + repair) */}
-                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                    {r.avgCost != null ? <span className="text-gray-700">{money(r.avgCost)}</span> : <span className="text-gray-300">—</span>}
                   </td>
                   {/* Margin at our current price (same logic as Marketplace SKUs) */}
                   <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
