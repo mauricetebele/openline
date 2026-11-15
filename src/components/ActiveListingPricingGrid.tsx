@@ -315,14 +315,21 @@ export default function ActiveListingPricingGrid() {
                     <span className="font-mono text-xs text-gray-800">{r.internalSku}</span>
                     {r.grade && <span className="ml-1 inline-block px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium">{r.grade}</span>}
                   </td>
-                  {/* FG qty · Push qty */}
+                  {/* FG qty · Push qty  (FBA: available-at-FBA only) */}
                   <td className="px-3 py-2 text-right whitespace-nowrap">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs tabular-nums"
-                      title="Finished-goods on-hand qty · qty pushed/listed on Amazon">
-                      <span className="font-semibold text-gray-700">{r.fgQty}</span>
-                      <span className="text-gray-300">·</span>
-                      <span className="text-gray-500">{r.pushQty}</span>
-                    </span>
+                    {r.fulfillmentChannel === 'FBA' ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs tabular-nums"
+                        title="Available qty at FBA (Amazon-managed)">
+                        FBA <span className="font-semibold">{r.pushQty}</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs tabular-nums"
+                        title="Finished-goods on-hand qty · qty pushed/listed on Amazon">
+                        <span className="font-semibold text-gray-700">{r.fgQty}</span>
+                        <span className="text-gray-300">·</span>
+                        <span className="text-gray-500">{r.pushQty}</span>
+                      </span>
+                    )}
                   </td>
                   {/* Our Price (editable) */}
                   <td className="px-3 py-2 text-right whitespace-nowrap">
