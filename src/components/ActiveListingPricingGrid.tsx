@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Loader2, ExternalLink, Check, X, RefreshCcw, Crown } from 'lucide-react'
+import { Search, Loader2, ExternalLink, Check, X, RefreshCcw, Crown, Zap } from 'lucide-react'
 import { clsx } from 'clsx'
 import { AmazonAccountDTO } from '@/types'
 
@@ -49,6 +49,30 @@ export default function ActiveListingPricingGrid() {
   const [refreshingBB, setRefreshingBB] = useState<string | null>(null)
   const [bulkBB, setBulkBB] = useState({ running: false, done: 0, total: 0 })
   const cancelBulkBB = useRef(false)
+  // Prices pushed from THIS grid recently (per browser) → "just updated" indicator
+  // while Amazon's displayed price still catches up (propagation lag).
+  const [recentPushes, setRecentPushes] = useState<Record<string, { price: number; at: number }>>({})
+  const RECENT_MS = 30 * 60 * 1000
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('alp_recent_pushes')
+      if (!raw) return
+      const parsed = JSON.parse(raw) as Record<string, { price: number; at: number }>
+      const now = Date.now()
+      const pruned = Object.fromEntries(Object.entries(parsed).filter(([, v]) => now - v.at < RECENT_MS))
+      setRecentPushes(pruned)
+      localStorage.setItem('alp_recent_pushes', JSON.stringify(pruned))
+    } catch { /* ignore */ }
+  }, [RECENT_MS])
+
+  function recordPush(sku: string, price: number) {
+    setRecentPushes(prev => {
+      const next = { ...prev, [sku]: { price, at: Date.now() } }
+      try { localStorage.setItem('alp_recent_pushes', JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }
 
   useEffect(() => {
     fetch('/api/accounts')
@@ -99,6 +123,7 @@ export default function ActiveListingPricingGrid() {
       const json = await res.json()
       if (!res.ok) { alert(json.error ?? 'Price push failed'); return }
       setRows(prev => prev.map(x => x.id === r.id ? { ...x, ourPrice: price } : x))
+      recordPush(r.sku, price)
       setEditing(null)
     } catch {
       alert('Price push failed')
@@ -353,11 +378,27 @@ export default function ActiveListingPricingGrid() {
                         <button onClick={() => setEditing(null)} title="Cancel" className="text-gray-400 hover:text-gray-600"><X className="h-4 w-4" /></button>
                       </div>
                     ) : (
-                      <button onClick={() => startEdit(r)} title="Click to edit & push price"
-                        className="font-semibold text-gray-900 hover:text-amazon-blue hover:underline tabular-nums">
-                        {money(r.ourPrice)}
-                      </button>
+                      <div className="inline-flex items-center gap-1.5 justify-end">
+                        <button onClick={() => startEdit(r)} title="Click to edit & push price"
+                          className="font-semibold text-gray-900 hover:text-amazon-blue hover:underline tabular-nums">
+                          {money(r.ourPrice)}
+                        </button>
+                        <button onClick={() => refreshBuyBox(r)} disabled={refreshingBB === r.id}
+                          title="Refresh our price & Buy Box live from Amazon" className="text-gray-300 hover:text-amazon-blue disabled:opacity-50">
+                          <RefreshCcw className={clsx('h-3 w-3', refreshingBB === r.id && 'animate-spin')} />
+                        </button>
+                      </div>
                     )}
+                    {(() => {
+                      const rp = recentPushes[r.sku]
+                      if (!rp || Date.now() - rp.at >= RECENT_MS) return null
+                      return (
+                        <div className="flex items-center gap-1 justify-end text-[10px] text-emerald-600 font-medium mt-0.5"
+                          title="Pushed from this grid in the last 30 min — Amazon may still be propagating the new price">
+                          <Zap className="h-2.5 w-2.5" /> Just updated to {money(rp.price)}
+                        </div>
+                      )
+                    })()}
                     {(r.minPrice != null || r.maxPrice != null) && (
                       <div className="text-[10px] text-gray-400">{money(r.minPrice)}–{money(r.maxPrice)}</div>
                     )}
