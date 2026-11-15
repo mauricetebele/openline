@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthUser } from '@/lib/get-auth-user'
+import { resolveFees, marginAtPrice, type CalcTemplate } from '@/lib/target-margin'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,6 +31,8 @@ interface GridRow {
   buyBoxIsPrime: boolean | null
   fgQty: number
   pushQty: number
+  avgCost: number | null
+  marginPct: number | null
   s1: number
   s3: number
   s7: number
@@ -66,6 +69,23 @@ export async function GET(req: NextRequest) {
         JOIN locations loc ON loc.id = ii."locationId" AND loc."isFinishedGoods" = true
         WHERE ii.qty > 0
         GROUP BY ii."productId", ii."gradeId"
+      ),
+      fg_cost AS (
+        SELECT s."productId", s."gradeId",
+          AVG(COALESCE(pol."unitCost", s."unitCost", 0))::float8 AS avg_unit_cost,
+          AVG(COALESCE(cc.amount, 0))::float8                    AS avg_cost_code,
+          AVG(COALESCE(rc.repair_total, 0))::float8             AS avg_repair
+        FROM inventory_serials s
+        JOIN locations loc ON loc.id = s."locationId" AND loc."isFinishedGoods" = true
+        LEFT JOIN po_receipt_lines prl ON prl.id = s."receiptLineId"
+        LEFT JOIN purchase_order_lines pol ON pol.id = prl."purchaseOrderLineId"
+        LEFT JOIN cost_codes cc ON cc.id = pol."costCodeId"
+        LEFT JOIN LATERAL (
+          SELECT SUM(roi."repairCost") AS repair_total
+          FROM repair_order_items roi WHERE roi."inventorySerialId" = s.id
+        ) rc ON true
+        WHERE s.status = 'IN_STOCK'
+        GROUP BY s."productId", s."gradeId"
       )
       SELECT sl.id, sl.sku, sl.asin, sl."productTitle" AS title, sl.condition,
              sl."fulfillmentChannel" AS "fulfillmentChannel",
@@ -78,6 +98,11 @@ export async function GET(req: NextRequest) {
              sl."buyBoxIsPrime"      AS "buyBoxIsPrime",
              COALESCE(fs.fg_qty, 0)  AS "fgQty",
              sl.quantity             AS "pushQty",
+             fc.avg_unit_cost        AS "avgUnitCost",
+             fc.avg_cost_code        AS "avgCostCode",
+             fc.avg_repair           AS "avgRepair",
+             pgms."calculationTemplateId" AS "calculationTemplateId",
+             p."defaultPackagePresetId"   AS "defaultPackagePresetId",
              COALESCE(sa.s1, 0)  AS s1,
              COALESCE(sa.s3, 0)  AS s3,
              COALESCE(sa.s7, 0)  AS s7,
@@ -89,13 +114,45 @@ export async function GET(req: NextRequest) {
       LEFT JOIN grades g ON g.id = pgms."gradeId"
       LEFT JOIN sales sa ON sa."sellerSku" = sl.sku
       LEFT JOIN fg_stock fs ON fs."productId" = pgms."productId" AND fs."gradeId" IS NOT DISTINCT FROM pgms."gradeId"
+      LEFT JOIN fg_cost fc ON fc."productId" = pgms."productId" AND fc."gradeId" IS NOT DISTINCT FROM pgms."gradeId"
       WHERE sl."accountId" = ${accountId}
         AND sl.asin IS NOT NULL
         AND sl."listingStatus" = 'Active'
       ORDER BY s30 DESC, sl.asin ASC, sl.condition ASC
-    `
+    ` as (GridRow & {
+      avgUnitCost: number | null
+      avgCostCode: number | null
+      avgRepair: number | null
+      calculationTemplateId: string | null
+      defaultPackagePresetId: string | null
+    })[]
 
-    return NextResponse.json({ data: rows })
+    // Margin — same logic as the Marketplace SKUs page (resolveFees + marginAtPrice),
+    // with repair folded into the unit cost so it matches the Avg Cost column.
+    const templates = await prisma.calculationTemplate.findMany({
+      include: { packageCosts: { select: { packagePresetId: true, cost: true } } },
+    })
+    const templateById = new Map<string, CalcTemplate>(
+      templates.map(t => [t.id, { id: t.id, name: t.name, commissionPct: Number(t.commissionPct), packageCosts: t.packageCosts.map(c => ({ packagePresetId: c.packagePresetId, cost: Number(c.cost) })) }]),
+    )
+
+    const data = rows.map((r) => {
+      const unit = r.avgUnitCost
+      const code = r.avgCostCode ?? 0
+      const repair = r.avgRepair ?? 0
+      const avgCost = unit != null ? unit + code + repair : null
+      const fees = resolveFees(r.calculationTemplateId ? templateById.get(r.calculationTemplateId) : null, r.defaultPackagePresetId)
+      const marginPct = (r.ourPrice != null && unit != null && fees)
+        ? marginAtPrice(r.ourPrice, unit + repair, code, fees)
+        : null
+      return {
+        ...r, avgCost, marginPct,
+        avgUnitCost: undefined, avgCostCode: undefined, avgRepair: undefined,
+        calculationTemplateId: undefined, defaultPackagePresetId: undefined,
+      }
+    })
+
+    return NextResponse.json({ data })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load pricing grid'
     console.error('[GET /api/pricing/active-grid]', message)

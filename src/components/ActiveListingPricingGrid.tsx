@@ -21,6 +21,8 @@ interface GridRow {
   buyBoxIsPrime: boolean | null
   fgQty: number
   pushQty: number
+  avgCost: number | null
+  marginPct: number | null
   s1: number
   s3: number
   s7: number
@@ -28,7 +30,7 @@ interface GridRow {
 }
 
 type SortKey = 'asin' | 'internalSku' | 'ourPrice' | 'buyBoxPrice' | 'fulfillmentChannel'
-  | 'buyBoxSeller' | 'fgQty' | 'pushQty' | 's1' | 's3' | 's7' | 's30'
+  | 'buyBoxSeller' | 'fgQty' | 'pushQty' | 'avgCost' | 'marginPct' | 's1' | 's3' | 's7' | 's30'
 
 const money = (n: number | null | undefined) =>
   n == null ? '—' : `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -296,6 +298,8 @@ export default function ActiveListingPricingGrid() {
               <Th col="internalSku" label="Internal SKU + Grade" />
               <Th col="fgQty" label="FG · Push Qty" align="right" />
               <Th col="ourPrice" label="Our Price" align="right" />
+              <Th col="avgCost" label="Avg Cost" align="right" />
+              <Th col="marginPct" label="Margin" align="right" />
               <Th col="buyBoxPrice" label="Buy Box" align="right" />
               <Th col="fulfillmentChannel" label="Is Prime" align="center" />
               <Th col="buyBoxSeller" label="Buy Box Winner" />
@@ -307,9 +311,9 @@ export default function ActiveListingPricingGrid() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={11} className="px-3 py-12 text-center text-gray-400"><Loader2 className="h-5 w-5 animate-spin inline" /></td></tr>
+              <tr><td colSpan={13} className="px-3 py-12 text-center text-gray-400"><Loader2 className="h-5 w-5 animate-spin inline" /></td></tr>
             ) : visible.length === 0 ? (
-              <tr><td colSpan={11} className="px-3 py-12 text-center text-gray-400">No active mapped listings.</td></tr>
+              <tr><td colSpan={13} className="px-3 py-12 text-center text-gray-400">No active mapped listings.</td></tr>
             ) : sorted.map(r => {
               const ourIsPrime = r.fulfillmentChannel === 'FBA'
               const weWin = (r.buyBoxSeller ?? '').toLowerCase() === 'you'
@@ -402,6 +406,18 @@ export default function ActiveListingPricingGrid() {
                     {(r.minPrice != null || r.maxPrice != null) && (
                       <div className="text-[10px] text-gray-400">{money(r.minPrice)}–{money(r.maxPrice)}</div>
                     )}
+                  </td>
+                  {/* Avg Cost (FG: base + cost code + repair) */}
+                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                    {r.avgCost != null ? <span className="text-gray-700">{money(r.avgCost)}</span> : <span className="text-gray-300">—</span>}
+                  </td>
+                  {/* Margin at our current price (same logic as Marketplace SKUs) */}
+                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                    {r.marginPct != null ? (
+                      <span className={clsx('font-medium', r.marginPct < 0 ? 'text-red-600' : r.marginPct < 10 ? 'text-amber-600' : 'text-emerald-600')}>
+                        {r.marginPct.toFixed(1)}%
+                      </span>
+                    ) : <span className="text-gray-300">—</span>}
                   </td>
                   {/* Buy Box price + live refresh */}
                   <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
