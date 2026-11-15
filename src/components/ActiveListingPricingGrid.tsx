@@ -40,6 +40,7 @@ export default function ActiveListingPricingGrid() {
   const [editing, setEditing] = useState<string | null>(null) // row id
   const [draftPrice, setDraftPrice] = useState('')
   const [pushing, setPushing] = useState<string | null>(null)
+  const [refreshingBB, setRefreshingBB] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/accounts')
@@ -95,6 +96,30 @@ export default function ActiveListingPricingGrid() {
       alert('Price push failed')
     } finally {
       setPushing(null)
+    }
+  }
+
+  async function refreshBuyBox(r: GridRow) {
+    setRefreshingBB(r.id)
+    try {
+      const res = await fetch('/api/listings/refresh-price', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId, sku: r.sku, buyBox: true }),
+      })
+      const json = await res.json()
+      if (!res.ok) { alert(json.error ?? 'Buy Box refresh failed'); return }
+      setRows(prev => prev.map(x => x.id === r.id ? {
+        ...x,
+        ourPrice: json.price ?? x.ourPrice,
+        buyBoxPrice: json.buyBoxPrice ?? null,
+        buyBoxSeller: json.buyBoxSeller ?? null,
+        buyBoxIsPrime: json.buyBoxIsPrime ?? null,
+      } : x))
+    } catch {
+      alert('Buy Box refresh failed')
+    } finally {
+      setRefreshingBB(null)
     }
   }
 
@@ -233,13 +258,19 @@ export default function ActiveListingPricingGrid() {
                       <div className="text-[10px] text-gray-400">{money(r.minPrice)}–{money(r.maxPrice)}</div>
                     )}
                   </td>
-                  {/* Buy Box price */}
+                  {/* Buy Box price + live refresh */}
                   <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                    {r.buyBoxPrice != null ? (
-                      <span className={clsx(r.ourPrice != null && r.buyBoxPrice < r.ourPrice ? 'text-red-600' : 'text-gray-700')}>
-                        {money(r.buyBoxPrice)}
-                      </span>
-                    ) : <span className="text-gray-300">—</span>}
+                    <div className="inline-flex items-center gap-1.5 justify-end">
+                      {r.buyBoxPrice != null ? (
+                        <span className={clsx(r.ourPrice != null && r.buyBoxPrice < r.ourPrice ? 'text-red-600' : 'text-gray-700')}>
+                          {money(r.buyBoxPrice)}
+                        </span>
+                      ) : <span className="text-gray-300">—</span>}
+                      <button onClick={() => refreshBuyBox(r)} disabled={refreshingBB === r.id}
+                        title="Refresh Buy Box live from Amazon" className="text-gray-300 hover:text-amazon-blue disabled:opacity-50">
+                        <RefreshCcw className={clsx('h-3 w-3', refreshingBB === r.id && 'animate-spin')} />
+                      </button>
+                    </div>
                   </td>
                   {/* Is Prime (our offer) */}
                   <td className="px-3 py-2 text-center">
