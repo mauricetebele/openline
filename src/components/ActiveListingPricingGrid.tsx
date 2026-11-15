@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Search, Loader2, ExternalLink, Check, X, RefreshCcw, Crown } from 'lucide-react'
 import { clsx } from 'clsx'
 import { AmazonAccountDTO } from '@/types'
@@ -41,6 +41,8 @@ export default function ActiveListingPricingGrid() {
   const [draftPrice, setDraftPrice] = useState('')
   const [pushing, setPushing] = useState<string | null>(null)
   const [refreshingBB, setRefreshingBB] = useState<string | null>(null)
+  const [bulkBB, setBulkBB] = useState({ running: false, done: 0, total: 0 })
+  const cancelBulkBB = useRef(false)
 
   useEffect(() => {
     fetch('/api/accounts')
@@ -132,6 +134,36 @@ export default function ActiveListingPricingGrid() {
         r.sku.toLowerCase().includes(q))
     : rows
 
+  async function refreshAllVisible() {
+    const targets = visible
+    if (targets.length === 0 || bulkBB.running) return
+    cancelBulkBB.current = false
+    setBulkBB({ running: true, done: 0, total: targets.length })
+    for (let i = 0; i < targets.length; i++) {
+      if (cancelBulkBB.current) break
+      const r = targets[i]
+      try {
+        const res = await fetch('/api/listings/refresh-price', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountId, sku: r.sku, buyBox: true }),
+        })
+        const json = await res.json()
+        if (res.ok) {
+          setRows(prev => prev.map(x => x.id === r.id ? {
+            ...x,
+            ourPrice: json.price ?? x.ourPrice,
+            buyBoxPrice: json.buyBoxPrice ?? null,
+            buyBoxSeller: json.buyBoxSeller ?? null,
+            buyBoxIsPrime: json.buyBoxIsPrime ?? null,
+          } : x))
+        }
+      } catch { /* skip failures, keep going */ }
+      setBulkBB({ running: true, done: i + 1, total: targets.length })
+    }
+    setBulkBB(b => ({ ...b, running: false }))
+  }
+
   const SoldCell = ({ n }: { n: number }) => (
     <td className="px-2 py-2 text-right tabular-nums">
       {n > 0 ? <span className="font-medium text-gray-800">{n}</span> : <span className="text-gray-300">0</span>}
@@ -172,6 +204,23 @@ export default function ActiveListingPricingGrid() {
         >
           <RefreshCcw className={clsx('h-4 w-4', loading && 'animate-spin')} /> Refresh
         </button>
+        {bulkBB.running ? (
+          <div className="inline-flex items-center gap-2 text-xs text-gray-600">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Buy Box {bulkBB.done}/{bulkBB.total}</span>
+            <button onClick={() => { cancelBulkBB.current = true }}
+              className="px-2 py-1 rounded-md font-medium text-red-600 hover:bg-red-50">Cancel</button>
+          </div>
+        ) : (
+          <button
+            onClick={refreshAllVisible}
+            disabled={loading || visible.length === 0}
+            title="Pull live Buy Box from Amazon for every listing shown"
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCcw className="h-4 w-4" /> Refresh all Buy Box
+          </button>
+        )}
         <span className="ml-auto text-sm text-gray-500">{visible.length} listings</span>
       </div>
 
@@ -208,8 +257,8 @@ export default function ActiveListingPricingGrid() {
               return (
                 <tr key={r.id} className="hover:bg-gray-50 align-top">
                   {/* ASIN & Title */}
-                  <td className="px-3 py-2 max-w-[280px]">
-                    <div className="flex items-center gap-1">
+                  <td className="px-3 py-2 max-w-[340px]">
+                    <div className="flex items-center gap-1 flex-wrap">
                       <a href={`https://www.amazon.com/dp/${r.asin}`} target="_blank" rel="noopener noreferrer"
                         className="font-mono text-xs text-blue-600 hover:underline inline-flex items-center gap-1">
                         {r.asin}<ExternalLink className="h-3 w-3" />
@@ -220,7 +269,11 @@ export default function ActiveListingPricingGrid() {
                       </span>
                       {r.condition && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">{r.condition}</span>}
                     </div>
-                    <div className="text-xs text-gray-600 truncate mt-0.5">{r.title ?? '—'}</div>
+                    {r.title && (
+                      <span className="inline-block mt-1 rounded-md bg-gray-100 text-gray-700 text-[11px] leading-snug px-2 py-0.5 whitespace-normal break-words">
+                        {r.title}
+                      </span>
+                    )}
                   </td>
                   {/* Internal SKU + Grade */}
                   <td className="px-3 py-2">
