@@ -3386,6 +3386,28 @@ enum RepairItemStatus {
   REFUSED
 }
 
+// ─── Warehouse Supplies ──────────────────────────────────────────────────────
+enum SupplyStatus {
+  AMPLE     // Ample stock
+  MODERATE  // Moderate stock
+  VERY_LOW  // Very low
+  CRITICAL  // Out of stock (critical)
+}
+
+model WarehouseSupply {
+  id            String       @id @default(cuid())
+  name          String
+  status        SupplyStatus @default(AMPLE)
+  warehouseNote String?      @db.Text
+  adminNote     String?      @db.Text
+  createdByLabel String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([status])
+  @@map("warehouse_supplies")
+}
+
 model RepairOrder {
   id          String            @id @default(cuid())
   orderNumber Int               @unique @default(autoincrement()) // RO-#### display

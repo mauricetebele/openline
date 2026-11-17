@@ -54,6 +54,7 @@ const NAV: NavItem[] = [
       { href: '/repair-orders',       label: 'Repair Orders',  icon: Wrench },
       { href: '/inventory/events',    label: 'Transaction History', icon: History },
       { href: '/inventory/migrate',   label: 'Migration Tool',      icon: Upload },
+      { href: '/warehouse-supplies',  label: 'Warehouse Supplies',  icon: Boxes },
       { href: '/legacy-po',           label: 'Legacy PO Data',      icon: Archive },
       { href: '/legacy-invoices',     label: 'Legacy Invoices',     icon: FileText },
     ],
